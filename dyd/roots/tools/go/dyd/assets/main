@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+set -eu
+
+GOROOT="$DYD_STEM/dyd/assets/go"
+export GOROOT
+export PATH="$GOROOT/bin:$PATH"
+
+exec go "$@"

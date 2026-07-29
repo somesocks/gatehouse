@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+
+set -- "$SRC_DIR"/dyd/dependencies/go/dyd/assets/*
+if [ "$#" -ne 1 ] || [ ! -d "$1/go" ]; then
+    printf '%s\n' 'expected one unpacked Go SDK dependency' >&2
+    exit 1
+fi
+cp -R "$1/go" "$DEST_DIR/dyd/assets/go"
+
+printf '%s' go > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+cp "$SRC_DIR/dyd/assets/main" "$DEST_DIR/dyd/commands/dyd-stem-run"
