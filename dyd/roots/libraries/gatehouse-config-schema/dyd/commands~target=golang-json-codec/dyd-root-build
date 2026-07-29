@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+TARGET=$(cat "$SRC_DIR/dyd/traits/target")
+WORK_DIR="$DEST_DIR/render-work"
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits" "$WORK_DIR"
+cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
+chmod -R +w "$WORK_DIR"
+ln -s "$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets" "$WORK_DIR/dhall-codegen"
+
+cat > "$WORK_DIR/render.dhall" <<'EOF'
+let codec = ./dhall-codegen/codec-golang-json/package.dhall
+
+in  codec.render codec.options::{ package = Some "configschema" } ./document.dhall
+EOF
+
+dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/config.go"
+rm -rf "$WORK_DIR"
+
+printf '%s' gatehouse-config-schema > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$TARGET" > "$DEST_DIR/dyd/traits/target"

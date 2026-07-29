@@ -8,6 +8,7 @@ import (
 
 func BuildCLI(version string, fingerprint string) clib.App {
 	return clib.New("Gatehouse - a durable agent broker").
+		WithCommand(configCommand).
 		WithCommand(versionCommand(version, fingerprint)).
 		WithOption(clib.NewOption("help", "display help text for this command").WithType(clib.OptionTypeBool)).
 		WithAction(func(request clib.ActionRequest) int {

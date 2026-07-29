@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits"
+
+set -- "$SRC_DIR"/dyd/dependencies/dhall-codegen/dyd/assets/*
+if [ "$#" -ne 1 ] || [ ! -d "$1/dhall-codegen-$VERSION" ]; then
+    printf '%s\n' 'expected one unpacked dhall-codegen release archive' >&2
+    exit 1
+fi
+
+cp -R "$1/dhall-codegen-$VERSION/." "$DEST_DIR/dyd/assets"
+
+printf '%s' dhall-codegen > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"

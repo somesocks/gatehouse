@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+
+case "$OS-$ARCH" in
+    darwin-amd64) ARCHIVE_NAME="dhall-$VERSION-x86_64-darwin" ;;
+    darwin-arm64) ARCHIVE_NAME="dhall-$VERSION-aarch64-darwin" ;;
+    linux-amd64) ARCHIVE_NAME="dhall-$VERSION-x86_64-linux" ;;
+    *)
+        printf '%s\n' "unsupported Dhall platform: $OS-$ARCH" >&2
+        exit 1
+        ;;
+esac
+
+ARCHIVE_DIR="$SRC_DIR/dyd/dependencies/dhall-bin/dyd/assets/$ARCHIVE_NAME"
+if [ ! -x "$ARCHIVE_DIR/bin/dhall" ]; then
+    printf '%s\n' "missing Dhall executable in $ARCHIVE_NAME" >&2
+    exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp -R "$ARCHIVE_DIR/." "$DEST_DIR/dyd/assets"
+ln -s ../assets/bin/dhall "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' dhall > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"
