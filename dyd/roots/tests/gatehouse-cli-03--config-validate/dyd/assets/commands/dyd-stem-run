@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+SRC_DIR=$DYD_STEM
+TEMP_DIR=''
+
+assert_contains() {
+    case "$1" in
+        *"$2"*) ;;
+        *)
+            printf '%s\n' "[ERROR] Fail: $3 does not contain $2" >&2
+            return 1
+            ;;
+    esac
+}
+
+_setup() {
+    TEMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'gatehouse-config-test')
+    cp -R "$SRC_DIR/dyd/assets/fixtures/." "$TEMP_DIR"
+}
+
+_test() {
+    gatehouse config validate "$TEMP_DIR/valid.yaml" >"$TEMP_DIR/valid-yaml.stdout" 2>"$TEMP_DIR/valid-yaml.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-yaml.stderr")" "configuration is valid" "YAML validation"
+
+    gatehouse config validate "$TEMP_DIR/valid.json" >"$TEMP_DIR/valid-json.stdout" 2>"$TEMP_DIR/valid-json.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-json.stderr")" "configuration is valid" "JSON validation"
+
+    if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
+        printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/invalid.stderr")" "additional properties 'unexpected' not allowed" "unknown-field validation"
+}
+
+_teardown() {
+    if [ -d "$TEMP_DIR" ]; then
+        chmod -R 755 "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+trap _teardown ERR EXIT
+_setup
+_test

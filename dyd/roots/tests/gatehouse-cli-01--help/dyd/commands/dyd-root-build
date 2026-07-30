@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+
+mkdir -p "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/dependencies" "$DEST_DIR/dyd/docs" "$DEST_DIR/dyd/traits"
+cp -R "$SRC_DIR/dyd/assets/commands/." "$DEST_DIR/dyd/commands"
+cp "$SRC_DIR/dyd/docs/about.md" "$DEST_DIR/dyd/docs/"
+cp "$SRC_DIR/dyd/traits/test" "$DEST_DIR/dyd/traits/"
+ln -s "$SRC_DIR/dyd/dependencies/gatehouse" "$DEST_DIR/dyd/dependencies/gatehouse"

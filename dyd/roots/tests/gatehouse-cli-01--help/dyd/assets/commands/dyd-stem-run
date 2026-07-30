@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+assert_contains() {
+    case "$1" in
+        *"$2"*) ;;
+        *)
+            printf '%s\n' "[ERROR] Fail: $3 does not contain $2" >&2
+            return 1
+            ;;
+    esac
+}
+
+default_help=$(gatehouse)
+assert_contains "$default_help" "Gatehouse - a durable agent broker" "default help"
+assert_contains "$default_help" "gatehouse config" "default help"
+
+explicit_help=$(gatehouse --help)
+assert_contains "$explicit_help" "Gatehouse - a durable agent broker" "explicit help"
