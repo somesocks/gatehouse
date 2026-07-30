@@ -1,0 +1,1 @@
+{"api_version":"v1","database":{"kind":"postgres","url":"env:GATEHOUSE_DATABASE_URL"}}

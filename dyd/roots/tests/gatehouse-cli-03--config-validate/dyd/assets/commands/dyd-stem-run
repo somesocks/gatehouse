@@ -27,11 +27,25 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid.json" >"$TEMP_DIR/valid-json.stdout" 2>"$TEMP_DIR/valid-json.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-json.stderr")" "configuration is valid" "JSON validation"
 
+    gatehouse config validate "$TEMP_DIR/valid-sqlite.yaml" >"$TEMP_DIR/valid-sqlite.stdout" 2>"$TEMP_DIR/valid-sqlite.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-sqlite.stderr")" "configuration is valid" "SQLite database validation"
+
+    gatehouse config validate "$TEMP_DIR/valid-postgres.json" >"$TEMP_DIR/valid-postgres.stdout" 2>"$TEMP_DIR/valid-postgres.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-postgres.stderr")" "configuration is valid" "PostgreSQL database validation"
+
+    gatehouse config validate "$TEMP_DIR/valid-ephemeral.yaml" >"$TEMP_DIR/valid-ephemeral.stdout" 2>"$TEMP_DIR/valid-ephemeral.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-ephemeral.stderr")" "configuration is valid" "ephemeral database validation"
+
     if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
         printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
         return 1
     fi
     assert_contains "$(cat "$TEMP_DIR/invalid.stderr")" "additional properties 'unexpected' not allowed" "unknown-field validation"
+
+    if gatehouse config validate "$TEMP_DIR/invalid-database.yaml" >"$TEMP_DIR/invalid-database.stdout" 2>"$TEMP_DIR/invalid-database.stderr"; then
+        printf '%s\n' "[ERROR] Fail: invalid database configuration unexpectedly succeeded" >&2
+        return 1
+    fi
 }
 
 _teardown() {
