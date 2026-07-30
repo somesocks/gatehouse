@@ -29,6 +29,7 @@ _test() {
 
     gatehouse config validate "$TEMP_DIR/valid-sqlite.yaml" >"$TEMP_DIR/valid-sqlite.stdout" 2>"$TEMP_DIR/valid-sqlite.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-sqlite.stderr")" "configuration is valid" "SQLite database validation"
+    assert_contains "$(cat "$TEMP_DIR/valid-sqlite.stderr")" "database.path" "relative SQLite warning"
 
     gatehouse config validate "$TEMP_DIR/valid-postgres.json" >"$TEMP_DIR/valid-postgres.stdout" 2>"$TEMP_DIR/valid-postgres.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-postgres.stderr")" "configuration is valid" "PostgreSQL database validation"

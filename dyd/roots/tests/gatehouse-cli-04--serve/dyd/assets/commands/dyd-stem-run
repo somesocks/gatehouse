@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+SRC_DIR=$DYD_STEM
+TEMP_DIR=''
+SERVICE_PID=''
+
+assert_contains() {
+    case "$1" in
+        *"$2"*) ;;
+        *)
+            printf '%s\n' "[ERROR] Fail: $3 does not contain $2" >&2
+            return 1
+            ;;
+    esac
+}
+
+stop_service() {
+    if [ -n "$SERVICE_PID" ]; then
+        kill -TERM "$SERVICE_PID" 2>/dev/null || true
+        wait "$SERVICE_PID" 2>/dev/null || true
+        SERVICE_PID=''
+    fi
+}
+
+start_and_stop() {
+    local output=$1
+    shift
+    "$@" >"$output" 2>&1 &
+    SERVICE_PID=$!
+
+    for attempt in {1..50}; do
+        if [ -s "$output" ]; then
+            break
+        fi
+        if ! kill -0 "$SERVICE_PID" 2>/dev/null; then
+            wait "$SERVICE_PID"
+        fi
+        sleep 0.1
+    done
+
+    assert_contains "$(cat "$output")" "Gatehouse is serving" "serve startup"
+    kill -TERM "$SERVICE_PID"
+    wait "$SERVICE_PID"
+    SERVICE_PID=''
+}
+
+_setup() {
+    TEMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'gatehouse-serve-test')
+    cp -R "$SRC_DIR/dyd/assets/fixtures/." "$TEMP_DIR"
+    printf '%s\n' 'api_version: v1' 'database:' '  kind: sqlite' "  path: $TEMP_DIR/gatehouse.db" >"$TEMP_DIR/configured-sqlite.yaml"
+}
+
+_test() {
+    start_and_stop "$TEMP_DIR/ephemeral.output" gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
+    start_and_stop "$TEMP_DIR/sqlite.output" gatehouse serve --config="$TEMP_DIR/configured-sqlite.yaml"
+    test -f "$TEMP_DIR/gatehouse.db"
+
+    start_and_stop "$TEMP_DIR/default.output" env XDG_DATA_HOME="$TEMP_DIR/default-data" gatehouse serve
+    test -f "$TEMP_DIR/default-data/gatehouse/gatehouse.db"
+
+    if gatehouse serve --config="$TEMP_DIR/postgres.yaml" >"$TEMP_DIR/postgres.output" 2>&1; then
+        printf '%s\n' "[ERROR] Fail: PostgreSQL serve unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/postgres.output")" "PostgreSQL databases are not supported yet" "PostgreSQL rejection"
+}
+
+_teardown() {
+    stop_service
+    if [ -d "$TEMP_DIR" ]; then
+        chmod -R 755 "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+trap _teardown ERR EXIT
+_setup
+_test
