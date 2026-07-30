@@ -10,7 +10,7 @@ import (
 )
 
 func TestResolveDatabaseUsesDefaultSQLitePath(t *testing.T) {
-	result, warnings, err := ResolveDatabase(configschema.GatehouseConfig{ApiVersion: "v1"})
+	err, result, warnings := ResolveDatabase(configschema.GatehouseConfig{ApiVersion: "v1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func TestResolveDatabaseWarnsForRelativeSQLitePath(t *testing.T) {
 		},
 	}
 
-	result, warnings, err := ResolveDatabase(document)
+	err, result, warnings := ResolveDatabase(document)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestResolveDatabaseRejectsInvalidPostgresReference(t *testing.T) {
 		},
 	}
 
-	if _, _, err := ResolveDatabase(document); err == nil {
+	if err, _, _ := ResolveDatabase(document); err == nil {
 		t.Fatal("ResolveDatabase() succeeded for a plaintext PostgreSQL URL")
 	}
 }
@@ -96,7 +96,7 @@ func TestDefaultDatabasePath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			got, err := defaultDatabasePath(test.goos, func() (string, error) {
+			err, got := defaultDatabasePath(test.goos, func() (string, error) {
 				return "/home/gatehouse", nil
 			}, func(key string) string {
 				return test.env[key]
@@ -112,7 +112,7 @@ func TestDefaultDatabasePath(t *testing.T) {
 }
 
 func TestDefaultDatabasePathUsesXDGWithoutHome(t *testing.T) {
-	got, err := defaultDatabasePath("linux", func() (string, error) {
+	err, got := defaultDatabasePath("linux", func() (string, error) {
 		return "", errors.New("HOME is not set")
 	}, func(key string) string {
 		if key == "XDG_DATA_HOME" {

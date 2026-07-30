@@ -25,53 +25,53 @@ var compiledSchema struct {
 	err    error
 }
 
-func ValidateFile(path string) (configschema.GatehouseConfig, error) {
+func ValidateFile(path string) (error, configschema.GatehouseConfig) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
-		return configschema.GatehouseConfig{}, err
+		return err, configschema.GatehouseConfig{}
 	}
 
-	jsonContents, err := configJSON(path, contents)
+	err, jsonContents := configJSON(path, contents)
 	if err != nil {
-		return configschema.GatehouseConfig{}, err
+		return err, configschema.GatehouseConfig{}
 	}
 
 	instance, err := jsonschema.UnmarshalJSON(bytes.NewReader(jsonContents))
 	if err != nil {
-		return configschema.GatehouseConfig{}, fmt.Errorf("parse configuration: %w", err)
+		return fmt.Errorf("parse configuration: %w", err), configschema.GatehouseConfig{}
 	}
 
-	schema, err := configSchema()
+	err, schema := configSchema()
 	if err != nil {
-		return configschema.GatehouseConfig{}, fmt.Errorf("compile configuration schema: %w", err)
+		return fmt.Errorf("compile configuration schema: %w", err), configschema.GatehouseConfig{}
 	}
 	if err := schema.Validate(instance); err != nil {
-		return configschema.GatehouseConfig{}, fmt.Errorf("validate configuration: %w", err)
+		return fmt.Errorf("validate configuration: %w", err), configschema.GatehouseConfig{}
 	}
 
 	decodeErr, config := configschema.DecodeGatehouseConfig(instance)
 	if decodeErr != nil {
-		return configschema.GatehouseConfig{}, fmt.Errorf("decode configuration: %w", decodeErr)
+		return fmt.Errorf("decode configuration: %w", decodeErr), configschema.GatehouseConfig{}
 	}
-	return config, nil
+	return nil, config
 }
 
-func configJSON(path string, contents []byte) ([]byte, error) {
+func configJSON(path string, contents []byte) (error, []byte) {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".json":
-		return contents, nil
+		return nil, contents
 	case ".yaml", ".yml":
 		jsonContents, err := yaml.YAMLToJSON(contents)
 		if err != nil {
-			return nil, fmt.Errorf("parse YAML: %w", err)
+			return fmt.Errorf("parse YAML: %w", err), nil
 		}
-		return jsonContents, nil
+		return nil, jsonContents
 	default:
-		return nil, fmt.Errorf("unsupported configuration extension %q", filepath.Ext(path))
+		return fmt.Errorf("unsupported configuration extension %q", filepath.Ext(path)), nil
 	}
 }
 
-func configSchema() (*jsonschema.Schema, error) {
+func configSchema() (error, *jsonschema.Schema) {
 	compiledSchema.Do(func() {
 		document, err := jsonschema.UnmarshalJSON(bytes.NewReader(schemaJSON))
 		if err != nil {
@@ -95,5 +95,5 @@ func configSchema() (*jsonschema.Schema, error) {
 		compiledSchema.schema, compiledSchema.err = compiler.Compile(schemaID)
 	})
 
-	return compiledSchema.schema, compiledSchema.err
+	return compiledSchema.err, compiledSchema.schema
 }

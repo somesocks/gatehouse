@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"database/sql"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,25 +11,33 @@ import (
 	"gatehouse/config"
 )
 
-func TestOpenEphemeralMigratesDatabase(t *testing.T) {
-	database, err := Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+func TestOpenEphemeralInitializesStrictMigrationHistory(t *testing.T) {
+	err, database := Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
 
-	var version int
-	if err := database.QueryRow(`SELECT version FROM gatehouse_schema_migrations`).Scan(&version); err != nil {
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("migration version = %d, want 1", version)
+	if count != 0 {
+		t.Fatalf("migration history count = %d, want 0", count)
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_schema_migrations (
+			migration_type, migration_index, description, checksum
+		) VALUES ('versioned', 'invalid', 'test', zeroblob(32))
+	`); err == nil {
+		t.Fatal("strict migration history accepted text for migration_index")
 	}
 }
 
 func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 	context := context.Background()
-	first, err := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, first := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +48,7 @@ func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, second := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +60,7 @@ func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 
 func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "data", "gatehouse.db")
-	database, err := Open(context.Background(), config.DatabaseConfig{
+	err, database := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
 	})
@@ -68,11 +77,43 @@ func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 }
 
 func TestOpenPostgresReportsUnsupported(t *testing.T) {
-	_, err := Open(context.Background(), config.DatabaseConfig{
+	err, _ := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindPostgres,
 		URL:  "env:GATEHOUSE_DATABASE_URL",
 	})
 	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
 		t.Fatalf("Open() error = %v, want unsupported PostgreSQL error", err)
 	}
+}
+
+func openMigrationTestDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return database
+}
+
+func openMigrationTestFileDatabase(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return database
 }

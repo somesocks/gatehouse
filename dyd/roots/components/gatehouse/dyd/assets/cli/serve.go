@@ -21,14 +21,14 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		var err error
 
 		if path, ok := request.Opts["config"].(string); ok {
-			document, err := config.ValidateFile(path)
+			err, document := config.ValidateFile(path)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "configuration is invalid: %s: %v\n", path, err)
 				return 1
 			}
-			databaseConfig, warnings, err = config.ResolveDatabase(document)
+			err, databaseConfig, warnings = config.ResolveDatabase(document)
 		} else {
-			databaseConfig, warnings, err = config.ResolveDatabase(configschema.GatehouseConfig{ApiVersion: "v1"})
+			err, databaseConfig, warnings = config.ResolveDatabase(configschema.GatehouseConfig{ApiVersion: "v1"})
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "configure database: %v\n", err)
@@ -41,7 +41,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		store, err := database.Open(ctx, databaseConfig)
+		err, store := database.Open(ctx, databaseConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start database: %v\n", err)
 			return 1

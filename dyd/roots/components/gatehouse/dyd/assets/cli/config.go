@@ -20,12 +20,12 @@ var configCommand = clib.NewCommand("config", "manage Gatehouse configuration").
 			WithArg(clib.NewArg("path", "path to the configuration file")).
 			WithAction(func(request clib.ActionRequest) int {
 				path := request.Args[0]
-				document, err := config.ValidateFile(path)
+				err, document := config.ValidateFile(path)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "configuration is invalid: %s: %v\n", path, err)
 					return 1
 				}
-				_, warnings, err := config.ResolveDatabase(document)
+				err, _, warnings := config.ResolveDatabase(document)
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "configuration is invalid: %s: %v\n", path, err)
 					return 1
