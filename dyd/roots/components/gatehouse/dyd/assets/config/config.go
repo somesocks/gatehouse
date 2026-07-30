@@ -53,6 +53,9 @@ func ValidateFile(path string) (error, configschema.GatehouseConfig) {
 	if decodeErr != nil {
 		return fmt.Errorf("decode configuration: %w", decodeErr), configschema.GatehouseConfig{}
 	}
+	if err, _ := ResolveWorkspaces(config); err != nil {
+		return err, configschema.GatehouseConfig{}
+	}
 	return nil, config
 }
 

@@ -1,0 +1,7 @@
+api_version: v1
+workspaces:
+  - key: engineering
+    name: Engineering
+  - key: support-2
+    name: Support
+    enabled: false

@@ -11,15 +11,15 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *sql.DB) {
+func Open(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace) (error, *sql.DB) {
 	switch configuration.Kind {
 	case config.DatabaseKindSQLite:
 		if err := prepareSQLitePath(configuration.Path); err != nil {
 			return err, nil
 		}
-		return openSQLite(ctx, configuration.Path)
+		return openSQLite(ctx, configuration.Path, workspaces)
 	case config.DatabaseKindEphemeral:
-		return openSQLite(ctx, ":memory:")
+		return openSQLite(ctx, ":memory:", workspaces)
 	case config.DatabaseKindPostgres:
 		return fmt.Errorf("PostgreSQL databases are not supported yet"), nil
 	default:
@@ -42,7 +42,7 @@ func prepareSQLitePath(path string) error {
 	return nil
 }
 
-func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
+func openSQLite(ctx context.Context, source string, workspaces []config.Workspace) (error, *sql.DB) {
 	database, err := sql.Open("sqlite", source)
 	if err != nil {
 		return fmt.Errorf("open SQLite database: %w", err), nil
@@ -54,9 +54,13 @@ func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
 		database.Close()
 		return fmt.Errorf("ping SQLite database: %w", err), nil
 	}
-	if err := migrateSQLite(ctx, database, sqliteMigrations, struct{}{}); err != nil {
+	if err := migrateSQLite(ctx, database, sqliteMigrations, migrationValues{Workspaces: workspaces}); err != nil {
 		database.Close()
 		return err, nil
 	}
 	return nil, database
+}
+
+type migrationValues struct {
+	Workspaces []config.Workspace
 }

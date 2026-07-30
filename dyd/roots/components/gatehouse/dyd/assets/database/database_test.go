@@ -11,8 +11,8 @@ import (
 	"gatehouse/config"
 )
 
-func TestOpenEphemeralInitializesStrictMigrationHistory(t *testing.T) {
-	err, database := Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+func TestOpenEphemeralAppliesStrictMigrations(t *testing.T) {
+	err, database := Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -22,8 +22,8 @@ func TestOpenEphemeralInitializesStrictMigrationHistory(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 {
-		t.Fatalf("migration history count = %d, want 0", count)
+	if count != 2 {
+		t.Fatalf("migration history count = %d, want 2", count)
 	}
 
 	if _, err := database.Exec(`
@@ -37,7 +37,7 @@ func TestOpenEphemeralInitializesStrictMigrationHistory(t *testing.T) {
 
 func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 	context := context.Background()
-	err, first := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, first := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err, second := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, second := Open(context, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 	err, database := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,9 +80,77 @@ func TestOpenPostgresReportsUnsupported(t *testing.T) {
 	err, _ := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindPostgres,
 		URL:  "env:GATEHOUSE_DATABASE_URL",
-	})
+	}, nil)
 	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
 		t.Fatalf("Open() error = %v, want unsupported PostgreSQL error", err)
+	}
+}
+
+func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gatehouse.db")
+	err, first := Open(context.Background(), config.DatabaseConfig{
+		Kind: config.DatabaseKindSQLite,
+		Path: path,
+	}, []config.Workspace{{Key: "engineering", Name: "Engineering", Enabled: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var firstID int64
+	if err := first.QueryRow(`SELECT id FROM gatehouse_workspaces WHERE workspace_key = 'engineering'`).Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err, second := Open(context.Background(), config.DatabaseConfig{
+		Kind: config.DatabaseKindSQLite,
+		Path: path,
+	}, []config.Workspace{{Key: "engineering", Name: "Platform Engineering", Enabled: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		secondID int64
+		name     string
+		enabled  bool
+	)
+	if err := second.QueryRow(`
+		SELECT id, name, enabled
+		FROM gatehouse_workspaces
+		WHERE workspace_key = 'engineering'
+	`).Scan(&secondID, &name, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if secondID != firstID {
+		t.Fatalf("workspace id = %d, want %d", secondID, firstID)
+	}
+	if name != "Platform Engineering" || enabled {
+		t.Fatalf("workspace = (%q, %t), want (%q, %t)", name, enabled, "Platform Engineering", false)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err, third := Open(context.Background(), config.DatabaseConfig{
+		Kind: config.DatabaseKindSQLite,
+		Path: path,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer third.Close()
+	if err := third.QueryRow(`
+		SELECT id, name, enabled
+		FROM gatehouse_workspaces
+		WHERE workspace_key = 'engineering'
+	`).Scan(&secondID, &name, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if secondID != firstID || name != "Platform Engineering" || enabled {
+		t.Fatalf("omitted workspace = (%d, %q, %t), want (%d, %q, %t)", secondID, name, enabled, firstID, "Platform Engineering", false)
 	}
 }
 

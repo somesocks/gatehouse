@@ -59,6 +59,35 @@ let Database =
         { options = [ SQLiteDatabase, PostgresDatabase, EphemeralDatabase ] }
         s.oneOf.meta::{ name = Some "Database" }
 
+let Workspace =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { key =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "stable workspace key" }
+              , name =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace display name" }
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the workspace is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "Workspace" }
+
+let Workspaces =
+      s.list.from
+        s.list.props::{ values = Workspace }
+        s.list.meta::{ description = Some "configured workspaces" }
+
 let GatehouseConfig =
       s.record.from
         s.record.props::{
@@ -68,7 +97,7 @@ let GatehouseConfig =
                   s.text.props::{ variant = s.text.variants.literal "v1" }
                   s.text.meta::{ description = Some "configuration API version" }
               }
-        , optional = toMap { database = Database }
+        , optional = toMap { database = Database, workspaces = Workspaces }
         }
         s.record.meta::{ description = Some "Gatehouse configuration" }
 

@@ -261,7 +261,7 @@ func sqlIdentifier(value string) (error, string) {
 
 func sqlBool(value bool) string {
 	if value {
-		return "1"
+		return "TRUE"
 	}
-	return "0"
+	return "FALSE"
 }

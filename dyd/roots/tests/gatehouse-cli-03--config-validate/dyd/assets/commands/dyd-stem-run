@@ -37,6 +37,9 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid-ephemeral.yaml" >"$TEMP_DIR/valid-ephemeral.stdout" 2>"$TEMP_DIR/valid-ephemeral.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-ephemeral.stderr")" "configuration is valid" "ephemeral database validation"
 
+    gatehouse config validate "$TEMP_DIR/valid-workspaces.yaml" >"$TEMP_DIR/valid-workspaces.stdout" 2>"$TEMP_DIR/valid-workspaces.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-workspaces.stderr")" "configuration is valid" "workspace validation"
+
     if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
         printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
         return 1
@@ -47,6 +50,12 @@ _test() {
         printf '%s\n' "[ERROR] Fail: invalid database configuration unexpectedly succeeded" >&2
         return 1
     fi
+
+    if gatehouse config validate "$TEMP_DIR/invalid-workspace.yaml" >"$TEMP_DIR/invalid-workspace.stdout" 2>"$TEMP_DIR/invalid-workspace.stderr"; then
+        printf '%s\n' "[ERROR] Fail: invalid workspace configuration unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/invalid-workspace.stderr")" "workspaces[0].key" "workspace key validation"
 }
 
 _teardown() {
