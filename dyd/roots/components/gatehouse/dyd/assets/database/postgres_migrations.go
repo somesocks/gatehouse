@@ -28,23 +28,32 @@ var postgresMigrations = Registry{
 		Description: "create_workspaces",
 		SQL: `
 			CREATE TABLE gatehouse_workspaces (
-				id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-				workspace_key TEXT NOT NULL UNIQUE
-					CHECK (workspace_key ~ '^[a-z][a-z0-9_-]*$'),
-				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+				id TEXT PRIMARY KEY
+					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL
 			);
 		`,
 	}},
 	Repeatable: []RepeatableMigration{{
 		Index:       1,
+		Description: "seed_gatehouse_workspace",
+		Template: `
+			INSERT INTO gatehouse_workspaces (id, name, enabled)
+			VALUES ('gatehouse', 'Gatehouse', TRUE)
+			ON CONFLICT (id) DO UPDATE SET
+				name = excluded.name,
+				enabled = excluded.enabled;
+		`,
+	}, {
+		Index:       2,
 		Description: "reconcile_workspaces",
 		Template: `
 			SELECT 1;
 			{{ range .Workspaces }}
-			INSERT INTO gatehouse_workspaces (workspace_key, name, enabled)
-			VALUES ({{ sqlLiteral .Key }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_key) DO UPDATE SET
+			INSERT INTO gatehouse_workspaces (id, name, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
 			{{ end }}

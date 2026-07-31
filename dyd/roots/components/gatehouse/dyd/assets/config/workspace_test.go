@@ -8,13 +8,13 @@ import (
 	"gatehouse/configschema"
 )
 
-func TestResolveWorkspacesDefaultsEnabledAndSortsByKey(t *testing.T) {
+func TestResolveWorkspacesDefaultsEnabledAndSortsByID(t *testing.T) {
 	disabled := false
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{
-			{Key: "zebra", Name: "Zebra"},
-			{Key: "alpha-2", Name: "Alpha", Enabled: &disabled},
+			{Id: "zebra"},
+			{Id: "alpha-2", Name: stringPointer("Alpha"), Enabled: &disabled},
 		},
 	}
 
@@ -23,8 +23,8 @@ func TestResolveWorkspacesDefaultsEnabledAndSortsByKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Workspace{
-		{Key: "alpha-2", Name: "Alpha", Enabled: false},
-		{Key: "zebra", Name: "Zebra", Enabled: true},
+		{ID: "alpha-2", Name: stringPointer("Alpha"), Enabled: false},
+		{ID: "zebra", Name: nil, Enabled: true},
 	}
 	if !reflect.DeepEqual(workspaces, want) {
 		t.Fatalf("ResolveWorkspaces() = %#v, want %#v", workspaces, want)
@@ -38,21 +38,26 @@ func TestResolveWorkspacesRejectsInvalidValues(t *testing.T) {
 		contains   string
 	}{
 		{
-			name:       "invalid key",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Key: "Engineering", Name: "Engineering"}},
+			name:       "invalid ID",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Id: "Engineering", Name: stringPointer("Engineering")}},
 			contains:   "must match",
 		},
 		{
-			name: "duplicate key",
+			name:       "reserved ID",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Id: "gatehouse", Name: stringPointer("Gatehouse")}},
+			contains:   "is reserved",
+		},
+		{
+			name: "duplicate ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{
-				{Key: "engineering", Name: "Engineering"},
-				{Key: "engineering", Name: "Engineering again"},
+				{Id: "engineering", Name: stringPointer("Engineering")},
+				{Id: "engineering", Name: stringPointer("Engineering again")},
 			},
 			contains: "duplicated",
 		},
 		{
 			name:       "blank name",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Key: "engineering", Name: " \t"}},
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Id: "engineering", Name: stringPointer(" \t")}},
 			contains:   "must not be blank",
 		},
 	}
@@ -66,4 +71,8 @@ func TestResolveWorkspacesRejectsInvalidValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

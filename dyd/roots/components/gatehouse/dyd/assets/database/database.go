@@ -54,7 +54,7 @@ func openSQLite(ctx context.Context, source string, workspaces []config.Workspac
 		database.Close()
 		return fmt.Errorf("ping SQLite database: %w", err), nil
 	}
-	if err := migrateSQLite(ctx, database, sqliteMigrations, migrationValues{Workspaces: workspaces}); err != nil {
+	if err := migrateSQLite(ctx, database, sqliteMigrations, migrationValuesFor(workspaces)); err != nil {
 		database.Close()
 		return err, nil
 	}
@@ -62,5 +62,27 @@ func openSQLite(ctx context.Context, source string, workspaces []config.Workspac
 }
 
 type migrationValues struct {
-	Workspaces []config.Workspace
+	Workspaces []workspaceMigrationValue
+}
+
+type workspaceMigrationValue struct {
+	ID      string
+	Name    any
+	Enabled bool
+}
+
+func migrationValuesFor(workspaces []config.Workspace) migrationValues {
+	values := migrationValues{Workspaces: make([]workspaceMigrationValue, 0, len(workspaces))}
+	for _, workspace := range workspaces {
+		var name any
+		if workspace.Name != nil {
+			name = *workspace.Name
+		}
+		values.Workspaces = append(values.Workspaces, workspaceMigrationValue{
+			ID:      workspace.ID,
+			Name:    name,
+			Enabled: workspace.Enabled,
+		})
+	}
+	return values
 }

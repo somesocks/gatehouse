@@ -1,0 +1,11 @@
+api_version: v1
+principals:
+  - id: alice
+    name: Alice
+    identities:
+      - kind: matrix
+        id: "@alice:example.org"
+      - kind: gatehouse
+        id: alice
+        password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER
+        enabled: false

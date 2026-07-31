@@ -10,12 +10,14 @@ import (
 )
 
 type Workspace struct {
-	Key     string
-	Name    string
+	ID      string
+	Name    *string
 	Enabled bool
 }
 
-var workspaceKey = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+var workspaceID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
+
+const gatehouseWorkspaceID = "gatehouse"
 
 func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspace) {
 	if document.Workspaces == nil {
@@ -23,15 +25,18 @@ func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspac
 	}
 
 	workspaces := make([]Workspace, 0, len(*document.Workspaces))
-	keys := make(map[string]struct{}, len(*document.Workspaces))
+	ids := make(map[string]struct{}, len(*document.Workspaces))
 	for index, configured := range *document.Workspaces {
-		if !workspaceKey.MatchString(configured.Key) {
-			return fmt.Errorf("workspaces[%d].key must match %q", index, workspaceKey.String()), nil
+		if !workspaceID.MatchString(configured.Id) {
+			return fmt.Errorf("workspaces[%d].id must match %q", index, workspaceID.String()), nil
 		}
-		if _, exists := keys[configured.Key]; exists {
-			return fmt.Errorf("workspaces[%d].key %q is duplicated", index, configured.Key), nil
+		if configured.Id == gatehouseWorkspaceID {
+			return fmt.Errorf("workspaces[%d].id %q is reserved", index, configured.Id), nil
 		}
-		if strings.TrimSpace(configured.Name) == "" {
+		if _, exists := ids[configured.Id]; exists {
+			return fmt.Errorf("workspaces[%d].id %q is duplicated", index, configured.Id), nil
+		}
+		if configured.Name != nil && strings.TrimSpace(*configured.Name) == "" {
 			return fmt.Errorf("workspaces[%d].name must not be blank", index), nil
 		}
 
@@ -39,16 +44,16 @@ func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspac
 		if configured.Enabled != nil {
 			enabled = *configured.Enabled
 		}
-		keys[configured.Key] = struct{}{}
+		ids[configured.Id] = struct{}{}
 		workspaces = append(workspaces, Workspace{
-			Key:     configured.Key,
+			ID:      configured.Id,
 			Name:    configured.Name,
 			Enabled: enabled,
 		})
 	}
 
 	sort.Slice(workspaces, func(left, right int) bool {
-		return workspaces[left].Key < workspaces[right].Key
+		return workspaces[left].ID < workspaces[right].ID
 	})
 	return nil, workspaces
 }

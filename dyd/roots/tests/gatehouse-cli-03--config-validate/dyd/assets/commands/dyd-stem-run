@@ -40,6 +40,12 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid-workspaces.yaml" >"$TEMP_DIR/valid-workspaces.stdout" 2>"$TEMP_DIR/valid-workspaces.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-workspaces.stderr")" "configuration is valid" "workspace validation"
 
+    gatehouse config validate "$TEMP_DIR/valid-principals.yaml" >"$TEMP_DIR/valid-principals.stdout" 2>"$TEMP_DIR/valid-principals.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-principals.stderr")" "configuration is valid" "principal identity validation"
+
+    gatehouse config validate "$TEMP_DIR/valid-groups.yaml" >"$TEMP_DIR/valid-groups.stdout" 2>"$TEMP_DIR/valid-groups.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-groups.stderr")" "configuration is valid" "group validation"
+
     if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
         printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
         return 1
@@ -55,7 +61,17 @@ _test() {
         printf '%s\n' "[ERROR] Fail: invalid workspace configuration unexpectedly succeeded" >&2
         return 1
     fi
-    assert_contains "$(cat "$TEMP_DIR/invalid-workspace.stderr")" "workspaces[0].key" "workspace key validation"
+    assert_contains "$(cat "$TEMP_DIR/invalid-workspace.stderr")" "is reserved" "workspace key validation"
+
+    if gatehouse config validate "$TEMP_DIR/invalid-matrix-password-verifier.yaml" >"$TEMP_DIR/invalid-matrix-password-verifier.stdout" 2>"$TEMP_DIR/invalid-matrix-password-verifier.stderr"; then
+        printf '%s\n' "[ERROR] Fail: Matrix identity with password verifier unexpectedly succeeded" >&2
+        return 1
+    fi
+
+    if gatehouse config validate "$TEMP_DIR/invalid-group-member-principal-id.yaml" >"$TEMP_DIR/invalid-group-member-principal-id.stdout" 2>"$TEMP_DIR/invalid-group-member-principal-id.stderr"; then
+        printf '%s\n' "[ERROR] Fail: group member with principal_id unexpectedly succeeded" >&2
+        return 1
+    fi
 }
 
 _teardown() {

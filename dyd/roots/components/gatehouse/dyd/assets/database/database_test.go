@@ -22,8 +22,15 @@ func TestOpenEphemeralAppliesStrictMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 2 {
-		t.Fatalf("migration history count = %d, want 2", count)
+	if count != 3 {
+		t.Fatalf("migration history count = %d, want 3", count)
+	}
+	var gatehouseName string
+	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
+		t.Fatal(err)
+	}
+	if gatehouseName != "Gatehouse" {
+		t.Fatalf("Gatehouse workspace name = %q, want %q", gatehouseName, "Gatehouse")
 	}
 
 	if _, err := database.Exec(`
@@ -91,13 +98,13 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, first := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{Key: "engineering", Name: "Engineering", Enabled: true}})
+	}, []config.Workspace{{ID: "engineering", Name: stringPointer("Engineering"), Enabled: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var firstID int64
-	if err := first.QueryRow(`SELECT id FROM gatehouse_workspaces WHERE workspace_key = 'engineering'`).Scan(&firstID); err != nil {
+	var firstID string
+	if err := first.QueryRow(`SELECT id FROM gatehouse_workspaces WHERE id = 'engineering'`).Scan(&firstID); err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Close(); err != nil {
@@ -107,25 +114,25 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, second := Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{Key: "engineering", Name: "Platform Engineering", Enabled: false}})
+	}, []config.Workspace{{ID: "engineering", Name: stringPointer("Platform Engineering"), Enabled: false}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var (
-		secondID int64
+		secondID string
 		name     string
 		enabled  bool
 	)
 	if err := second.QueryRow(`
 		SELECT id, name, enabled
 		FROM gatehouse_workspaces
-		WHERE workspace_key = 'engineering'
+		WHERE id = 'engineering'
 	`).Scan(&secondID, &name, &enabled); err != nil {
 		t.Fatal(err)
 	}
 	if secondID != firstID {
-		t.Fatalf("workspace id = %d, want %d", secondID, firstID)
+		t.Fatalf("workspace id = %q, want %q", secondID, firstID)
 	}
 	if name != "Platform Engineering" || enabled {
 		t.Fatalf("workspace = (%q, %t), want (%q, %t)", name, enabled, "Platform Engineering", false)
@@ -145,13 +152,36 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	if err := third.QueryRow(`
 		SELECT id, name, enabled
 		FROM gatehouse_workspaces
-		WHERE workspace_key = 'engineering'
+		WHERE id = 'engineering'
 	`).Scan(&secondID, &name, &enabled); err != nil {
 		t.Fatal(err)
 	}
 	if secondID != firstID || name != "Platform Engineering" || enabled {
-		t.Fatalf("omitted workspace = (%d, %q, %t), want (%d, %q, %t)", secondID, name, enabled, firstID, "Platform Engineering", false)
+		t.Fatalf("omitted workspace = (%q, %q, %t), want (%q, %q, %t)", secondID, name, enabled, firstID, "Platform Engineering", false)
 	}
+}
+
+func TestOpenSQLiteReconcilesUnnamedWorkspace(t *testing.T) {
+	err, database := Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, []config.Workspace{{
+		ID:      "engineering",
+		Enabled: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	var name sql.NullString
+	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'engineering'`).Scan(&name); err != nil {
+		t.Fatal(err)
+	}
+	if name.Valid {
+		t.Fatalf("workspace name = %q, want NULL", name.String)
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
 
 func openMigrationTestDatabase(t *testing.T) *sql.DB {

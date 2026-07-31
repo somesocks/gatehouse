@@ -28,24 +28,33 @@ var sqliteMigrations = Registry{
 		Description: "create_workspaces",
 		SQL: `
 			CREATE TABLE gatehouse_workspaces (
-				id INTEGER PRIMARY KEY,
-				workspace_key TEXT NOT NULL UNIQUE
-					CHECK (workspace_key GLOB '[a-z]*')
-					CHECK (workspace_key NOT GLOB '*[^a-z0-9_-]*'),
-				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+				id TEXT PRIMARY KEY
+					CHECK (id GLOB '[a-z]*')
+					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
 			) STRICT;
 		`,
 	}},
 	Repeatable: []RepeatableMigration{{
 		Index:       1,
+		Description: "seed_gatehouse_workspace",
+		Template: `
+			INSERT INTO gatehouse_workspaces (id, name, enabled)
+			VALUES ('gatehouse', 'Gatehouse', TRUE)
+			ON CONFLICT (id) DO UPDATE SET
+				name = excluded.name,
+				enabled = excluded.enabled;
+		`,
+	}, {
+		Index:       2,
 		Description: "reconcile_workspaces",
 		Template: `
 			SELECT 1;
 			{{ range .Workspaces }}
-			INSERT INTO gatehouse_workspaces (workspace_key, name, enabled)
-			VALUES ({{ sqlLiteral .Key }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_key) DO UPDATE SET
+			INSERT INTO gatehouse_workspaces (id, name, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
 			{{ end }}

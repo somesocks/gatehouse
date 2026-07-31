@@ -1,0 +1,7 @@
+api_version: v1
+workspaces:
+  - id: engineering
+    groups:
+      - id: deployers
+        members:
+          - principal_id: alice
