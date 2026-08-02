@@ -388,8 +388,9 @@ func TestEvalHelpSearch(t *testing.T) {
 	requireRun(t, "(help/search \"case\")", "(string/lower string/upper)")
 	requireRun(t, "(help/search \"accumulator\")", "(list/fold)")
 	requireRun(t, "(help/search \"string\" \"slice\")", "(string/slice)")
-	requireRun(t, "(list/length (help/search))", "44")
-	requireRun(t, "(list/length (help/search \"\"))", "44")
+	requireRun(t, "(help/search \"BOOL?\")", "(bool?)")
+	requireRun(t, "(let ((alias +)) (help/search \"ALIAS\"))", "(alias)")
+	requireRun(t, "(let ((slice string/slice)) (help/search \"SUBSTRING\"))", "(slice string/slice)")
 	requireRun(t, "(list/map help (help/search \"substring\"))", "(\"Returns the code-point slice between an inclusive start and exclusive end.\")")
 	requireRun(t, "(let ((string/slice 1)) (help/search \"substring\"))", "null")
 	requireRun(t, "((fn (string/slice) (help/search \"substring\")) 1)", "null")
@@ -397,6 +398,40 @@ func TestEvalHelpSearch(t *testing.T) {
 	err, _ := Run("(help/search 1)")
 	if err == nil || !strings.Contains(err.Error(), "expected a string") {
 		t.Fatalf("Run() error = %v, want string error", err)
+	}
+}
+
+func TestEvalHelpSearchReturnsEveryDocumentedPreludeBinding(t *testing.T) {
+	err, all := Run("(help/search)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, empty := Run("(help/search \"\")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !equal(all, empty) {
+		t.Fatalf("(help/search \"\") = %s, want %s", empty, all)
+	}
+
+	err, bindings := expressions(all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != len(preludeBuiltins) {
+		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins))
+	}
+	seen := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if binding.kind != exprSymbol {
+			t.Fatalf("(help/search) returned %s, want symbols", binding)
+		}
+		seen[binding.text] = struct{}{}
+	}
+	for _, definition := range preludeBuiltins {
+		if _, exists := seen[definition.name]; !exists {
+			t.Errorf("(help/search) did not return %q", definition.name)
+		}
 	}
 }
 
