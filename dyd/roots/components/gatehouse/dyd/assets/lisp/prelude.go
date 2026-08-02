@@ -5,53 +5,68 @@ import "math"
 func prelude() *environment {
 	env := &environment{values: make(map[string]*Expr)}
 	env.bind("null", null(Span{}))
-	for name, call := range map[string]func(*evaluator, []Expr, Span) (error, Expr){
-		"+":                add,
-		"-":                subtract,
-		"*":                multiply,
-		"bool?":            isBoolean,
-		"int?":             isInteger,
-		"symbol?":          isSymbolValue,
-		"int/div":          integerDivide,
-		"int/rem":          integerRemainder,
-		"int/abs":          integerAbsolute,
-		"int/min":          integerMinimum,
-		"int/max":          integerMaximum,
-		"=":                equals,
-		"<":                lessThan,
-		"<=":               lessThanOrEqual,
-		">":                greaterThan,
-		">=":               greaterThanOrEqual,
-		"not":              logicalNot,
-		"pair":             makePair,
-		"head":             head,
-		"tail":             tail,
-		"list":             makeList,
-		"pair?":            isPair,
-		"null?":            isNull,
-		"list?":            isList,
-		"list/length":      listLength,
-		"list/concat":      concatLists,
-		"list/map":         mapValues,
-		"list/filter":      filterValues,
-		"list/fold":        foldValues,
-		"string?":          isString,
-		"string/length":    stringLength,
-		"string/concat":    stringConcat,
-		"string/slice":     stringSlice,
-		"string/trim":      stringTrim,
-		"string/lower":     stringLower,
-		"string/upper":     stringUpper,
-		"string/contains?": stringContains,
-		"string/prefix?":   stringPrefix,
-		"string/suffix?":   stringSuffix,
-		"string/split":     stringSplit,
-		"string/join":      stringJoin,
-		"string/replace":   stringReplace,
-	} {
-		env.bind(name, Expr{kind: exprBuiltin, builtin: &builtin{name: name, call: call}})
+	for _, definition := range preludeBuiltins {
+		env.bind(definition.name, Expr{kind: exprBuiltin, builtin: &builtin{
+			helpText:     definition.helpText,
+			helpKeywords: definition.helpKeywords,
+			call:         definition.call,
+		}})
 	}
 	return env
+}
+
+type builtinDefinition struct {
+	name         string
+	helpText     string
+	helpKeywords []string
+	call         builtinCall
+}
+
+var preludeBuiltins = []builtinDefinition{
+	{name: "+", helpText: "Adds integer values.", helpKeywords: []string{"add", "sum", "integer"}, call: pure(add)},
+	{name: "-", helpText: "Subtracts integer values or negates one integer.", helpKeywords: []string{"subtract", "negate", "integer"}, call: pure(subtract)},
+	{name: "*", helpText: "Multiplies integer values.", helpKeywords: []string{"multiply", "product", "integer"}, call: pure(multiply)},
+	{name: "bool?", helpText: "Returns whether a value is a Boolean.", helpKeywords: []string{"boolean", "type", "predicate"}, call: pure(isBoolean)},
+	{name: "int?", helpText: "Returns whether a value is an integer.", helpKeywords: []string{"integer", "number", "type", "predicate"}, call: pure(isInteger)},
+	{name: "symbol?", helpText: "Returns whether a value is a Symbol.", helpKeywords: []string{"symbol", "type", "predicate"}, call: pure(isSymbolValue)},
+	{name: "int/div", helpText: "Divides integers with truncation toward zero.", helpKeywords: []string{"integer", "division", "quotient"}, call: pure(integerDivide)},
+	{name: "int/rem", helpText: "Returns the signed remainder of integer division.", helpKeywords: []string{"integer", "division", "remainder"}, call: pure(integerRemainder)},
+	{name: "int/abs", helpText: "Returns the non-negative magnitude of an integer.", helpKeywords: []string{"integer", "absolute", "magnitude"}, call: pure(integerAbsolute)},
+	{name: "int/min", helpText: "Returns the smallest supplied integer.", helpKeywords: []string{"integer", "minimum", "smallest"}, call: pure(integerMinimum)},
+	{name: "int/max", helpText: "Returns the largest supplied integer.", helpKeywords: []string{"integer", "maximum", "largest"}, call: pure(integerMaximum)},
+	{name: "=", helpText: "Returns whether values have equal types and structural contents.", helpKeywords: []string{"equal", "equality", "compare"}, call: pure(equals)},
+	{name: "<", helpText: "Returns whether integers are strictly increasing.", helpKeywords: []string{"integer", "compare", "less"}, call: pure(lessThan)},
+	{name: "<=", helpText: "Returns whether integers are nondecreasing.", helpKeywords: []string{"integer", "compare", "less", "equal"}, call: pure(lessThanOrEqual)},
+	{name: ">", helpText: "Returns whether integers are strictly decreasing.", helpKeywords: []string{"integer", "compare", "greater"}, call: pure(greaterThan)},
+	{name: ">=", helpText: "Returns whether integers are nonincreasing.", helpKeywords: []string{"integer", "compare", "greater", "equal"}, call: pure(greaterThanOrEqual)},
+	{name: "not", helpText: "Negates a Boolean value.", helpKeywords: []string{"boolean", "negation", "logical"}, call: pure(logicalNot)},
+	{name: "pair", helpText: "Creates a pair from two values.", helpKeywords: []string{"pair", "data", "construct"}, call: pure(makePair)},
+	{name: "head", helpText: "Returns the first value of a pair.", helpKeywords: []string{"pair", "first", "list"}, call: pure(head)},
+	{name: "tail", helpText: "Returns the second value of a pair.", helpKeywords: []string{"pair", "rest", "list"}, call: pure(tail)},
+	{name: "list", helpText: "Creates a proper list from its arguments.", helpKeywords: []string{"list", "construct", "collection"}, call: pure(makeList)},
+	{name: "pair?", helpText: "Returns whether a value is a pair.", helpKeywords: []string{"pair", "type", "predicate"}, call: pure(isPair)},
+	{name: "null?", helpText: "Returns whether a value is the empty list.", helpKeywords: []string{"null", "empty", "list", "predicate"}, call: pure(isNull)},
+	{name: "list?", helpText: "Returns whether a value is a proper list.", helpKeywords: []string{"list", "proper", "type", "predicate"}, call: pure(isList)},
+	{name: "list/length", helpText: "Returns the number of values in a proper list.", helpKeywords: []string{"list", "length", "count"}, call: pure(listLength)},
+	{name: "list/concat", helpText: "Concatenates proper lists.", helpKeywords: []string{"list", "concat", "append"}, call: pure(concatLists)},
+	{name: "list/map", helpText: "Applies a function to every value in a proper list.", helpKeywords: []string{"list", "map", "transform"}, call: mapValues},
+	{name: "list/filter", helpText: "Keeps list values whose predicate returns true.", helpKeywords: []string{"list", "filter", "select", "predicate"}, call: filterValues},
+	{name: "list/fold", helpText: "Combines a proper list from left to right with an accumulator.", helpKeywords: []string{"list", "fold", "reduce", "accumulator"}, call: foldValues},
+	{name: "string?", helpText: "Returns whether a value is a string.", helpKeywords: []string{"string", "text", "type", "predicate"}, call: pure(isString)},
+	{name: "string/length", helpText: "Returns the Unicode code-point length of text.", helpKeywords: []string{"string", "text", "length", "unicode"}, call: pure(stringLength)},
+	{name: "string/concat", helpText: "Concatenates string values.", helpKeywords: []string{"string", "text", "concat", "join"}, call: pure(stringConcat)},
+	{name: "string/slice", helpText: "Returns the code-point slice between an inclusive start and exclusive end.", helpKeywords: []string{"string", "text", "substring", "slice", "unicode"}, call: pure(stringSlice)},
+	{name: "string/trim", helpText: "Removes Unicode whitespace from both ends of text.", helpKeywords: []string{"string", "text", "trim", "whitespace"}, call: pure(stringTrim)},
+	{name: "string/lower", helpText: "Converts text to locale-independent Unicode lower case.", helpKeywords: []string{"string", "text", "lowercase", "case"}, call: pure(stringLower)},
+	{name: "string/upper", helpText: "Converts text to locale-independent Unicode upper case.", helpKeywords: []string{"string", "text", "uppercase", "case"}, call: pure(stringUpper)},
+	{name: "string/contains?", helpText: "Returns whether text contains a string.", helpKeywords: []string{"string", "text", "contains", "search"}, call: pure(stringContains)},
+	{name: "string/prefix?", helpText: "Returns whether text starts with a string.", helpKeywords: []string{"string", "text", "prefix", "starts"}, call: pure(stringPrefix)},
+	{name: "string/suffix?", helpText: "Returns whether text ends with a string.", helpKeywords: []string{"string", "text", "suffix", "ends"}, call: pure(stringSuffix)},
+	{name: "string/split", helpText: "Splits text on a literal separator into a list of strings.", helpKeywords: []string{"string", "text", "split", "separator"}, call: pure(stringSplit)},
+	{name: "string/join", helpText: "Joins a list of strings with a separator.", helpKeywords: []string{"string", "text", "join", "separator"}, call: pure(stringJoin)},
+	{name: "string/replace", helpText: "Replaces every non-overlapping literal occurrence in text.", helpKeywords: []string{"string", "text", "replace", "substitute"}, call: pure(stringReplace)},
+	{name: "help", helpText: "Returns documentation for a value.", helpKeywords: []string{"help", "documentation", "describe", "type"}, call: helpValue},
+	{name: "help/search", helpText: "Returns visible documented bindings matching every search term.", helpKeywords: []string{"help", "search", "discover", "documentation", "function"}, call: helpSearch},
 }
 
 func (env *environment) bind(name string, value Expr) {
@@ -326,7 +341,7 @@ func concatLists(_ *evaluator, arguments []Expr, _ Span) (error, Expr) {
 	return nil, list(result, Span{})
 }
 
-func mapValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr) {
+func mapValues(evaluator *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
 	if len(arguments) != 2 {
 		return expressionError(span, "list/map requires a function and list"), Expr{}
 	}
@@ -336,7 +351,7 @@ func mapValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr) 
 	}
 	result := make([]Expr, 0, len(values))
 	for _, value := range values {
-		err, mapped := evaluator.call(arguments[0], []Expr{value}, span)
+		err, mapped := evaluator.call(arguments[0], env, []Expr{value}, span)
 		if err != nil {
 			return err, Expr{}
 		}
@@ -345,7 +360,7 @@ func mapValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr) 
 	return nil, list(result, Span{})
 }
 
-func filterValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr) {
+func filterValues(evaluator *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
 	if len(arguments) != 2 {
 		return expressionError(span, "list/filter requires a function and list"), Expr{}
 	}
@@ -355,7 +370,7 @@ func filterValues(evaluator *evaluator, arguments []Expr, span Span) (error, Exp
 	}
 	result := make([]Expr, 0, len(values))
 	for _, value := range values {
-		err, keep := evaluator.call(arguments[0], []Expr{value}, span)
+		err, keep := evaluator.call(arguments[0], env, []Expr{value}, span)
 		if err != nil {
 			return err, Expr{}
 		}
@@ -370,7 +385,7 @@ func filterValues(evaluator *evaluator, arguments []Expr, span Span) (error, Exp
 	return nil, list(result, Span{})
 }
 
-func foldValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr) {
+func foldValues(evaluator *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
 	if len(arguments) != 3 {
 		return expressionError(span, "list/fold requires a function, initial value, and list"), Expr{}
 	}
@@ -380,7 +395,7 @@ func foldValues(evaluator *evaluator, arguments []Expr, span Span) (error, Expr)
 	}
 	result := arguments[1]
 	for _, value := range values {
-		err, result = evaluator.call(arguments[0], []Expr{result, value}, span)
+		err, result = evaluator.call(arguments[0], env, []Expr{result, value}, span)
 		if err != nil {
 			return err, Expr{}
 		}

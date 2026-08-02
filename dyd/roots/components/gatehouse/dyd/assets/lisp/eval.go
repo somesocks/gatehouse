@@ -92,7 +92,7 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (error, Expr
 				continue
 			}
 			if callee.kind == exprBuiltin {
-				return callee.builtin.call(evaluator, arguments, expression.span)
+				return callee.builtin.call(evaluator, env, arguments, expression.span)
 			}
 			return expressionError(forms[0].span, "%s is not callable", callee.String()), Expr{}
 		default:
@@ -101,7 +101,7 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (error, Expr
 	}
 }
 
-func (evaluator *evaluator) call(callee Expr, arguments []Expr, span Span) (error, Expr) {
+func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr, span Span) (error, Expr) {
 	switch callee.kind {
 	case exprClosure:
 		err, env := bindClosure(callee.closure, arguments, span)
@@ -110,7 +110,7 @@ func (evaluator *evaluator) call(callee Expr, arguments []Expr, span Span) (erro
 		}
 		return evaluator.eval(callee.closure.body, env)
 	case exprBuiltin:
-		return callee.builtin.call(evaluator, arguments, span)
+		return callee.builtin.call(evaluator, env, arguments, span)
 	default:
 		return expressionError(span, "%s is not callable", callee.String()), Expr{}
 	}

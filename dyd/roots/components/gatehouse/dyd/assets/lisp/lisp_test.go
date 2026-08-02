@@ -357,6 +357,49 @@ func TestEvalStrings(t *testing.T) {
 	requireRun(t, "(string/replace \"one two one\" \"one\" \"1\")", "\"1 two 1\"")
 }
 
+func TestEvalHelp(t *testing.T) {
+	requireHelp(t, "(help string/slice)", "Returns the code-point slice between an inclusive start and exclusive end.")
+	requireHelp(t, "(help (int/min 1 2))", "int")
+	requireHelp(t, "(help 'string/slice)", "Returns the code-point slice between an inclusive start and exclusive end.")
+	requireHelp(t, "(help 'unbound)", "symbol")
+	requireHelp(t, "(help 1)", "int")
+	requireHelp(t, "(help (fn (value) value))", "function (value)")
+	requireHelp(t, "(let ((string/slice 1)) (help 'string/slice))", "int")
+	requireHelp(t, "(let ((local (fn (value) value))) (help 'local))", "function (value)")
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(help)", contains: "help requires one argument"},
+		{source: "(help 1 2)", contains: "help requires one argument"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, _ := Run(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+}
+
+func TestEvalHelpSearch(t *testing.T) {
+	requireRun(t, "(help/search \"substring\")", "(string/slice)")
+	requireRun(t, "(help/search \"case\")", "(string/lower string/upper)")
+	requireRun(t, "(help/search \"accumulator\")", "(list/fold)")
+	requireRun(t, "(help/search \"string\" \"slice\")", "(string/slice)")
+	requireRun(t, "(list/length (help/search))", "44")
+	requireRun(t, "(list/length (help/search \"\"))", "44")
+	requireRun(t, "(list/map help (help/search \"substring\"))", "(\"Returns the code-point slice between an inclusive start and exclusive end.\")")
+	requireRun(t, "(let ((string/slice 1)) (help/search \"substring\"))", "null")
+	requireRun(t, "((fn (string/slice) (help/search \"substring\")) 1)", "null")
+
+	err, _ := Run("(help/search 1)")
+	if err == nil || !strings.Contains(err.Error(), "expected a string") {
+		t.Fatalf("Run() error = %v, want string error", err)
+	}
+}
+
 func TestEvalStringErrors(t *testing.T) {
 	for _, test := range []struct {
 		source   string
@@ -412,5 +455,16 @@ func requireRun(t *testing.T, source string, want string) {
 	}
 	if got.String() != want {
 		t.Fatalf("Run(%q) = %s, want %s", source, got, want)
+	}
+}
+
+func requireHelp(t *testing.T, source string, want string) {
+	t.Helper()
+	err, got := Run(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.kind != exprString || got.text != want {
+		t.Fatalf("Run(%q) = %s, want %q", source, got, want)
 	}
 }

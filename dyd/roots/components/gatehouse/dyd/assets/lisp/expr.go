@@ -49,8 +49,19 @@ type closure struct {
 }
 
 type builtin struct {
-	name string
-	call func(*evaluator, []Expr, Span) (error, Expr)
+	helpText     string
+	helpKeywords []string
+	call         builtinCall
+}
+
+type builtinCall func(*evaluator, *environment, []Expr, Span) (error, Expr)
+
+type pureBuiltinCall func(*evaluator, []Expr, Span) (error, Expr)
+
+func pure(call pureBuiltinCall) builtinCall {
+	return func(evaluator *evaluator, _ *environment, arguments []Expr, span Span) (error, Expr) {
+		return call(evaluator, arguments, span)
+	}
 }
 
 func boolean(value bool, span Span) Expr {
@@ -105,7 +116,7 @@ func (expr Expr) String() string {
 	case exprClosure:
 		return "#<closure>"
 	case exprBuiltin:
-		return "#<builtin:" + expr.builtin.name + ">"
+		return "#<builtin>"
 	default:
 		return "#<invalid>"
 	}
