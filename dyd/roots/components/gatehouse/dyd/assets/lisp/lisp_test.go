@@ -357,6 +357,81 @@ func TestEvalStrings(t *testing.T) {
 	requireRun(t, "(string/replace \"one two one\" \"one\" \"1\")", "\"1 two 1\"")
 }
 
+func TestEvalSecretTaint(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		secret bool
+		value  string
+	}{
+		{source: "@secret", secret: true, value: "#<secret>"},
+		{source: "(string/upper @secret)", secret: true, value: "#<secret>"},
+		{source: "(string/length (string/upper @secret))", value: "6"},
+		{source: "(string/length @secret)", value: "6"},
+		{source: "(list/length (list @secret))", value: "1"},
+		{source: "(head (list @secret))", secret: true, value: "#<secret>"},
+		{source: "((fn (value) value) @secret)", secret: true, value: "#<secret>"},
+		{source: "(let ((value @secret)) ((fn () value)))", secret: true, value: "#<secret>"},
+		{source: "(list/map string/upper (list @secret))", secret: true, value: "#<secret>"},
+		{source: "(if (string/contains? @secret \"e\") \"yes\" \"no\")", value: "\"yes\""},
+		{source: "(secret/mark (list 1 2))", secret: true, value: "#<secret>"},
+		{source: "(secret? @secret)", value: "#t"},
+		{source: "(secret? (secret/mark +))", value: "#t"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, result := runWithSecret(test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.secret != test.secret {
+				t.Fatalf("Run(%q) secret = %t, want %t", test.source, result.secret, test.secret)
+			}
+			if got := result.String(); got != test.value {
+				t.Fatalf("Run(%q) = %s, want %s", test.source, got, test.value)
+			}
+		})
+	}
+}
+
+func TestEvalPredicatesDoNotPropagateSecretTaint(t *testing.T) {
+	for _, source := range []string{
+		"(bool? @secret)",
+		"(int? @secret)",
+		"(symbol? @secret)",
+		"(pair? @secret)",
+		"(null? @secret)",
+		"(list? @secret)",
+		"(string? @secret)",
+		"(string/contains? @secret \"a\")",
+		"(string/prefix? @secret \"a\")",
+		"(string/suffix? @secret \"t\")",
+	} {
+		t.Run(source, func(t *testing.T) {
+			err, result := runWithSecret(source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.secret {
+				t.Fatalf("Run(%q) result is secret", source)
+			}
+		})
+	}
+}
+
+func TestPreludePredicatesAreNonLeaky(t *testing.T) {
+	for _, definition := range preludeBuiltins {
+		if strings.HasSuffix(definition.name, "?") && definition.leaky {
+			t.Errorf("%s is leaky, want non-leaky predicate", definition.name)
+		}
+	}
+}
+
+func TestEvalSecretErrorsAreRedacted(t *testing.T) {
+	err, _ := runWithSecret("(int/div @secret 1)")
+	if err == nil || !strings.Contains(err.Error(), "#<secret>") || strings.Contains(err.Error(), `"secret"`) {
+		t.Fatalf("Run() error = %v, want redacted secret", err)
+	}
+}
+
 func TestEvalHelp(t *testing.T) {
 	requireHelp(t, "(help string/slice)", "Returns the code-point slice between an inclusive start and exclusive end.")
 	requireHelp(t, "(help (int/min 1 2))", "int")
@@ -502,4 +577,16 @@ func requireHelp(t *testing.T, source string, want string) {
 	if got.kind != exprString || got.text != want {
 		t.Fatalf("Run(%q) = %s, want %q", source, got, want)
 	}
+}
+
+func runWithSecret(source string) (error, Expr) {
+	err, expression := Read(source)
+	if err != nil {
+		return err, Expr{}
+	}
+	env := prelude()
+	secret := stringValue("secret", Span{})
+	secret.secret = true
+	env.bind("@secret", secret)
+	return (&evaluator{}).eval(expression, env)
 }

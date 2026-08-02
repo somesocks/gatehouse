@@ -25,8 +25,9 @@ const (
 )
 
 type Expr struct {
-	kind exprKind
-	span Span
+	kind   exprKind
+	span   Span
+	secret bool
 
 	boolean bool
 	integer int64
@@ -51,6 +52,7 @@ type closure struct {
 type builtin struct {
 	helpText     string
 	helpKeywords []string
+	leaky        bool
 	call         builtinCall
 }
 
@@ -85,7 +87,7 @@ func null(span Span) Expr {
 }
 
 func pairValue(first Expr, rest Expr, span Span) Expr {
-	return Expr{kind: exprPair, pair: &pair{first: first, rest: rest}, span: span}
+	return Expr{kind: exprPair, pair: &pair{first: first, rest: rest}, span: span, secret: first.secret || rest.secret}
 }
 
 func list(values []Expr, span Span) Expr {
@@ -97,6 +99,9 @@ func list(values []Expr, span Span) Expr {
 }
 
 func (expr Expr) String() string {
+	if expr.secret {
+		return "#<secret>"
+	}
 	switch expr.kind {
 	case exprBoolean:
 		if expr.boolean {
