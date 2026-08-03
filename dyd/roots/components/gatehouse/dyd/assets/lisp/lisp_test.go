@@ -15,6 +15,65 @@ func TestReadBuildsLispData(t *testing.T) {
 	}
 }
 
+func TestReadModuleReferences(t *testing.T) {
+	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	for _, test := range []struct {
+		source      string
+		scheme      moduleReferenceScheme
+		uri         string
+		fingerprint string
+	}{
+		{source: "@file:../shared.lisp", scheme: moduleReferenceFile, uri: "file:../shared.lisp"},
+		{source: "@file:///work/shared.lisp#" + fingerprint, scheme: moduleReferenceFile, uri: "file:///work/shared.lisp", fingerprint: fingerprint},
+		{source: "@../shared.lisp#" + fingerprint, scheme: moduleReferenceFingerprint, uri: "../shared.lisp", fingerprint: fingerprint},
+		{source: "@#" + fingerprint, scheme: moduleReferenceFingerprint, uri: "", fingerprint: fingerprint},
+		{source: "@native:net/v1", scheme: moduleReferenceNative, uri: "native:net/v1"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, expression := Read(test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if expression.kind != exprModuleReference {
+				t.Fatalf("Read(%q) kind = %v, want module reference", test.source, expression.kind)
+			}
+			if expression.reference.scheme != test.scheme || expression.reference.uri != test.uri || expression.reference.fingerprint != test.fingerprint {
+				t.Fatalf("Read(%q) reference = %#v, want scheme %v, uri %q, fingerprint %q", test.source, expression.reference, test.scheme, test.uri, test.fingerprint)
+			}
+			if got := expression.String(); got != test.source {
+				t.Fatalf("Read(%q).String() = %q, want %q", test.source, got, test.source)
+			}
+		})
+	}
+}
+
+func TestReadRejectsInvalidModuleReferences(t *testing.T) {
+	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "@secret", contains: "without a URI scheme requires a sha256 fingerprint"},
+		{source: "@secret:value", contains: "unsupported module reference URI scheme"},
+		{source: "@https://example.com/module.lisp", contains: "unsupported module reference URI scheme"},
+		{source: "@file:", contains: "requires a location"},
+		{source: "@file://", contains: "requires a location"},
+		{source: "@file://#" + fingerprint, contains: "requires a location"},
+		{source: "@file:../shared.lisp#sha256:bad", contains: "invalid sha256 fingerprint"},
+		{source: "@#sha256:bad", contains: "requires a sha256 fingerprint"},
+		{source: "@sha256:bad", contains: "unsupported module reference URI scheme"},
+		{source: "@native:", contains: "requires a name"},
+		{source: "@native:net/v1#" + fingerprint, contains: "must not have a sha256 fingerprint"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, _ := Read(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("Read(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+}
+
 func TestReadRejectsInvalidInput(t *testing.T) {
 	for _, test := range []struct {
 		source   string
@@ -357,32 +416,42 @@ func TestEvalStrings(t *testing.T) {
 	requireRun(t, "(string/replace \"one two one\" \"one\" \"1\")", "\"1 two 1\"")
 }
 
+func TestEvalModuleReferences(t *testing.T) {
+	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	requireRun(t, "@native:net/v1", "@native:net/v1")
+	requireRun(t, "@file:../shared.lisp", "@file:../shared.lisp")
+	requireRun(t, "@#"+fingerprint, "@#"+fingerprint)
+	requireRun(t, "(= @#"+fingerprint+" @#"+fingerprint+")", "#t")
+	requireRun(t, "(= @native:net/v1 @native:time/v1)", "#f")
+	requireHelp(t, "(help @native:net/v1)", "module reference")
+}
+
 func TestEvalSecretTaint(t *testing.T) {
 	for _, test := range []struct {
 		source string
 		secret bool
 		value  string
 	}{
-		{source: "@secret", secret: true, value: "#<secret>"},
-		{source: "(string/upper @secret)", secret: true, value: "#<secret>"},
-		{source: "(string/length (string/upper @secret))", value: "6"},
-		{source: "(string/length @secret)", value: "6"},
-		{source: "(list/length (list @secret))", value: "1"},
-		{source: "(head (list @secret))", secret: true, value: "#<secret>"},
-		{source: "((fn (value) value) @secret)", secret: true, value: "#<secret>"},
-		{source: "(let ((value @secret)) ((fn () value)))", secret: true, value: "#<secret>"},
-		{source: "(list/map string/upper (list @secret))", secret: true, value: "#<secret>"},
-		{source: "(if (string/contains? @secret \"e\") \"yes\" \"no\")", value: "\"yes\""},
+		{source: "(secret/mark \"secret\")", secret: true, value: "#<secret>"},
+		{source: "(string/upper (secret/mark \"secret\"))", secret: true, value: "#<secret>"},
+		{source: "(string/length (string/upper (secret/mark \"secret\")))", value: "6"},
+		{source: "(string/length (secret/mark \"secret\"))", value: "6"},
+		{source: "(list/length (list (secret/mark \"secret\")))", value: "1"},
+		{source: "(head (list (secret/mark \"secret\")))", secret: true, value: "#<secret>"},
+		{source: "((fn (value) value) (secret/mark \"secret\"))", secret: true, value: "#<secret>"},
+		{source: "(let ((value (secret/mark \"secret\"))) ((fn () value)))", secret: true, value: "#<secret>"},
+		{source: "(list/map string/upper (list (secret/mark \"secret\")))", secret: true, value: "#<secret>"},
+		{source: "(if (string/contains? (secret/mark \"secret\") \"e\") \"yes\" \"no\")", value: "\"yes\""},
 		{source: "(secret/mark (list 1 2))", secret: true, value: "#<secret>"},
-		{source: "(secret? @secret)", value: "#t"},
+		{source: "(secret? (secret/mark \"secret\"))", value: "#t"},
 		{source: "(secret? (secret/mark +))", value: "#t"},
 		{source: "(help (secret/mark string/slice))", value: "\"Returns a Unicode code-point substring slice between an inclusive start and exclusive end.\""},
-		{source: "(help/document @secret \"Public help text.\")", secret: true, value: "#<secret>"},
-		{source: "(help/search @secret)", value: "(secret/mark secret?)"},
-		{source: "(help/env @secret)", value: "(@secret secret/mark secret?)"},
+		{source: "(help/document (secret/mark \"secret\") \"Public help text.\")", secret: true, value: "#<secret>"},
+		{source: "(help/search (secret/mark \"secret\"))", value: "(secret/mark secret?)"},
+		{source: "(help/env (secret/mark \"secret\"))", value: "(secret/mark secret?)"},
 	} {
 		t.Run(test.source, func(t *testing.T) {
-			err, result := runWithSecret(test.source)
+			err, result := Run(test.source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -398,19 +467,19 @@ func TestEvalSecretTaint(t *testing.T) {
 
 func TestEvalPredicatesDoNotPropagateSecretTaint(t *testing.T) {
 	for _, source := range []string{
-		"(bool? @secret)",
-		"(int? @secret)",
-		"(symbol? @secret)",
-		"(pair? @secret)",
-		"(null? @secret)",
-		"(list? @secret)",
-		"(string? @secret)",
-		"(string/contains? @secret \"a\")",
-		"(string/prefix? @secret \"a\")",
-		"(string/suffix? @secret \"t\")",
+		"(bool? (secret/mark \"secret\"))",
+		"(int? (secret/mark \"secret\"))",
+		"(symbol? (secret/mark \"secret\"))",
+		"(pair? (secret/mark \"secret\"))",
+		"(null? (secret/mark \"secret\"))",
+		"(list? (secret/mark \"secret\"))",
+		"(string? (secret/mark \"secret\"))",
+		"(string/contains? (secret/mark \"secret\") \"a\")",
+		"(string/prefix? (secret/mark \"secret\") \"a\")",
+		"(string/suffix? (secret/mark \"secret\") \"t\")",
 	} {
 		t.Run(source, func(t *testing.T) {
-			err, result := runWithSecret(source)
+			err, result := Run(source)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -430,7 +499,7 @@ func TestPreludePredicatesAreNonLeaky(t *testing.T) {
 }
 
 func TestEvalSecretErrorsAreRedacted(t *testing.T) {
-	err, _ := runWithSecret("(int/div @secret 1)")
+	err, _ := Run("(int/div (secret/mark \"secret\") 1)")
 	if err == nil || !strings.Contains(err.Error(), "#<secret>") || strings.Contains(err.Error(), `"secret"`) {
 		t.Fatalf("Run() error = %v, want redacted secret", err)
 	}
@@ -539,7 +608,7 @@ func TestEvalHelpDocument(t *testing.T) {
 		})
 	}
 
-	err, _ := runWithSecret("(help/document 1 @secret)")
+	err, _ := Run("(help/document 1 (secret/mark \"secret\"))")
 	if err == nil || !strings.Contains(err.Error(), "requires public help text") {
 		t.Fatalf("Run() error = %v, want public help text error", err)
 	}
@@ -646,16 +715,4 @@ func requireHelp(t *testing.T, source string, want string) {
 	if got.kind != exprString || got.text != want {
 		t.Fatalf("Run(%q) = %s, want %q", source, got, want)
 	}
-}
-
-func runWithSecret(source string) (error, Expr) {
-	err, expression := Read(source)
-	if err != nil {
-		return err, Expr{}
-	}
-	env := prelude()
-	secret := stringValue("secret", Span{})
-	secret.secret = true
-	env.bind("@secret", secret)
-	return (&evaluator{}).eval(expression, env)
 }

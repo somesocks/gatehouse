@@ -134,6 +134,8 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		return "function (" + strings.Join(expr.closure.parameters, " ") + ")"
 	case exprBuiltin:
 		return "builtin"
+	case exprModuleReference:
+		return "module reference"
 	default:
 		return "invalid"
 	}

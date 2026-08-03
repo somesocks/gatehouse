@@ -22,7 +22,7 @@ func Run(source string) (error, Expr) {
 func (evaluator *evaluator) eval(expression Expr, env *environment) (error, Expr) {
 	for {
 		switch expression.kind {
-		case exprBoolean, exprInteger, exprString, exprNull, exprClosure, exprBuiltin:
+		case exprBoolean, exprInteger, exprString, exprNull, exprClosure, exprBuiltin, exprModuleReference:
 			return nil, expression
 		case exprSymbol:
 			return env.lookup(expression.text, expression.span)

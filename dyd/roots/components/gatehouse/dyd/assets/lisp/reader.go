@@ -50,9 +50,20 @@ func (reader *reader) readExpr() (error, Expr) {
 		return nil, list([]Expr{symbol("quote", Span{Start: start, End: start + 1}), quoted}, Span{Start: start, End: reader.position})
 	case '"':
 		return reader.readString()
+	case '@':
+		return reader.readModuleReference()
 	default:
 		return reader.readAtom()
 	}
+}
+
+func (reader *reader) readModuleReference() (error, Expr) {
+	start := reader.position
+	for !reader.atEnd() && !isDelimiter(reader.source[reader.position]) {
+		_, size := utf8.DecodeRuneInString(reader.source[reader.position:])
+		reader.position += size
+	}
+	return moduleReferenceValue(reader.source[start+1:reader.position], Span{Start: start, End: reader.position})
 }
 
 func (reader *reader) readList() (error, Expr) {
