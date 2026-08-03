@@ -6,71 +6,74 @@ func prelude() *environment {
 	env := &environment{values: make(map[string]*Expr)}
 	env.bind("null", null(Span{}))
 	for _, definition := range preludeBuiltins {
-		env.bind(definition.name, Expr{kind: exprBuiltin, builtin: &builtin{
-			helpText:     definition.helpText,
-			helpKeywords: definition.helpKeywords,
-			leaky:        definition.leaky,
-			call:         definition.call,
-		}})
+		env.bind(definition.name, Expr{
+			kind: exprBuiltin,
+			help: definition.help,
+			builtin: &builtin{
+				leaky: definition.leaky,
+				call:  definition.call,
+			},
+		})
 	}
 	return env
 }
 
 type builtinDefinition struct {
-	name         string
-	helpText     string
-	helpKeywords []string
-	leaky        bool
-	call         builtinCall
+	name  string
+	help  string
+	leaky bool
+	call  builtinCall
 }
 
 var preludeBuiltins = []builtinDefinition{
-	{name: "+", helpText: "Adds integer values.", helpKeywords: []string{"add", "sum", "integer"}, leaky: true, call: pure(add)},
-	{name: "-", helpText: "Subtracts integer values or negates one integer.", helpKeywords: []string{"subtract", "negate", "integer"}, leaky: true, call: pure(subtract)},
-	{name: "*", helpText: "Multiplies integer values.", helpKeywords: []string{"multiply", "product", "integer"}, leaky: true, call: pure(multiply)},
-	{name: "bool?", helpText: "Returns whether a value is a Boolean.", helpKeywords: []string{"boolean", "type", "predicate"}, call: pure(isBoolean)},
-	{name: "int?", helpText: "Returns whether a value is an integer.", helpKeywords: []string{"integer", "number", "type", "predicate"}, call: pure(isInteger)},
-	{name: "symbol?", helpText: "Returns whether a value is a Symbol.", helpKeywords: []string{"symbol", "type", "predicate"}, call: pure(isSymbolValue)},
-	{name: "int/div", helpText: "Divides integers with truncation toward zero.", helpKeywords: []string{"integer", "division", "quotient"}, leaky: true, call: pure(integerDivide)},
-	{name: "int/rem", helpText: "Returns the signed remainder of integer division.", helpKeywords: []string{"integer", "division", "remainder"}, leaky: true, call: pure(integerRemainder)},
-	{name: "int/abs", helpText: "Returns the non-negative magnitude of an integer.", helpKeywords: []string{"integer", "absolute", "magnitude"}, leaky: true, call: pure(integerAbsolute)},
-	{name: "int/min", helpText: "Returns the smallest supplied integer.", helpKeywords: []string{"integer", "minimum", "smallest"}, leaky: true, call: pure(integerMinimum)},
-	{name: "int/max", helpText: "Returns the largest supplied integer.", helpKeywords: []string{"integer", "maximum", "largest"}, leaky: true, call: pure(integerMaximum)},
-	{name: "=", helpText: "Returns whether values have equal types and structural contents.", helpKeywords: []string{"equal", "equality", "compare"}, leaky: true, call: pure(equals)},
-	{name: "<", helpText: "Returns whether integers are strictly increasing.", helpKeywords: []string{"integer", "compare", "less"}, leaky: true, call: pure(lessThan)},
-	{name: "<=", helpText: "Returns whether integers are nondecreasing.", helpKeywords: []string{"integer", "compare", "less", "equal"}, leaky: true, call: pure(lessThanOrEqual)},
-	{name: ">", helpText: "Returns whether integers are strictly decreasing.", helpKeywords: []string{"integer", "compare", "greater"}, leaky: true, call: pure(greaterThan)},
-	{name: ">=", helpText: "Returns whether integers are nonincreasing.", helpKeywords: []string{"integer", "compare", "greater", "equal"}, leaky: true, call: pure(greaterThanOrEqual)},
-	{name: "not", helpText: "Negates a Boolean value.", helpKeywords: []string{"boolean", "negation", "logical"}, leaky: true, call: pure(logicalNot)},
-	{name: "pair", helpText: "Creates a pair from two values.", helpKeywords: []string{"pair", "data", "construct"}, leaky: true, call: pure(makePair)},
-	{name: "head", helpText: "Returns the first value of a pair.", helpKeywords: []string{"pair", "first", "list"}, leaky: true, call: pure(head)},
-	{name: "tail", helpText: "Returns the second value of a pair.", helpKeywords: []string{"pair", "rest", "list"}, leaky: true, call: pure(tail)},
-	{name: "list", helpText: "Creates a proper list from its arguments.", helpKeywords: []string{"list", "construct", "collection"}, leaky: true, call: pure(makeList)},
-	{name: "pair?", helpText: "Returns whether a value is a pair.", helpKeywords: []string{"pair", "type", "predicate"}, call: pure(isPair)},
-	{name: "null?", helpText: "Returns whether a value is the empty list.", helpKeywords: []string{"null", "empty", "list", "predicate"}, call: pure(isNull)},
-	{name: "list?", helpText: "Returns whether a value is a proper list.", helpKeywords: []string{"list", "proper", "type", "predicate"}, call: pure(isList)},
-	{name: "list/length", helpText: "Returns the number of values in a proper list.", helpKeywords: []string{"list", "length", "count"}, call: pure(listLength)},
-	{name: "list/concat", helpText: "Concatenates proper lists.", helpKeywords: []string{"list", "concat", "append"}, leaky: true, call: pure(concatLists)},
-	{name: "list/map", helpText: "Applies a function to every value in a proper list.", helpKeywords: []string{"list", "map", "transform"}, leaky: true, call: mapValues},
-	{name: "list/filter", helpText: "Keeps list values whose predicate returns true.", helpKeywords: []string{"list", "filter", "select", "predicate"}, leaky: true, call: filterValues},
-	{name: "list/fold", helpText: "Combines a proper list from left to right with an accumulator.", helpKeywords: []string{"list", "fold", "reduce", "accumulator"}, leaky: true, call: foldValues},
-	{name: "string?", helpText: "Returns whether a value is a string.", helpKeywords: []string{"string", "text", "type", "predicate"}, call: pure(isString)},
-	{name: "string/length", helpText: "Returns the Unicode code-point length of text.", helpKeywords: []string{"string", "text", "length", "unicode"}, call: pure(stringLength)},
-	{name: "string/concat", helpText: "Concatenates string values.", helpKeywords: []string{"string", "text", "concat", "join"}, leaky: true, call: pure(stringConcat)},
-	{name: "string/slice", helpText: "Returns the code-point slice between an inclusive start and exclusive end.", helpKeywords: []string{"string", "text", "substring", "slice", "unicode"}, leaky: true, call: pure(stringSlice)},
-	{name: "string/trim", helpText: "Removes Unicode whitespace from both ends of text.", helpKeywords: []string{"string", "text", "trim", "whitespace"}, leaky: true, call: pure(stringTrim)},
-	{name: "string/lower", helpText: "Converts text to locale-independent Unicode lower case.", helpKeywords: []string{"string", "text", "lowercase", "case"}, leaky: true, call: pure(stringLower)},
-	{name: "string/upper", helpText: "Converts text to locale-independent Unicode upper case.", helpKeywords: []string{"string", "text", "uppercase", "case"}, leaky: true, call: pure(stringUpper)},
-	{name: "string/contains?", helpText: "Returns whether text contains a string.", helpKeywords: []string{"string", "text", "contains", "search"}, call: pure(stringContains)},
-	{name: "string/prefix?", helpText: "Returns whether text starts with a string.", helpKeywords: []string{"string", "text", "prefix", "starts"}, call: pure(stringPrefix)},
-	{name: "string/suffix?", helpText: "Returns whether text ends with a string.", helpKeywords: []string{"string", "text", "suffix", "ends"}, call: pure(stringSuffix)},
-	{name: "string/split", helpText: "Splits text on a literal separator into a list of strings.", helpKeywords: []string{"string", "text", "split", "separator"}, leaky: true, call: pure(stringSplit)},
-	{name: "string/join", helpText: "Joins a list of strings with a separator.", helpKeywords: []string{"string", "text", "join", "separator"}, leaky: true, call: pure(stringJoin)},
-	{name: "string/replace", helpText: "Replaces every non-overlapping literal occurrence in text.", helpKeywords: []string{"string", "text", "replace", "substitute"}, leaky: true, call: pure(stringReplace)},
-	{name: "secret?", helpText: "Returns whether a value is secret-tainted.", helpKeywords: []string{"secret", "taint", "sensitive", "predicate"}, call: pure(isSecret)},
-	{name: "secret/mark", helpText: "Marks any value as secret-tainted.", helpKeywords: []string{"secret", "taint", "sensitive", "redact"}, call: pure(markSecret)},
-	{name: "help", helpText: "Returns documentation for a value.", helpKeywords: []string{"help", "documentation", "describe", "type"}, leaky: true, call: helpValue},
-	{name: "help/search", helpText: "Returns visible documented bindings matching every search term.", helpKeywords: []string{"help", "search", "discover", "documentation", "function"}, leaky: true, call: helpSearch},
+	{name: "+", help: "Adds integer values.", leaky: true, call: pure(add)},
+	{name: "-", help: "Subtracts integer values or negates one integer.", leaky: true, call: pure(subtract)},
+	{name: "*", help: "Multiplies integer values.", leaky: true, call: pure(multiply)},
+	{name: "bool?", help: "Returns whether a value is a Boolean.", call: pure(isBoolean)},
+	{name: "int?", help: "Returns whether a value is an integer.", call: pure(isInteger)},
+	{name: "symbol?", help: "Returns whether a value is a Symbol.", call: pure(isSymbolValue)},
+	{name: "int/div", help: "Divides integers with truncation toward zero.", leaky: true, call: pure(integerDivide)},
+	{name: "int/rem", help: "Returns the signed remainder of integer division.", leaky: true, call: pure(integerRemainder)},
+	{name: "int/abs", help: "Returns the non-negative magnitude of an integer.", leaky: true, call: pure(integerAbsolute)},
+	{name: "int/min", help: "Returns the smallest supplied integer.", leaky: true, call: pure(integerMinimum)},
+	{name: "int/max", help: "Returns the largest supplied integer.", leaky: true, call: pure(integerMaximum)},
+	{name: "=", help: "Returns whether values have equal types and structural contents.", leaky: true, call: pure(equals)},
+	{name: "<", help: "Returns whether integers are strictly increasing.", leaky: true, call: pure(lessThan)},
+	{name: "<=", help: "Returns whether integers are nondecreasing.", leaky: true, call: pure(lessThanOrEqual)},
+	{name: ">", help: "Returns whether integers are strictly decreasing.", leaky: true, call: pure(greaterThan)},
+	{name: ">=", help: "Returns whether integers are nonincreasing.", leaky: true, call: pure(greaterThanOrEqual)},
+	{name: "not", help: "Negates a Boolean value.", leaky: true, call: pure(logicalNot)},
+	{name: "pair", help: "Creates a pair from two values.", leaky: true, call: pure(makePair)},
+	{name: "head", help: "Returns the first value of a pair.", leaky: true, call: pure(head)},
+	{name: "tail", help: "Returns the second value of a pair.", leaky: true, call: pure(tail)},
+	{name: "list", help: "Creates a proper list from its arguments.", leaky: true, call: pure(makeList)},
+	{name: "pair?", help: "Returns whether a value is a pair.", call: pure(isPair)},
+	{name: "null?", help: "Returns whether a value is the empty list.", call: pure(isNull)},
+	{name: "list?", help: "Returns whether a value is a proper list.", call: pure(isList)},
+	{name: "list/length", help: "Returns the number of values in a proper list.", call: pure(listLength)},
+	{name: "list/concat", help: "Concatenates proper lists.", leaky: true, call: pure(concatLists)},
+	{name: "list/map", help: "Applies a function to every value in a proper list.", leaky: true, call: mapValues},
+	{name: "list/filter", help: "Keeps list values whose predicate returns true.", leaky: true, call: filterValues},
+	{name: "list/fold", help: "Combines a proper list from left to right with an accumulator.", leaky: true, call: foldValues},
+	{name: "string?", help: "Returns whether a value is a string.", call: pure(isString)},
+	{name: "string/length", help: "Returns the Unicode code-point length of text.", call: pure(stringLength)},
+	{name: "string/concat", help: "Concatenates string values.", leaky: true, call: pure(stringConcat)},
+	{name: "string/slice", help: "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.", leaky: true, call: pure(stringSlice)},
+	{name: "string/trim", help: "Removes Unicode whitespace from both ends of text.", leaky: true, call: pure(stringTrim)},
+	{name: "string/lower", help: "Converts text to locale-independent Unicode lower case.", leaky: true, call: pure(stringLower)},
+	{name: "string/upper", help: "Converts text to locale-independent Unicode upper case.", leaky: true, call: pure(stringUpper)},
+	{name: "string/contains?", help: "Returns whether text contains a string.", call: pure(stringContains)},
+	{name: "string/prefix?", help: "Returns whether text starts with a string.", call: pure(stringPrefix)},
+	{name: "string/suffix?", help: "Returns whether text ends with a string.", call: pure(stringSuffix)},
+	{name: "string/split", help: "Splits text on a literal separator into a list of strings.", leaky: true, call: pure(stringSplit)},
+	{name: "string/join", help: "Joins a list of strings with a separator.", leaky: true, call: pure(stringJoin)},
+	{name: "string/replace", help: "Replaces every non-overlapping literal occurrence in text.", leaky: true, call: pure(stringReplace)},
+	{name: "secret?", help: "Returns whether a value is secret-tainted.", call: pure(isSecret)},
+	{name: "secret/mark", help: "Marks any value as secret-tainted.", call: pure(markSecret)},
+	{name: "help", help: "Returns help text for a value.", call: helpValue},
+	{name: "help/document", help: "Returns a value with public help text attached.", call: pure(helpDocument)},
+	{name: "help/env", help: "Returns visible lexical binding names matching every search term.", call: helpEnv},
+	{name: "help/search", help: "Returns visible documented bindings whose help text matches every search term.", call: helpSearch},
 }
 
 func (env *environment) bind(name string, value Expr) {

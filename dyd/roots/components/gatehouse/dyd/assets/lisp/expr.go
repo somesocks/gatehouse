@@ -28,6 +28,7 @@ type Expr struct {
 	kind   exprKind
 	span   Span
 	secret bool
+	help   string
 
 	boolean bool
 	integer int64
@@ -50,10 +51,8 @@ type closure struct {
 }
 
 type builtin struct {
-	helpText     string
-	helpKeywords []string
-	leaky        bool
-	call         builtinCall
+	leaky bool
+	call  builtinCall
 }
 
 type builtinCall func(*evaluator, *environment, []Expr, Span) (error, Expr)
@@ -179,7 +178,11 @@ func equal(left Expr, right Expr) bool {
 		return true
 	case exprPair:
 		return equal(left.pair.first, right.pair.first) && equal(left.pair.rest, right.pair.rest)
+	case exprClosure:
+		return left.closure == right.closure
+	case exprBuiltin:
+		return left.builtin == right.builtin
 	default:
-		return left == right
+		return false
 	}
 }

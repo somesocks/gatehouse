@@ -376,6 +376,10 @@ func TestEvalSecretTaint(t *testing.T) {
 		{source: "(secret/mark (list 1 2))", secret: true, value: "#<secret>"},
 		{source: "(secret? @secret)", value: "#t"},
 		{source: "(secret? (secret/mark +))", value: "#t"},
+		{source: "(help (secret/mark string/slice))", value: "\"Returns a Unicode code-point substring slice between an inclusive start and exclusive end.\""},
+		{source: "(help/document @secret \"Public help text.\")", secret: true, value: "#<secret>"},
+		{source: "(help/search @secret)", value: "(secret/mark secret?)"},
+		{source: "(help/env @secret)", value: "(@secret secret/mark secret?)"},
 	} {
 		t.Run(test.source, func(t *testing.T) {
 			err, result := runWithSecret(test.source)
@@ -433,9 +437,9 @@ func TestEvalSecretErrorsAreRedacted(t *testing.T) {
 }
 
 func TestEvalHelp(t *testing.T) {
-	requireHelp(t, "(help string/slice)", "Returns the code-point slice between an inclusive start and exclusive end.")
+	requireHelp(t, "(help string/slice)", "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.")
 	requireHelp(t, "(help (int/min 1 2))", "int")
-	requireHelp(t, "(help 'string/slice)", "Returns the code-point slice between an inclusive start and exclusive end.")
+	requireHelp(t, "(help 'string/slice)", "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.")
 	requireHelp(t, "(help 'unbound)", "symbol")
 	requireHelp(t, "(help 1)", "int")
 	requireHelp(t, "(help (fn (value) value))", "function (value)")
@@ -463,16 +467,81 @@ func TestEvalHelpSearch(t *testing.T) {
 	requireRun(t, "(help/search \"case\")", "(string/lower string/upper)")
 	requireRun(t, "(help/search \"accumulator\")", "(list/fold)")
 	requireRun(t, "(help/search \"string\" \"slice\")", "(string/slice)")
-	requireRun(t, "(help/search \"BOOL?\")", "(bool?)")
-	requireRun(t, "(let ((alias +)) (help/search \"ALIAS\"))", "(alias)")
+	requireRun(t, "(help/search \"BOOL?\")", "null")
+	requireRun(t, "(let ((alias +)) (help/search \"ALIAS\"))", "null")
 	requireRun(t, "(let ((slice string/slice)) (help/search \"SUBSTRING\"))", "(slice string/slice)")
-	requireRun(t, "(list/map help (help/search \"substring\"))", "(\"Returns the code-point slice between an inclusive start and exclusive end.\")")
+	requireRun(t, "(list/map help (help/search \"substring\"))", "(\"Returns a Unicode code-point substring slice between an inclusive start and exclusive end.\")")
 	requireRun(t, "(let ((string/slice 1)) (help/search \"substring\"))", "null")
 	requireRun(t, "((fn (string/slice) (help/search \"substring\")) 1)", "null")
 
 	err, _ := Run("(help/search 1)")
 	if err == nil || !strings.Contains(err.Error(), "expected a string") {
 		t.Fatalf("Run() error = %v, want string error", err)
+	}
+}
+
+func TestEvalHelpEnv(t *testing.T) {
+	requireRun(t, "(help/env \"BOOL?\")", "(bool?)")
+	requireRun(t, "(let ((alias +)) (help/env \"ALIAS\"))", "(alias)")
+	requireRun(t, "(let ((string/slice 1)) (help/env \"STRING/SLICE\"))", "(string/slice)")
+	requireRun(t, "((fn (parameter) (help/env \"PARAMETER\")) 1)", "(parameter)")
+
+	err, all := Run("(help/env)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, bindings := expressions(all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bindings) != len(preludeBuiltins)+1 {
+		t.Fatalf("(help/env) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+1)
+	}
+	seen := make(map[string]struct{}, len(bindings))
+	for _, binding := range bindings {
+		if binding.kind != exprSymbol {
+			t.Fatalf("(help/env) returned %s, want symbols", binding)
+		}
+		seen[binding.text] = struct{}{}
+	}
+	if _, exists := seen["null"]; !exists {
+		t.Error("(help/env) did not return \"null\"")
+	}
+	for _, definition := range preludeBuiltins {
+		if _, exists := seen[definition.name]; !exists {
+			t.Errorf("(help/env) did not return %q", definition.name)
+		}
+	}
+}
+
+func TestEvalHelpDocument(t *testing.T) {
+	requireHelp(t, "(let ((pi (help/document 3 \"Circle constant.\"))) (help 'pi))", "Circle constant.")
+	requireHelp(t, "(let ((double (help/document (fn (value) (+ value value)) \"Doubles an integer.\"))) (help 'double))", "Doubles an integer.")
+	requireRun(t, "(let ((double (help/document (fn (value) (+ value value)) \"Doubles an integer.\"))) (double 3))", "6")
+	requireRun(t, "(let ((pi (help/document 3 \"Circle constant.\"))) (help/search \"circle\"))", "(pi)")
+	requireRun(t, "(let ((sum (help/document + \"Sums integer values.\"))) (help 'sum))", "\"Sums integer values.\"")
+	requireRun(t, "(= + (help/document + \"Sums integer values.\"))", "#t")
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(help/document)", contains: "requires a value and help text"},
+		{source: "(help/document 1)", contains: "requires a value and help text"},
+		{source: "(help/document 1 \"text\" \"extra\")", contains: "requires a value and help text"},
+		{source: "(help/document 1 2)", contains: "expected a string"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, _ := Run(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+
+	err, _ := runWithSecret("(help/document 1 @secret)")
+	if err == nil || !strings.Contains(err.Error(), "requires public help text") {
+		t.Fatalf("Run() error = %v, want public help text error", err)
 	}
 }
 

@@ -13,53 +13,86 @@ func helpValue(_ *evaluator, env *environment, arguments []Expr, span Span) (err
 }
 
 func helpSearch(_ *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
-	terms := make([]string, len(arguments))
-	for index, argument := range arguments {
-		err, term := requireString(argument, span)
-		if err != nil {
-			return err, Expr{}
-		}
-		terms[index] = strings.ToLower(term)
+	err, terms := helpTerms(arguments, span)
+	if err != nil {
+		return err, Expr{}
 	}
 
-	bindings := env.documentedBindings(terms)
+	bindings := env.matchingBindings(func(_ string, value Expr) bool {
+		return value.help != "" && matchesTerms(value.help, terms)
+	})
 	result := make([]Expr, len(bindings))
 	for index, binding := range bindings {
-		result[index] = symbol(binding.name, Span{})
+		result[index] = symbol(binding, Span{})
 	}
 	return nil, list(result, Span{})
 }
 
-type documentedBinding struct {
-	name string
+func helpEnv(_ *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
+	err, terms := helpTerms(arguments, span)
+	if err != nil {
+		return err, Expr{}
+	}
+
+	bindings := env.matchingBindings(func(name string, _ Expr) bool {
+		return matchesTerms(name, terms)
+	})
+	result := make([]Expr, len(bindings))
+	for index, binding := range bindings {
+		result[index] = symbol(binding, Span{})
+	}
+	return nil, list(result, Span{})
 }
 
-func (env *environment) documentedBindings(terms []string) []documentedBinding {
+func helpDocument(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError(span, "help/document requires a value and help text"), Expr{}
+	}
+	if arguments[1].secret {
+		return expressionError(span, "help/document requires public help text"), Expr{}
+	}
+	err, text := requireString(arguments[1], span)
+	if err != nil {
+		return err, Expr{}
+	}
+	result := arguments[0]
+	result.help = text
+	return nil, result
+}
+
+func helpTerms(arguments []Expr, span Span) (error, []string) {
+	terms := make([]string, len(arguments))
+	for index, argument := range arguments {
+		err, term := requireString(argument, span)
+		if err != nil {
+			return err, nil
+		}
+		terms[index] = strings.ToLower(term)
+	}
+	return nil, terms
+}
+
+func (env *environment) matchingBindings(matches func(string, Expr) bool) []string {
 	seen := make(map[string]struct{})
-	var bindings []documentedBinding
+	var bindings []string
 	for current := env; current != nil; current = current.parent {
 		for name, value := range current.values {
 			if _, exists := seen[name]; exists {
 				continue
 			}
 			seen[name] = struct{}{}
-			if value == nil || !matchesHelp(*value, name, terms) {
+			if value == nil || !matches(name, *value) {
 				continue
 			}
-			bindings = append(bindings, documentedBinding{name: name})
+			bindings = append(bindings, name)
 		}
 	}
-	sort.Slice(bindings, func(left int, right int) bool {
-		return bindings[left].name < bindings[right].name
-	})
+	sort.Strings(bindings)
 	return bindings
 }
 
-func matchesHelp(expr Expr, name string, terms []string) bool {
-	if expr.kind != exprBuiltin {
-		return false
-	}
-	haystack := strings.ToLower(name + "\n" + expr.builtin.helpText + "\n" + strings.Join(expr.builtin.helpKeywords, "\n"))
+func matchesTerms(haystack string, terms []string) bool {
+	haystack = strings.ToLower(haystack)
 	for _, term := range terms {
 		if !strings.Contains(haystack, term) {
 			return false
@@ -79,6 +112,9 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		}
 		return "symbol"
 	}
+	if expr.help != "" {
+		return expr.help
+	}
 
 	switch expr.kind {
 	case exprBoolean:
@@ -97,7 +133,7 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 	case exprClosure:
 		return "function (" + strings.Join(expr.closure.parameters, " ") + ")"
 	case exprBuiltin:
-		return expr.builtin.helpText
+		return "builtin"
 	default:
 		return "invalid"
 	}
