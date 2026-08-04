@@ -64,6 +64,24 @@ func throwError(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
 	return &raisedError{value: value}, Expr{}
 }
 
+func assertValue(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+	if len(forms) != 2 {
+		return expressionError(span, "assert requires a condition and value"), Expr{}
+	}
+	err, condition := evaluator.eval(forms[0], env)
+	if err != nil {
+		return err, Expr{}
+	}
+	err, valid := requireBoolean(condition, forms[0].span)
+	if err != nil {
+		return err, Expr{}
+	}
+	if !valid {
+		return &raisedError{value: errorExpression(stringValue("assertion failed", Span{}), span)}, Expr{}
+	}
+	return evaluator.eval(forms[1], env)
+}
+
 func isError(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
 	if len(arguments) != 1 {
 		return expressionError(span, "error? requires one argument"), Expr{}

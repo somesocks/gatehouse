@@ -409,6 +409,30 @@ func TestEvalErrors(t *testing.T) {
 	}
 }
 
+func TestEvalAssert(t *testing.T) {
+	requireRun(t, "(assert #t 7)", "7")
+	requireRun(t, "(assert #t (bytes/hex/decode \"ff\"))", "#<bytes 1>")
+	requireRun(t, "(error/value (error/catch (assert #f missing)))", "\"assertion failed\"")
+	requireHelp(t, "(help assert)", "Returns a value when a condition is true, otherwise raises an Error.")
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(assert)", contains: "requires a condition and value"},
+		{source: "(assert #t)", contains: "requires a condition and value"},
+		{source: "(assert #t 1 2)", contains: "requires a condition and value"},
+		{source: "(assert 1 7)", contains: "expected a Boolean"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, _ := Run(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+}
+
 func TestEvalMapAndFilter(t *testing.T) {
 	requireRun(t, "(list/map (fn (x) (* x x)) '(1 2 3))", "(1 4 9)")
 	requireRun(t, "(list/filter (fn (x) (< x 3)) '(1 2 3))", "(1 2)")
