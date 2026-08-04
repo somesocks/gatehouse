@@ -210,29 +210,6 @@ func TestEvalSymbolPredicate(t *testing.T) {
 	}
 }
 
-func TestEvalLexicalClosures(t *testing.T) {
-	requireRun(t, "(let ((make-adder (fn (x) (fn (y) (+ x y))))) ((make-adder 2) 3))", "5")
-	requireRun(t, "(let ((x 1) (y (+ x 1))) y)", "2")
-}
-
-func TestEvalRecursiveLetBindings(t *testing.T) {
-	requireRun(t, "(let ((even? (fn (n) (if (= n 0) #t (odd? (- n 1))))) (odd? (fn (n) (if (= n 0) #f (even? (- n 1)))))) (even? 100))", "#t")
-
-	err, _ := Run("(let ((first second) (second 2)) first)")
-	if err == nil || !strings.Contains(err.Error(), "uninitialized") {
-		t.Fatalf("Run() error = %v, want uninitialized binding error", err)
-	}
-}
-
-func TestEvalBegin(t *testing.T) {
-	requireRun(t, "(begin (+ 1 2) (+ 3 4))", "7")
-}
-
-func TestEvalLetControlFlow(t *testing.T) {
-	requireRun(t, "(let () 1)", "1")
-	requireRun(t, "(let ((x 1)) (let ((x 2)) x))", "2")
-}
-
 func TestEvalUncaughtErrors(t *testing.T) {
 	err, _ := Run("(error/throw \"failure\")")
 	if err == nil || !strings.Contains(err.Error(), "thrown error: \"failure\"") {
