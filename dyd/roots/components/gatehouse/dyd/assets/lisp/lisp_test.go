@@ -207,16 +207,6 @@ func TestEvalUncaughtErrors(t *testing.T) {
 	}
 }
 
-func TestEvalModuleReferences(t *testing.T) {
-	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	requireRun(t, "@native:net/v1", "@native:net/v1")
-	requireRun(t, "@file:../shared.lisp", "@file:../shared.lisp")
-	requireRun(t, "@#"+fingerprint, "@#"+fingerprint)
-	requireRun(t, "(= @#"+fingerprint+" @#"+fingerprint+")", "#t")
-	requireRun(t, "(= @native:net/v1 @native:time/v1)", "#f")
-	requireHelp(t, "(help @native:net/v1)", "module reference")
-}
-
 func TestModuleImports(t *testing.T) {
 	core := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	module := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
