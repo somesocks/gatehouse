@@ -89,7 +89,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "error/catch", help: "Returns an Error raised while evaluating an expression.", special: true, call: catchError},
 	{name: "error?", help: "Returns whether a value is an Error.", call: pure(isError)},
 	{name: "error/value", help: "Returns the value carried by an Error.", leaky: true, call: pure(errorValueOf)},
-	{name: "assert", help: "Returns a value when a condition is true, otherwise raises an Error.", special: true, call: assertValue},
+	{name: "assert", help: "Returns null or a supplied value when a condition is true, otherwise raises an Error.", special: true, call: assertValue},
 	{name: "secret?", help: "Returns whether a value is secret-tainted.", call: pure(isSecret)},
 	{name: "secret/mark", help: "Marks any value as secret-tainted.", call: pure(markSecret)},
 	{name: "help", help: "Returns help text for a value.", call: helpValue},

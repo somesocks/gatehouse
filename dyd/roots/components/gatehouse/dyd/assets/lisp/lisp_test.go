@@ -358,18 +358,18 @@ func TestEvalErrors(t *testing.T) {
 }
 
 func TestEvalAssert(t *testing.T) {
+	requireRun(t, "(assert #t)", "null")
 	requireRun(t, "(assert #t 7)", "7")
 	requireRun(t, "(assert #t (bytes/hex/decode \"ff\"))", "#<bytes 1>")
 	requireRun(t, "(error/value (error/catch (assert #f missing)))", "\"assertion failed\"")
-	requireHelp(t, "(help assert)", "Returns a value when a condition is true, otherwise raises an Error.")
+	requireHelp(t, "(help assert)", "Returns null or a supplied value when a condition is true, otherwise raises an Error.")
 
 	for _, test := range []struct {
 		source   string
 		contains string
 	}{
-		{source: "(assert)", contains: "requires a condition and value"},
-		{source: "(assert #t)", contains: "requires a condition and value"},
-		{source: "(assert #t 1 2)", contains: "requires a condition and value"},
+		{source: "(assert)", contains: "requires a condition and optional value"},
+		{source: "(assert #t 1 2)", contains: "requires a condition and optional value"},
 		{source: "(assert 1 7)", contains: "expected a Boolean"},
 	} {
 		t.Run(test.source, func(t *testing.T) {
