@@ -1,4 +1,16 @@
 (begin
+  ; Addition sums every integer argument.
+  (assert (= (+ 1 2 3) 6))
+
+  ; Subtraction applies operands from left to right.
+  (assert (= (- 10 3 2) 5))
+
+  ; Multiplication multiplies every integer argument.
+  (assert (= (* 2 3 4) 24))
+
+  ; Multiplication preserves a negative factor.
+  (assert (= (* 1 -1) -1))
+
   ; Integers satisfy the integer predicate.
   (assert (int? 1))
 

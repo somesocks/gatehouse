@@ -200,36 +200,13 @@ func TestReadTracksErrorSpans(t *testing.T) {
 	}
 }
 
-func TestEvalBuiltinsAndNullTruthiness(t *testing.T) {
-	requireRun(t, "(+ 1 2 3)", "6")
-	requireRun(t, "(- 10 3 2)", "5")
-	requireRun(t, "(* 2 3 4)", "24")
-	requireRun(t, "(* 1 -1)", "-1")
-	requireRun(t, "(head (tail (list 1 2 3)))", "2")
-	requireRun(t, "(if #f 1 2)", "2")
-	requireRun(t, "(null? null)", "#t")
-	requireRun(t, "(not #f)", "#t")
-}
-
-func TestEvalTypePredicates(t *testing.T) {
-	requireRun(t, "(bool? #t)", "#t")
-	requireRun(t, "(bool? 1)", "#f")
+func TestEvalSymbolPredicate(t *testing.T) {
 	requireRun(t, "(symbol? 'name)", "#t")
 	requireRun(t, "(symbol? \"name\")", "#f")
 
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(bool?)", contains: "bool? requires one argument"},
-		{source: "(symbol? 'one 'two)", contains: "symbol? requires one argument"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
+	err, _ := Run("(symbol? 'one 'two)")
+	if err == nil || !strings.Contains(err.Error(), "symbol? requires one argument") {
+		t.Fatalf("Run() error = %v, want symbol predicate arity error", err)
 	}
 }
 
@@ -251,32 +228,7 @@ func TestEvalBegin(t *testing.T) {
 	requireRun(t, "(begin (+ 1 2) (+ 3 4))", "7")
 }
 
-func TestEvalBooleanLogic(t *testing.T) {
-	requireRun(t, "(and)", "#t")
-	requireRun(t, "(or)", "#f")
-	requireRun(t, "(and #t #t)", "#t")
-	requireRun(t, "(and #t #f)", "#f")
-	requireRun(t, "(or #f #t)", "#t")
-	requireRun(t, "(or #f #f)", "#f")
-	requireRun(t, "(and #f missing)", "#f")
-	requireRun(t, "(or #t missing)", "#t")
-
-	for _, source := range []string{
-		"(if null 1 2)",
-		"(not null)",
-		"(and #t null)",
-		"(or #f null)",
-	} {
-		err, _ := Run(source)
-		if err == nil || !strings.Contains(err.Error(), "expected a Boolean") {
-			t.Fatalf("Run(%q) error = %v, want Boolean error", source, err)
-		}
-	}
-}
-
-func TestEvalSpecialFormControlFlow(t *testing.T) {
-	requireRun(t, "(if #t 1 missing)", "1")
-	requireRun(t, "(if #f missing 2)", "2")
+func TestEvalLetControlFlow(t *testing.T) {
 	requireRun(t, "(let () 1)", "1")
 	requireRun(t, "(let ((x 1)) (let ((x 2)) x))", "2")
 }

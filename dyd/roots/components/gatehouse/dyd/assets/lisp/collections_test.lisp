@@ -14,6 +14,12 @@
   ; Tail of a proper list returns its remaining list.
   (assert (= (tail (list 1 2 3)) (list 2 3)))
 
+  ; Head can select an element after taking a list tail.
+  (assert (= (head (tail (list 1 2 3))) 2))
+
+  ; Null satisfies the null predicate.
+  (assert (null? null))
+
   ; A constructed pair satisfies the pair predicate.
   (assert (pair? (pair 1 2)))
 
