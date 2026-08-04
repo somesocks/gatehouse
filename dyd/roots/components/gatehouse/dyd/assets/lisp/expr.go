@@ -18,6 +18,7 @@ const (
 	exprBoolean
 	exprInteger
 	exprString
+	exprBytes
 	exprSymbol
 	exprNull
 	exprPair
@@ -35,6 +36,7 @@ type Expr struct {
 	boolean bool
 	integer int64
 	text    string
+	bytes   string
 
 	pair      *pair
 	closure   *closure
@@ -103,6 +105,10 @@ func integer(value int64, span Span) Expr {
 
 func stringValue(value string, span Span) Expr {
 	return Expr{kind: exprString, text: value, span: span}
+}
+
+func bytesValue(value string, span Span) Expr {
+	return Expr{kind: exprBytes, bytes: value, span: span}
 }
 
 func symbol(value string, span Span) Expr {
@@ -191,6 +197,8 @@ func (expr Expr) String() string {
 		return strconv.FormatInt(expr.integer, 10)
 	case exprString:
 		return strconv.Quote(expr.text)
+	case exprBytes:
+		return "#<bytes " + strconv.Itoa(len(expr.bytes)) + ">"
 	case exprSymbol:
 		return expr.text
 	case exprNull:
@@ -256,6 +264,8 @@ func equal(left Expr, right Expr) bool {
 		return left.integer == right.integer
 	case exprString, exprSymbol:
 		return left.text == right.text
+	case exprBytes:
+		return left.bytes == right.bytes
 	case exprNull:
 		return true
 	case exprPair:

@@ -123,6 +123,8 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		return "int"
 	case exprString:
 		return "string"
+	case exprBytes:
+		return "bytes"
 	case exprNull:
 		return "null"
 	case exprPair:
