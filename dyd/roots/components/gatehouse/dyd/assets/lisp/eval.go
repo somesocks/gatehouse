@@ -75,6 +75,9 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (error, Expr
 			if err != nil {
 				return err, Expr{}
 			}
+			if callee.kind == exprBuiltin && callee.builtin.special {
+				return callee.builtin.call(evaluator, env, forms[1:], expression.span)
+			}
 			arguments := make([]Expr, 0, len(forms)-1)
 			for _, form := range forms[1:] {
 				err, argument := evaluator.eval(form, env)
@@ -110,6 +113,9 @@ func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr
 		}
 		return evaluator.eval(callee.closure.body, env)
 	case exprBuiltin:
+		if callee.builtin.special {
+			return expressionError(span, "%s requires direct special-form invocation", callee.String()), Expr{}
+		}
 		return evaluator.callBuiltin(callee.builtin, env, arguments, span)
 	default:
 		return expressionError(span, "%s is not callable", callee.String()), Expr{}

@@ -1,6 +1,7 @@
 package lisp
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -426,6 +427,98 @@ func TestEvalModuleReferences(t *testing.T) {
 	requireHelp(t, "(help @native:net/v1)", "module reference")
 }
 
+func TestModuleImports(t *testing.T) {
+	core := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	module := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	resolver := &testModuleResolver{
+		sources: map[string]string{
+			"@#" + core:   "(list (pair 'value 7) (pair 'increment (fn (value) (+ value 1))))",
+			"@#" + module: "(import (core @#" + core + ") (list (pair 'value core/value) (pair 'increment core/increment)))",
+		},
+		natives: map[string]Expr{
+			"@native:time/v1": moduleExportsValue(moduleExport{name: "version", value: stringValue("v1", Span{})}),
+		},
+	}
+
+	err, exports := runModule("(import (module @#"+module+") (same @#"+module+") (clock @native:time/v1) (list (pair 'value module/value) (pair 'next (fn (value) (module/increment value))) (pair 'version clock/version)))", resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+		t.Fatalf("value = %s, want 7", got)
+	}
+	if got := moduleExportValue(t, exports, "version").String(); got != "\"v1\"" {
+		t.Fatalf("version = %s, want \"v1\"", got)
+	}
+	err, result := (&evaluator{}).call(moduleExportValue(t, exports, "next"), prelude(), []Expr{integer(4, Span{})}, Span{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "5" {
+		t.Fatalf("next(4) = %s, want 5", got)
+	}
+	if got := resolver.sourceLoads["@#"+core]; got != 1 {
+		t.Fatalf("core source loads = %d, want 1", got)
+	}
+	if got := resolver.sourceLoads["@#"+module]; got != 1 {
+		t.Fatalf("module source loads = %d, want 1", got)
+	}
+
+	err, exports = runModule("(list (pair 'value (fn () (import (module @#"+module+") module/value))))", resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, result = (&evaluator{}).call(moduleExportValue(t, exports, "value"), prelude(), nil, Span{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "7" {
+		t.Fatalf("closure import value = %s, want 7", got)
+	}
+
+	err, exports = runModule("(let ((load import)) (list (pair 'value (load (module @#"+module+") module/value))))", resolver)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+		t.Fatalf("aliased import value = %s, want 7", got)
+	}
+}
+
+func TestModuleImportErrors(t *testing.T) {
+	first := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	second := "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	safe := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	resolver := &testModuleResolver{sources: map[string]string{
+		"@#" + first:  "(import (second @#" + second + ") (list (pair 'value second/value)))",
+		"@#" + second: "(import (first @#" + first + ") (list (pair 'value first/value)))",
+		"@#" + safe:   "(list)",
+	}}
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(import (missing @#sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee) (list))", contains: "missing source"},
+		{source: "(import (one @#" + safe + ") (one @#" + safe + ") (list))", contains: "alias \"one\" is duplicated"},
+		{source: "(import (first @#" + first + ") (list))", contains: "cyclic module import"},
+		{source: "(import (bad 1) (list))", contains: "must contain a name and module reference"},
+		{source: "(list (pair 'value 1) (pair 'value 2))", contains: "export \"value\" is duplicated"},
+	} {
+		t.Run(test.contains, func(t *testing.T) {
+			err, _ := runModule(test.source, resolver)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("runModule(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+
+	err, _ := Run("(import (missing @#sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee) null)")
+	if err == nil || !strings.Contains(err.Error(), "requires a module loader") {
+		t.Fatalf("Run() error = %v, want module loader error", err)
+	}
+}
+
 func TestEvalSecretTaint(t *testing.T) {
 	for _, test := range []struct {
 		source string
@@ -563,8 +656,8 @@ func TestEvalHelpEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins)+1 {
-		t.Fatalf("(help/env) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+1)
+	if len(bindings) != len(preludeBuiltins)+2 {
+		t.Fatalf("(help/env) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+2)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
@@ -575,6 +668,9 @@ func TestEvalHelpEnv(t *testing.T) {
 	}
 	if _, exists := seen["null"]; !exists {
 		t.Error("(help/env) did not return \"null\"")
+	}
+	if _, exists := seen["import"]; !exists {
+		t.Error("(help/env) did not return \"import\"")
 	}
 	for _, definition := range preludeBuiltins {
 		if _, exists := seen[definition.name]; !exists {
@@ -631,8 +727,8 @@ func TestEvalHelpSearchReturnsEveryDocumentedPreludeBinding(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins) {
-		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins))
+	if len(bindings) != len(preludeBuiltins)+1 {
+		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+1)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
@@ -645,6 +741,9 @@ func TestEvalHelpSearchReturnsEveryDocumentedPreludeBinding(t *testing.T) {
 		if _, exists := seen[definition.name]; !exists {
 			t.Errorf("(help/search) did not return %q", definition.name)
 		}
+	}
+	if _, exists := seen["import"]; !exists {
+		t.Error("(help/search) did not return \"import\"")
 	}
 }
 
@@ -715,4 +814,49 @@ func requireHelp(t *testing.T, source string, want string) {
 	if got.kind != exprString || got.text != want {
 		t.Fatalf("Run(%q) = %s, want %q", source, got, want)
 	}
+}
+
+type testModuleResolver struct {
+	sources     map[string]string
+	natives     map[string]Expr
+	sourceLoads map[string]int
+}
+
+func (resolver *testModuleResolver) loadSource(reference moduleReference) (error, string) {
+	if resolver.sourceLoads == nil {
+		resolver.sourceLoads = make(map[string]int)
+	}
+	resolver.sourceLoads[reference.String()]++
+	source, exists := resolver.sources[reference.String()]
+	if !exists {
+		return fmt.Errorf("missing source %s", reference.String()), ""
+	}
+	return nil, source
+}
+
+func (resolver *testModuleResolver) loadNative(reference moduleReference) (error, Expr) {
+	exports, exists := resolver.natives[reference.String()]
+	if !exists {
+		return fmt.Errorf("missing native module %s", reference.String()), Expr{}
+	}
+	return nil, exports
+}
+
+func moduleExportsValue(exports ...moduleExport) Expr {
+	values := make([]Expr, len(exports))
+	for index, export := range exports {
+		values[index] = pairValue(symbol(export.name, Span{}), export.value, Span{})
+	}
+	return list(values, Span{})
+}
+
+func moduleExportValue(t *testing.T, exports []moduleExport, name string) Expr {
+	t.Helper()
+	for _, export := range exports {
+		if export.name == name {
+			return export.value
+		}
+	}
+	t.Fatalf("module exports do not contain %q", name)
+	return Expr{}
 }

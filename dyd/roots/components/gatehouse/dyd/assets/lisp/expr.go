@@ -54,8 +54,9 @@ type closure struct {
 }
 
 type builtin struct {
-	leaky bool
-	call  builtinCall
+	special bool
+	leaky   bool
+	call    builtinCall
 }
 
 type moduleReferenceScheme uint8
@@ -70,6 +71,16 @@ type moduleReference struct {
 	scheme      moduleReferenceScheme
 	uri         string
 	fingerprint string
+}
+
+func (reference moduleReference) String() string {
+	if reference.fingerprint == "" {
+		return "@" + reference.uri
+	}
+	if reference.scheme == moduleReferenceFingerprint && reference.uri == "" {
+		return "@#" + reference.fingerprint
+	}
+	return "@" + reference.uri + "#" + reference.fingerprint
 }
 
 type builtinCall func(*evaluator, *environment, []Expr, Span) (error, Expr)
@@ -191,13 +202,7 @@ func (expr Expr) String() string {
 	case exprBuiltin:
 		return "#<builtin>"
 	case exprModuleReference:
-		if expr.reference.fingerprint == "" {
-			return "@" + expr.reference.uri
-		}
-		if expr.reference.scheme == moduleReferenceFingerprint && expr.reference.uri == "" {
-			return "@#" + expr.reference.fingerprint
-		}
-		return "@" + expr.reference.uri + "#" + expr.reference.fingerprint
+		return expr.reference.String()
 	default:
 		return "#<invalid>"
 	}

@@ -10,19 +10,22 @@ func prelude() *environment {
 			kind: exprBuiltin,
 			help: definition.help,
 			builtin: &builtin{
-				leaky: definition.leaky,
-				call:  definition.call,
+				special: definition.special,
+				leaky:   definition.leaky,
+				call:    definition.call,
 			},
 		})
 	}
+	env.bind("import", importBuiltin(nil))
 	return env
 }
 
 type builtinDefinition struct {
-	name  string
-	help  string
-	leaky bool
-	call  builtinCall
+	name    string
+	help    string
+	special bool
+	leaky   bool
+	call    builtinCall
 }
 
 var preludeBuiltins = []builtinDefinition{
