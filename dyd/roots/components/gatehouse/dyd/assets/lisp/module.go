@@ -27,6 +27,7 @@ func newModuleCache() *moduleCache {
 			nativeCryptoHMACSHA256ID: nativeCryptoHMACSHA256Module(),
 			nativeCryptoSHA256ID:     nativeCryptoSHA256Module(),
 			nativeRandomID:           nativeRandomModule(),
+			nativeTimeID:             nativeTimeModule(),
 		},
 	}
 }
