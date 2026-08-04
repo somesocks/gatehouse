@@ -1,7 +1,6 @@
 package lisp
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -480,25 +479,17 @@ func TestEvalModuleReferences(t *testing.T) {
 func TestModuleImports(t *testing.T) {
 	core := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	module := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	resolver := &testModuleResolver{
-		sources: map[string]string{
-			"@#" + core:   "(list (pair 'value 7) (pair 'increment (fn (value) (+ value 1))))",
-			"@#" + module: "(import (core @#" + core + ") (list (pair 'value core/value) (pair 'increment core/increment)))",
-		},
-		natives: map[string]Expr{
-			"@native:time/v1": moduleExportsValue(moduleExport{name: "version", value: stringValue("v1", Span{})}),
-		},
-	}
+	cache := testModuleCache(t, map[string]string{
+		core:   "(list (pair 'value 7) (pair 'increment (fn (value) (+ value 1))))",
+		module: "(import (core @#" + core + ") (list (pair 'value core/value) (pair 'increment core/increment)))",
+	})
 
-	err, exports := runModule("(import (module @#"+module+") (same @#"+module+") (clock @native:time/v1) (list (pair 'value module/value) (pair 'next (fn (value) (module/increment value))) (pair 'version clock/version)))", resolver)
+	err, exports := runModule("(import (module @#"+module+") (same @#"+module+") (list (pair 'value module/value) (pair 'next (fn (value) (module/increment value)))))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
 		t.Fatalf("value = %s, want 7", got)
-	}
-	if got := moduleExportValue(t, exports, "version").String(); got != "\"v1\"" {
-		t.Fatalf("version = %s, want \"v1\"", got)
 	}
 	err, result := (&evaluator{}).call(moduleExportValue(t, exports, "next"), prelude(), []Expr{integer(4, Span{})}, Span{})
 	if err != nil {
@@ -507,14 +498,8 @@ func TestModuleImports(t *testing.T) {
 	if got := result.String(); got != "5" {
 		t.Fatalf("next(4) = %s, want 5", got)
 	}
-	if got := resolver.sourceLoads["@#"+core]; got != 1 {
-		t.Fatalf("core source loads = %d, want 1", got)
-	}
-	if got := resolver.sourceLoads["@#"+module]; got != 1 {
-		t.Fatalf("module source loads = %d, want 1", got)
-	}
 
-	err, exports = runModule("(list (pair 'value (fn () (import (module @#"+module+") module/value))))", resolver)
+	err, exports = runModule("(list (pair 'value (fn () (import (module @#"+module+") module/value))))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +511,7 @@ func TestModuleImports(t *testing.T) {
 		t.Fatalf("closure import value = %s, want 7", got)
 	}
 
-	err, exports = runModule("(let ((load import)) (list (pair 'value (load (module @#"+module+") module/value))))", resolver)
+	err, exports = runModule("(let ((load import)) (list (pair 'value (load (module @#"+module+") module/value))))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -535,28 +520,97 @@ func TestModuleImports(t *testing.T) {
 	}
 }
 
-func TestModuleImportErrors(t *testing.T) {
-	first := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	second := "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-	safe := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-	resolver := &testModuleResolver{sources: map[string]string{
-		"@#" + first:  "(import (second @#" + second + ") (list (pair 'value second/value)))",
-		"@#" + second: "(import (first @#" + first + ") (list (pair 'value first/value)))",
-		"@#" + safe:   "(list)",
-	}}
+func TestModuleImportsUseLexicalContext(t *testing.T) {
+	id := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	cache := testModuleCache(t, map[string]string{
+		id: "(list (pair 'value value))",
+	})
+
+	err, exports := runModule("(let ((first (let ((value 1)) (import (module @#"+id+") module/value))) (second (let ((value 2)) (import (module @#"+id+") module/value)))) (list (pair 'first first) (pair 'second second)))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := moduleExportValue(t, exports, "first").String(); got != "1" {
+		t.Fatalf("first = %s, want 1", got)
+	}
+	if got := moduleExportValue(t, exports, "second").String(); got != "2" {
+		t.Fatalf("second = %s, want 2", got)
+	}
+}
+
+func TestModuleCacheAliases(t *testing.T) {
+	id := "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	cache := testModuleCache(t, map[string]string{
+		id: "(list (pair 'value 7))",
+	})
+	cache.aliases["file:shared.lisp"] = id
+
+	err, exports := runModule("(import (module @file:shared.lisp) (list (pair 'value module/value)))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+		t.Fatalf("value = %s, want 7", got)
+	}
+}
+
+func TestNativeCryptoSHA256Module(t *testing.T) {
+	cache := newModuleCache()
+	err, exports := runModule("(import (sha256 @native:crypto/sha256/v1) (list (pair 'digest (bytes/hex/encode (sha256/digest (bytes/utf8/encode \"abc\"))))))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := moduleExportValue(t, exports, "digest").String(); got != "\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"" {
+		t.Fatalf("digest = %s, want SHA-256 digest", got)
+	}
+
+	err, exports = runModule("(import (sha256 @native:crypto/sha256/v1) (list (pair 'digest (sha256/digest (secret/mark (bytes/utf8/encode \"abc\"))))))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if value := moduleExportValue(t, exports, "digest"); !value.secret || value.String() != "#<secret>" {
+		t.Fatalf("secret digest = %#v, want secret Bytes", value)
+	}
 
 	for _, test := range []struct {
 		source   string
 		contains string
 	}{
-		{source: "(import (missing @#sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee) (list))", contains: "missing source"},
+		{source: "(import (sha256 @native:crypto/sha256/v1) (list (pair 'value (sha256/digest))))", contains: "requires one Bytes value"},
+		{source: "(import (sha256 @native:crypto/sha256/v1) (list (pair 'value (sha256/digest \"abc\"))))", contains: "expected Bytes"},
+		{source: "(import (unknown @native:crypto/unknown/v1) (list))", contains: "unknown module"},
+	} {
+		t.Run(test.contains, func(t *testing.T) {
+			err, _ := runModule(test.source, cache)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("runModule(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+}
+
+func TestModuleImportErrors(t *testing.T) {
+	first := "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	second := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	safe := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	cache := testModuleCache(t, map[string]string{
+		first:  "(import (second @#" + second + ") (list (pair 'value second/value)))",
+		second: "(import (first @#" + first + ") (list (pair 'value first/value)))",
+		safe:   "(list)",
+	})
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(import (missing @#sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa) (list))", contains: "unknown module"},
 		{source: "(import (one @#" + safe + ") (one @#" + safe + ") (list))", contains: "alias \"one\" is duplicated"},
 		{source: "(import (first @#" + first + ") (list))", contains: "cyclic module import"},
 		{source: "(import (bad 1) (list))", contains: "must contain a name and module reference"},
 		{source: "(list (pair 'value 1) (pair 'value 2))", contains: "export \"value\" is duplicated"},
 	} {
 		t.Run(test.contains, func(t *testing.T) {
-			err, _ := runModule(test.source, resolver)
+			err, _ := runModule(test.source, cache)
 			if err == nil || !strings.Contains(err.Error(), test.contains) {
 				t.Fatalf("runModule(%q) error = %v, want %q", test.source, err, test.contains)
 			}
@@ -872,38 +926,17 @@ func requireHelp(t *testing.T, source string, want string) {
 	}
 }
 
-type testModuleResolver struct {
-	sources     map[string]string
-	natives     map[string]Expr
-	sourceLoads map[string]int
-}
-
-func (resolver *testModuleResolver) loadSource(reference moduleReference) (error, string) {
-	if resolver.sourceLoads == nil {
-		resolver.sourceLoads = make(map[string]int)
+func testModuleCache(t *testing.T, sources map[string]string) *moduleCache {
+	t.Helper()
+	cache := newModuleCache()
+	for id, source := range sources {
+		err, expression := Read(source)
+		if err != nil {
+			t.Fatalf("Read(%q) error = %v", id, err)
+		}
+		cache.modules[id] = expression
 	}
-	resolver.sourceLoads[reference.String()]++
-	source, exists := resolver.sources[reference.String()]
-	if !exists {
-		return fmt.Errorf("missing source %s", reference.String()), ""
-	}
-	return nil, source
-}
-
-func (resolver *testModuleResolver) loadNative(reference moduleReference) (error, Expr) {
-	exports, exists := resolver.natives[reference.String()]
-	if !exists {
-		return fmt.Errorf("missing native module %s", reference.String()), Expr{}
-	}
-	return nil, exports
-}
-
-func moduleExportsValue(exports ...moduleExport) Expr {
-	values := make([]Expr, len(exports))
-	for index, export := range exports {
-		values[index] = pairValue(symbol(export.name, Span{}), export.value, Span{})
-	}
-	return list(values, Span{})
+	return cache
 }
 
 func moduleExportValue(t *testing.T, exports []moduleExport, name string) Expr {

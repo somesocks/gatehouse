@@ -5,15 +5,14 @@ import (
 	"strings"
 )
 
-type moduleResolver interface {
-	loadSource(moduleReference) (error, string)
-	loadNative(moduleReference) (error, Expr)
+type moduleLoader struct {
+	cache   *moduleCache
+	loading []string
 }
 
-type moduleLoader struct {
-	resolver moduleResolver
-	loading  []moduleReference
-	loaded   map[moduleReference][]moduleExport
+type moduleCache struct {
+	aliases map[string]string
+	modules map[string]Expr
 }
 
 type moduleExport struct {
@@ -21,79 +20,92 @@ type moduleExport struct {
 	value Expr
 }
 
-func runModule(source string, resolver moduleResolver) (error, []moduleExport) {
-	loader := &moduleLoader{
-		resolver: resolver,
-		loaded:   make(map[moduleReference][]moduleExport),
+func newModuleCache() *moduleCache {
+	return &moduleCache{
+		aliases: make(map[string]string),
+		modules: map[string]Expr{
+			nativeCryptoSHA256ID: nativeCryptoSHA256Module(),
+		},
 	}
-	return loader.evaluateSource(source)
 }
 
-func (loader *moduleLoader) evaluateSource(source string) (error, []moduleExport) {
+func runModule(source string, cache *moduleCache) (error, []moduleExport) {
+	if cache == nil {
+		cache = newModuleCache()
+	}
+	loader := &moduleLoader{
+		cache: cache,
+	}
+	return loader.evaluateSource(source, prelude())
+}
+
+func (loader *moduleLoader) evaluateSource(source string, parent *environment) (error, []moduleExport) {
 	err, expression := Read(source)
 	if err != nil {
 		return err, nil
 	}
-	err, result := (&evaluator{}).eval(expression, modulePrelude(loader))
+	err, result := (&evaluator{}).eval(expression, moduleEnvironment(loader, parent))
 	if err != nil {
 		return err, nil
 	}
 	return moduleExports(result)
 }
 
-func (loader *moduleLoader) load(reference moduleReference) (error, []moduleExport) {
-	if exports, exists := loader.loaded[reference]; exists {
-		return nil, exports
+func (loader *moduleLoader) load(reference moduleReference, parent *environment) (error, []moduleExport) {
+	err, id := loader.moduleID(reference)
+	if err != nil {
+		return err, nil
 	}
 	for index, active := range loader.loading {
-		if active != reference {
+		if active != id {
 			continue
 		}
-		cycle := append(append([]moduleReference{}, loader.loading[index:]...), reference)
-		paths := make([]string, len(cycle))
-		for index, item := range cycle {
-			paths[index] = item.String()
-		}
-		return fmt.Errorf("cyclic module import: %s", strings.Join(paths, " -> ")), nil
+		cycle := append(append([]string{}, loader.loading[index:]...), id)
+		return fmt.Errorf("cyclic module import: %s", strings.Join(cycle, " -> ")), nil
 	}
-	if loader.resolver == nil {
-		return fmt.Errorf("module resolver is unavailable"), nil
+	if loader.cache == nil {
+		return fmt.Errorf("module cache is unavailable"), nil
+	}
+	expression, exists := loader.cache.modules[id]
+	if !exists {
+		return fmt.Errorf("unknown module %q", id), nil
 	}
 
-	loader.loading = append(loader.loading, reference)
+	loader.loading = append(loader.loading, id)
 	defer func() {
 		loader.loading = loader.loading[:len(loader.loading)-1]
 	}()
 
-	var err error
-	var expression Expr
-	switch reference.scheme {
-	case moduleReferenceNative:
-		err, expression = loader.resolver.loadNative(reference)
-	default:
-		var source string
-		err, source = loader.resolver.loadSource(reference)
-		if err == nil {
-			err, expression = Read(source)
-		}
-		if err == nil {
-			err, expression = (&evaluator{}).eval(expression, modulePrelude(loader))
-		}
-	}
+	err, result := (&evaluator{}).eval(expression, moduleEnvironment(loader, parent))
 	if err != nil {
 		return fmt.Errorf("load %s: %w", reference.String(), err), nil
 	}
-
-	err, exports := moduleExports(expression)
+	err, exports := moduleExports(result)
 	if err != nil {
 		return fmt.Errorf("module %s: %w", reference.String(), err), nil
 	}
-	loader.loaded[reference] = exports
 	return nil, exports
 }
 
-func modulePrelude(loader *moduleLoader) *environment {
-	env := prelude()
+func (loader *moduleLoader) moduleID(reference moduleReference) (error, string) {
+	if reference.fingerprint != "" {
+		return nil, reference.fingerprint
+	}
+	if reference.scheme == moduleReferenceNative {
+		return nil, reference.uri
+	}
+	if loader.cache == nil {
+		return fmt.Errorf("module cache is unavailable"), ""
+	}
+	id, exists := loader.cache.aliases[reference.uri]
+	if !exists {
+		return fmt.Errorf("unknown module alias %q", reference.uri), ""
+	}
+	return nil, id
+}
+
+func moduleEnvironment(loader *moduleLoader, parent *environment) *environment {
+	env := &environment{parent: parent, values: make(map[string]*Expr)}
 	env.bind("import", importBuiltin(loader))
 	return env
 }
@@ -127,7 +139,7 @@ func importModules(loader *moduleLoader, evaluator *evaluator, env *environment,
 		}
 		aliases[alias] = struct{}{}
 
-		err, exports := loader.load(reference)
+		err, exports := loader.load(reference, env)
 		if err != nil {
 			return expressionError(form.span, "import %s: %v", reference.String(), err), Expr{}
 		}
