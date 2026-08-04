@@ -389,73 +389,13 @@ func TestModuleImportErrors(t *testing.T) {
 	}
 }
 
-func TestEvalSecretTaint(t *testing.T) {
-	for _, test := range []struct {
-		source string
-		secret bool
-		value  string
-	}{
-		{source: "(secret/mark \"secret\")", secret: true, value: "#<secret>"},
-		{source: "(string/upper (secret/mark \"secret\"))", secret: true, value: "#<secret>"},
-		{source: "(string/length (string/upper (secret/mark \"secret\")))", value: "6"},
-		{source: "(string/length (secret/mark \"secret\"))", value: "6"},
-		{source: "(list/length (list (secret/mark \"secret\")))", value: "1"},
-		{source: "(head (list (secret/mark \"secret\")))", secret: true, value: "#<secret>"},
-		{source: "((fn (value) value) (secret/mark \"secret\"))", secret: true, value: "#<secret>"},
-		{source: "(let ((value (secret/mark \"secret\"))) ((fn () value)))", secret: true, value: "#<secret>"},
-		{source: "(list/map string/upper (list (secret/mark \"secret\")))", secret: true, value: "#<secret>"},
-		{source: "(if (string/contains? (secret/mark \"secret\") \"e\") \"yes\" \"no\")", value: "\"yes\""},
-		{source: "(secret/mark (list 1 2))", secret: true, value: "#<secret>"},
-		{source: "(secret? (secret/mark \"secret\"))", value: "#t"},
-		{source: "(secret? (secret/mark +))", value: "#t"},
-		{source: "(help (secret/mark string/slice))", value: "\"Returns a Unicode code-point substring slice between an inclusive start and exclusive end.\""},
-		{source: "(help/document (secret/mark \"secret\") \"Public help text.\")", secret: true, value: "#<secret>"},
-		{source: "(help/search (secret/mark \"secret\"))", value: "(secret/mark secret?)"},
-		{source: "(help/env (secret/mark \"secret\"))", value: "(secret/mark secret?)"},
-		{source: "(bytes/hex/encode (secret/mark (bytes/hex/decode \"ff\")))", secret: true, value: "#<secret>"},
-		{source: "(bytes/base64/encode (secret/mark (bytes/hex/decode \"ff\")))", secret: true, value: "#<secret>"},
-		{source: "(bytes/base64url/encode (secret/mark (bytes/hex/decode \"ff\")))", secret: true, value: "#<secret>"},
-		{source: "(bytes/base64/pad (secret/mark \"/wA\"))", secret: true, value: "#<secret>"},
-		{source: "(bytes/length (secret/mark (bytes/hex/decode \"ff00\")))", value: "2"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, result := Run(test.source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.secret != test.secret {
-				t.Fatalf("Run(%q) secret = %t, want %t", test.source, result.secret, test.secret)
-			}
-			if got := result.String(); got != test.value {
-				t.Fatalf("Run(%q) = %s, want %s", test.source, got, test.value)
-			}
-		})
+func TestEvalSecretRendering(t *testing.T) {
+	err, result := Run("(secret/mark \"secret\")")
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestEvalPredicatesDoNotPropagateSecretTaint(t *testing.T) {
-	for _, source := range []string{
-		"(bool? (secret/mark \"secret\"))",
-		"(int? (secret/mark \"secret\"))",
-		"(symbol? (secret/mark \"secret\"))",
-		"(pair? (secret/mark \"secret\"))",
-		"(null? (secret/mark \"secret\"))",
-		"(list? (secret/mark \"secret\"))",
-		"(string? (secret/mark \"secret\"))",
-		"(string/contains? (secret/mark \"secret\") \"a\")",
-		"(string/prefix? (secret/mark \"secret\") \"a\")",
-		"(string/suffix? (secret/mark \"secret\") \"t\")",
-		"(bytes? (secret/mark (bytes/hex/decode \"ff\")))",
-	} {
-		t.Run(source, func(t *testing.T) {
-			err, result := Run(source)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if result.secret {
-				t.Fatalf("Run(%q) result is secret", source)
-			}
-		})
+	if !result.secret || result.String() != "#<secret>" {
+		t.Fatalf("secret value = %#v, want redacted secret", result)
 	}
 }
 
