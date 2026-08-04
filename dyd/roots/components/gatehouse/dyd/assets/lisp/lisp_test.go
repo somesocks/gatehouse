@@ -93,13 +93,45 @@ func TestReadRejectsInvalidInput(t *testing.T) {
 	}
 }
 
-func TestReadIgnoresCommentsAndWhitespace(t *testing.T) {
-	err, expression := Read(" \t; leading comment\n(list 1 ; middle comment\n 2) ; trailing comment\n")
+func TestReadAttachesCommentsAndWhitespace(t *testing.T) {
+	err, expression := Read(" \t;  leading comment  \n;\tcontinued comment\t\n(list ;  list function  \n 1 ;  one  \n\n ;  two  \n 2) ;  trailing comment  \n; continued trailing comment\n")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got, want := expression.String(), "(list 1 2)"; got != want {
 		t.Fatalf("Read() = %s, want %s", got, want)
+	}
+	if got, want := expression.help, "leading comment\ncontinued comment\ntrailing comment\ncontinued trailing comment"; got != want {
+		t.Fatalf("expression help = %q, want %q", got, want)
+	}
+	err, forms := expressions(expression)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := forms[0].help, "list function"; got != want {
+		t.Fatalf("list function help = %q, want %q", got, want)
+	}
+	if got, want := forms[1].help, "one"; got != want {
+		t.Fatalf("first argument help = %q, want %q", got, want)
+	}
+	if got, want := forms[2].help, "two"; got != want {
+		t.Fatalf("second argument help = %q, want %q", got, want)
+	}
+}
+
+func TestReadRejectsUnattachedComments(t *testing.T) {
+	for _, source := range []string{
+		"; missing target\n",
+		"(\n  ; missing target\n)",
+		"(; missing target\n  1)",
+		"(list 1\n  ; missing target\n)",
+	} {
+		t.Run(source, func(t *testing.T) {
+			err, _ := Read(source)
+			if err == nil || !strings.Contains(err.Error(), "comment has no target") {
+				t.Fatalf("Read(%q) error = %v, want unattached comment error", source, err)
+			}
+		})
 	}
 }
 
@@ -432,6 +464,21 @@ func TestModuleImports(t *testing.T) {
 	}
 	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
 		t.Fatalf("aliased import value = %s, want 7", got)
+	}
+}
+
+func TestModuleCommentsProvideExportHelp(t *testing.T) {
+	id := "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	cache := testModuleCache(t, map[string]string{
+		id: "(list\n  ; Returns the answer.\n  ; The result is always an integer.\n  (pair 'answer 42))",
+	})
+
+	err, exports := runModule("(import (module @#"+id+") (list (pair 'answer module/answer)))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := moduleExportValue(t, exports, "answer").help, "Returns the answer.\nThe result is always an integer."; got != want {
+		t.Fatalf("imported answer help = %q, want %q", got, want)
 	}
 }
 

@@ -185,6 +185,16 @@ func list(values []Expr, span Span) Expr {
 	return result
 }
 
+func appendHelp(expr *Expr, text string) {
+	if text == "" {
+		return
+	}
+	if expr.help != "" {
+		expr.help += "\n"
+	}
+	expr.help += text
+}
+
 func (expr Expr) String() string {
 	if expr.secret {
 		return "#<secret>"

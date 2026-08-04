@@ -19,7 +19,13 @@ func Run(source string) (error, Expr) {
 	return Eval(expression)
 }
 
-func (evaluator *evaluator) eval(expression Expr, env *environment) (error, Expr) {
+func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, result Expr) {
+	help := expression.help
+	defer func() {
+		if err == nil && help != "" {
+			result.help = help
+		}
+	}()
 	for {
 		switch expression.kind {
 		case exprBoolean, exprInteger, exprString, exprBytes, exprError, exprNull, exprClosure, exprBuiltin, exprModuleReference:

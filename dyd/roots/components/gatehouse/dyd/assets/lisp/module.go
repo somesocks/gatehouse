@@ -181,7 +181,11 @@ func moduleExports(expression Expr) (error, []moduleExport) {
 			return expressionError(value.span, "module export %q is duplicated", name), nil
 		}
 		seen[name] = struct{}{}
-		exports = append(exports, moduleExport{name: name, value: value.pair.rest})
+		exported := value.pair.rest
+		if value.help != "" {
+			exported.help = value.help
+		}
+		exports = append(exports, moduleExport{name: name, value: exported})
 	}
 	return nil, exports
 }
