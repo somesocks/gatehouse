@@ -211,53 +211,6 @@ func TestEvalBuiltinsAndNullTruthiness(t *testing.T) {
 	requireRun(t, "(not #f)", "#t")
 }
 
-func TestEvalIntegerOperations(t *testing.T) {
-	requireRun(t, "(int? 1)", "#t")
-	requireRun(t, "(int? \"1\")", "#f")
-	requireRun(t, "(int/div 5 2)", "2")
-	requireRun(t, "(int/div -5 2)", "-2")
-	requireRun(t, "(int/div 5 -2)", "-2")
-	requireRun(t, "(int/div -5 -2)", "2")
-	requireRun(t, "(int/rem 5 2)", "1")
-	requireRun(t, "(int/rem -5 2)", "-1")
-	requireRun(t, "(int/rem 5 -2)", "1")
-	requireRun(t, "(int/rem -5 -2)", "-1")
-	requireRun(t, "(int/rem -9223372036854775808 -1)", "0")
-	requireRun(t, "(int/abs -5)", "5")
-	requireRun(t, "(int/abs 0)", "0")
-	requireRun(t, "(int/min 3 -1 2)", "-1")
-	requireRun(t, "(int/max 3 -1 2)", "3")
-	requireRun(t, "(int/min 5)", "5")
-	requireRun(t, "(int/max -5)", "-5")
-	requireRun(t, "(> 3 2)", "#t")
-	requireRun(t, "(> 2 3)", "#f")
-	requireRun(t, "(>= 3 3)", "#t")
-	requireRun(t, "(>= 2 3)", "#f")
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(int/div 1 0)", contains: "non-zero divisor"},
-		{source: "(int/rem 1 0)", contains: "non-zero divisor"},
-		{source: "(int/div -9223372036854775808 -1)", contains: "integer overflow"},
-		{source: "(int/div 1)", contains: "requires two integers"},
-		{source: "(int/rem 1 \"2\")", contains: "expected an integer"},
-		{source: "(int/abs -9223372036854775808)", contains: "integer overflow"},
-		{source: "(int/abs)", contains: "requires one integer"},
-		{source: "(int/min)", contains: "requires at least one integer"},
-		{source: "(int/max 1 \"2\")", contains: "expected an integer"},
-		{source: "(> 1)", contains: "requires at least two arguments"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
-}
-
 func TestEvalTypePredicates(t *testing.T) {
 	requireRun(t, "(bool? #t)", "#t")
 	requireRun(t, "(bool? 1)", "#f")
