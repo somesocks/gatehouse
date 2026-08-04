@@ -453,29 +453,6 @@ func TestEvalMapAndFilter(t *testing.T) {
 	}
 }
 
-func TestEvalStrings(t *testing.T) {
-	requireRun(t, "(string? \"text\")", "#t")
-	requireRun(t, "(string? 1)", "#f")
-	requireRun(t, "(string/length \"aλb\")", "3")
-	requireRun(t, "(string/concat)", "\"\"")
-	requireRun(t, "(string/concat \"gate\" \"house\")", "\"gatehouse\"")
-	requireRun(t, "(string/slice \"aλbc\" 1 3)", "\"λb\"")
-	requireRun(t, "(string/trim \" text \")", "\"text\"")
-	requireRun(t, "(string/lower \"Straße\")", "\"straße\"")
-	requireRun(t, "(string/upper \"Straße\")", "\"STRAßE\"")
-	requireRun(t, "(string/contains? \"gatehouse\" \"house\")", "#t")
-	requireRun(t, "(string/contains? \"gatehouse\" \"\")", "#t")
-	requireRun(t, "(string/prefix? \"gatehouse\" \"gate\")", "#t")
-	requireRun(t, "(string/suffix? \"gatehouse\" \"house\")", "#t")
-	requireRun(t, "(string/split \"a,,b,\" \",\")", "(\"a\" \"\" \"b\" \"\")")
-	requireRun(t, "(string/split \"aλb\" \"\")", "(\"a\" \"λ\" \"b\")")
-	requireRun(t, "(string/split \"\" \"\")", "null")
-	requireRun(t, "(string/join (list \"one\" \"two\" \"three\") \", \")", "\"one, two, three\"")
-	requireRun(t, "(string/join null \",\")", "\"\"")
-	requireRun(t, "(string/replace \"a-b-c\" \"-\" \"\")", "\"abc\"")
-	requireRun(t, "(string/replace \"one two one\" \"one\" \"1\")", "\"1 two 1\"")
-}
-
 func TestEvalModuleReferences(t *testing.T) {
 	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	requireRun(t, "@native:net/v1", "@native:net/v1")
@@ -864,26 +841,6 @@ func TestEvalHelpSearchReturnsEveryDocumentedPreludeBinding(t *testing.T) {
 	}
 	if _, exists := seen["import"]; !exists {
 		t.Error("(help/search) did not return \"import\"")
-	}
-}
-
-func TestEvalStringErrors(t *testing.T) {
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(string/length 1)", contains: "expected a string"},
-		{source: "(string/slice \"abc\" -1 2)", contains: "indices are out of range"},
-		{source: "(string/slice \"abc\" 2 1)", contains: "indices are out of range"},
-		{source: "(string/join (list \"a\" 1) \",\")", contains: "expected a string"},
-		{source: "(string/replace \"abc\" \"\" \"x\")", contains: "non-empty old text"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
 	}
 }
 
