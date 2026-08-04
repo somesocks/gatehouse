@@ -24,7 +24,8 @@ func newModuleCache() *moduleCache {
 	return &moduleCache{
 		aliases: make(map[string]string),
 		modules: map[string]Expr{
-			nativeCryptoSHA256ID: nativeCryptoSHA256Module(),
+			nativeCryptoHMACSHA256ID: nativeCryptoHMACSHA256Module(),
+			nativeCryptoSHA256ID:     nativeCryptoSHA256Module(),
 		},
 	}
 }
