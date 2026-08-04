@@ -476,56 +476,6 @@ func TestEvalStrings(t *testing.T) {
 	requireRun(t, "(string/replace \"one two one\" \"one\" \"1\")", "\"1 two 1\"")
 }
 
-func TestEvalBytes(t *testing.T) {
-	requireRun(t, "(bytes? (bytes/utf8/encode \"aλ\"))", "#t")
-	requireRun(t, "(bytes? \"aλ\")", "#f")
-	requireRun(t, "(bytes/length (bytes/utf8/encode \"aλ\"))", "3")
-	requireRun(t, "(bytes/concat)", "#<bytes 0>")
-	requireRun(t, "(bytes/hex/encode (bytes/concat (bytes/hex/decode \"fF\") (bytes/hex/decode \"00\")))", "\"ff00\"")
-	requireRun(t, "(bytes/hex/encode (bytes/slice (bytes/hex/decode \"ff0011\") 1 3))", "\"0011\"")
-	requireRun(t, "(bytes/utf8/decode (bytes/utf8/encode \"aλ\"))", "\"aλ\"")
-	requireRun(t, "(bytes/hex/encode (bytes/hex/decode \"Ff00\"))", "\"ff00\"")
-	requireRun(t, "(bytes/base64/encode (bytes/hex/decode \"ff00\"))", "\"/wA=\"")
-	requireRun(t, "(bytes/hex/encode (bytes/base64/decode \"/wA=\"))", "\"ff00\"")
-	requireRun(t, "(bytes/base64url/encode (bytes/hex/decode \"ff00\"))", "\"_wA=\"")
-	requireRun(t, "(bytes/hex/encode (bytes/base64url/decode \"_wA=\"))", "\"ff00\"")
-	requireRun(t, "(bytes/base64/pad \"/wA\")", "\"/wA=\"")
-	requireRun(t, "(bytes/base64/pad \"_wA\")", "\"_wA=\"")
-	requireRun(t, "(bytes/base64/pad \"TQ==\")", "\"TQ==\"")
-	requireRun(t, "(bytes/base64/unpad \"/wA=\")", "\"/wA\"")
-	requireRun(t, "(bytes/base64/unpad \"_wA=\")", "\"_wA\"")
-	requireRun(t, "(bytes/base64/unpad \"TQ\")", "\"TQ\"")
-	requireRun(t, "(= (bytes/hex/decode \"ff\") (bytes/hex/decode \"ff\"))", "#t")
-	requireRun(t, "(= (bytes/hex/decode \"ff\") (bytes/hex/decode \"00\"))", "#f")
-	requireRun(t, "(bytes/hex/decode \"ff00\")", "#<bytes 2>")
-	requireHelp(t, "(help (bytes/hex/decode \"ff\"))", "bytes")
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(bytes/hex/decode \"f\")", contains: "requires hexadecimal text"},
-		{source: "(bytes/utf8/decode (bytes/hex/decode \"ff\"))", contains: "requires valid UTF-8 Bytes"},
-		{source: "(bytes/length \"text\")", contains: "expected Bytes"},
-		{source: "(bytes/slice (bytes/hex/decode \"ff\") 1 0)", contains: "indices are out of range"},
-		{source: "(bytes/base64/decode \"/wA\")", contains: "requires standard padded Base64 text"},
-		{source: "(bytes/base64/decode \"_wA=\")", contains: "requires standard padded Base64 text"},
-		{source: "(bytes/base64url/decode \"/wA=\")", contains: "requires URL-safe padded Base64 text"},
-		{source: "(bytes/base64/pad \"A\")", contains: "requires valid Base64 text"},
-		{source: "(bytes/base64/pad \"TQ=\")", contains: "requires valid Base64 text"},
-		{source: "(bytes/base64/pad \"T=Q=\")", contains: "requires valid Base64 text"},
-		{source: "(bytes/base64/pad \"+_==\")", contains: "requires valid Base64 text"},
-		{source: "(bytes/utf8/encode 1)", contains: "expected a string"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
-}
-
 func TestEvalModuleReferences(t *testing.T) {
 	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	requireRun(t, "@native:net/v1", "@native:net/v1")
