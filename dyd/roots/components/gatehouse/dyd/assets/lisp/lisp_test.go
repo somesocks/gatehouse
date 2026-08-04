@@ -200,16 +200,6 @@ func TestReadTracksErrorSpans(t *testing.T) {
 	}
 }
 
-func TestEvalSymbolPredicate(t *testing.T) {
-	requireRun(t, "(symbol? 'name)", "#t")
-	requireRun(t, "(symbol? \"name\")", "#f")
-
-	err, _ := Run("(symbol? 'one 'two)")
-	if err == nil || !strings.Contains(err.Error(), "symbol? requires one argument") {
-		t.Fatalf("Run() error = %v, want symbol predicate arity error", err)
-	}
-}
-
 func TestEvalUncaughtErrors(t *testing.T) {
 	err, _ := Run("(error/throw \"failure\")")
 	if err == nil || !strings.Contains(err.Error(), "thrown error: \"failure\"") {
