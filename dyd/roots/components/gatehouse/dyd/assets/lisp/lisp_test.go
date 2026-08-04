@@ -445,28 +445,6 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	}
 }
 
-func requireRun(t *testing.T, source string, want string) {
-	t.Helper()
-	err, got := Run(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.String() != want {
-		t.Fatalf("Run(%q) = %s, want %s", source, got, want)
-	}
-}
-
-func requireHelp(t *testing.T, source string, want string) {
-	t.Helper()
-	err, got := Run(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.kind != exprString || got.text != want {
-		t.Fatalf("Run(%q) = %s, want %q", source, got, want)
-	}
-}
-
 func testModuleCache(t *testing.T, sources map[string]string) *moduleCache {
 	t.Helper()
 	cache := newModuleCache()
@@ -488,15 +466,4 @@ func runWithModuleCache(source string, cache *moduleCache) (error, Expr) {
 	env := prelude()
 	env.bind("import", importBuiltin(&moduleLoader{cache: cache}))
 	return (&evaluator{}).eval(expression, env)
-}
-
-func moduleExportValue(t *testing.T, exports []moduleExport, name string) Expr {
-	t.Helper()
-	for _, export := range exports {
-		if export.name == name {
-			return export.value
-		}
-	}
-	t.Fatalf("module exports do not contain %q", name)
-	return Expr{}
 }
