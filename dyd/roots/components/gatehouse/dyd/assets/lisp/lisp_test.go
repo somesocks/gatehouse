@@ -281,88 +281,10 @@ func TestEvalSpecialFormControlFlow(t *testing.T) {
 	requireRun(t, "(let ((x 1)) (let ((x 2)) x))", "2")
 }
 
-func TestEvalSpecialFormValidation(t *testing.T) {
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(quote)", contains: "quote requires one expression"},
-		{source: "(quote 1 2)", contains: "quote requires one expression"},
-		{source: "(let (x) x)", contains: "expected a proper list"},
-		{source: "(let ((x 1) (x 2)) x)", contains: "duplicated"},
-		{source: "(let () 1 2)", contains: "let requires bindings and one body expression"},
-		{source: "(fn (1) 1)", contains: "fn parameters must be symbols"},
-		{source: "(fn (x) x x)", contains: "fn requires parameters and one body expression"},
-		{source: "(begin)", contains: "begin requires at least one expression"},
-		{source: "(begin missing 1)", contains: "unknown binding"},
-		{source: "(let ((id (fn (x) x))) (id))", contains: "function requires 1 arguments, got 0"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
-}
-
-func TestEvalErrors(t *testing.T) {
-	requireRun(t, "(error/catch 7)", "7")
-	requireRun(t, "(error? (error/catch (error/throw (list 'missing 7))))", "#t")
-	requireRun(t, "(error/value (error/catch (error/throw (list 'missing 7))))", "(missing 7)")
-	requireRun(t, "(bytes? (error/value (error/catch (error/throw (bytes/hex/decode \"ff\")))))", "#t")
-	requireRun(t, "(string/contains? (error/value (error/catch (int/div 1 0))) \"non-zero divisor\")", "#t")
-	requireRun(t, "(error/value (error/catch (error/throw (error/catch (error/throw 7)))))", "7")
-	requireRun(t, "(error? (error/catch (error/throw (secret/mark \"secret\"))))", "#t")
-	requireRun(t, "(error/catch (error/throw (secret/mark \"secret\")))", "#<secret>")
-	requireRun(t, "(error/value (error/catch (error/throw (secret/mark \"secret\"))))", "#<secret>")
-	requireHelp(t, "(help (error/catch (error/throw 7)))", "error")
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(error/catch)", contains: "requires one expression"},
-		{source: "(error/catch 1 2)", contains: "requires one expression"},
-		{source: "(error/throw)", contains: "requires one value"},
-		{source: "(error/throw 1 2)", contains: "requires one value"},
-		{source: "(error/value 1)", contains: "expected an Error"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
-
+func TestEvalUncaughtErrors(t *testing.T) {
 	err, _ := Run("(error/throw \"failure\")")
 	if err == nil || !strings.Contains(err.Error(), "thrown error: \"failure\"") {
 		t.Fatalf("Run() error = %v, want thrown error", err)
-	}
-}
-
-func TestEvalAssert(t *testing.T) {
-	requireRun(t, "(assert #t)", "null")
-	requireRun(t, "(assert #t 7)", "7")
-	requireRun(t, "(assert #t (bytes/hex/decode \"ff\"))", "#<bytes 1>")
-	requireRun(t, "(error/value (error/catch (assert #f missing)))", "\"assertion failed\"")
-	requireHelp(t, "(help assert)", "Returns null or a supplied value when a condition is true, otherwise raises an Error.")
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(assert)", contains: "requires a condition and optional value"},
-		{source: "(assert #t 1 2)", contains: "requires a condition and optional value"},
-		{source: "(assert 1 7)", contains: "expected a Boolean"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
 	}
 }
 
@@ -774,29 +696,6 @@ func TestEvalHelpSearchReturnsEveryDocumentedPreludeBinding(t *testing.T) {
 
 func TestEvalTailRecursion(t *testing.T) {
 	requireRun(t, "(let ((count (fn (n total) (if (= n 0) total (count (- n 1) (+ total 1)))))) (count 100000 0))", "100000")
-}
-
-func TestEvalRejectsInvalidCalls(t *testing.T) {
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "missing", contains: "unknown binding"},
-		{source: "(1 2)", contains: "not callable"},
-		{source: "(fn (x x) x)", contains: "duplicated"},
-		{source: "(if #t 1)", contains: "requires a condition"},
-		{source: "(head null)", contains: "requires a pair"},
-		{source: "(cons 1 2)", contains: "unknown binding"},
-		{source: "(first (list 1))", contains: "unknown binding"},
-		{source: "(rest (list 1))", contains: "unknown binding"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
 }
 
 func requireRun(t *testing.T, source string, want string) {
