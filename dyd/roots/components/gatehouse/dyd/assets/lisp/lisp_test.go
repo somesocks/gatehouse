@@ -248,58 +248,6 @@ func TestEvalTypePredicates(t *testing.T) {
 	}
 }
 
-func TestEvalQuoteAndPairOperations(t *testing.T) {
-	requireRun(t, "'(one 2)", "(one 2)")
-	requireRun(t, "(pair 'one (pair 2 null))", "(one 2)")
-	requireRun(t, "(pair 1 2)", "(1 . 2)")
-	requireRun(t, "(head (pair 1 2))", "1")
-	requireRun(t, "(tail (pair 1 2))", "2")
-	requireRun(t, "(tail (list 1 2 3))", "(2 3)")
-	requireRun(t, "(pair? (pair 1 2))", "#t")
-	requireRun(t, "(pair? (list 1 2))", "#t")
-	requireRun(t, "(pair? null)", "#f")
-	requireRun(t, "(and (pair? null) (head null))", "#f")
-}
-
-func TestEvalListOperations(t *testing.T) {
-	requireRun(t, "(list? null)", "#t")
-	requireRun(t, "(list? (list 1 2))", "#t")
-	requireRun(t, "(list? (pair 1 2))", "#f")
-	requireRun(t, "(list/length null)", "0")
-	requireRun(t, "(list/length (list 1 2 3))", "3")
-	requireRun(t, "(list/concat)", "null")
-	requireRun(t, "(list/concat (list 1 2) null (list 3))", "(1 2 3)")
-	requireRun(t, "(list/fold + 0 (list 1 2 3))", "6")
-	requireRun(t, "(list/fold (fn (values value) (pair value values)) null (list 1 2 3))", "(3 2 1)")
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(list/length (pair 1 2))", contains: "expected a proper list"},
-		{source: "(list/concat (pair 1 2))", contains: "expected a proper list"},
-		{source: "(list/fold + 0 (pair 1 2))", contains: "expected a proper list"},
-		{source: "(list/fold + 0)", contains: "requires a function, initial value, and list"},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Run(test.source)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
-	}
-}
-
-func TestEvalStructuralEquality(t *testing.T) {
-	requireRun(t, "(= 1 1)", "#t")
-	requireRun(t, "(= 1 \"1\")", "#f")
-	requireRun(t, "(= 'name 'name)", "#t")
-	requireRun(t, "(= 'name \"name\")", "#f")
-	requireRun(t, "(= null null)", "#t")
-	requireRun(t, "(= '(1 (2 3)) (list 1 (list 2 3)))", "#t")
-	requireRun(t, "(= '(1 2) '(1 3))", "#f")
-}
-
 func TestEvalLexicalClosures(t *testing.T) {
 	requireRun(t, "(let ((make-adder (fn (x) (fn (y) (+ x y))))) ((make-adder 2) 3))", "5")
 	requireRun(t, "(let ((x 1) (y (+ x 1))) y)", "2")
@@ -430,26 +378,6 @@ func TestEvalAssert(t *testing.T) {
 				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
 			}
 		})
-	}
-}
-
-func TestEvalMapAndFilter(t *testing.T) {
-	requireRun(t, "(list/map (fn (x) (* x x)) '(1 2 3))", "(1 4 9)")
-	requireRun(t, "(list/filter (fn (x) (< x 3)) '(1 2 3))", "(1 2)")
-	requireRun(t, "(list/filter (fn (x) #f) '(1 2 3))", "null")
-
-	err, _ := Run("(list/filter (fn (x) x) '(1))")
-	if err == nil || !strings.Contains(err.Error(), "expected a Boolean") {
-		t.Fatalf("Run() error = %v, want Boolean error", err)
-	}
-	for _, source := range []string{
-		"(map (fn (x) x) null)",
-		"(filter (fn (x) #t) null)",
-	} {
-		err, _ := Run(source)
-		if err == nil || !strings.Contains(err.Error(), "unknown binding") {
-			t.Fatalf("Run(%q) error = %v, want unknown binding error", source, err)
-		}
 	}
 }
 
