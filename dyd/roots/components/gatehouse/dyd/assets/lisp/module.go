@@ -26,6 +26,7 @@ func newModuleCache() *moduleCache {
 		modules: map[string]Expr{
 			nativeCryptoHMACSHA256ID: nativeCryptoHMACSHA256Module(),
 			nativeCryptoSHA256ID:     nativeCryptoSHA256Module(),
+			nativeRandomID:           nativeRandomModule(),
 		},
 	}
 }
