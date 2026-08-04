@@ -29,28 +29,6 @@ func newModuleCache() *moduleCache {
 	}
 }
 
-func runModule(source string, cache *moduleCache) (error, []moduleExport) {
-	if cache == nil {
-		cache = newModuleCache()
-	}
-	loader := &moduleLoader{
-		cache: cache,
-	}
-	return loader.evaluateSource(source, prelude())
-}
-
-func (loader *moduleLoader) evaluateSource(source string, parent *environment) (error, []moduleExport) {
-	err, expression := Read(source)
-	if err != nil {
-		return err, nil
-	}
-	err, result := (&evaluator{}).eval(expression, moduleEnvironment(loader, parent))
-	if err != nil {
-		return err, nil
-	}
-	return moduleExports(result)
-}
-
 func (loader *moduleLoader) load(reference moduleReference, parent *environment) (error, []moduleExport) {
 	err, id := loader.moduleID(reference)
 	if err != nil {
@@ -76,7 +54,7 @@ func (loader *moduleLoader) load(reference moduleReference, parent *environment)
 		loader.loading = loader.loading[:len(loader.loading)-1]
 	}()
 
-	err, result := (&evaluator{}).eval(expression, moduleEnvironment(loader, parent))
+	err, result := (&evaluator{}).eval(expression, parent)
 	if err != nil {
 		return fmt.Errorf("load %s: %v", reference.String(), err), nil
 	}
@@ -102,12 +80,6 @@ func (loader *moduleLoader) moduleID(reference moduleReference) (error, string) 
 		return fmt.Errorf("unknown module alias %q", reference.uri), ""
 	}
 	return nil, id
-}
-
-func moduleEnvironment(loader *moduleLoader, parent *environment) *environment {
-	env := &environment{parent: parent, values: make(map[string]*Expr)}
-	env.bind("import", importBuiltin(loader))
-	return env
 }
 
 func importBuiltin(loader *moduleLoader) Expr {

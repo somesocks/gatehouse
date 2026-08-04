@@ -16,7 +16,7 @@ func prelude() *environment {
 			},
 		})
 	}
-	env.bind("import", importBuiltin(nil))
+	env.bind("import", importBuiltin(&moduleLoader{cache: newModuleCache()}))
 	return env
 }
 

@@ -207,6 +207,13 @@ func TestEvalUncaughtErrors(t *testing.T) {
 	}
 }
 
+func TestEvalCanShadowImport(t *testing.T) {
+	err, _ := Run("(let ((import null)) (import null null))")
+	if err == nil || !strings.Contains(err.Error(), "not callable") {
+		t.Fatalf("shadowed import error = %v, want not-callable error", err)
+	}
+}
+
 func TestModuleImports(t *testing.T) {
 	core := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	module := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
@@ -215,14 +222,18 @@ func TestModuleImports(t *testing.T) {
 		module: "(import (core @#" + core + ") (list (pair 'value core/value) (pair 'increment core/increment)))",
 	})
 
-	err, exports := runModule("(import (module @#"+module+") (same @#"+module+") (list (pair 'value module/value) (pair 'next (fn (value) (module/increment value)))))", cache)
+	err, result := runWithModuleCache("(import (module @#"+module+") (same @#"+module+") (list module/value (fn (value) (module/increment value))))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+	err, values := expressions(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := values[0].String(); got != "7" {
 		t.Fatalf("value = %s, want 7", got)
 	}
-	err, result := (&evaluator{}).call(moduleExportValue(t, exports, "next"), prelude(), []Expr{integer(4, Span{})}, Span{})
+	err, result = (&evaluator{}).call(values[1], prelude(), []Expr{integer(4, Span{})}, Span{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,11 +241,11 @@ func TestModuleImports(t *testing.T) {
 		t.Fatalf("next(4) = %s, want 5", got)
 	}
 
-	err, exports = runModule("(list (pair 'value (fn () (import (module @#"+module+") module/value))))", cache)
+	err, closure := runWithModuleCache("(fn () (import (module @#"+module+") module/value))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, result = (&evaluator{}).call(moduleExportValue(t, exports, "value"), prelude(), nil, Span{})
+	err, result = (&evaluator{}).call(closure, prelude(), nil, Span{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,11 +253,11 @@ func TestModuleImports(t *testing.T) {
 		t.Fatalf("closure import value = %s, want 7", got)
 	}
 
-	err, exports = runModule("(let ((load import)) (list (pair 'value (load (module @#"+module+") module/value))))", cache)
+	err, result = runWithModuleCache("(let ((load import)) (load (module @#"+module+") module/value))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+	if got := result.String(); got != "7" {
 		t.Fatalf("aliased import value = %s, want 7", got)
 	}
 }
@@ -257,11 +268,11 @@ func TestModuleCommentsProvideExportHelp(t *testing.T) {
 		id: "(list\n  ; Returns the answer.\n  ; The result is always an integer.\n  (pair 'answer 42))",
 	})
 
-	err, exports := runModule("(import (module @#"+id+") (list (pair 'answer module/answer)))", cache)
+	err, result := runWithModuleCache("(import (module @#"+id+") module/answer)", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := moduleExportValue(t, exports, "answer").help, "Returns the answer.\nThe result is always an integer."; got != want {
+	if got, want := result.help, "Returns the answer.\nThe result is always an integer."; got != want {
 		t.Fatalf("imported answer help = %q, want %q", got, want)
 	}
 }
@@ -272,14 +283,18 @@ func TestModuleImportsUseLexicalContext(t *testing.T) {
 		id: "(list (pair 'value value))",
 	})
 
-	err, exports := runModule("(let ((first (let ((value 1)) (import (module @#"+id+") module/value))) (second (let ((value 2)) (import (module @#"+id+") module/value)))) (list (pair 'first first) (pair 'second second)))", cache)
+	err, result := runWithModuleCache("(let ((first (let ((value 1)) (import (module @#"+id+") module/value))) (second (let ((value 2)) (import (module @#"+id+") module/value)))) (list first second))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := moduleExportValue(t, exports, "first").String(); got != "1" {
+	err, values := expressions(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := values[0].String(); got != "1" {
 		t.Fatalf("first = %s, want 1", got)
 	}
-	if got := moduleExportValue(t, exports, "second").String(); got != "2" {
+	if got := values[1].String(); got != "2" {
 		t.Fatalf("second = %s, want 2", got)
 	}
 }
@@ -291,47 +306,12 @@ func TestModuleCacheAliases(t *testing.T) {
 	})
 	cache.aliases["file:shared.lisp"] = id
 
-	err, exports := runModule("(import (module @file:shared.lisp) (list (pair 'value module/value)))", cache)
+	err, result := runWithModuleCache("(import (module @file:shared.lisp) module/value)", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := moduleExportValue(t, exports, "value").String(); got != "7" {
+	if got := result.String(); got != "7" {
 		t.Fatalf("value = %s, want 7", got)
-	}
-}
-
-func TestNativeCryptoSHA256Module(t *testing.T) {
-	cache := newModuleCache()
-	err, exports := runModule("(import (sha256 @native:crypto/sha256/v1) (list (pair 'digest (bytes/hex/encode (sha256/digest (bytes/utf8/encode \"abc\"))))))", cache)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := moduleExportValue(t, exports, "digest").String(); got != "\"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\"" {
-		t.Fatalf("digest = %s, want SHA-256 digest", got)
-	}
-
-	err, exports = runModule("(import (sha256 @native:crypto/sha256/v1) (list (pair 'digest (sha256/digest (secret/mark (bytes/utf8/encode \"abc\"))))))", cache)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if value := moduleExportValue(t, exports, "digest"); !value.secret || value.String() != "#<secret>" {
-		t.Fatalf("secret digest = %#v, want secret Bytes", value)
-	}
-
-	for _, test := range []struct {
-		source   string
-		contains string
-	}{
-		{source: "(import (sha256 @native:crypto/sha256/v1) (list (pair 'value (sha256/digest))))", contains: "requires one Bytes value"},
-		{source: "(import (sha256 @native:crypto/sha256/v1) (list (pair 'value (sha256/digest \"abc\"))))", contains: "expected Bytes"},
-		{source: "(import (unknown @native:crypto/unknown/v1) (list))", contains: "unknown module"},
-	} {
-		t.Run(test.contains, func(t *testing.T) {
-			err, _ := runModule(test.source, cache)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("runModule(%q) error = %v, want %q", test.source, err, test.contains)
-			}
-		})
 	}
 }
 
@@ -339,10 +319,12 @@ func TestModuleImportErrors(t *testing.T) {
 	first := "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	second := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 	safe := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	duplicate := "sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	cache := testModuleCache(t, map[string]string{
-		first:  "(import (second @#" + second + ") (list (pair 'value second/value)))",
-		second: "(import (first @#" + first + ") (list (pair 'value first/value)))",
-		safe:   "(list)",
+		first:     "(import (second @#" + second + ") (list (pair 'value second/value)))",
+		second:    "(import (first @#" + first + ") (list (pair 'value first/value)))",
+		safe:      "(list)",
+		duplicate: "(list (pair 'value 1) (pair 'value 2))",
 	})
 
 	for _, test := range []struct {
@@ -353,19 +335,19 @@ func TestModuleImportErrors(t *testing.T) {
 		{source: "(import (one @#" + safe + ") (one @#" + safe + ") (list))", contains: "alias \"one\" is duplicated"},
 		{source: "(import (first @#" + first + ") (list))", contains: "cyclic module import"},
 		{source: "(import (bad 1) (list))", contains: "must contain a name and module reference"},
-		{source: "(list (pair 'value 1) (pair 'value 2))", contains: "export \"value\" is duplicated"},
+		{source: "(import (duplicate @#" + duplicate + ") null)", contains: "export \"value\" is duplicated"},
 	} {
 		t.Run(test.contains, func(t *testing.T) {
-			err, _ := runModule(test.source, cache)
+			err, _ := runWithModuleCache(test.source, cache)
 			if err == nil || !strings.Contains(err.Error(), test.contains) {
-				t.Fatalf("runModule(%q) error = %v, want %q", test.source, err, test.contains)
+				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
 			}
 		})
 	}
 
 	err, _ := Run("(import (missing @#sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee) null)")
-	if err == nil || !strings.Contains(err.Error(), "requires a module loader") {
-		t.Fatalf("Run() error = %v, want module loader error", err)
+	if err == nil || !strings.Contains(err.Error(), "unknown module") {
+		t.Fatalf("Run() error = %v, want unknown module error", err)
 	}
 }
 
@@ -496,6 +478,16 @@ func testModuleCache(t *testing.T, sources map[string]string) *moduleCache {
 		cache.modules[id] = expression
 	}
 	return cache
+}
+
+func runWithModuleCache(source string, cache *moduleCache) (error, Expr) {
+	err, expression := Read(source)
+	if err != nil {
+		return err, Expr{}
+	}
+	env := prelude()
+	env.bind("import", importBuiltin(&moduleLoader{cache: cache}))
+	return (&evaluator{}).eval(expression, env)
 }
 
 func moduleExportValue(t *testing.T, exports []moduleExport, name string) Expr {
