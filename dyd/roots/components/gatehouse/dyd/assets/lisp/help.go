@@ -125,6 +125,8 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		return "string"
 	case exprBytes:
 		return "bytes"
+	case exprError:
+		return "error"
 	case exprNull:
 		return "null"
 	case exprPair:

@@ -19,6 +19,7 @@ const (
 	exprInteger
 	exprString
 	exprBytes
+	exprError
 	exprSymbol
 	exprNull
 	exprPair
@@ -41,6 +42,7 @@ type Expr struct {
 	pair      *pair
 	closure   *closure
 	builtin   *builtin
+	error     *errorValue
 	reference *moduleReference
 }
 
@@ -199,6 +201,8 @@ func (expr Expr) String() string {
 		return strconv.Quote(expr.text)
 	case exprBytes:
 		return "#<bytes " + strconv.Itoa(len(expr.bytes)) + ">"
+	case exprError:
+		return "#<error>"
 	case exprSymbol:
 		return expr.text
 	case exprNull:
@@ -266,6 +270,8 @@ func equal(left Expr, right Expr) bool {
 		return left.text == right.text
 	case exprBytes:
 		return left.bytes == right.bytes
+	case exprError:
+		return left.error == right.error
 	case exprNull:
 		return true
 	case exprPair:

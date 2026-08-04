@@ -373,6 +373,42 @@ func TestEvalSpecialFormValidation(t *testing.T) {
 	}
 }
 
+func TestEvalErrors(t *testing.T) {
+	requireRun(t, "(error/catch 7)", "7")
+	requireRun(t, "(error? (error/catch (error/throw (list 'missing 7))))", "#t")
+	requireRun(t, "(error/value (error/catch (error/throw (list 'missing 7))))", "(missing 7)")
+	requireRun(t, "(bytes? (error/value (error/catch (error/throw (bytes/hex/decode \"ff\")))))", "#t")
+	requireRun(t, "(string/contains? (error/value (error/catch (int/div 1 0))) \"non-zero divisor\")", "#t")
+	requireRun(t, "(error/value (error/catch (error/throw (error/catch (error/throw 7)))))", "7")
+	requireRun(t, "(error? (error/catch (error/throw (secret/mark \"secret\"))))", "#t")
+	requireRun(t, "(error/catch (error/throw (secret/mark \"secret\")))", "#<secret>")
+	requireRun(t, "(error/value (error/catch (error/throw (secret/mark \"secret\"))))", "#<secret>")
+	requireHelp(t, "(help (error/catch (error/throw 7)))", "error")
+
+	for _, test := range []struct {
+		source   string
+		contains string
+	}{
+		{source: "(error/catch)", contains: "requires one expression"},
+		{source: "(error/catch 1 2)", contains: "requires one expression"},
+		{source: "(error/throw)", contains: "requires one value"},
+		{source: "(error/throw 1 2)", contains: "requires one value"},
+		{source: "(error/value 1)", contains: "expected an Error"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, _ := Run(test.source)
+			if err == nil || !strings.Contains(err.Error(), test.contains) {
+				t.Fatalf("Run(%q) error = %v, want %q", test.source, err, test.contains)
+			}
+		})
+	}
+
+	err, _ := Run("(error/throw \"failure\")")
+	if err == nil || !strings.Contains(err.Error(), "thrown error: \"failure\"") {
+		t.Fatalf("Run() error = %v, want thrown error", err)
+	}
+}
+
 func TestEvalMapAndFilter(t *testing.T) {
 	requireRun(t, "(list/map (fn (x) (* x x)) '(1 2 3))", "(1 4 9)")
 	requireRun(t, "(list/filter (fn (x) (< x 3)) '(1 2 3))", "(1 2)")

@@ -78,7 +78,7 @@ func (loader *moduleLoader) load(reference moduleReference, parent *environment)
 
 	err, result := (&evaluator{}).eval(expression, moduleEnvironment(loader, parent))
 	if err != nil {
-		return fmt.Errorf("load %s: %w", reference.String(), err), nil
+		return fmt.Errorf("load %s: %v", reference.String(), err), nil
 	}
 	err, exports := moduleExports(result)
 	if err != nil {
