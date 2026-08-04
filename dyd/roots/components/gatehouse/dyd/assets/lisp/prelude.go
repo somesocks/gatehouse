@@ -96,6 +96,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "help/document", help: "Returns a value with public help text attached.", call: pure(helpDocument)},
 	{name: "help/env", help: "Returns visible lexical binding names matching every search term.", call: helpEnv},
 	{name: "help/search", help: "Returns visible documented bindings whose help text matches every search term.", call: helpSearch},
+	{name: "import/restrict", help: "Evaluates a body with an allowlisted importer.", special: true, call: importRestrict},
 }
 
 func (env *environment) bind(name string, value Expr) {

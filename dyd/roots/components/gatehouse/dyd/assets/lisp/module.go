@@ -94,6 +94,56 @@ func importBuiltin(loader *moduleLoader) Expr {
 	}}
 }
 
+func importRestrict(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+	if len(forms) != 2 {
+		return expressionError(span, "import/restrict requires an allowlist and body expression"), Expr{}
+	}
+	err, values := expressions(forms[0])
+	if err != nil {
+		return expressionError(forms[0].span, "import/restrict allowlist must be a proper list"), Expr{}
+	}
+	allowed := make(map[moduleReference]struct{}, len(values))
+	for _, value := range values {
+		if value.kind != exprModuleReference {
+			return expressionError(value.span, "import/restrict allowlist entries must be module references"), Expr{}
+		}
+		reference := *value.reference
+		if _, exists := allowed[reference]; exists {
+			return expressionError(value.span, "import/restrict allowlist contains duplicate module reference %s", reference.String()), Expr{}
+		}
+		allowed[reference] = struct{}{}
+	}
+
+	err, importer := env.lookup("import", span)
+	if err != nil || importer.kind != exprBuiltin || !importer.builtin.special {
+		return expressionError(span, "import/restrict requires an import binding"), Expr{}
+	}
+	restricted := &environment{parent: env, values: make(map[string]*Expr, 1)}
+	restricted.bind("import", restrictedImportBuiltin(importer, allowed))
+	return evaluator.eval(forms[1], restricted)
+}
+
+func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}) Expr {
+	return Expr{kind: exprBuiltin, help: importer.help, builtin: &builtin{
+		special: true,
+		call: func(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+			if len(forms) < 2 {
+				return importer.builtin.call(evaluator, env, forms, span)
+			}
+			for _, form := range forms[:len(forms)-1] {
+				err, _, reference := moduleImportDeclaration(form)
+				if err != nil {
+					return err, Expr{}
+				}
+				if _, exists := allowed[reference]; !exists {
+					return expressionError(form.span, "import %s is not allowed", reference.String()), Expr{}
+				}
+			}
+			return importer.builtin.call(evaluator, env, forms, span)
+		},
+	}}
+}
+
 func importModules(loader *moduleLoader, evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
 	if loader == nil {
 		return expressionError(span, "import requires a module loader"), Expr{}

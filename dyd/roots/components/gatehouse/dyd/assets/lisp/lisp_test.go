@@ -315,6 +315,27 @@ func TestModuleCacheAliases(t *testing.T) {
 	}
 }
 
+func TestImportRestrictMatchesReferences(t *testing.T) {
+	id := "sha256:abababababababababababababababababababababababababababababababab"
+	cache := testModuleCache(t, map[string]string{
+		id: "(list (pair 'value 7))",
+	})
+	cache.aliases["file:allowed.lisp"] = id
+
+	err, result := runWithModuleCache("(import/restrict (@file:allowed.lisp) (import (module @file:allowed.lisp) module/value))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "7" {
+		t.Fatalf("allowed module value = %s, want 7", got)
+	}
+
+	err, _ = runWithModuleCache("(import/restrict (@file:allowed.lisp) (import (module @#"+id+") module/value))", cache)
+	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
+		t.Fatalf("fingerprint import error = %v, want restricted import error", err)
+	}
+}
+
 func TestModuleImportErrors(t *testing.T) {
 	first := "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 	second := "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
