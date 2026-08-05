@@ -322,7 +322,23 @@ func TestImportRestrictMatchesReferences(t *testing.T) {
 	})
 	cache.aliases["file:allowed.lisp"] = id
 
-	err, result := runWithModuleCache("(import/restrict (@file:allowed.lisp) (import (module @file:allowed.lisp) module/value))", cache)
+	err, result := runWithModuleCache("(import/search \"allowed.lisp\")", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "(@file:allowed.lisp)" {
+		t.Fatalf("alias module search = %s, want (@file:allowed.lisp)", got)
+	}
+
+	err, result = runWithModuleCache("(import/search \"abab\")", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "(@#"+id+")" {
+		t.Fatalf("fingerprint module search = %s, want (@#%s)", got, id)
+	}
+
+	err, result = runWithModuleCache("(import/restrict (@file:allowed.lisp) (import (module @file:allowed.lisp) module/value))", cache)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -330,9 +346,49 @@ func TestImportRestrictMatchesReferences(t *testing.T) {
 		t.Fatalf("allowed module value = %s, want 7", got)
 	}
 
+	err, result = runWithModuleCache("(import/restrict (@file:allowed.lisp) (import/search))", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "(@file:allowed.lisp)" {
+		t.Fatalf("allowed module search = %s, want (@file:allowed.lisp)", got)
+	}
+
 	err, _ = runWithModuleCache("(import/restrict (@file:allowed.lisp) (import (module @#"+id+") module/value))", cache)
 	if err == nil || !strings.Contains(err.Error(), "is not allowed") {
 		t.Fatalf("fingerprint import error = %v, want restricted import error", err)
+	}
+}
+
+func TestImportSearchListsResolvableReferences(t *testing.T) {
+	id := "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+	err, module := Read("(list (pair 'value 7))")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &moduleCache{
+		aliases: map[string]string{"file:module.lisp": id},
+		modules: map[string]Expr{
+			id:                  module,
+			"native:example/v1": module,
+		},
+	}
+
+	err, result := runWithModuleCache("(import/search)", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "(@#" + id + " @file:module.lisp @native:example/v1)"
+	if got := result.String(); got != want {
+		t.Fatalf("module search = %s, want %s", got, want)
+	}
+
+	err, result = runWithModuleCache("(import/search \"example\")", cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "(@native:example/v1)" {
+		t.Fatalf("filtered module search = %s, want (@native:example/v1)", got)
 	}
 }
 
@@ -406,8 +462,8 @@ func TestHelpEnvEnumeratesPreludeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins)+2 {
-		t.Fatalf("(help/env) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+2)
+	if len(bindings) != len(preludeBuiltins)+3 {
+		t.Fatalf("(help/env) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+3)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
@@ -421,6 +477,9 @@ func TestHelpEnvEnumeratesPreludeBindings(t *testing.T) {
 	}
 	if _, exists := seen["import"]; !exists {
 		t.Error("(help/env) did not return \"import\"")
+	}
+	if _, exists := seen["import/search"]; !exists {
+		t.Error("(help/env) did not return \"import/search\"")
 	}
 	for _, definition := range preludeBuiltins {
 		if _, exists := seen[definition.name]; !exists {
@@ -446,8 +505,8 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins)+1 {
-		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+1)
+	if len(bindings) != len(preludeBuiltins)+2 {
+		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+2)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
@@ -463,6 +522,9 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	}
 	if _, exists := seen["import"]; !exists {
 		t.Error("(help/search) did not return \"import\"")
+	}
+	if _, exists := seen["import/search"]; !exists {
+		t.Error("(help/search) did not return \"import/search\"")
 	}
 }
 
@@ -485,6 +547,6 @@ func runWithModuleCache(source string, cache *moduleCache) (error, Expr) {
 		return err, Expr{}
 	}
 	env := prelude()
-	env.bind("import", importBuiltin(&moduleLoader{cache: cache}))
+	bindImports(env, cache)
 	return (&evaluator{}).eval(expression, env)
 }

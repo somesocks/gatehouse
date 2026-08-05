@@ -2,6 +2,7 @@ package lisp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -30,6 +31,37 @@ func newModuleCache() *moduleCache {
 			nativeTimeID:             nativeTimeModule(),
 		},
 	}
+}
+
+func (cache *moduleCache) references() map[moduleReference]struct{} {
+	references := make(map[moduleReference]struct{})
+	if cache == nil {
+		return references
+	}
+	for id := range cache.modules {
+		switch {
+		case strings.HasPrefix(id, "native:"):
+			references[moduleReference{scheme: moduleReferenceNative, uri: id}] = struct{}{}
+		case isSHA256Fingerprint(id):
+			references[moduleReference{scheme: moduleReferenceFingerprint, fingerprint: id}] = struct{}{}
+		}
+	}
+	for alias, id := range cache.aliases {
+		if _, exists := cache.modules[id]; !exists {
+			continue
+		}
+		err, reference := moduleReferenceValue(alias, Span{})
+		if err != nil || reference.kind != exprModuleReference || reference.reference.scheme != moduleReferenceFile || reference.reference.fingerprint != "" {
+			continue
+		}
+		references[*reference.reference] = struct{}{}
+	}
+	return references
+}
+
+func bindImports(env *environment, cache *moduleCache) {
+	env.bind("import", importBuiltin(&moduleLoader{cache: cache}))
+	env.bind("import/search", importSearchBuiltin(cache.references()))
 }
 
 func (loader *moduleLoader) load(reference moduleReference, parent *environment) (error, []moduleExport) {
@@ -118,8 +150,13 @@ func importRestrict(evaluator *evaluator, env *environment, forms []Expr, span S
 	if err != nil || importer.kind != exprBuiltin || !importer.builtin.special {
 		return expressionError(span, "import/restrict requires an import binding"), Expr{}
 	}
-	restricted := &environment{parent: env, values: make(map[string]*Expr, 1)}
+	err, allowed = intersectImportAllowlist(evaluator, env, allowed, span)
+	if err != nil {
+		return err, Expr{}
+	}
+	restricted := &environment{parent: env, values: make(map[string]*Expr, 2)}
 	restricted.bind("import", restrictedImportBuiltin(importer, allowed))
+	restricted.bind("import/search", importSearchBuiltin(allowed))
 	return evaluator.eval(forms[1], restricted)
 }
 
@@ -142,6 +179,79 @@ func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}
 			return importer.builtin.call(evaluator, env, forms, span)
 		},
 	}}
+}
+
+func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed map[moduleReference]struct{}, span Span) (error, map[moduleReference]struct{}) {
+	search, exists := env.visibleValue("import/search")
+	if !exists {
+		return nil, allowed
+	}
+	err, result := evaluator.call(search, env, nil, span)
+	if err != nil {
+		return err, nil
+	}
+	err, outer := importSearchReferences(result, span)
+	if err != nil {
+		return err, nil
+	}
+	intersection := make(map[moduleReference]struct{}, len(allowed))
+	for reference := range allowed {
+		if _, exists := outer[reference]; exists {
+			intersection[reference] = struct{}{}
+		}
+	}
+	return nil, intersection
+}
+
+func importSearchBuiltin(allowed map[moduleReference]struct{}) Expr {
+	references := sortedModuleReferences(allowed)
+	return Expr{kind: exprBuiltin, help: "Returns module references available to the current importer.", builtin: &builtin{
+		call: pure(func(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+			err, terms := helpTerms(arguments, span)
+			if err != nil {
+				return err, Expr{}
+			}
+			result := make([]Expr, 0, len(references))
+			for _, reference := range references {
+				if !matchesTerms(reference.String(), terms) {
+					continue
+				}
+				result = append(result, moduleReferenceExpr(reference))
+			}
+			return nil, list(result, Span{})
+		}),
+	}}
+}
+
+func importSearchReferences(expression Expr, span Span) (error, map[moduleReference]struct{}) {
+	err, values := expressions(expression)
+	if err != nil {
+		return expressionError(span, "import/search must return a proper list"), nil
+	}
+	references := make(map[moduleReference]struct{}, len(values))
+	for _, value := range values {
+		if value.kind != exprModuleReference {
+			return expressionError(span, "import/search must return module references"), nil
+		}
+		references[*value.reference] = struct{}{}
+	}
+	return nil, references
+}
+
+func sortedModuleReferences(allowed map[moduleReference]struct{}) []moduleReference {
+	references := make([]moduleReference, 0, len(allowed))
+	for reference := range allowed {
+		references = append(references, reference)
+	}
+	sort.Slice(references, func(left int, right int) bool {
+		return references[left].String() < references[right].String()
+	})
+	return references
+}
+
+func moduleReferenceExpr(reference moduleReference) Expr {
+	value := reference
+	return Expr{kind: exprModuleReference, reference: &value}
 }
 
 func importModules(loader *moduleLoader, evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {

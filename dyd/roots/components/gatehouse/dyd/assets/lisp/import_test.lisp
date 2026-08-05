@@ -25,6 +25,15 @@
       (random @native:random/v1)
       (bool? (random/bool))))
 
+  ; Search lists and filters the current allowed module references.
+  (assert
+    (import/restrict
+      (@native:time/v1 @native:random/v1)
+      (and
+        (= (import/search) (list @native:random/v1 @native:time/v1))
+        (= (import/search "random") (list @native:random/v1))
+        (= (help import/search) "Returns module references available to the current importer."))))
+
   ; Nested restrictions cannot widen the visible importer.
   (assert
     (string/contains?
@@ -39,6 +48,14 @@
                 (random/bool))))))
       "is not allowed"))
 
+  ; Nested search returns the effective intersection.
+  (assert
+    (import/restrict
+      (@native:random/v1 @native:time/v1)
+      (import/restrict
+        (@native:time/v1)
+        (= (import/search) (list @native:time/v1)))))
+
   ; Closures retain their restricted importer after the body exits.
   (let
     ((blocked
@@ -52,6 +69,14 @@
       (string/contains?
         (error/value (error/catch (blocked)))
         "is not allowed")))
+
+  ; Closures retain their scoped module search.
+  (let
+    ((search
+      (import/restrict
+        (@native:time/v1)
+        (fn () (import/search)))))
+    (assert (= (search) (list @native:time/v1))))
 
   ; Restrict validates arity, allowlist shape, entries, duplicates, and import binding.
   (assert
@@ -70,7 +95,12 @@
         "contains duplicate module reference")
       (string/contains?
         (error/value (error/catch (let ((import null)) (import/restrict () null))))
-        "requires an import binding")))
+        "requires an import binding")
+      (import/restrict
+        (@native:time/v1)
+        (string/contains?
+          (error/value (error/catch (import/search 1)))
+          "expected a string"))))
 
   ; Restrict reports public help text.
   (assert (= (help import/restrict) "Evaluates a body with an allowlisted importer."))
