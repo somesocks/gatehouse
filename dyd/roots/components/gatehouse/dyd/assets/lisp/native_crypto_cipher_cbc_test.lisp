@@ -2,6 +2,7 @@
   (import
     (aes @native:crypto/cipher/aes/128/v1)
     (cbc @native:crypto/cipher/cbc/v1)
+    (hmac @native:crypto/mac/hmac/sha256/v1)
     (pkcs7 @native:crypto/padding/pkcs7/v1)
     (begin
       ; NIST SP 800-38A AES-CBC encryption vector.
@@ -37,7 +38,35 @@
                      (pkcs7/pad 16 plaintext)))))
              "CBC composition")))
 
-      ; CBC preserves secret taint from keys and ciphertext.
+       ; Encrypt-then-MAC verifies the ciphertext before decryption and unpadding.
+       (let
+         ((encryption-key (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c"))
+          (authentication-key (bytes/utf8/encode "authentication key"))
+          (iv (bytes/hex/decode "000102030405060708090a0b0c0d0e0f"))
+          (plaintext (bytes/utf8/encode "Authenticated CBC")))
+         (let
+           ((ciphertext
+             (cbc/encrypt aes/encrypt encryption-key iv (pkcs7/pad 16 plaintext))))
+           (let
+             ((tag (hmac/digest authentication-key ciphertext)))
+             (assert
+               (and
+                 (=
+                   (if (hmac/verify authentication-key ciphertext tag)
+                       (bytes/utf8/decode
+                         (pkcs7/unpad 16
+                           (cbc/decrypt aes/decrypt encryption-key iv ciphertext)))
+                       "rejected")
+                   "Authenticated CBC")
+                 (=
+                   (if (hmac/verify authentication-key ciphertext (bytes/concat))
+                       (bytes/utf8/decode
+                         (pkcs7/unpad 16
+                           (cbc/decrypt aes/decrypt encryption-key iv ciphertext)))
+                       "rejected")
+                   "rejected"))))))
+
+       ; CBC preserves secret taint from keys and ciphertext.
       (assert
         (and
           (secret?

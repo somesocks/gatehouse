@@ -65,6 +65,11 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
+		}{"hmac/verify", nativeCryptoHMACSHA256VerifyDocumentation, "(import (hmac @native:crypto/mac/hmac/sha256/v1) (help hmac/verify))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
 		}{"random/bytes", nativeRandomBytesDocumentation, "(import (random @native:random/v1) (help random/bytes))"},
 		struct {
 			name          string
