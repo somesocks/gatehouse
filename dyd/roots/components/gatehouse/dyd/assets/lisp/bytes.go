@@ -3,6 +3,7 @@ package lisp
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"math"
 	"strings"
 	"unicode/utf8"
 )
@@ -56,6 +57,200 @@ func bytesSlice(_ *evaluator, arguments []Expr) (error, Expr) {
 		return expressionError("bytes/slice indices are out of range"), nil
 	}
 	return nil, bytesValue(value[start:end])
+}
+func bytesIntBEEncode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/int/be/encode requires an integer and length from 1 through 8"), nil
+	}
+	err, value := requireInteger(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, length := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if length < 1 || length > 8 {
+		return expressionError("bytes/int/be/encode requires length from 1 through 8"), nil
+	}
+	if length < 8 {
+		bits := uint(length * 8)
+		minimum := -(int64(1) << (bits - 1))
+		maximum := (int64(1) << (bits - 1)) - 1
+		if value < minimum || value > maximum {
+			return expressionError("bytes/int/be/encode integer does not fit length"), nil
+		}
+	}
+	encoded := uint64(value)
+	result := make([]byte, int(length))
+	for index := len(result) - 1; index >= 0; index-- {
+		result[index] = byte(encoded)
+		encoded >>= 8
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesIntBEDecode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/int/be/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	if len(value) < 1 || len(value) > 8 {
+		return expressionError("bytes/int/be/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	var decoded uint64
+	for index := 0; index < len(value); index++ {
+		decoded = decoded<<8 | uint64(value[index])
+	}
+	if len(value) < 8 && decoded&(uint64(1)<<uint(len(value)*8-1)) != 0 {
+		decoded |= ^uint64(0) << uint(len(value)*8)
+	}
+	return nil, integer(int64(decoded))
+}
+func bytesIntLEEncode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/int/le/encode requires an integer and length from 1 through 8"), nil
+	}
+	err, value := requireInteger(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, length := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if length < 1 || length > 8 {
+		return expressionError("bytes/int/le/encode requires length from 1 through 8"), nil
+	}
+	if length < 8 {
+		bits := uint(length * 8)
+		minimum := -(int64(1) << (bits - 1))
+		maximum := (int64(1) << (bits - 1)) - 1
+		if value < minimum || value > maximum {
+			return expressionError("bytes/int/le/encode integer does not fit length"), nil
+		}
+	}
+	encoded := uint64(value)
+	result := make([]byte, int(length))
+	for index := range result {
+		result[index] = byte(encoded)
+		encoded >>= 8
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesIntLEDecode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/int/le/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	if len(value) < 1 || len(value) > 8 {
+		return expressionError("bytes/int/le/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	var decoded uint64
+	for index := len(value) - 1; index >= 0; index-- {
+		decoded = decoded<<8 | uint64(value[index])
+	}
+	if len(value) < 8 && decoded&(uint64(1)<<uint(len(value)*8-1)) != 0 {
+		decoded |= ^uint64(0) << uint(len(value)*8)
+	}
+	return nil, integer(int64(decoded))
+}
+func bytesUIntBEEncode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/uint/be/encode requires a non-negative integer and length from 1 through 8"), nil
+	}
+	err, value := requireInteger(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, length := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if length < 1 || length > 8 {
+		return expressionError("bytes/uint/be/encode requires length from 1 through 8"), nil
+	}
+	if value < 0 || (length < 8 && uint64(value) >= uint64(1)<<uint(length*8)) {
+		return expressionError("bytes/uint/be/encode integer does not fit length"), nil
+	}
+	encoded := uint64(value)
+	result := make([]byte, int(length))
+	for index := len(result) - 1; index >= 0; index-- {
+		result[index] = byte(encoded)
+		encoded >>= 8
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesUIntBEDecode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/uint/be/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	if len(value) < 1 || len(value) > 8 {
+		return expressionError("bytes/uint/be/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	var decoded uint64
+	for index := 0; index < len(value); index++ {
+		decoded = decoded<<8 | uint64(value[index])
+	}
+	if decoded > math.MaxInt64 {
+		return expressionError("bytes/uint/be/decode value exceeds Integer range"), nil
+	}
+	return nil, integer(int64(decoded))
+}
+func bytesUIntLEEncode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/uint/le/encode requires a non-negative integer and length from 1 through 8"), nil
+	}
+	err, value := requireInteger(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, length := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if length < 1 || length > 8 {
+		return expressionError("bytes/uint/le/encode requires length from 1 through 8"), nil
+	}
+	if value < 0 || (length < 8 && uint64(value) >= uint64(1)<<uint(length*8)) {
+		return expressionError("bytes/uint/le/encode integer does not fit length"), nil
+	}
+	encoded := uint64(value)
+	result := make([]byte, int(length))
+	for index := range result {
+		result[index] = byte(encoded)
+		encoded >>= 8
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesUIntLEDecode(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/uint/le/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	if len(value) < 1 || len(value) > 8 {
+		return expressionError("bytes/uint/le/decode requires Bytes from 1 through 8 bytes"), nil
+	}
+	var decoded uint64
+	for index := len(value) - 1; index >= 0; index-- {
+		decoded = decoded<<8 | uint64(value[index])
+	}
+	if decoded > math.MaxInt64 {
+		return expressionError("bytes/uint/le/decode value exceeds Integer range"), nil
+	}
+	return nil, integer(int64(decoded))
 }
 func bytesUTF8Encode(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {

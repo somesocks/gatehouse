@@ -85,6 +85,36 @@
   (assert
     (not (= (bytes/hex/decode "ff") (bytes/hex/decode "00"))))
 
+  ; Signed big-endian codecs preserve one-byte boundaries.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/int/be/encode -128 1)) "80")
+      (= (bytes/hex/encode (bytes/int/be/encode 127 1)) "7f")
+      (= (bytes/int/be/decode (bytes/hex/decode "80")) -128)
+      (= (bytes/int/be/decode (bytes/hex/decode "7f")) 127)))
+
+  ; Signed little-endian codecs preserve two-byte boundaries.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/int/le/encode -32768 2)) "0080")
+      (= (bytes/hex/encode (bytes/int/le/encode 32767 2)) "ff7f")
+      (= (bytes/int/le/decode (bytes/hex/decode "0080")) -32768)
+      (= (bytes/int/le/decode (bytes/hex/decode "ff7f")) 32767)))
+
+  ; Unsigned codecs retain byte order and the full non-negative range of short widths.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/uint/be/encode 258 2)) "0102")
+      (= (bytes/hex/encode (bytes/uint/le/encode 258 2)) "0201")
+      (= (bytes/uint/be/decode (bytes/hex/decode "ffff")) 65535)
+      (= (bytes/uint/le/decode (bytes/hex/decode "ffff")) 65535)))
+
+  ; Integer codecs preserve secret taint.
+  (assert
+    (and
+      (secret? (bytes/int/be/encode (secret/mark -2) 2))
+      (secret? (bytes/uint/le/decode (secret/mark (bytes/hex/decode "0201"))))))
+
   ; Bytes values report their built-in help text.
   (assert
     (= (help (bytes/hex/decode "ff")) "bytes"))
@@ -116,6 +146,48 @@
          (error/catch
            (bytes/slice (bytes/hex/decode "ff") 1 0)))
        "indices are out of range"))
+
+  ; Signed codecs reject values that do not fit their fixed width.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/int/be/encode 128 1)))
+        "does not fit length")
+      (string/contains?
+        (error/value (error/catch (bytes/int/le/encode -129 1)))
+        "does not fit length")))
+
+  ; Unsigned codecs reject negative and overflowing values.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/uint/be/encode -1 1)))
+        "does not fit length")
+      (string/contains?
+        (error/value (error/catch (bytes/uint/le/encode 256 1)))
+        "does not fit length")))
+
+  ; Codecs require widths and encoded values from one through eight bytes.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/int/be/encode 0 0)))
+        "length from 1 through 8")
+      (string/contains?
+        (error/value (error/catch (bytes/uint/le/encode 0 9)))
+        "length from 1 through 8")
+      (string/contains?
+        (error/value (error/catch (bytes/int/be/decode (bytes/concat))))
+        "from 1 through 8 bytes")
+      (string/contains?
+        (error/value (error/catch (bytes/uint/le/decode (bytes/hex/decode "000000000000000000"))))
+        "from 1 through 8 bytes")))
+
+  ; Unsigned decoding rejects values that exceed the Integer range.
+  (assert
+    (string/contains?
+      (error/value (error/catch (bytes/uint/be/decode (bytes/hex/decode "ffffffffffffffff"))))
+      "exceeds Integer range"))
 
   ; Standard Base64 decoding requires padding.
   (assert
