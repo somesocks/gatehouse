@@ -1,6 +1,6 @@
 (begin
   (import
-    (sha256 @native:crypto/sha256/v1)
+    (sha256 @native:crypto/digest/sha256/v1)
     (begin
       ; Digest returns the known SHA-256 value for abc.
       (assert
@@ -11,7 +11,7 @@
       (assert
         (and
           (string/contains? (help sha256/digest) "(sha256/digest bytes) -> Bytes")
-          (string/contains? (help sha256/digest) "Example: (import (sha256 @native:crypto/sha256/v1)")))
+          (string/contains? (help sha256/digest) "Example: (import (sha256 @native:crypto/digest/sha256/v1)")))
 
       ; Digest preserves secret taint.
       (assert (secret? (sha256/digest (secret/mark (bytes/utf8/encode "abc")))))

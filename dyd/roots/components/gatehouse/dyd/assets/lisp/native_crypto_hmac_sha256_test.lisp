@@ -1,6 +1,6 @@
 (begin
   (import
-    (hmac @native:crypto/hmac/sha256/v1)
+    (hmac @native:crypto/mac/hmac/sha256/v1)
     (begin
       ; Digest matches RFC 4231 test case 1.
       (assert
@@ -14,7 +14,7 @@
       (assert
         (and
           (string/contains? (help hmac/digest) "(hmac/digest key message) -> Bytes")
-          (string/contains? (help hmac/digest) "Example: (import (hmac @native:crypto/hmac/sha256/v1)")))
+          (string/contains? (help hmac/digest) "Example: (import (hmac @native:crypto/mac/hmac/sha256/v1)")))
 
       ; Digest preserves taint from either key or message.
       (assert

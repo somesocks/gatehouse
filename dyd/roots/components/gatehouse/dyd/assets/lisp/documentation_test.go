@@ -45,12 +45,12 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
-		}{"sha256/digest", nativeCryptoSHA256Documentation, "(import (sha256 @native:crypto/sha256/v1) (help sha256/digest))"},
+		}{"sha256/digest", nativeCryptoSHA256Documentation, "(import (sha256 @native:crypto/digest/sha256/v1) (help sha256/digest))"},
 		struct {
 			name          string
 			documentation documentation
 			helpSource    string
-		}{"hmac/digest", nativeCryptoHMACSHA256Documentation, "(import (hmac @native:crypto/hmac/sha256/v1) (help hmac/digest))"},
+		}{"hmac/digest", nativeCryptoHMACSHA256Documentation, "(import (hmac @native:crypto/mac/hmac/sha256/v1) (help hmac/digest))"},
 		struct {
 			name          string
 			documentation documentation
