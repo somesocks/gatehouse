@@ -58,6 +58,70 @@ func bytesSlice(_ *evaluator, arguments []Expr) (error, Expr) {
 	}
 	return nil, bytesValue(value[start:end])
 }
+func bytesPadStart(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 3 {
+		return expressionError("bytes/pad/start requires Bytes, target length, and byte"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, targetLength := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	err, padding := requireInteger(arguments[2])
+	if err != nil {
+		return err, nil
+	}
+	if targetLength < int64(len(value)) {
+		return expressionError("bytes/pad/start target length is shorter than Bytes"), nil
+	}
+	if targetLength > int64(^uint(0)>>1) {
+		return expressionError("bytes/pad/start target length is too large"), nil
+	}
+	if padding < 0 || padding > 255 {
+		return expressionError("bytes/pad/start requires a byte from 0 through 255"), nil
+	}
+	result := make([]byte, int(targetLength))
+	for index := 0; index < len(result)-len(value); index++ {
+		result[index] = byte(padding)
+	}
+	copy(result[len(result)-len(value):], value)
+	return nil, bytesValue(string(result))
+}
+func bytesPadEnd(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 3 {
+		return expressionError("bytes/pad/end requires Bytes, target length, and byte"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, targetLength := requireInteger(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	err, padding := requireInteger(arguments[2])
+	if err != nil {
+		return err, nil
+	}
+	if targetLength < int64(len(value)) {
+		return expressionError("bytes/pad/end target length is shorter than Bytes"), nil
+	}
+	if targetLength > int64(^uint(0)>>1) {
+		return expressionError("bytes/pad/end target length is too large"), nil
+	}
+	if padding < 0 || padding > 255 {
+		return expressionError("bytes/pad/end requires a byte from 0 through 255"), nil
+	}
+	result := make([]byte, int(targetLength))
+	copy(result, value)
+	for index := len(value); index < len(result); index++ {
+		result[index] = byte(padding)
+	}
+	return nil, bytesValue(string(result))
+}
 func bytesIntBEEncode(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 2 {
 		return expressionError("bytes/int/be/encode requires an integer and length from 1 through 8"), nil

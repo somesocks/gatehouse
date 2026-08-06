@@ -85,6 +85,20 @@
   (assert
     (not (= (bytes/hex/decode "ff") (bytes/hex/decode "00"))))
 
+  ; Start and end padding reach the requested target length.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/pad/start (bytes/hex/decode "aabb") 4 0)) "0000aabb")
+      (= (bytes/hex/encode (bytes/pad/end (bytes/hex/decode "aabb") 4 255)) "aabbffff")
+      (= (bytes/hex/encode (bytes/pad/start (bytes/hex/decode "aabb") 2 0)) "aabb")
+      (= (bytes/hex/encode (bytes/pad/end (bytes/hex/decode "aabb") 2 255)) "aabb")))
+
+  ; Padding preserves secret taint from Bytes and padding values.
+  (assert
+    (and
+      (secret? (bytes/pad/start (secret/mark (bytes/hex/decode "aa")) 2 0))
+      (secret? (bytes/pad/end (bytes/hex/decode "aa") 2 (secret/mark 0)))))
+
   ; Signed big-endian codecs preserve one-byte boundaries.
   (assert
     (and
@@ -146,6 +160,19 @@
          (error/catch
            (bytes/slice (bytes/hex/decode "ff") 1 0)))
        "indices are out of range"))
+
+  ; Padding rejects shortening and invalid padding bytes.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/pad/start (bytes/hex/decode "aabb") 1 0)))
+        "shorter than Bytes")
+      (string/contains?
+        (error/value (error/catch (bytes/pad/end (bytes/hex/decode "aa") 2 -1)))
+        "byte from 0 through 255")
+      (string/contains?
+        (error/value (error/catch (bytes/pad/start (bytes/hex/decode "aa") 2 256)))
+        "byte from 0 through 255")))
 
   ; Signed codecs reject values that do not fit their fixed width.
   (assert
