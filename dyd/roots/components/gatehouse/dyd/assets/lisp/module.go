@@ -41,6 +41,7 @@ func newModuleCache() *moduleCache {
 		modules: map[string]Expr{
 			nativeCryptoCipherAES128ID: nativeCryptoCipherAES128Module(),
 			nativeCryptoCipherCBCID:    nativeCryptoCipherCBCModule(),
+			nativeCryptoCipherCTRID:    nativeCryptoCipherCTRModule(),
 			nativeCryptoHMACSHA256ID:   nativeCryptoHMACSHA256Module(),
 			nativeCryptoPaddingPKCS7ID: nativeCryptoPaddingPKCS7Module(),
 			nativeCryptoSHA256ID:       nativeCryptoSHA256Module(),
