@@ -58,6 +58,83 @@ func bytesSlice(_ *evaluator, arguments []Expr) (error, Expr) {
 	}
 	return nil, bytesValue(value[start:end])
 }
+func bytesAnd(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/and requires two Bytes values"), nil
+	}
+	err, left := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, right := requireBytes(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if len(left) != len(right) {
+		return expressionError("bytes/and requires equal-length Bytes values"), nil
+	}
+	result := make([]byte, len(left))
+	for index := range result {
+		result[index] = left[index] & right[index]
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesOr(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/or requires two Bytes values"), nil
+	}
+	err, left := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, right := requireBytes(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if len(left) != len(right) {
+		return expressionError("bytes/or requires equal-length Bytes values"), nil
+	}
+	result := make([]byte, len(left))
+	for index := range result {
+		result[index] = left[index] | right[index]
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesXor(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("bytes/xor requires two Bytes values"), nil
+	}
+	err, left := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	err, right := requireBytes(arguments[1])
+	if err != nil {
+		return err, nil
+	}
+	if len(left) != len(right) {
+		return expressionError("bytes/xor requires equal-length Bytes values"), nil
+	}
+	result := make([]byte, len(left))
+	for index := range result {
+		result[index] = left[index] ^ right[index]
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesNot(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/not requires one Bytes value"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	result := make([]byte, len(value))
+	for index := range result {
+		result[index] = ^value[index]
+	}
+	return nil, bytesValue(string(result))
+}
 func bytesPadStart(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 3 {
 		return expressionError("bytes/pad/start requires Bytes, target length, and byte"), nil

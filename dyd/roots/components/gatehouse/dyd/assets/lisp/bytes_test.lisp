@@ -85,6 +85,23 @@
   (assert
     (not (= (bytes/hex/decode "ff") (bytes/hex/decode "00"))))
 
+  ; Bytewise Boolean operations preserve each bit position.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/and (bytes/hex/decode "aaf0") (bytes/hex/decode "0f33"))) "0a30")
+      (= (bytes/hex/encode (bytes/or (bytes/hex/decode "aaf0") (bytes/hex/decode "0f33"))) "aff3")
+      (= (bytes/hex/encode (bytes/xor (bytes/hex/decode "aaf0") (bytes/hex/decode "0f33"))) "a5c3")
+      (= (bytes/hex/encode (bytes/not (bytes/hex/decode "00ff"))) "ff00")
+      (= (bytes/length (bytes/xor (bytes/concat) (bytes/concat))) 0)))
+
+  ; Bytewise Boolean operations preserve secret taint.
+  (assert
+    (and
+      (secret? (bytes/and (secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
+      (secret? (bytes/or (bytes/hex/decode "aa") (secret/mark (bytes/hex/decode "0f"))))
+      (secret? (bytes/xor (secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
+      (secret? (bytes/not (secret/mark (bytes/hex/decode "aa"))))))
+
   ; Start and end padding reach the requested target length.
   (assert
     (and
@@ -160,6 +177,25 @@
          (error/catch
            (bytes/slice (bytes/hex/decode "ff") 1 0)))
        "indices are out of range"))
+
+  ; Binary Boolean operations require equal-length Bytes values.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/and (bytes/hex/decode "aa") (bytes/hex/decode "aabb"))))
+        "equal-length Bytes")
+      (string/contains?
+        (error/value (error/catch (bytes/or "aa" (bytes/hex/decode "aa"))))
+        "expected Bytes")
+      (string/contains?
+        (error/value (error/catch (bytes/xor (bytes/hex/decode "aa"))))
+        "requires two Bytes")))
+
+  ; Complement requires one Bytes value.
+  (assert
+    (string/contains?
+      (error/value (error/catch (bytes/not "aa")))
+      "expected Bytes"))
 
   ; Padding rejects shortening and invalid padding bytes.
   (assert
