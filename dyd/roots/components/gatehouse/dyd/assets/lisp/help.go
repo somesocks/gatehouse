@@ -5,65 +5,59 @@ import (
 	"strings"
 )
 
-func helpValue(_ *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
+func helpValue(_ *evaluator, env *environment, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "help requires one argument"), Expr{}
+		return expressionError("help requires one argument"), nil
 	}
-	return nil, stringValue(helpText(arguments[0], env, make(map[string]struct{})), Span{})
+	return nil, stringValue(helpText(arguments[0], env, make(map[string]struct{})))
 }
-
-func helpSearch(_ *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
-	err, terms := helpTerms(arguments, span)
+func helpSearch(_ *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	err, terms := helpTerms(arguments)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-
-	bindings := env.matchingBindings(func(_ string, value Expr) bool {
-		return value.help != "" && matchesTerms(value.help, terms)
-	})
+	bindings := env.matchingBindings(func(_ string, value Expr) bool { return helpOf(value) != "" && matchesTerms(helpOf(value), terms) })
+	for _, form := range evaluatorForms {
+		if _, exists := env.visibleValue(form.name); !exists && matchesTerms(form.documentation.text(), terms) {
+			bindings = append(bindings, form.name)
+		}
+	}
+	sort.Strings(bindings)
 	result := make([]Expr, len(bindings))
 	for index, binding := range bindings {
-		result[index] = symbol(binding, Span{})
+		result[index] = symbol(binding)
 	}
-	return nil, list(result, Span{})
+	return nil, list(result)
 }
-
-func helpEnv(_ *evaluator, env *environment, arguments []Expr, span Span) (error, Expr) {
-	err, terms := helpTerms(arguments, span)
+func helpEnv(_ *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	err, terms := helpTerms(arguments)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-
-	bindings := env.matchingBindings(func(name string, _ Expr) bool {
-		return matchesTerms(name, terms)
-	})
+	bindings := env.matchingBindings(func(name string, _ Expr) bool { return matchesTerms(name, terms) })
 	result := make([]Expr, len(bindings))
 	for index, binding := range bindings {
-		result[index] = symbol(binding, Span{})
+		result[index] = symbol(binding)
 	}
-	return nil, list(result, Span{})
+	return nil, list(result)
 }
-
-func helpDocument(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func helpDocument(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 2 {
-		return expressionError(span, "help/document requires a value and help text"), Expr{}
+		return expressionError("help/document requires a value and help text"), nil
 	}
-	if arguments[1].secret {
-		return expressionError(span, "help/document requires public help text"), Expr{}
+	if hasSecret(arguments[1]) {
+		return expressionError("help/document requires public help text"), nil
 	}
-	err, text := requireString(arguments[1], span)
+	err, text := requireString(arguments[1])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	result := arguments[0]
-	result.help = text
-	return nil, result
+	return nil, withHelp(arguments[0], text)
 }
-
-func helpTerms(arguments []Expr, span Span) (error, []string) {
+func helpTerms(arguments []Expr) (error, []string) {
 	terms := make([]string, len(arguments))
 	for index, argument := range arguments {
-		err, term := requireString(argument, span)
+		err, term := requireString(argument)
 		if err != nil {
 			return err, nil
 		}
@@ -71,7 +65,6 @@ func helpTerms(arguments []Expr, span Span) (error, []string) {
 	}
 	return nil, terms
 }
-
 func (env *environment) matchingBindings(matches func(string, Expr) bool) []string {
 	seen := make(map[string]struct{})
 	var bindings []string
@@ -81,16 +74,14 @@ func (env *environment) matchingBindings(matches func(string, Expr) bool) []stri
 				continue
 			}
 			seen[name] = struct{}{}
-			if value == nil || !matches(name, *value) {
-				continue
+			if value != nil && matches(name, *value) {
+				bindings = append(bindings, name)
 			}
-			bindings = append(bindings, name)
 		}
 	}
 	sort.Strings(bindings)
 	return bindings
 }
-
 func matchesTerms(haystack string, terms []string) bool {
 	haystack = strings.ToLower(haystack)
 	for _, term := range terms {
@@ -100,51 +91,52 @@ func matchesTerms(haystack string, terms []string) bool {
 	}
 	return true
 }
-
 func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) string {
-	if expr.kind == exprSymbol {
-		if _, exists := seenSymbols[expr.text]; exists {
+	base, _ := unwrap(expr)
+	if symbol, ok := base.(*symbolExpr); ok {
+		if _, exists := seenSymbols[symbol.value]; exists {
 			return "symbol"
 		}
-		seenSymbols[expr.text] = struct{}{}
-		if value, exists := env.visibleValue(expr.text); exists {
+		seenSymbols[symbol.value] = struct{}{}
+		if value, exists := env.visibleValue(symbol.value); exists {
 			return helpText(value, env, seenSymbols)
+		}
+		if documentation, exists := evaluatorFormDocumentation(symbol.value); exists {
+			return documentation.text()
 		}
 		return "symbol"
 	}
-	if expr.help != "" {
-		return expr.help
+	if help := helpOf(expr); help != "" {
+		return help
 	}
-
-	switch expr.kind {
-	case exprBoolean:
+	switch value := base.(type) {
+	case *booleanExpr:
 		return "bool"
-	case exprInteger:
+	case *integerExpr:
 		return "int"
-	case exprString:
+	case *stringExpr:
 		return "string"
-	case exprBytes:
+	case *bytesExpr:
 		return "bytes"
-	case exprError:
+	case *errorValue:
 		return "error"
-	case exprNull:
+	case *nullExpr:
 		return "null"
-	case exprPair:
-		if isProperList(expr) {
+	case *pair:
+		if isProperList(value) {
 			return "list"
 		}
 		return "pair"
-	case exprClosure:
-		return "function (" + strings.Join(expr.closure.parameters, " ") + ")"
-	case exprBuiltin:
+	case *closure:
+		return "function (" + strings.Join(value.parameters, " ") + ")"
+	case *builtin:
 		return "builtin"
-	case exprModuleReference:
+	case *moduleReference:
 		return "module reference"
 	default:
 		return "invalid"
 	}
 }
-
 func (env *environment) visibleValue(name string) (Expr, bool) {
 	for current := env; current != nil; current = current.parent {
 		value, exists := current.values[name]
@@ -152,9 +144,9 @@ func (env *environment) visibleValue(name string) (Expr, bool) {
 			continue
 		}
 		if value == nil {
-			return Expr{}, false
+			return nil, false
 		}
 		return *value, true
 	}
-	return Expr{}, false
+	return nil, false
 }

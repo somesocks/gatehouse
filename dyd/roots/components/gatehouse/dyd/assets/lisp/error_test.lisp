@@ -74,8 +74,11 @@
   ; A false assertion does not evaluate its optional value.
   (assert (= (error/value (error/catch (assert #f missing))) "assertion failed"))
 
-  ; Assert reports its public help text.
-  (assert (= (help assert) "Returns null or a supplied value when a condition is true, otherwise raises an Error."))
+  ; Assert reports its signature and runnable example.
+  (assert
+    (and
+      (string/contains? (help assert) "(assert condition [value]) -> Null | Value")
+      (string/contains? (help assert) "Example: (assert #t 7) => 7.")))
 
   ; Assert requires a condition and optional value.
   (assert

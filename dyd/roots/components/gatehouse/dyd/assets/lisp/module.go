@@ -21,6 +21,20 @@ type moduleExport struct {
 	value Expr
 }
 
+var importDocumentation = doc(
+	"(import (alias @reference) ... body) -> Value",
+	"Loads module exports as alias/export bindings while evaluating body.",
+	"(import (random @native:random/v1) (help/env \"random/\"))",
+	"(random/bool random/bytes random/int)",
+)
+
+var importSearchDocumentation = doc(
+	"(import/search term...) -> List",
+	"Returns module references available to the current importer.",
+	"(import/search \"time\")",
+	"(@native:time/v1)",
+)
+
 func newModuleCache() *moduleCache {
 	return &moduleCache{
 		aliases: make(map[string]string),
@@ -28,6 +42,7 @@ func newModuleCache() *moduleCache {
 			nativeCryptoHMACSHA256ID: nativeCryptoHMACSHA256Module(),
 			nativeCryptoSHA256ID:     nativeCryptoSHA256Module(),
 			nativeRandomID:           nativeRandomModule(),
+			nativeSeqID:              nativeSeqModule(),
 			nativeTimeID:             nativeTimeModule(),
 		},
 	}
@@ -50,11 +65,13 @@ func (cache *moduleCache) references() map[moduleReference]struct{} {
 		if _, exists := cache.modules[id]; !exists {
 			continue
 		}
-		err, reference := moduleReferenceValue(alias, Span{})
-		if err != nil || reference.kind != exprModuleReference || reference.reference.scheme != moduleReferenceFile || reference.reference.fingerprint != "" {
+		err, expression := moduleReferenceValue(alias)
+		reference, _ := unwrap(expression)
+		module, ok := reference.(*moduleReference)
+		if err != nil || !ok || module.scheme != moduleReferenceFile || module.fingerprint != "" {
 			continue
 		}
-		references[*reference.reference] = struct{}{}
+		references[*module] = struct{}{}
 	}
 	return references
 }
@@ -118,41 +135,44 @@ func (loader *moduleLoader) moduleID(reference moduleReference) (error, string) 
 }
 
 func importBuiltin(loader *moduleLoader) Expr {
-	return Expr{kind: exprBuiltin, help: "Loads modules into a lexical body.", builtin: &builtin{
+	return withHelp(&builtin{
 		special: true,
-		call: func(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
-			return importModules(loader, evaluator, env, forms, span)
+		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+			return importModules(loader, evaluator, env, forms)
 		},
-	}}
+	}, importDocumentation.text())
 }
 
-func importRestrict(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+func importRestrict(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 	if len(forms) != 2 {
-		return expressionError(span, "import/restrict requires an allowlist and body expression"), Expr{}
+		return expressionError("import/restrict requires an allowlist and body expression"), nil
 	}
 	err, values := expressions(forms[0])
 	if err != nil {
-		return expressionError(forms[0].span, "import/restrict allowlist must be a proper list"), Expr{}
+		return expressionError("import/restrict allowlist must be a proper list"), nil
 	}
 	allowed := make(map[moduleReference]struct{}, len(values))
 	for _, value := range values {
-		if value.kind != exprModuleReference {
-			return expressionError(value.span, "import/restrict allowlist entries must be module references"), Expr{}
+		base, _ := unwrap(value)
+		reference, ok := base.(*moduleReference)
+		if !ok {
+			return expressionError("import/restrict allowlist entries must be module references"), nil
 		}
-		reference := *value.reference
-		if _, exists := allowed[reference]; exists {
-			return expressionError(value.span, "import/restrict allowlist contains duplicate module reference %s", reference.String()), Expr{}
+		if _, exists := allowed[*reference]; exists {
+			return expressionError("import/restrict allowlist contains duplicate module reference %s", reference.String()), nil
 		}
-		allowed[reference] = struct{}{}
+		allowed[*reference] = struct{}{}
 	}
 
-	err, importer := env.lookup("import", span)
-	if err != nil || importer.kind != exprBuiltin || !importer.builtin.special {
-		return expressionError(span, "import/restrict requires an import binding"), Expr{}
+	err, importer := env.lookup("import")
+	base, _ := unwrap(importer)
+	importerBuiltin, ok := base.(*builtin)
+	if err != nil || !ok || !importerBuiltin.special {
+		return expressionError("import/restrict requires an import binding"), nil
 	}
-	err, allowed = intersectImportAllowlist(evaluator, env, allowed, span)
+	err, allowed = intersectImportAllowlist(evaluator, env, allowed)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	restricted := &environment{parent: env, values: make(map[string]*Expr, 2)}
 	restricted.bind("import", restrictedImportBuiltin(importer, allowed))
@@ -161,36 +181,38 @@ func importRestrict(evaluator *evaluator, env *environment, forms []Expr, span S
 }
 
 func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}) Expr {
-	return Expr{kind: exprBuiltin, help: importer.help, builtin: &builtin{
+	base, _ := unwrap(importer)
+	importerBuiltin := base.(*builtin)
+	return withHelp(&builtin{
 		special: true,
-		call: func(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 			if len(forms) < 2 {
-				return importer.builtin.call(evaluator, env, forms, span)
+				return importerBuiltin.call(evaluator, env, forms)
 			}
 			for _, form := range forms[:len(forms)-1] {
 				err, _, reference := moduleImportDeclaration(form)
 				if err != nil {
-					return err, Expr{}
+					return err, nil
 				}
 				if _, exists := allowed[reference]; !exists {
-					return expressionError(form.span, "import %s is not allowed", reference.String()), Expr{}
+					return expressionError("import %s is not allowed", reference.String()), nil
 				}
 			}
-			return importer.builtin.call(evaluator, env, forms, span)
+			return importerBuiltin.call(evaluator, env, forms)
 		},
-	}}
+	}, helpOf(importer))
 }
 
-func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed map[moduleReference]struct{}, span Span) (error, map[moduleReference]struct{}) {
+func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed map[moduleReference]struct{}) (error, map[moduleReference]struct{}) {
 	search, exists := env.visibleValue("import/search")
 	if !exists {
 		return nil, allowed
 	}
-	err, result := evaluator.call(search, env, nil, span)
+	err, result := evaluator.call(search, env, nil)
 	if err != nil {
 		return err, nil
 	}
-	err, outer := importSearchReferences(result, span)
+	err, outer := importSearchReferences(result)
 	if err != nil {
 		return err, nil
 	}
@@ -205,11 +227,11 @@ func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed ma
 
 func importSearchBuiltin(allowed map[moduleReference]struct{}) Expr {
 	references := sortedModuleReferences(allowed)
-	return Expr{kind: exprBuiltin, help: "Returns module references available to the current importer.", builtin: &builtin{
-		call: pure(func(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
-			err, terms := helpTerms(arguments, span)
+	return withHelp(&builtin{
+		call: pure(func(_ *evaluator, arguments []Expr) (error, Expr) {
+			err, terms := helpTerms(arguments)
 			if err != nil {
-				return err, Expr{}
+				return err, nil
 			}
 			result := make([]Expr, 0, len(references))
 			for _, reference := range references {
@@ -218,22 +240,24 @@ func importSearchBuiltin(allowed map[moduleReference]struct{}) Expr {
 				}
 				result = append(result, moduleReferenceExpr(reference))
 			}
-			return nil, list(result, Span{})
+			return nil, list(result)
 		}),
-	}}
+	}, importSearchDocumentation.text())
 }
 
-func importSearchReferences(expression Expr, span Span) (error, map[moduleReference]struct{}) {
+func importSearchReferences(expression Expr) (error, map[moduleReference]struct{}) {
 	err, values := expressions(expression)
 	if err != nil {
-		return expressionError(span, "import/search must return a proper list"), nil
+		return expressionError("import/search must return a proper list"), nil
 	}
 	references := make(map[moduleReference]struct{}, len(values))
 	for _, value := range values {
-		if value.kind != exprModuleReference {
-			return expressionError(span, "import/search must return module references"), nil
+		base, _ := unwrap(value)
+		reference, ok := base.(*moduleReference)
+		if !ok {
+			return expressionError("import/search must return module references"), nil
 		}
-		references[*value.reference] = struct{}{}
+		references[*reference] = struct{}{}
 	}
 	return nil, references
 }
@@ -251,15 +275,15 @@ func sortedModuleReferences(allowed map[moduleReference]struct{}) []moduleRefere
 
 func moduleReferenceExpr(reference moduleReference) Expr {
 	value := reference
-	return Expr{kind: exprModuleReference, reference: &value}
+	return &value
 }
 
-func importModules(loader *moduleLoader, evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+func importModules(loader *moduleLoader, evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 	if loader == nil {
-		return expressionError(span, "import requires a module loader"), Expr{}
+		return expressionError("import requires a module loader"), nil
 	}
 	if len(forms) < 2 {
-		return expressionError(span, "import requires declarations and a body expression"), Expr{}
+		return expressionError("import requires declarations and a body expression"), nil
 	}
 
 	imports := &environment{parent: env, values: make(map[string]*Expr)}
@@ -267,21 +291,21 @@ func importModules(loader *moduleLoader, evaluator *evaluator, env *environment,
 	for _, form := range forms[:len(forms)-1] {
 		err, alias, reference := moduleImportDeclaration(form)
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		if _, exists := aliases[alias]; exists {
-			return expressionError(form.span, "import alias %q is duplicated", alias), Expr{}
+			return expressionError("import alias %q is duplicated", alias), nil
 		}
 		aliases[alias] = struct{}{}
 
 		err, exports := loader.load(reference, env)
 		if err != nil {
-			return expressionError(form.span, "import %s: %v", reference.String(), err), Expr{}
+			return expressionError("import %s: %v", reference.String(), err), nil
 		}
 		for _, export := range exports {
 			name := alias + "/" + export.name
 			if _, exists := imports.values[name]; exists {
-				return expressionError(form.span, "import binding %q is duplicated", name), Expr{}
+				return expressionError("import binding %q is duplicated", name), nil
 			}
 			imports.bind(name, export.value)
 		}
@@ -294,10 +318,17 @@ func moduleImportDeclaration(expression Expr) (error, string, moduleReference) {
 	if err != nil {
 		return err, "", moduleReference{}
 	}
-	if len(values) != 2 || values[0].kind != exprSymbol || values[1].kind != exprModuleReference {
-		return expressionError(expression.span, "import declarations must contain a name and module reference"), "", moduleReference{}
+	if len(values) != 2 {
+		return expressionError("import declarations must contain a name and module reference"), "", moduleReference{}
 	}
-	return nil, values[0].text, *values[1].reference
+	name, _ := unwrap(values[0])
+	reference, _ := unwrap(values[1])
+	symbol, symbolOK := name.(*symbolExpr)
+	module, moduleOK := reference.(*moduleReference)
+	if !symbolOK || !moduleOK {
+		return expressionError("import declarations must contain a name and module reference"), "", moduleReference{}
+	}
+	return nil, symbol.value, *module
 }
 
 func moduleExports(expression Expr) (error, []moduleExport) {
@@ -308,19 +339,25 @@ func moduleExports(expression Expr) (error, []moduleExport) {
 	exports := make([]moduleExport, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
-		if value.kind != exprPair || value.pair.first.kind != exprSymbol {
-			return expressionError(value.span, "module exports must be pairs with symbol names"), nil
+		base, _ := unwrap(value)
+		pair, ok := base.(*pair)
+		if !ok {
+			return expressionError("module exports must be pairs with symbol names"), nil
 		}
-		name := value.pair.first.text
-		if _, exists := seen[name]; exists {
-			return expressionError(value.span, "module export %q is duplicated", name), nil
+		first, _ := unwrap(pair.first)
+		name, ok := first.(*symbolExpr)
+		if !ok {
+			return expressionError("module exports must be pairs with symbol names"), nil
 		}
-		seen[name] = struct{}{}
-		exported := value.pair.rest
-		if value.help != "" {
-			exported.help = value.help
+		if _, exists := seen[name.value]; exists {
+			return expressionError("module export %q is duplicated", name.value), nil
 		}
-		exports = append(exports, moduleExport{name: name, value: exported})
+		seen[name.value] = struct{}{}
+		exported := pair.rest
+		if help := helpOf(value); help != "" {
+			exported = withHelp(exported, help)
+		}
+		exports = append(exports, moduleExport{name: name.value, value: exported})
 	}
 	return nil, exports
 }

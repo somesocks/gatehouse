@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+TEMP_DIR=''
+
+assert_equals() {
+    if [ "$1" != "$2" ]; then
+        printf '%s\n' "[ERROR] Fail: $3 = $1, want $2" >&2
+        return 1
+    fi
+}
+
+assert_contains() {
+    case "$1" in
+        *"$2"*) ;;
+        *)
+            printf '%s\n' "[ERROR] Fail: $3 does not contain $2" >&2
+            return 1
+            ;;
+    esac
+}
+
+_setup() {
+    TEMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'gatehouse-lisp-test')
+}
+
+_test() {
+    assert_equals "$(gatehouse lisp eval '(+ 1 2)')" "3" "argument evaluation"
+    assert_equals "$(printf '%s\n' '(+ 2 3)' | gatehouse lisp eval --from-stdin)" "5" "standard input evaluation"
+    assert_equals "$(gatehouse lisp eval '(secret/mark "token")')" "#<secret>" "secret rendering"
+    assert_equals "$(gatehouse lisp eval '(import (time @native:time/v1) (int? (time/now)))')" "#t" "native import"
+
+    if gatehouse lisp eval '(' >"$TEMP_DIR/parse.stdout" 2>"$TEMP_DIR/parse.stderr"; then
+        printf '%s\n' "[ERROR] Fail: invalid Lisp unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(<"$TEMP_DIR/parse.stderr")" "evaluate Lisp:" "parse error"
+
+    if gatehouse lisp eval '(error/throw "failure")' >"$TEMP_DIR/eval.stdout" 2>"$TEMP_DIR/eval.stderr"; then
+        printf '%s\n' "[ERROR] Fail: thrown Lisp error unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(<"$TEMP_DIR/eval.stderr")" "thrown error" "evaluation error"
+
+    if gatehouse lisp eval >"$TEMP_DIR/missing.stdout" 2>"$TEMP_DIR/missing.stderr"; then
+        printf '%s\n' "[ERROR] Fail: missing source unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(<"$TEMP_DIR/missing.stderr")" "requires a source argument" "missing source"
+
+    if gatehouse lisp eval --from-stdin '(+ 1 2)' >"$TEMP_DIR/combined.stdout" 2>"$TEMP_DIR/combined.stderr"; then
+        printf '%s\n' "[ERROR] Fail: combined source unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(<"$TEMP_DIR/combined.stderr")" "cannot be used with --from-stdin" "combined source"
+}
+
+_teardown() {
+    if [ -d "$TEMP_DIR" ]; then
+        chmod -R 755 "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
+    fi
+}
+
+trap _teardown ERR EXIT
+_setup
+_test

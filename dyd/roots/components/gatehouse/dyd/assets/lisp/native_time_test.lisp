@@ -6,8 +6,11 @@
       (let ((value (time/now)))
         (assert (and (int? value) (> value 0) (not (secret? value)))))
 
-      ; Now reports its public help text.
-      (assert (= (help time/now) "Returns the current Unix time in milliseconds."))
+      ; Now reports its signature and runnable example.
+      (assert
+        (and
+          (string/contains? (help time/now) "(time/now) -> Integer")
+          (string/contains? (help time/now) "Example: (import (time @native:time/v1) (int? (time/now))) => #t.")))
 
       ; Now requires no arguments.
       (assert

@@ -4,24 +4,27 @@ import "time"
 
 const nativeTimeID = "native:time/v1"
 
+var nativeTimeDocumentation = doc(
+	"(time/now) -> Integer",
+	"Returns the current Unix time in milliseconds.",
+	"(import (time @native:time/v1) (int? (time/now)))",
+	"#t",
+)
+
 func nativeTimeModule() Expr {
-	now := Expr{
-		kind:    exprBuiltin,
-		help:    "Returns the current Unix time in milliseconds.",
-		builtin: &builtin{call: pure(nativeTimeNow)},
-	}
+	now := withHelp(&builtin{call: pure(nativeTimeNow)}, nativeTimeDocumentation.text())
 	exports := list([]Expr{
-		pairValue(symbol("now", Span{}), now, Span{}),
-	}, Span{})
+		pairValue(symbol("now"), now),
+	})
 	return list([]Expr{
-		symbol("quote", Span{}),
+		symbol("quote"),
 		exports,
-	}, Span{})
+	})
 }
 
-func nativeTimeNow(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func nativeTimeNow(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 0 {
-		return expressionError(span, "time/now requires no arguments"), Expr{}
+		return expressionError("time/now requires no arguments"), nil
 	}
-	return nil, integer(time.Now().UnixMilli(), Span{})
+	return nil, integer(time.Now().UnixMilli())
 }

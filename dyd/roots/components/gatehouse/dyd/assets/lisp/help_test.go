@@ -13,10 +13,10 @@ func TestHelpLisp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.kind != exprNull {
+	if !isNullValue(result) {
 		t.Fatalf("Help test result = %s, want null", result)
 	}
-	if got, want := result.help, "Root leading help.\nRoot trailing help."; got != want {
+	if got, want := helpOf(result), "Root leading help.\nRoot trailing help."; got != want {
 		t.Fatalf("root help = %q, want %q", got, want)
 	}
 }

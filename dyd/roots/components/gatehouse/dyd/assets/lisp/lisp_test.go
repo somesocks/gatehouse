@@ -34,11 +34,13 @@ func TestReadModuleReferences(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if expression.kind != exprModuleReference {
-				t.Fatalf("Read(%q) kind = %v, want module reference", test.source, expression.kind)
+			base, _ := unwrap(expression)
+			reference, ok := base.(*moduleReference)
+			if !ok {
+				t.Fatalf("Read(%q) = %T, want module reference", test.source, expression)
 			}
-			if expression.reference.scheme != test.scheme || expression.reference.uri != test.uri || expression.reference.fingerprint != test.fingerprint {
-				t.Fatalf("Read(%q) reference = %#v, want scheme %v, uri %q, fingerprint %q", test.source, expression.reference, test.scheme, test.uri, test.fingerprint)
+			if reference.scheme != test.scheme || reference.uri != test.uri || reference.fingerprint != test.fingerprint {
+				t.Fatalf("Read(%q) reference = %#v, want scheme %v, uri %q, fingerprint %q", test.source, reference, test.scheme, test.uri, test.fingerprint)
 			}
 			if got := expression.String(); got != test.source {
 				t.Fatalf("Read(%q).String() = %q, want %q", test.source, got, test.source)
@@ -101,20 +103,20 @@ func TestReadAttachesCommentsAndWhitespace(t *testing.T) {
 	if got, want := expression.String(), "(list 1 2)"; got != want {
 		t.Fatalf("Read() = %s, want %s", got, want)
 	}
-	if got, want := expression.help, "leading comment\ncontinued comment\ntrailing comment\ncontinued trailing comment"; got != want {
+	if got, want := helpOf(expression), "leading comment\ncontinued comment\ntrailing comment\ncontinued trailing comment"; got != want {
 		t.Fatalf("expression help = %q, want %q", got, want)
 	}
 	err, forms := expressions(expression)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := forms[0].help, "list function"; got != want {
+	if got, want := helpOf(forms[0]), "list function"; got != want {
 		t.Fatalf("list function help = %q, want %q", got, want)
 	}
-	if got, want := forms[1].help, "one"; got != want {
+	if got, want := helpOf(forms[1]), "one"; got != want {
 		t.Fatalf("first argument help = %q, want %q", got, want)
 	}
-	if got, want := forms[2].help, "two"; got != want {
+	if got, want := helpOf(forms[2]), "two"; got != want {
 		t.Fatalf("second argument help = %q, want %q", got, want)
 	}
 }
@@ -140,7 +142,9 @@ func TestReadDecodesEscapesAndUnicode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stringExpression.kind != exprString || stringExpression.text != "a\"b\\c\n\r\t" {
+	base, _ := unwrap(stringExpression)
+	stringValue, ok := base.(*stringExpr)
+	if !ok || stringValue.value != "a\"b\\c\n\r\t" {
 		t.Fatalf("Read() = %#v, want decoded string", stringExpression)
 	}
 
@@ -148,55 +152,10 @@ func TestReadDecodesEscapesAndUnicode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if symbolExpression.kind != exprSymbol || symbolExpression.text != "λ" {
+	base, _ = unwrap(symbolExpression)
+	symbolValue, ok := base.(*symbolExpr)
+	if !ok || symbolValue.value != "λ" {
 		t.Fatalf("Read() = %#v, want Unicode symbol", symbolExpression)
-	}
-}
-
-func TestReadTracksByteSpans(t *testing.T) {
-	source := "  (list λ)"
-	err, expression := Read(source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := expression.span, (Span{Start: 2, End: len(source)}); got != want {
-		t.Fatalf("expression span = %#v, want %#v", got, want)
-	}
-	err, forms := expressions(expression)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got, want := forms[0].span, (Span{Start: 3, End: 7}); got != want {
-		t.Fatalf("list head span = %#v, want %#v", got, want)
-	}
-	if got, want := forms[1].span, (Span{Start: 8, End: 10}); got != want {
-		t.Fatalf("list argument span = %#v, want %#v", got, want)
-	}
-}
-
-func TestReadTracksErrorSpans(t *testing.T) {
-	for _, test := range []struct {
-		source string
-		span   Span
-	}{
-		{source: ")", span: Span{Start: 0, End: 1}},
-		{source: "1 2", span: Span{Start: 2, End: 3}},
-		{source: `"\q"`, span: Span{Start: 1, End: 3}},
-		{source: "'", span: Span{Start: 1, End: 1}},
-	} {
-		t.Run(test.source, func(t *testing.T) {
-			err, _ := Read(test.source)
-			if err == nil {
-				t.Fatal("Read() succeeded")
-			}
-			languageError, ok := err.(Error)
-			if !ok {
-				t.Fatalf("Read() error = %T, want lisp.Error", err)
-			}
-			if languageError.Span != test.span {
-				t.Fatalf("Read() error span = %#v, want %#v", languageError.Span, test.span)
-			}
-		})
 	}
 }
 
@@ -233,7 +192,7 @@ func TestModuleImports(t *testing.T) {
 	if got := values[0].String(); got != "7" {
 		t.Fatalf("value = %s, want 7", got)
 	}
-	err, result = (&evaluator{}).call(values[1], prelude(), []Expr{integer(4, Span{})}, Span{})
+	err, result = (&evaluator{}).call(values[1], prelude(), []Expr{integer(4)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +204,7 @@ func TestModuleImports(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, result = (&evaluator{}).call(closure, prelude(), nil, Span{})
+	err, result = (&evaluator{}).call(closure, prelude(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +231,7 @@ func TestModuleCommentsProvideExportHelp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := result.help, "Returns the answer.\nThe result is always an integer."; got != want {
+	if got, want := helpOf(result), "Returns the answer.\nThe result is always an integer."; got != want {
 		t.Fatalf("imported answer help = %q, want %q", got, want)
 	}
 }
@@ -433,7 +392,7 @@ func TestEvalSecretRendering(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.secret || result.String() != "#<secret>" {
+	if !hasSecret(result) || result.String() != "#<secret>" {
 		t.Fatalf("secret value = %#v, want redacted secret", result)
 	}
 }
@@ -467,10 +426,12 @@ func TestHelpEnvEnumeratesPreludeBindings(t *testing.T) {
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
-		if binding.kind != exprSymbol {
+		base, _ := unwrap(binding)
+		symbol, ok := base.(*symbolExpr)
+		if !ok {
 			t.Fatalf("(help/env) returned %s, want symbols", binding)
 		}
-		seen[binding.text] = struct{}{}
+		seen[symbol.value] = struct{}{}
 	}
 	if _, exists := seen["null"]; !exists {
 		t.Error("(help/env) did not return \"null\"")
@@ -505,15 +466,17 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins)+2 {
-		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+2)
+	if len(bindings) != len(preludeBuiltins)+len(evaluatorForms)+2 {
+		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+len(evaluatorForms)+2)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
-		if binding.kind != exprSymbol {
+		base, _ := unwrap(binding)
+		symbol, ok := base.(*symbolExpr)
+		if !ok {
 			t.Fatalf("(help/search) returned %s, want symbols", binding)
 		}
-		seen[binding.text] = struct{}{}
+		seen[symbol.value] = struct{}{}
 	}
 	for _, definition := range preludeBuiltins {
 		if _, exists := seen[definition.name]; !exists {
@@ -525,6 +488,11 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	}
 	if _, exists := seen["import/search"]; !exists {
 		t.Error("(help/search) did not return \"import/search\"")
+	}
+	for _, form := range evaluatorForms {
+		if _, exists := seen[form.name]; !exists {
+			t.Errorf("(help/search) did not return form %q", form.name)
+		}
 	}
 }
 
@@ -544,7 +512,7 @@ func testModuleCache(t *testing.T, sources map[string]string) *moduleCache {
 func runWithModuleCache(source string, cache *moduleCache) (error, Expr) {
 	err, expression := Read(source)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	env := prelude()
 	bindImports(env, cache)

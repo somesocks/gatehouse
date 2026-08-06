@@ -5,200 +5,190 @@ import (
 	"unicode/utf8"
 )
 
-func isString(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func isString(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "string? requires one argument"), Expr{}
+		return expressionError("string? requires one argument"), nil
 	}
-	return nil, boolean(arguments[0].kind == exprString, Span{})
+	base, _ := unwrap(arguments[0])
+	_, ok := base.(*stringExpr)
+	return nil, boolean(ok)
 }
-
-func stringLength(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringLength(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "string/length requires one argument"), Expr{}
+		return expressionError("string/length requires one argument"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, integer(int64(utf8.RuneCountInString(value)), Span{})
+	return nil, integer(int64(utf8.RuneCountInString(value)))
 }
-
-func stringConcat(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringConcat(_ *evaluator, arguments []Expr) (error, Expr) {
 	var builder strings.Builder
 	for _, argument := range arguments {
-		err, value := requireString(argument, span)
+		err, value := requireString(argument)
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		builder.WriteString(value)
 	}
-	return nil, stringValue(builder.String(), Span{})
+	return nil, stringValue(builder.String())
 }
-
-func stringSlice(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringSlice(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 3 {
-		return expressionError(span, "string/slice requires a string, start, and end"), Expr{}
+		return expressionError("string/slice requires a string, start, and end"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, start := requireInteger(arguments[1], span)
+	err, start := requireInteger(arguments[1])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, end := requireInteger(arguments[2], span)
+	err, end := requireInteger(arguments[2])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	runes := []rune(value)
 	if start < 0 || end < start || end > int64(len(runes)) {
-		return expressionError(span, "string/slice indices are out of range"), Expr{}
+		return expressionError("string/slice indices are out of range"), nil
 	}
-	return nil, stringValue(string(runes[start:end]), Span{})
+	return nil, stringValue(string(runes[start:end]))
 }
-
-func stringTrim(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringTrim(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "string/trim requires one argument"), Expr{}
+		return expressionError("string/trim requires one argument"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, stringValue(strings.TrimSpace(value), Span{})
+	return nil, stringValue(strings.TrimSpace(value))
 }
-
-func stringLower(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringLower(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "string/lower requires one argument"), Expr{}
+		return expressionError("string/lower requires one argument"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, stringValue(strings.ToLower(value), Span{})
+	return nil, stringValue(strings.ToLower(value))
 }
-
-func stringUpper(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringUpper(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "string/upper requires one argument"), Expr{}
+		return expressionError("string/upper requires one argument"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, stringValue(strings.ToUpper(value), Span{})
+	return nil, stringValue(strings.ToUpper(value))
 }
-
-func stringContains(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
-	err, value, part := stringParts(arguments, span, "string/contains?")
+func stringContains(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, part := stringParts(arguments, "string/contains?")
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, boolean(strings.Contains(value, part), Span{})
+	return nil, boolean(strings.Contains(value, part))
 }
-
-func stringPrefix(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
-	err, value, prefix := stringParts(arguments, span, "string/prefix?")
+func stringPrefix(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, prefix := stringParts(arguments, "string/prefix?")
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, boolean(strings.HasPrefix(value, prefix), Span{})
+	return nil, boolean(strings.HasPrefix(value, prefix))
 }
-
-func stringSuffix(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
-	err, value, suffix := stringParts(arguments, span, "string/suffix?")
+func stringSuffix(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, suffix := stringParts(arguments, "string/suffix?")
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	return nil, boolean(strings.HasSuffix(value, suffix), Span{})
+	return nil, boolean(strings.HasSuffix(value, suffix))
 }
-
-func stringSplit(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
-	err, value, separator := stringParts(arguments, span, "string/split")
+func stringSplit(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, separator := stringParts(arguments, "string/split")
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	if separator == "" {
 		runes := []rune(value)
 		parts := make([]Expr, len(runes))
 		for index, rune := range runes {
-			parts[index] = stringValue(string(rune), Span{})
+			parts[index] = stringValue(string(rune))
 		}
-		return nil, list(parts, Span{})
+		return nil, list(parts)
 	}
 	parts := strings.Split(value, separator)
 	values := make([]Expr, len(parts))
 	for index, part := range parts {
-		values[index] = stringValue(part, Span{})
+		values[index] = stringValue(part)
 	}
-	return nil, list(values, Span{})
+	return nil, list(values)
 }
-
-func stringJoin(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringJoin(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 2 {
-		return expressionError(span, "string/join requires a list and separator"), Expr{}
+		return expressionError("string/join requires a list and separator"), nil
 	}
 	err, values := expressions(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, separator := requireString(arguments[1], span)
+	err, separator := requireString(arguments[1])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	parts := make([]string, len(values))
 	for index, value := range values {
-		err, part := requireString(value, span)
+		err, part := requireString(value)
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		parts[index] = part
 	}
-	return nil, stringValue(strings.Join(parts, separator), Span{})
+	return nil, stringValue(strings.Join(parts, separator))
 }
-
-func stringReplace(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func stringReplace(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 3 {
-		return expressionError(span, "string/replace requires text, old text, and new text"), Expr{}
+		return expressionError("string/replace requires text, old text, and new text"), nil
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, old := requireString(arguments[1], span)
+	err, old := requireString(arguments[1])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, replacement := requireString(arguments[2], span)
+	err, replacement := requireString(arguments[2])
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	if old == "" {
-		return expressionError(span, "string/replace requires non-empty old text"), Expr{}
+		return expressionError("string/replace requires non-empty old text"), nil
 	}
-	return nil, stringValue(strings.ReplaceAll(value, old, replacement), Span{})
+	return nil, stringValue(strings.ReplaceAll(value, old, replacement))
 }
-
-func stringParts(arguments []Expr, span Span, name string) (error, string, string) {
+func stringParts(arguments []Expr, name string) (error, string, string) {
 	if len(arguments) != 2 {
-		return expressionError(span, "%s requires text and a string", name), "", ""
+		return expressionError("%s requires text and a string", name), "", ""
 	}
-	err, value := requireString(arguments[0], span)
+	err, value := requireString(arguments[0])
 	if err != nil {
 		return err, "", ""
 	}
-	err, part := requireString(arguments[1], span)
+	err, part := requireString(arguments[1])
 	if err != nil {
 		return err, "", ""
 	}
 	return nil, value, part
 }
-
-func requireString(expr Expr, span Span) (error, string) {
-	if expr.kind != exprString {
-		return expressionError(span, "expected a string, got %s", expr.String()), ""
+func requireString(expr Expr) (error, string) {
+	base, _ := unwrap(expr)
+	value, ok := base.(*stringExpr)
+	if !ok {
+		return expressionError("expected a string, got %s", expr.String()), ""
 	}
-	return nil, expr.text
+	return nil, value.value
 }

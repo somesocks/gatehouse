@@ -13,7 +13,7 @@ func TestStringLisp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.kind != exprNull {
+	if !isNullValue(result) {
 		t.Fatalf("String test result = %s, want null", result)
 	}
 }

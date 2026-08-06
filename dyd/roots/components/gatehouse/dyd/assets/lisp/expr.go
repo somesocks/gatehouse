@@ -6,45 +6,28 @@ import (
 	"strings"
 )
 
-type Span struct {
-	Start int
-	End   int
+// Expr is a sealed runtime value. Source locations are intentionally not retained.
+type Expr interface {
+	expr()
+	String() string
 }
 
-type exprKind uint8
-
-const (
-	exprInvalid exprKind = iota
-	exprBoolean
-	exprInteger
-	exprString
-	exprBytes
-	exprError
-	exprSymbol
-	exprNull
-	exprPair
-	exprClosure
-	exprBuiltin
-	exprModuleReference
-)
-
-type Expr struct {
-	kind   exprKind
-	span   Span
+type annotations struct {
 	secret bool
 	help   string
-
-	boolean bool
-	integer int64
-	text    string
-	bytes   string
-
-	pair      *pair
-	closure   *closure
-	builtin   *builtin
-	error     *errorValue
-	reference *moduleReference
 }
+
+type annotatedExpr struct {
+	value Expr
+	annotations
+}
+
+type booleanExpr struct{ value bool }
+type integerExpr struct{ value int64 }
+type stringExpr struct{ value string }
+type bytesExpr struct{ value string }
+type symbolExpr struct{ value string }
+type nullExpr struct{}
 
 type pair struct {
 	first Expr
@@ -63,6 +46,10 @@ type builtin struct {
 	call    builtinCall
 }
 
+type errorValue struct {
+	value Expr
+}
+
 type moduleReferenceScheme uint8
 
 const (
@@ -77,7 +64,20 @@ type moduleReference struct {
 	fingerprint string
 }
 
-func (reference moduleReference) String() string {
+func (*annotatedExpr) expr()   {}
+func (*booleanExpr) expr()     {}
+func (*integerExpr) expr()     {}
+func (*stringExpr) expr()      {}
+func (*bytesExpr) expr()       {}
+func (*symbolExpr) expr()      {}
+func (*nullExpr) expr()        {}
+func (*pair) expr()            {}
+func (*closure) expr()         {}
+func (*builtin) expr()         {}
+func (*errorValue) expr()      {}
+func (*moduleReference) expr() {}
+
+func (reference *moduleReference) String() string {
 	if reference.fingerprint == "" {
 		return "@" + reference.uri
 	}
@@ -87,44 +87,50 @@ func (reference moduleReference) String() string {
 	return "@" + reference.uri + "#" + reference.fingerprint
 }
 
-type builtinCall func(*evaluator, *environment, []Expr, Span) (error, Expr)
+func (expr *annotatedExpr) String() string { return render(expr) }
+func (expr *booleanExpr) String() string   { return render(expr) }
+func (expr *integerExpr) String() string   { return render(expr) }
+func (expr *stringExpr) String() string    { return render(expr) }
+func (expr *bytesExpr) String() string     { return render(expr) }
+func (expr *symbolExpr) String() string    { return render(expr) }
+func (expr *nullExpr) String() string      { return render(expr) }
+func (expr *pair) String() string          { return render(expr) }
+func (expr *closure) String() string       { return render(expr) }
+func (expr *builtin) String() string       { return render(expr) }
+func (expr *errorValue) String() string    { return render(expr) }
 
-type pureBuiltinCall func(*evaluator, []Expr, Span) (error, Expr)
+var (
+	trueValue  Expr = &booleanExpr{value: true}
+	falseValue Expr = &booleanExpr{value: false}
+	nullValue  Expr = &nullExpr{}
+)
+
+type builtinCall func(*evaluator, *environment, []Expr) (error, Expr)
+type pureBuiltinCall func(*evaluator, []Expr) (error, Expr)
 
 func pure(call pureBuiltinCall) builtinCall {
-	return func(evaluator *evaluator, _ *environment, arguments []Expr, span Span) (error, Expr) {
-		return call(evaluator, arguments, span)
+	return func(evaluator *evaluator, _ *environment, arguments []Expr) (error, Expr) {
+		return call(evaluator, arguments)
 	}
 }
 
-func boolean(value bool, span Span) Expr {
-	return Expr{kind: exprBoolean, boolean: value, span: span}
+func boolean(value bool) Expr {
+	if value {
+		return trueValue
+	}
+	return falseValue
 }
 
-func integer(value int64, span Span) Expr {
-	return Expr{kind: exprInteger, integer: value, span: span}
-}
+func integer(value int64) Expr      { return &integerExpr{value: value} }
+func stringValue(value string) Expr { return &stringExpr{value: value} }
+func bytesValue(value string) Expr  { return &bytesExpr{value: value} }
+func symbol(value string) Expr      { return &symbolExpr{value: value} }
+func null() Expr                    { return nullValue }
 
-func stringValue(value string, span Span) Expr {
-	return Expr{kind: exprString, text: value, span: span}
-}
-
-func bytesValue(value string, span Span) Expr {
-	return Expr{kind: exprBytes, bytes: value, span: span}
-}
-
-func symbol(value string, span Span) Expr {
-	return Expr{kind: exprSymbol, text: value, span: span}
-}
-
-func null(span Span) Expr {
-	return Expr{kind: exprNull, span: span}
-}
-
-func moduleReferenceValue(value string, span Span) (error, Expr) {
+func moduleReferenceValue(value string) (error, Expr) {
 	parsed, err := url.Parse(value)
 	if err != nil {
-		return expressionError(span, "invalid module reference URI"), Expr{}
+		return expressionError("invalid module reference URI"), nil
 	}
 	hasFragment := strings.Contains(value, "#")
 	fingerprint := parsed.Fragment
@@ -134,31 +140,31 @@ func moduleReferenceValue(value string, span Span) (error, Expr) {
 	switch parsed.Scheme {
 	case "":
 		if !hasFragment || !isSHA256Fingerprint(fingerprint) {
-			return expressionError(span, "module reference without a URI scheme requires a sha256 fingerprint"), Expr{}
+			return expressionError("module reference without a URI scheme requires a sha256 fingerprint"), nil
 		}
 		reference.scheme = moduleReferenceFingerprint
 		reference.fingerprint = fingerprint
 	case "file":
 		if parsed.Opaque == "" && parsed.Path == "" {
-			return expressionError(span, "file module reference requires a location"), Expr{}
+			return expressionError("file module reference requires a location"), nil
 		}
 		if hasFragment && !isSHA256Fingerprint(fingerprint) {
-			return expressionError(span, "file module reference has an invalid sha256 fingerprint"), Expr{}
+			return expressionError("file module reference has an invalid sha256 fingerprint"), nil
 		}
 		reference.scheme = moduleReferenceFile
 		reference.fingerprint = fingerprint
 	case "native":
 		if reference.uri == "native:" {
-			return expressionError(span, "native module reference requires a name"), Expr{}
+			return expressionError("native module reference requires a name"), nil
 		}
 		if hasFragment {
-			return expressionError(span, "native module reference must not have a sha256 fingerprint"), Expr{}
+			return expressionError("native module reference must not have a sha256 fingerprint"), nil
 		}
 		reference.scheme = moduleReferenceNative
 	default:
-		return expressionError(span, "unsupported module reference URI scheme %q", parsed.Scheme), Expr{}
+		return expressionError("unsupported module reference URI scheme %q", parsed.Scheme), nil
 	}
-	return nil, Expr{kind: exprModuleReference, span: span, reference: &reference}
+	return nil, &reference
 }
 
 func isSHA256Fingerprint(value string) bool {
@@ -173,78 +179,123 @@ func isSHA256Fingerprint(value string) bool {
 	return true
 }
 
-func pairValue(first Expr, rest Expr, span Span) Expr {
-	return Expr{kind: exprPair, pair: &pair{first: first, rest: rest}, span: span, secret: first.secret || rest.secret}
+func unwrap(expr Expr) (Expr, annotations) {
+	for {
+		annotated, ok := expr.(*annotatedExpr)
+		if !ok {
+			return expr, annotations{}
+		}
+		return annotated.value, annotated.annotations
+	}
 }
 
-func list(values []Expr, span Span) Expr {
-	result := null(span)
-	for index := len(values) - 1; index >= 0; index-- {
-		result = pairValue(values[index], result, span)
+func hasSecret(expr Expr) bool {
+	_, annotations := unwrap(expr)
+	return annotations.secret
+}
+
+func helpOf(expr Expr) string {
+	_, annotations := unwrap(expr)
+	return annotations.help
+}
+
+func withSecret(expr Expr) Expr {
+	base, annotations := unwrap(expr)
+	if annotations.secret {
+		return expr
+	}
+	annotations.secret = true
+	return &annotatedExpr{value: base, annotations: annotations}
+}
+
+func withHelp(expr Expr, help string) Expr {
+	base, annotations := unwrap(expr)
+	annotations.help = help
+	if !annotations.secret && annotations.help == "" {
+		return base
+	}
+	return &annotatedExpr{value: base, annotations: annotations}
+}
+
+func appendHelp(expr Expr, help string) Expr {
+	if help == "" {
+		return expr
+	}
+	current := helpOf(expr)
+	if current != "" {
+		help = current + "\n" + help
+	}
+	return withHelp(expr, help)
+}
+
+func pairValue(first Expr, rest Expr) Expr {
+	result := Expr(&pair{first: first, rest: rest})
+	if hasSecret(first) || hasSecret(rest) {
+		return withSecret(result)
 	}
 	return result
 }
 
-func appendHelp(expr *Expr, text string) {
-	if text == "" {
-		return
+func list(values []Expr) Expr {
+	result := null()
+	for index := len(values) - 1; index >= 0; index-- {
+		result = pairValue(values[index], result)
 	}
-	if expr.help != "" {
-		expr.help += "\n"
-	}
-	expr.help += text
+	return result
 }
 
-func (expr Expr) String() string {
-	if expr.secret {
+func render(expr Expr) string {
+	base, annotations := unwrap(expr)
+	if annotations.secret {
 		return "#<secret>"
 	}
-	switch expr.kind {
-	case exprBoolean:
-		if expr.boolean {
+	switch value := base.(type) {
+	case *booleanExpr:
+		if value.value {
 			return "#t"
 		}
 		return "#f"
-	case exprInteger:
-		return strconv.FormatInt(expr.integer, 10)
-	case exprString:
-		return strconv.Quote(expr.text)
-	case exprBytes:
-		return "#<bytes " + strconv.Itoa(len(expr.bytes)) + ">"
-	case exprError:
+	case *integerExpr:
+		return strconv.FormatInt(value.value, 10)
+	case *stringExpr:
+		return strconv.Quote(value.value)
+	case *bytesExpr:
+		return "#<bytes " + strconv.Itoa(len(value.value)) + ">"
+	case *errorValue:
 		return "#<error>"
-	case exprSymbol:
-		return expr.text
-	case exprNull:
+	case *symbolExpr:
+		return value.value
+	case *nullExpr:
 		return "null"
-	case exprPair:
-		return formatPair(expr)
-	case exprClosure:
+	case *pair:
+		return formatPair(value)
+	case *closure:
 		return "#<closure>"
-	case exprBuiltin:
+	case *builtin:
 		return "#<builtin>"
-	case exprModuleReference:
-		return expr.reference.String()
+	case *moduleReference:
+		return value.String()
 	default:
 		return "#<invalid>"
 	}
 }
 
-func formatPair(expr Expr) string {
+func formatPair(value *pair) string {
 	var builder strings.Builder
 	builder.WriteByte('(')
 	for {
-		builder.WriteString(expr.pair.first.String())
-		switch expr.pair.rest.kind {
-		case exprNull:
+		builder.WriteString(value.first.String())
+		rest, _ := unwrap(value.rest)
+		switch rest := rest.(type) {
+		case *nullExpr:
 			builder.WriteByte(')')
 			return builder.String()
-		case exprPair:
+		case *pair:
 			builder.WriteByte(' ')
-			expr = expr.pair.rest
+			value = rest
 		default:
 			builder.WriteString(" . ")
-			builder.WriteString(expr.pair.rest.String())
+			builder.WriteString(value.rest.String())
 			builder.WriteByte(')')
 			return builder.String()
 		}
@@ -252,46 +303,70 @@ func formatPair(expr Expr) string {
 }
 
 func isSymbol(expr Expr, value string) bool {
-	return expr.kind == exprSymbol && expr.text == value
+	base, _ := unwrap(expr)
+	symbol, ok := base.(*symbolExpr)
+	return ok && symbol.value == value
+}
+
+func isNullValue(expr Expr) bool {
+	base, _ := unwrap(expr)
+	_, ok := base.(*nullExpr)
+	return ok
 }
 
 func expressions(expr Expr) (error, []Expr) {
 	var values []Expr
-	for expr.kind == exprPair {
-		values = append(values, expr.pair.first)
-		expr = expr.pair.rest
+	for {
+		base, _ := unwrap(expr)
+		pair, ok := base.(*pair)
+		if !ok {
+			if _, ok := base.(*nullExpr); ok {
+				return nil, values
+			}
+			return expressionError("expected a proper list"), nil
+		}
+		values = append(values, pair.first)
+		expr = pair.rest
 	}
-	if expr.kind != exprNull {
-		return expressionError(expr.span, "expected a proper list"), nil
-	}
-	return nil, values
 }
 
 func equal(left Expr, right Expr) bool {
-	if left.kind != right.kind {
-		return false
-	}
-	switch left.kind {
-	case exprBoolean:
-		return left.boolean == right.boolean
-	case exprInteger:
-		return left.integer == right.integer
-	case exprString, exprSymbol:
-		return left.text == right.text
-	case exprBytes:
-		return left.bytes == right.bytes
-	case exprError:
-		return left.error == right.error
-	case exprNull:
-		return true
-	case exprPair:
-		return equal(left.pair.first, right.pair.first) && equal(left.pair.rest, right.pair.rest)
-	case exprClosure:
-		return left.closure == right.closure
-	case exprBuiltin:
-		return left.builtin == right.builtin
-	case exprModuleReference:
-		return *left.reference == *right.reference
+	left, _ = unwrap(left)
+	right, _ = unwrap(right)
+	switch left := left.(type) {
+	case *booleanExpr:
+		right, ok := right.(*booleanExpr)
+		return ok && left.value == right.value
+	case *integerExpr:
+		right, ok := right.(*integerExpr)
+		return ok && left.value == right.value
+	case *stringExpr:
+		right, ok := right.(*stringExpr)
+		return ok && left.value == right.value
+	case *bytesExpr:
+		right, ok := right.(*bytesExpr)
+		return ok && left.value == right.value
+	case *errorValue:
+		right, ok := right.(*errorValue)
+		return ok && left == right
+	case *symbolExpr:
+		right, ok := right.(*symbolExpr)
+		return ok && left.value == right.value
+	case *nullExpr:
+		_, ok := right.(*nullExpr)
+		return ok
+	case *pair:
+		right, ok := right.(*pair)
+		return ok && equal(left.first, right.first) && equal(left.rest, right.rest)
+	case *closure:
+		right, ok := right.(*closure)
+		return ok && left == right
+	case *builtin:
+		right, ok := right.(*builtin)
+		return ok && left == right
+	case *moduleReference:
+		right, ok := right.(*moduleReference)
+		return ok && *left == *right
 	default:
 		return false
 	}

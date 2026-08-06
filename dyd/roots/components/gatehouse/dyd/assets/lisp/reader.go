@@ -10,31 +10,30 @@ func Read(source string) (error, Expr) {
 	reader := reader{source: source}
 	err, comments := reader.readTrivia()
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	if reader.atEnd() {
 		if len(comments) != 0 {
 			return reader.unattachedComment(comments[0])
 		}
-		return expressionError(Span{}, "expected an expression"), Expr{}
+		return expressionError("expected an expression"), nil
 	}
 	err, expr := reader.readExprWithLeadingComments(comments)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	err, comments = reader.readTrivia()
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	for _, comment := range comments {
 		if comment.leading {
 			return reader.unattachedComment(comment)
 		}
-		appendHelp(&expr, comment.text)
+		expr = appendHelp(expr, comment.text)
 	}
 	if !reader.atEnd() {
-		_, size := utf8.DecodeRuneInString(reader.source[reader.position:])
-		return expressionError(Span{Start: reader.position, End: reader.position + size}, "expected end of input"), Expr{}
+		return expressionError("expected end of input"), nil
 	}
 	return nil, expr
 }
@@ -46,14 +45,12 @@ type reader struct {
 
 type commentBlock struct {
 	text    string
-	span    Span
 	leading bool
 }
 
 func (reader *reader) readExpr() (error, Expr) {
-	start := reader.position
 	if reader.atEnd() {
-		return expressionError(Span{Start: start, End: start}, "expected an expression"), Expr{}
+		return expressionError("expected an expression"), nil
 	}
 
 	switch reader.source[reader.position] {
@@ -61,18 +58,18 @@ func (reader *reader) readExpr() (error, Expr) {
 		return reader.readList()
 	case ')':
 		reader.position++
-		return expressionError(Span{Start: start, End: reader.position}, "unexpected closing parenthesis"), Expr{}
+		return expressionError("unexpected closing parenthesis"), nil
 	case '\'':
 		reader.position++
 		err, comments := reader.readTrivia()
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		err, quoted := reader.readExprWithLeadingComments(comments)
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
-		return nil, list([]Expr{symbol("quote", Span{Start: start, End: start + 1}), quoted}, Span{Start: start, End: reader.position})
+		return nil, list([]Expr{symbol("quote"), quoted})
 	case '"':
 		return reader.readString()
 	case '@':
@@ -83,38 +80,38 @@ func (reader *reader) readExpr() (error, Expr) {
 }
 
 func (reader *reader) readModuleReference() (error, Expr) {
+	reader.position++
 	start := reader.position
 	for !reader.atEnd() && !isDelimiter(reader.source[reader.position]) {
 		_, size := utf8.DecodeRuneInString(reader.source[reader.position:])
 		reader.position += size
 	}
-	return moduleReferenceValue(reader.source[start+1:reader.position], Span{Start: start, End: reader.position})
+	return moduleReferenceValue(reader.source[start:reader.position])
 }
 
 func (reader *reader) readList() (error, Expr) {
-	start := reader.position
 	reader.position++
 	var values []Expr
 	for {
 		err, comments := reader.readTrivia()
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		if reader.atEnd() {
 			if len(comments) != 0 {
 				return reader.unattachedComment(comments[0])
 			}
-			return expressionError(Span{Start: start, End: reader.position}, "unterminated list"), Expr{}
+			return expressionError("unterminated list"), nil
 		}
 		if reader.source[reader.position] == ')' {
 			for _, comment := range comments {
 				if comment.leading || len(values) == 0 {
 					return reader.unattachedComment(comment)
 				}
-				appendHelp(&values[len(values)-1], comment.text)
+				values[len(values)-1] = appendHelp(values[len(values)-1], comment.text)
 			}
 			reader.position++
-			return nil, list(values, Span{Start: start, End: reader.position})
+			return nil, list(values)
 		}
 		var leading []commentBlock
 		for _, comment := range comments {
@@ -125,25 +122,24 @@ func (reader *reader) readList() (error, Expr) {
 			if len(values) == 0 {
 				return reader.unattachedComment(comment)
 			}
-			appendHelp(&values[len(values)-1], comment.text)
+			values[len(values)-1] = appendHelp(values[len(values)-1], comment.text)
 		}
 		err, value := reader.readExprWithLeadingComments(leading)
 		if err != nil {
-			return err, Expr{}
+			return err, nil
 		}
 		values = append(values, value)
 	}
 }
 
 func (reader *reader) readString() (error, Expr) {
-	start := reader.position
 	reader.position++
 	var value []rune
 	for !reader.atEnd() {
 		r, size := utf8.DecodeRuneInString(reader.source[reader.position:])
 		reader.position += size
 		if r == '"' {
-			return nil, stringValue(string(value), Span{Start: start, End: reader.position})
+			return nil, stringValue(string(value))
 		}
 		if r != '\\' {
 			value = append(value, r)
@@ -164,10 +160,10 @@ func (reader *reader) readString() (error, Expr) {
 		case 't':
 			value = append(value, '\t')
 		default:
-			return expressionError(Span{Start: reader.position - size - 1, End: reader.position}, "unsupported escape sequence"), Expr{}
+			return expressionError("unsupported escape sequence"), nil
 		}
 	}
-	return expressionError(Span{Start: start, End: reader.position}, "unterminated string"), Expr{}
+	return expressionError("unterminated string"), nil
 }
 
 func (reader *reader) readAtom() (error, Expr) {
@@ -177,17 +173,16 @@ func (reader *reader) readAtom() (error, Expr) {
 		reader.position += size
 	}
 	text := reader.source[start:reader.position]
-	span := Span{Start: start, End: reader.position}
 	switch text {
 	case "#t":
-		return nil, boolean(true, span)
+		return nil, boolean(true)
 	case "#f":
-		return nil, boolean(false, span)
+		return nil, boolean(false)
 	}
 	if value, err := strconv.ParseInt(text, 10, 64); err == nil {
-		return nil, integer(value, span)
+		return nil, integer(value)
 	}
-	return nil, symbol(text, span)
+	return nil, symbol(text)
 }
 
 func (reader *reader) readExprWithLeadingComments(comments []commentBlock) (error, Expr) {
@@ -198,10 +193,10 @@ func (reader *reader) readExprWithLeadingComments(comments []commentBlock) (erro
 	}
 	err, expression := reader.readExpr()
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	for _, comment := range comments {
-		appendHelp(&expression, comment.text)
+		expression = appendHelp(expression, comment.text)
 	}
 	return nil, expression
 }
@@ -219,8 +214,7 @@ func (reader *reader) readTrivia() (error, []commentBlock) {
 			break
 		}
 
-		start := reader.position
-		leading := reader.isLeadingComment(start)
+		leading := reader.isLeadingComment(reader.position)
 		reader.position++
 		textStart := reader.position
 		for !reader.atEnd() && reader.source[reader.position] != '\n' && reader.source[reader.position] != '\r' {
@@ -229,10 +223,9 @@ func (reader *reader) readTrivia() (error, []commentBlock) {
 		}
 		text := strings.TrimSpace(reader.source[textStart:reader.position])
 		if current == nil {
-			current = &commentBlock{text: text, span: Span{Start: start, End: reader.position}, leading: leading}
+			current = &commentBlock{text: text, leading: leading}
 		} else {
 			current.text += "\n" + text
-			current.span.End = reader.position
 		}
 	}
 	if current != nil {
@@ -279,7 +272,7 @@ func (reader *reader) isLeadingComment(position int) bool {
 }
 
 func (reader *reader) unattachedComment(comment commentBlock) (error, Expr) {
-	return expressionError(comment.span, "comment has no target"), Expr{}
+	return expressionError("comment has no target"), nil
 }
 
 func (reader *reader) atEnd() bool {

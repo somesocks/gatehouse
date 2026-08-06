@@ -13,7 +13,7 @@ func TestNativeCryptoSHA256Lisp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.kind != exprNull {
+	if !isNullValue(result) {
 		t.Fatalf("Native SHA-256 test result = %s, want null", result)
 	}
 }

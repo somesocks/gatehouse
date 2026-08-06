@@ -13,7 +13,7 @@ func TestNativeTimeLisp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.kind != exprNull {
+	if !isNullValue(result) {
 		t.Fatalf("Native time test result = %s, want null", result)
 	}
 }

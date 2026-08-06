@@ -10,8 +10,11 @@
                (bytes/utf8/encode "Hi There")))
            "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"))
 
-      ; Digest reports its public help text.
-      (assert (= (help hmac/digest) "Returns the HMAC-SHA256 digest of key and message Bytes."))
+      ; Digest reports its signature and runnable example.
+      (assert
+        (and
+          (string/contains? (help hmac/digest) "(hmac/digest key message) -> Bytes")
+          (string/contains? (help hmac/digest) "Example: (import (hmac @native:crypto/hmac/sha256/v1)")))
 
       ; Digest preserves taint from either key or message.
       (assert

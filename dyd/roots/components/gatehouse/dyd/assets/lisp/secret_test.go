@@ -13,7 +13,7 @@ func TestSecretLisp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.kind != exprNull {
+	if !isNullValue(result) {
 		t.Fatalf("Secret test result = %s, want null", result)
 	}
 }

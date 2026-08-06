@@ -3,23 +3,15 @@ package lisp
 import "fmt"
 
 type Error struct {
-	Span    Span
 	Message string
 }
 
 func (err Error) Error() string {
-	if err.Span.End > err.Span.Start {
-		return fmt.Sprintf("%d:%d: %s", err.Span.Start, err.Span.End, err.Message)
-	}
 	return err.Message
 }
 
-func expressionError(span Span, format string, args ...any) error {
-	return Error{Span: span, Message: fmt.Sprintf(format, args...)}
-}
-
-type errorValue struct {
-	value Expr
+func expressionError(format string, args ...any) error {
+	return Error{Message: fmt.Sprintf(format, args...)}
 }
 
 type raisedError struct {
@@ -27,84 +19,89 @@ type raisedError struct {
 }
 
 func (err *raisedError) Error() string {
-	if err.value.secret {
+	if hasSecret(err.value) {
 		return "#<secret>"
 	}
-	return "thrown error: " + err.value.error.value.String()
+	base, _ := unwrap(err.value)
+	return "thrown error: " + base.(*errorValue).value.String()
 }
 
-func errorExpression(value Expr, span Span) Expr {
-	return Expr{
-		kind:   exprError,
-		span:   span,
-		secret: value.secret,
-		error:  &errorValue{value: value},
+func errorExpression(value Expr) Expr {
+	result := Expr(&errorValue{value: value})
+	if hasSecret(value) {
+		return withSecret(result)
 	}
+	return result
 }
 
-func catchError(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+func catchError(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 	if len(forms) != 1 {
-		return expressionError(span, "error/catch requires one expression"), Expr{}
+		return expressionError("error/catch requires one expression"), nil
 	}
 	err, result := evaluator.eval(forms[0], env)
 	if err == nil {
 		return nil, result
 	}
-	return nil, caughtError(err, forms[0].span)
+	return nil, caughtError(err)
 }
 
-func throwError(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func throwError(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "error/throw requires one value"), Expr{}
+		return expressionError("error/throw requires one value"), nil
 	}
 	value := arguments[0]
-	if value.kind != exprError {
-		value = errorExpression(value, span)
+	base, _ := unwrap(value)
+	if _, ok := base.(*errorValue); !ok {
+		value = errorExpression(value)
 	}
-	return &raisedError{value: value}, Expr{}
+	return &raisedError{value: value}, nil
 }
 
-func assertValue(evaluator *evaluator, env *environment, forms []Expr, span Span) (error, Expr) {
+func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 	if len(forms) < 1 || len(forms) > 2 {
-		return expressionError(span, "assert requires a condition and optional value"), Expr{}
+		return expressionError("assert requires a condition and optional value"), nil
 	}
 	err, condition := evaluator.eval(forms[0], env)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
-	err, valid := requireBoolean(condition, forms[0].span)
+	err, valid := requireBoolean(condition)
 	if err != nil {
-		return err, Expr{}
+		return err, nil
 	}
 	if !valid {
-		return &raisedError{value: errorExpression(stringValue("assertion failed", Span{}), span)}, Expr{}
+		return &raisedError{value: errorExpression(stringValue("assertion failed"))}, nil
 	}
 	if len(forms) == 1 {
-		return nil, null(Span{})
+		return nil, null()
 	}
 	return evaluator.eval(forms[1], env)
 }
 
-func isError(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func isError(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "error? requires one argument"), Expr{}
+		return expressionError("error? requires one argument"), nil
 	}
-	return nil, boolean(arguments[0].kind == exprError, Span{})
+	base, _ := unwrap(arguments[0])
+	_, ok := base.(*errorValue)
+	return nil, boolean(ok)
 }
 
-func errorValueOf(_ *evaluator, arguments []Expr, span Span) (error, Expr) {
+func errorValueOf(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError(span, "error/value requires one Error value"), Expr{}
+		return expressionError("error/value requires one Error value"), nil
 	}
-	if arguments[0].kind != exprError {
-		return expressionError(span, "expected an Error, got %s", arguments[0].String()), Expr{}
+	base, _ := unwrap(arguments[0])
+	value, ok := base.(*errorValue)
+	if !ok {
+		return expressionError("expected an Error, got %s", arguments[0].String()), nil
 	}
-	return nil, arguments[0].error.value
+	return nil, value.value
 }
 
-func caughtError(err error, span Span) Expr {
+func caughtError(err error) Expr {
 	if raised, ok := err.(*raisedError); ok {
 		return raised.value
 	}
-	return errorExpression(stringValue(err.Error(), Span{}), span)
+	return errorExpression(stringValue(err.Error()))
 }

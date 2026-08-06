@@ -10,6 +10,14 @@
       (secret? (list/map string/upper (list (secret/mark "secret"))))
       (secret? (secret/mark (list 1 2)))))
 
+  ; Pairs and enclosing lists inherit taint from either element.
+  (assert
+    (and
+      (secret? (pair (secret/mark 1) 2))
+      (secret? (pair 1 (secret/mark 2)))
+      (secret? (list 1 (secret/mark 2)))
+      (secret? (list (secret/mark 1) 2))))
+
   ; Length operations return public values derived from secret input.
   (assert
     (and
@@ -33,9 +41,10 @@
   ; Help operations keep public metadata public.
   (assert
     (and
-      (= (help (secret/mark string/slice)) "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.")
-      (secret? (help/document (secret/mark "secret") "Public help text."))
-      (= (help/search (secret/mark "secret")) (list 'secret/mark 'secret?))
+       (string/contains? (help (secret/mark string/slice)) "(string/slice text start end) -> String")
+       (secret? (help/document (secret/mark "secret") "Public help text."))
+       (= (help (help/document (secret/mark "secret") "Public help text.")) "Public help text.")
+       (= (help/search (secret/mark "secret")) (list 'secret/mark 'secret?))
       (= (help/env (secret/mark "secret")) (list 'secret/mark 'secret?))))
 
   ; Leaky Bytes encoders preserve secret taint.

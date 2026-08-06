@@ -17,10 +17,12 @@
       (let ((value (random/bool)))
         (assert (and (bool? value) (not (secret? value)))))
 
-      ; Random exports report public help text.
-      (assert (= (help random/bytes) "Returns cryptographically secure random Bytes of the requested length."))
-      (assert (= (help random/int) "Returns a uniformly random integer less than a positive bound."))
-      (assert (= (help random/bool) "Returns an unbiased random Boolean."))
+      ; Random exports report signatures and runnable examples.
+      (assert
+        (and
+          (string/contains? (help random/bytes) "(random/bytes length) -> Bytes")
+          (string/contains? (help random/int) "(random/int bound) -> Integer")
+          (string/contains? (help random/bool) "(random/bool) -> Boolean")))
 
       ; Bytes validates arity, type, and length.
       (assert

@@ -32,7 +32,7 @@
       (and
         (= (import/search) (list @native:random/v1 @native:time/v1))
         (= (import/search "random") (list @native:random/v1))
-        (= (help import/search) "Returns module references available to the current importer."))))
+        (string/contains? (help import/search) "(import/search term...) -> List"))))
 
   ; Nested restrictions cannot widen the visible importer.
   (assert
@@ -102,6 +102,6 @@
           (error/value (error/catch (import/search 1)))
           "expected a string"))))
 
-  ; Restrict reports public help text.
-  (assert (= (help import/restrict) "Evaluates a body with an allowlisted importer."))
+  ; Restrict reports its literal allowlist syntax.
+  (assert (string/contains? (help import/restrict) "(import/restrict (@reference...) body) -> Value"))
   null)

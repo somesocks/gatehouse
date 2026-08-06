@@ -7,8 +7,11 @@
         (= (bytes/hex/encode (sha256/digest (bytes/utf8/encode "abc")))
            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"))
 
-      ; Digest reports its public help text.
-      (assert (= (help sha256/digest) "Returns the SHA-256 digest of Bytes."))
+      ; Digest reports its signature and runnable example.
+      (assert
+        (and
+          (string/contains? (help sha256/digest) "(sha256/digest bytes) -> Bytes")
+          (string/contains? (help sha256/digest) "Example: (import (sha256 @native:crypto/sha256/v1)")))
 
       ; Digest preserves secret taint.
       (assert (secret? (sha256/digest (secret/mark (bytes/utf8/encode "abc")))))

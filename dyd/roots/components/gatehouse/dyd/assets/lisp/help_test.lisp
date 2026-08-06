@@ -35,12 +35,19 @@
   ; Help identifies builtins, values, functions, and symbols.
   (assert
     (and
-      (= (help string/slice) "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.")
+      (string/contains? (help string/slice) "(string/slice text start end) -> String")
       (= (help (int/min 1 2)) "int")
-      (= (help 'string/slice) "Returns a Unicode code-point substring slice between an inclusive start and exclusive end.")
+      (string/contains? (help 'string/slice) "Example: (string/slice \"hello\" 1 4) => \"ell\".")
       (= (help 'unbound) "symbol")
       (= (help 1) "int")
       (= (help (fn (value) value)) "function (value)")))
+
+  ; Evaluator forms are discoverable and documented without bindings.
+  (assert
+    (and
+      (string/contains? (help 'fn) "(fn (parameter...) body) -> Function")
+      (string/contains? (help 'let) "(let ((name value) ...) body) -> Value")
+      (list? (help/search "recursive lexical bindings"))))
 
   ; Help follows lexical bindings and shadowing.
   (assert
@@ -54,23 +61,20 @@
       (string/contains? (error/value (error/catch (help))) "help requires one argument")
       (string/contains? (error/value (error/catch (help 1 2))) "help requires one argument")))
 
-  ; Help search matches documented builtins case-insensitively.
+  ; Help search matches documented signatures case-insensitively.
   (assert
     (and
-      (= (help/search "substring") (list 'string/slice))
-      (= (help/search "case") (list 'bytes/hex/encode 'string/lower 'string/upper))
-      (= (help/search "accumulator") (list 'list/fold))
-      (= (help/search "string" "slice") (list 'string/slice))
-      (= (help/search "BOOL?") null)))
+      (= (help/search "STRING/SLICE") (list 'string/slice))
+      (= (help/search "list/fold") (list 'list/fold))
+      (= (help/search "BOOL?") (list 'bool?))))
 
   ; Help search includes documented aliases and respects shadowing.
   (assert
     (and
-      (= (let ((alias +)) (help/search "ALIAS")) null)
-      (= (let ((slice string/slice)) (help/search "SUBSTRING")) (list 'slice 'string/slice))
-      (= (list/map help (help/search "substring")) (list "Returns a Unicode code-point substring slice between an inclusive start and exclusive end."))
-      (= (let ((string/slice 1)) (help/search "substring")) null)
-      (= ((fn (string/slice) (help/search "substring")) 1) null)))
+       (= (let ((slice string/slice)) (help/search "string/slice")) (list 'slice 'string/slice))
+       (string/contains? (head (list/map help (help/search "string/slice"))) "(string/slice text start end) -> String")
+       (= (let ((string/slice 1)) (help/search "string/slice")) null)
+       (= ((fn (string/slice) (help/search "string/slice")) 1) null)))
 
   ; Help search requires string terms.
   (assert
