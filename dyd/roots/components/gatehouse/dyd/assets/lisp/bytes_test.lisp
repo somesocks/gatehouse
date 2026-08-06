@@ -102,6 +102,30 @@
       (secret? (bytes/xor (secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
       (secret? (bytes/not (secret/mark (bytes/hex/decode "aa"))))))
 
+  ; Big-endian arithmetic carries and borrows from the final byte.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/inc/be (bytes/hex/decode "00ff"))) "0100")
+      (= (bytes/hex/encode (bytes/dec/be (bytes/hex/decode "0100"))) "00ff")
+      (= (bytes/hex/encode (bytes/inc/be (bytes/hex/decode "ffff"))) "0000")
+      (= (bytes/hex/encode (bytes/dec/be (bytes/hex/decode "0000"))) "ffff")))
+
+  ; Little-endian arithmetic carries and borrows from the first byte.
+  (assert
+    (and
+      (= (bytes/hex/encode (bytes/inc/le (bytes/hex/decode "ff00"))) "0001")
+      (= (bytes/hex/encode (bytes/dec/le (bytes/hex/decode "0001"))) "ff00")
+      (= (bytes/hex/encode (bytes/inc/le (bytes/hex/decode "ffff"))) "0000")
+      (= (bytes/hex/encode (bytes/dec/le (bytes/hex/decode "0000"))) "ffff")))
+
+  ; Empty Bytes remain empty, and byte arithmetic preserves secret taint.
+  (assert
+    (and
+      (= (bytes/length (bytes/inc/be (bytes/concat))) 0)
+      (= (bytes/length (bytes/dec/le (bytes/concat))) 0)
+      (secret? (bytes/inc/le (secret/mark (bytes/hex/decode "00"))))
+      (secret? (bytes/dec/be (secret/mark (bytes/hex/decode "00"))))))
+
   ; Start and end padding reach the requested target length.
   (assert
     (and
@@ -196,6 +220,16 @@
     (string/contains?
       (error/value (error/catch (bytes/not "aa")))
       "expected Bytes"))
+
+  ; Byte arithmetic requires exactly one Bytes value.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (bytes/inc/be "00")))
+        "expected Bytes")
+      (string/contains?
+        (error/value (error/catch (bytes/dec/le (bytes/hex/decode "00") (bytes/hex/decode "00"))))
+        "requires one Bytes")))
 
   ; Padding rejects shortening and invalid padding bytes.
   (assert

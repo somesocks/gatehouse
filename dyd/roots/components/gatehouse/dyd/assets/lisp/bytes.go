@@ -135,6 +135,74 @@ func bytesNot(_ *evaluator, arguments []Expr) (error, Expr) {
 	}
 	return nil, bytesValue(string(result))
 }
+func bytesIncBE(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/inc/be requires one Bytes value"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	result := []byte(value)
+	for index := len(result) - 1; index >= 0; index-- {
+		result[index]++
+		if result[index] != 0 {
+			break
+		}
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesDecBE(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/dec/be requires one Bytes value"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	result := []byte(value)
+	for index := len(result) - 1; index >= 0; index-- {
+		result[index]--
+		if result[index] != 255 {
+			break
+		}
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesIncLE(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/inc/le requires one Bytes value"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	result := []byte(value)
+	for index := range result {
+		result[index]++
+		if result[index] != 0 {
+			break
+		}
+	}
+	return nil, bytesValue(string(result))
+}
+func bytesDecLE(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("bytes/dec/le requires one Bytes value"), nil
+	}
+	err, value := requireBytes(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	result := []byte(value)
+	for index := range result {
+		result[index]--
+		if result[index] != 255 {
+			break
+		}
+	}
+	return nil, bytesValue(string(result))
+}
 func bytesPadStart(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 3 {
 		return expressionError("bytes/pad/start requires Bytes, target length, and byte"), nil
