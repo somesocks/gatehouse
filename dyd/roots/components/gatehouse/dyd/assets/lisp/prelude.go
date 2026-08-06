@@ -3,12 +3,17 @@ package lisp
 import "math"
 
 func prelude() *environment {
+	env := bootstrap()
+	bindImports(env, newModuleCache())
+	return env
+}
+
+func bootstrap() *environment {
 	env := &environment{values: make(map[string]*Expr)}
 	env.bind("null", null())
 	for _, definition := range preludeBuiltins {
 		env.bind(definition.name, withHelp(&builtin{special: definition.special, leaky: definition.leaky, call: definition.call}, definition.documentation.text()))
 	}
-	bindImports(env, newModuleCache())
 	return env
 }
 
