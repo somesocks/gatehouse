@@ -70,6 +70,31 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
+		}{"http/request", nativeNetHTTPRequestDocumentation, "(import (http @native:net/http/v1) (help http/request))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"http/status", nativeNetHTTPStatusDocumentation, "(import (http @native:net/http/v1) (help http/status))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"http/headers", nativeNetHTTPHeadersDocumentation, "(import (http @native:net/http/v1) (help http/headers))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"http/header", nativeNetHTTPHeaderDocumentation, "(import (http @native:net/http/v1) (help http/header))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"http/body", nativeNetHTTPBodyDocumentation, "(import (http @native:net/http/v1) (help http/body))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
 		}{"random/bytes", nativeRandomBytesDocumentation, "(import (random @native:random/v1) (help random/bytes))"},
 		struct {
 			name          string
