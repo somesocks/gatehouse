@@ -39,11 +39,12 @@ func newModuleCache() *moduleCache {
 	return &moduleCache{
 		aliases: make(map[string]string),
 		modules: map[string]Expr{
-			nativeCryptoHMACSHA256ID: nativeCryptoHMACSHA256Module(),
-			nativeCryptoSHA256ID:     nativeCryptoSHA256Module(),
-			nativeRandomID:           nativeRandomModule(),
-			nativeSeqID:              nativeSeqModule(),
-			nativeTimeID:             nativeTimeModule(),
+			nativeCryptoHMACSHA256ID:   nativeCryptoHMACSHA256Module(),
+			nativeCryptoPaddingPKCS7ID: nativeCryptoPaddingPKCS7Module(),
+			nativeCryptoSHA256ID:       nativeCryptoSHA256Module(),
+			nativeRandomID:             nativeRandomModule(),
+			nativeSeqID:                nativeSeqModule(),
+			nativeTimeID:               nativeTimeModule(),
 		},
 	}
 }
