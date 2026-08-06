@@ -35,6 +35,16 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
+		}{"aes/encrypt", nativeCryptoCipherAES128EncryptDocumentation, "(import (aes @native:crypto/cipher/aes/128/v1) (help aes/encrypt))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"aes/decrypt", nativeCryptoCipherAES128DecryptDocumentation, "(import (aes @native:crypto/cipher/aes/128/v1) (help aes/decrypt))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
 		}{"import", importDocumentation, "(help 'import)"},
 		struct {
 			name          string
