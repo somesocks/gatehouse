@@ -29,6 +29,7 @@ type RepeatableMigration struct {
 	Index       int64
 	Description string
 	Template    string
+	Source      string
 }
 
 const (
@@ -49,6 +50,26 @@ type resolvedMigration struct {
 	index         int64
 	description   string
 	source        string
+}
+
+func materializeRegistry(registry Registry, values any) (error, Registry) {
+	repeatable := make([]RepeatableMigration, 0, len(registry.Repeatable))
+	for _, migration := range registry.Repeatable {
+		if migration.Template == "" {
+			return fmt.Errorf("repeatable migration %d (%s) has no template", migration.Index, migration.Description), Registry{}
+		}
+		err, source := renderTemplate(migration.Description, migration.Template, values)
+		if err != nil {
+			return fmt.Errorf("materialize repeatable migration %d (%s): %w", migration.Index, migration.Description, err), Registry{}
+		}
+		repeatable = append(repeatable, RepeatableMigration{
+			Index:       migration.Index,
+			Description: migration.Description,
+			Source:      source,
+		})
+	}
+	registry.Repeatable = repeatable
+	return nil, registry
 }
 
 func validateRegistry(registry Registry) error {
@@ -75,7 +96,10 @@ func validateRegistry(registry Registry) error {
 
 	repeatableIndexes := make(map[int64]struct{}, len(registry.Repeatable))
 	for _, migration := range registry.Repeatable {
-		if err := validateMigration(migration.Index, migration.Description, migration.Template, "repeatable"); err != nil {
+		if migration.Template != "" {
+			return fmt.Errorf("repeatable migration %d (%s) was not materialized", migration.Index, migration.Description)
+		}
+		if err := validateMigration(migration.Index, migration.Description, migration.Source, "repeatable"); err != nil {
 			return err
 		}
 		if _, exists := repeatableIndexes[migration.Index]; exists {
@@ -108,7 +132,6 @@ func validateHistory(history []appliedMigration, registry Registry) error {
 	for _, migration := range registry.Repeatable {
 		repeatable[migration.Index] = migration
 	}
-
 	var highestVersionedIndex int64
 	for _, applied := range history {
 		switch applied.migrationType {
@@ -146,7 +169,7 @@ func validateHistory(history []appliedMigration, registry Registry) error {
 	return nil
 }
 
-func nextMigration(history []appliedMigration, registry Registry, values any) (error, resolvedMigration, bool) {
+func nextMigration(history []appliedMigration, registry Registry) (error, resolvedMigration, bool) {
 	for _, migration := range sortedVersioned(registry.Versioned) {
 		if !hasMigration(history, migrationTypeVersioned, migration.Index) {
 			return nil, resolvedMigration{
@@ -159,10 +182,7 @@ func nextMigration(history []appliedMigration, registry Registry, values any) (e
 	}
 
 	for _, migration := range sortedRepeatable(registry.Repeatable) {
-		err, rendered := renderTemplate(migration.Description, migration.Template, values)
-		if err != nil {
-			return fmt.Errorf("render repeatable migration %d (%s): %w", migration.Index, migration.Description, err), resolvedMigration{}, false
-		}
+		rendered := migration.Source
 		checksum := sha256.Sum256([]byte(rendered))
 		if latest, ok := latestMigration(history, migrationTypeRepeatable, migration.Index); !ok || latest.checksum != checksum {
 			return nil, resolvedMigration{

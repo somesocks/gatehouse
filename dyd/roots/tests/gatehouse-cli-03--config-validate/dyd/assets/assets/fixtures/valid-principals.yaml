@@ -3,9 +3,11 @@ principals:
   - id: alice
     name: Alice
     identities:
-      - kind: matrix
-        id: "@alice:example.org"
-      - kind: gatehouse
-        id: alice
-        password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER
+      - id: "matrix:@alice:example.org"
+        verifiers:
+          - kind: matrix
+      - id: gatehouse:alice
+        verifiers:
+          - kind: argon2id
+            password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER
         enabled: false

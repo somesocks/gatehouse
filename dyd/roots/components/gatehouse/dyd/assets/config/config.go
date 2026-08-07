@@ -25,6 +25,12 @@ var compiledSchema struct {
 	err    error
 }
 
+type State struct {
+	Workspaces []Workspace
+	Principals []Principal
+	Groups     []Group
+}
+
 func ValidateFile(path string) (error, configschema.GatehouseConfig) {
 	contents, err := os.ReadFile(path)
 	if err != nil {
@@ -53,10 +59,26 @@ func ValidateFile(path string) (error, configschema.GatehouseConfig) {
 	if decodeErr != nil {
 		return fmt.Errorf("decode configuration: %w", decodeErr), configschema.GatehouseConfig{}
 	}
-	if err, _ := ResolveWorkspaces(config); err != nil {
+	if err, _ := ResolveState(config); err != nil {
 		return err, configschema.GatehouseConfig{}
 	}
 	return nil, config
+}
+
+func ResolveState(document configschema.GatehouseConfig) (error, State) {
+	err, workspaces := ResolveWorkspaces(document)
+	if err != nil {
+		return err, State{}
+	}
+	err, principals := ResolvePrincipals(document)
+	if err != nil {
+		return err, State{}
+	}
+	err, groups := ResolveGroups(document)
+	if err != nil {
+		return err, State{}
+	}
+	return nil, State{Workspaces: workspaces, Principals: principals, Groups: groups}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {

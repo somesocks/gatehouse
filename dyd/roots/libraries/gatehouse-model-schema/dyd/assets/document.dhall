@@ -58,72 +58,38 @@ let Principal =
         , description = Some "A deployment-level human or service actor."
         }
 
-let MatrixIdentity =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { matrix_user_id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "canonical Matrix user identifier" }
-              , principal =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning principal identity" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+let Verifiers =
+      s.list.from
+        s.list.props::{
+        , values =
+            s.any.from
+              s.any.props::{ variant = s.any.variants.permissive }
+              s.any.meta::{ description = Some "provider-defined verifier object" }
         }
-        s.record.meta::{
-        , name = Some "MatrixIdentity"
-        , description = Some "A verified Matrix user identity."
-        }
-
-let GatehouseUserIdentity =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { username =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "Gatehouse user name" }
-              , password_verifier =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "Argon2id password verifier" }
-              , principal =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning principal identity" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{
-        , name = Some "GatehouseUserIdentity"
-        , description = Some "A Gatehouse user identity authenticated by a password verifier."
-        }
+        s.list.meta::{ description = Some "verification methods that can prove control of the identity" }
 
 let Identity =
-      s.oneOf.from
-        { options =
-            [ s.reference.from
-                s.reference.props::{ to = "MatrixIdentity" }
-                s.reference.meta::{ name = Some "MatrixIdentity" }
-            , s.reference.from
-                s.reference.props::{ to = "GatehouseUserIdentity" }
-                s.reference.meta::{ name = Some "GatehouseUserIdentity" }
-            ]
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "globally namespaced identity" }
+              , principal =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "owning principal identity" }
+              , verifiers = Verifiers
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.oneOf.meta::{
+        s.record.meta::{
         , name = Some "Identity"
         , description = Some "A verified authentication binding for a principal."
         }
@@ -193,9 +159,7 @@ in  Document::{
     , schemas =
         [ s.root.from Workspace s.root.meta::{ name = "Workspace" }
         , s.root.from Principal s.root.meta::{ name = "Principal" }
-        , s.root.from MatrixIdentity s.root.meta::{ name = "MatrixIdentity" }
-        , s.root.from GatehouseUserIdentity s.root.meta::{ name = "GatehouseUserIdentity" }
-        , s.root.from Identity s.root.meta::{ name = "Identity" }
+         , s.root.from Identity s.root.meta::{ name = "Identity" }
         , s.root.from Group s.root.meta::{ name = "Group" }
         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
         ]

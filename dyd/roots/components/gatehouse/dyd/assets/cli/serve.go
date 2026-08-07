@@ -18,7 +18,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 	WithAction(func(request clib.ActionRequest) int {
 		document := configschema.GatehouseConfig{ApiVersion: "v1"}
 		var databaseConfig config.DatabaseConfig
-		var workspaces []config.Workspace
+		var state config.State
 		var warnings []config.Warning
 		var err error
 
@@ -39,21 +39,30 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		for _, warning := range warnings {
 			fmt.Fprintf(os.Stderr, "warning: %s\n", warning.Message)
 		}
-		err, workspaces = config.ResolveWorkspaces(document)
+		err, state = config.ResolveState(document)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "configure workspaces: %v\n", err)
+			fmt.Fprintf(os.Stderr, "configure state: %v\n", err)
 			return 1
 		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
 
-		err, store := database.Open(ctx, databaseConfig, workspaces)
+		err, store := database.Open(ctx, databaseConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start database: %v\n", err)
 			return 1
 		}
 		defer store.Close()
+		err, migrations := database.BuildMigrations(databaseConfig, state)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "generate migrations: %v\n", err)
+			return 1
+		}
+		if err := database.Migrate(ctx, store, migrations); err != nil {
+			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
+			return 1
+		}
 
 		fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 		<-ctx.Done()

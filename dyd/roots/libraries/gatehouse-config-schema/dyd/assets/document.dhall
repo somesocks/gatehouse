@@ -144,62 +144,36 @@ let Workspaces =
         s.list.props::{ values = Workspace }
         s.list.meta::{ description = Some "configured workspaces" }
 
-let MatrixIdentity =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { kind =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.literal "matrix" }
-                    s.text.meta::{ description = Some "Matrix identity kind" }
-              , id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "canonical Matrix user identifier" }
-              }
-        , optional =
-            toMap
-              { enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
+let Verifiers =
+      s.list.from
+        s.list.props::{
+        , values =
+            s.any.from
+              s.any.props::{ variant = s.any.variants.permissive }
+              s.any.meta::{ description = Some "provider-defined verifier object" }
         }
-        s.record.meta::{ name = Some "MatrixIdentity" }
-
-let GatehouseIdentity =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { kind =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.literal "gatehouse" }
-                    s.text.meta::{ description = Some "Gatehouse identity kind" }
-              , id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "Gatehouse user name" }
-              , password_verifier =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "Argon2id password verifier or environment reference" }
-              }
-        , optional =
-            toMap
-              { enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
-        }
-        s.record.meta::{ name = Some "GatehouseIdentity" }
+        s.list.meta::{ description = Some "verification methods that can prove control of the identity" }
 
 let Identity =
-      s.oneOf.from
-        { options = [ MatrixIdentity, GatehouseIdentity ] }
-        s.oneOf.meta::{ name = Some "Identity" }
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "globally namespaced identity" }
+              , verifiers = Verifiers
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "Identity" }
 
 let Identities =
       s.list.from

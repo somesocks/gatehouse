@@ -9,7 +9,7 @@ import (
 
 const sqliteMigrationBusyTimeout = 30_000
 
-func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry, values any) error {
+func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry) error {
 	if err := validateRegistry(registry); err != nil {
 		return err
 	}
@@ -19,7 +19,7 @@ func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry, val
 		if err != nil {
 			return fmt.Errorf("open migration connection: %w", err)
 		}
-		err, applied := migrateSQLiteOne(ctx, connection, registry, values)
+		err, applied := migrateSQLiteOne(ctx, connection, registry)
 		closeErr := connection.Close()
 		if err != nil {
 			return err
@@ -33,7 +33,7 @@ func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry, val
 	}
 }
 
-func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Registry, values any) (error, bool) {
+func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Registry) (error, bool) {
 	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteMigrationBusyTimeout)); err != nil {
 		return fmt.Errorf("set SQLite migration busy timeout: %w", err), false
 	}
@@ -50,14 +50,14 @@ func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Regist
 	if _, err := connection.ExecContext(ctx, registry.Init.SQL); err != nil {
 		return fmt.Errorf("initialize migration history: %w", err), false
 	}
-	err, history := readSQLiteHistory(ctx, connection)
+	err, history := readMigrationHistory(ctx, connection)
 	if err != nil {
 		return err, false
 	}
 	if err := validateHistory(history, registry); err != nil {
 		return err, false
 	}
-	err, migration, ok := nextMigration(history, registry, values)
+	err, migration, ok := nextMigration(history, registry)
 	if err != nil {
 		return err, false
 	}
@@ -94,11 +94,11 @@ func commitSQLiteMigration(ctx context.Context, connection *sql.Conn, operation 
 	return nil
 }
 
-type sqliteHistoryReader interface {
+type migrationHistoryReader interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 }
 
-func readSQLiteHistory(ctx context.Context, database sqliteHistoryReader) (error, []appliedMigration) {
+func readMigrationHistory(ctx context.Context, database migrationHistoryReader) (error, []appliedMigration) {
 	rows, err := database.QueryContext(ctx, `
 		SELECT installed_rank, migration_type, migration_index, description, checksum
 		FROM gatehouse_schema_migrations

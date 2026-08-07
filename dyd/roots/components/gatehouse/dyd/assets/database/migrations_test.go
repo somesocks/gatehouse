@@ -8,12 +8,14 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"gatehouse/config"
 )
 
 func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{
 			{
 				Index:       2,
@@ -35,10 +37,10 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 		},
 	}
 
-	if err := migrateSQLite(context.Background(), database, registry, struct{}{}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateSQLite(context.Background(), database, registry, struct{}{}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 
@@ -53,19 +55,19 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 func TestMigrateRejectsChangedVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "create_events",
 			SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
 		}},
 	}
-	if err := migrateSQLite(context.Background(), database, registry, struct{}{}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 
 	registry.Versioned[0].SQL += "\n-- changed"
-	err := migrateSQLite(context.Background(), database, registry, struct{}{})
+	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "different checksum") {
 		t.Fatalf("migrate() error = %v, want changed checksum error", err)
 	}
@@ -74,14 +76,14 @@ func TestMigrateRejectsChangedVersionedMigration(t *testing.T) {
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       2,
 			Description: "create_events",
 			SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
 		}},
 	}
-	if err := migrateSQLite(context.Background(), database, registry, struct{}{}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 
@@ -90,7 +92,7 @@ func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 		Description: "create_legacy_events",
 		SQL:         `CREATE TABLE gatehouse_test_legacy_events (entry TEXT NOT NULL) STRICT;`,
 	})
-	err := migrateSQLite(context.Background(), database, registry, struct{}{})
+	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "would run out of order") {
 		t.Fatalf("migrate() error = %v, want out-of-order error", err)
 	}
@@ -99,13 +101,13 @@ func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{
 			{Index: 1, Description: "first", SQL: `CREATE TABLE gatehouse_test_first (value TEXT) STRICT;`},
 			{Index: 2, Description: "second", SQL: `CREATE TABLE gatehouse_test_second (value TEXT) STRICT;`},
 		},
 	}
-	if err := migrateSQLite(context.Background(), database, Registry{Init: sqliteMigrations.Init}, struct{}{}); err != nil {
+	if err := migrateSQLite(context.Background(), database, Registry{Init: testSQLiteRegistry(t).Init}); err != nil {
 		t.Fatal(err)
 	}
 	for _, index := range []int{2, 1} {
@@ -120,7 +122,7 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 		}
 	}
 
-	err := migrateSQLite(context.Background(), database, registry, struct{}{})
+	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "was applied out of order") {
 		t.Fatalf("migrate() error = %v, want persisted out-of-order error", err)
 	}
@@ -128,8 +130,8 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 
 func TestMigrateAppliesOnlyChangedRepeatablesInIndexOrder(t *testing.T) {
 	database := openMigrationTestDatabase(t)
-	registry := Registry{
-		Init: sqliteMigrations.Init,
+	templateRegistry := Registry{
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "create_events",
@@ -149,16 +151,28 @@ func TestMigrateAppliesOnlyChangedRepeatablesInIndexOrder(t *testing.T) {
 		},
 	}
 
-	if err := migrateSQLite(context.Background(), database, registry, repeatableValues{First: "one", Second: "two"}); err != nil {
+	err, registry := materializeRegistry(templateRegistry, repeatableValues{First: "one", Second: "two"})
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateSQLite(context.Background(), database, registry, repeatableValues{First: "one", Second: "two"}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateSQLite(context.Background(), database, registry, repeatableValues{First: "o'hare", Second: "two"}); err != nil {
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateSQLite(context.Background(), database, registry, repeatableValues{First: "three", Second: "four"}); err != nil {
+	err, registry = materializeRegistry(templateRegistry, repeatableValues{First: "o'hare", Second: "two"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
+		t.Fatal(err)
+	}
+	err, registry = materializeRegistry(templateRegistry, repeatableValues{First: "three", Second: "four"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,22 +193,21 @@ func TestMigrateAppliesOnlyChangedRepeatablesInIndexOrder(t *testing.T) {
 func TestMigrateRejectsTemplateActionsInVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	err := migrateSQLite(context.Background(), database, Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "invalid_template",
 			SQL:         `CREATE TABLE {{ .Table }} (value TEXT) STRICT;`,
 		}},
-	}, struct{}{})
+	})
 	if err == nil || !strings.Contains(err.Error(), "must not contain template actions") {
 		t.Fatalf("migrate() error = %v, want versioned template error", err)
 	}
 }
 
 func TestMigrateRejectsMissingRepeatableTemplateValues(t *testing.T) {
-	database := openMigrationTestDatabase(t)
-	err := migrateSQLite(context.Background(), database, Registry{
-		Init: sqliteMigrations.Init,
+	err, _ := materializeRegistry(Registry{
+		Init: testSQLiteRegistry(t).Init,
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
 			Description: "missing_value",
@@ -209,14 +222,14 @@ func TestMigrateRejectsMissingRepeatableTemplateValues(t *testing.T) {
 func TestMigrateRollsBackFailedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "invalid_sql",
 			SQL:         `CREATE TABL gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
 		}},
 	}
-	if err := migrateSQLite(context.Background(), database, registry, struct{}{}); err == nil {
+	if err := migrateSQLite(context.Background(), database, registry); err == nil {
 		t.Fatal("migrate() succeeded for invalid SQL")
 	}
 
@@ -238,7 +251,7 @@ func TestMigrateCoordinatesConcurrentSQLiteRunners(t *testing.T) {
 	first := openMigrationTestFileDatabase(t, path)
 	second := openMigrationTestFileDatabase(t, path)
 	registry := Registry{
-		Init: sqliteMigrations.Init,
+		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{
 			{
 				Index:       1,
@@ -258,12 +271,17 @@ func TestMigrateCoordinatesConcurrentSQLiteRunners(t *testing.T) {
 		}},
 	}
 
+	err, registry := materializeRegistry(registry, struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	start := make(chan struct{})
 	errors := make(chan error, 2)
 	for _, database := range []*sql.DB{first, second} {
 		go func(database *sql.DB) {
 			<-start
-			errors <- migrateSQLite(context.Background(), database, registry, struct{}{})
+			errors <- migrateSQLite(context.Background(), database, registry)
 		}(database)
 	}
 	close(start)
@@ -287,6 +305,15 @@ func TestMigrateCoordinatesConcurrentSQLiteRunners(t *testing.T) {
 type repeatableValues struct {
 	First  string
 	Second string
+}
+
+func testSQLiteRegistry(t *testing.T) Registry {
+	t.Helper()
+	err, registry := sqliteMigrations(config.State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
 }
 
 func eventEntries(t *testing.T, database queryer) []string {
