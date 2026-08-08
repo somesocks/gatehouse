@@ -326,14 +326,14 @@ let Principals =
         s.list.props::{ values = Principal }
         s.list.meta::{ description = Some "configured principals" }
 
-let KeychainRef =
+let KeychainPassphraseSource =
       s.text.from
         s.text.props::{ variant = s.text.variants.none }
-        s.text.meta::{ description = Some "ordered keychain passphrase source reference" }
+        s.text.meta::{ description = Some "keychain passphrase source" }
 
-let KeychainRefs =
+let KeychainPassphraseSources =
       s.list.from
-        s.list.props::{ values = KeychainRef }
+        s.list.props::{ values = KeychainPassphraseSource }
         s.list.meta::{ description = Some "ordered keychain passphrase source fallbacks" }
 
 let Keychain =
@@ -345,7 +345,7 @@ let Keychain =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "stable keychain identity" }
-              , refs = KeychainRefs
+               , sources = KeychainPassphraseSources
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }

@@ -22,14 +22,14 @@ type KDF struct {
 	Salt []byte
 }
 
-type KeyRef struct {
+type KeychainRef struct {
 	ID      string
 	Version int64
 }
 
 type Encrypted struct {
 	Payload []byte
-	Key     *KeyRef
+	Key     *KeychainRef
 }
 
 func ParseKDF(value string) (error, KDF) {
@@ -71,7 +71,7 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		return fmt.Errorf("%s key and ver must be specified together", encryptionScheme), Encrypted{}
 	}
 	expected := url.Values{"alg": []string{encryptionAlg}}
-	var reference *KeyRef
+	var reference *KeychainRef
 	if hasKey {
 		if len(key) != 1 || !keyID.MatchString(key[0]) {
 			return fmt.Errorf("%s key must match %q", encryptionScheme, keyID.String()), Encrypted{}
@@ -83,7 +83,7 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		if err != nil || parsedVersion <= 0 || strconv.FormatInt(parsedVersion, 10) != version[0] {
 			return fmt.Errorf("%s ver must be a positive canonical integer", encryptionScheme), Encrypted{}
 		}
-		reference = &KeyRef{ID: key[0], Version: parsedVersion}
+		reference = &KeychainRef{ID: key[0], Version: parsedVersion}
 		expected.Set("key", key[0])
 		expected.Set("ver", version[0])
 	}

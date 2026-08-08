@@ -14,8 +14,8 @@ func TestResolveKeychainsUsesImplicitDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Keychain{{
-		ID:   "default",
-		Refs: []string{"env:GATEHOUSE_KEYCHAIN", "stdin:"},
+		ID:      "default",
+		Sources: []KeychainPassphraseSource{"env:GATEHOUSE_KEYCHAIN", "stdin:"},
 	}}
 	if !reflect.DeepEqual(keychains, want) {
 		t.Fatalf("ResolveKeychains() = %#v, want %#v", keychains, want)
@@ -26,8 +26,8 @@ func TestResolveKeychainsUsesExplicitConfiguration(t *testing.T) {
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Keychains: &[]configschema.GatehouseConfigKeychainsValues{
-			{Id: "zebra", Refs: []string{"env:ZEBRA_KEY"}},
-			{Id: "alpha", Refs: []string{"env:ALPHA_KEY", "stdin:"}},
+			{Id: "zebra", Sources: []string{"env:ZEBRA_KEY"}},
+			{Id: "alpha", Sources: []string{"env:ALPHA_KEY", "stdin:"}},
 		},
 	}
 	err, keychains := ResolveKeychains(document)
@@ -35,8 +35,8 @@ func TestResolveKeychainsUsesExplicitConfiguration(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Keychain{
-		{ID: "alpha", Refs: []string{"env:ALPHA_KEY", "stdin:"}},
-		{ID: "zebra", Refs: []string{"env:ZEBRA_KEY"}},
+		{ID: "alpha", Sources: []KeychainPassphraseSource{"env:ALPHA_KEY", "stdin:"}},
+		{ID: "zebra", Sources: []KeychainPassphraseSource{"env:ZEBRA_KEY"}},
 	}
 	if !reflect.DeepEqual(keychains, want) {
 		t.Fatalf("ResolveKeychains() = %#v, want %#v", keychains, want)
@@ -61,43 +61,43 @@ func TestResolveKeychainsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "invalid ID",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "Default", Refs: []string{"env:KEY"},
+				Id: "Default", Sources: []string{"env:KEY"},
 			}},
 			contains: "must match",
 		},
 		{
 			name: "duplicate ID",
 			keychains: []configschema.GatehouseConfigKeychainsValues{
-				{Id: "default", Refs: []string{"env:KEY"}},
-				{Id: "default", Refs: []string{"env:OTHER_KEY"}},
+				{Id: "default", Sources: []string{"env:KEY"}},
+				{Id: "default", Sources: []string{"env:OTHER_KEY"}},
 			},
 			contains: "duplicated",
 		},
 		{
-			name: "empty refs",
+			name: "empty sources",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "default", Refs: []string{},
+				Id: "default", Sources: []string{},
 			}},
 			contains: "must not be empty",
 		},
 		{
 			name: "invalid source",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "default", Refs: []string{"file:./key"},
+				Id: "default", Sources: []string{"file:./key"},
 			}},
 			contains: "must be an env",
 		},
 		{
 			name: "stdin is not final",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "default", Refs: []string{"stdin:", "env:KEY"},
+				Id: "default", Sources: []string{"stdin:", "env:KEY"},
 			}},
 			contains: "must be the final fallback",
 		},
 		{
 			name: "duplicate source",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "default", Refs: []string{"env:KEY", "env:KEY"},
+				Id: "default", Sources: []string{"env:KEY", "env:KEY"},
 			}},
 			contains: "duplicated",
 		},
