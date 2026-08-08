@@ -133,6 +133,20 @@ func postgresMigrations(state config.State) (error, Registry) {
 					REFERENCES gatehouse_resources (workspace_id, id)
 			);
 		`,
+		}, {
+			Index:       5,
+			Description: "create_keychains",
+			SQL: `
+			CREATE TABLE gatehouse_keychains (
+				id TEXT NOT NULL
+					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				version BIGINT NOT NULL CHECK (version > 0),
+				kek_kdf TEXT NOT NULL CHECK (length(trim(kek_kdf)) > 0),
+				key TEXT NOT NULL CHECK (length(trim(key)) > 0),
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (id, version)
+			);
+		`,
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,

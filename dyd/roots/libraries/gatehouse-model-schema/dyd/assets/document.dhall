@@ -94,6 +94,39 @@ let Identity =
         , description = Some "A verified authentication binding for a principal."
         }
 
+let Keychain =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "stable keychain identity" }
+              , version =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "keychain encryption key version" }
+              , kek_kdf =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "key-encryption-key derivation descriptor" }
+              , key =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "encrypted keychain encryption key" }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the key version is selected for new encryption" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "Keychain"
+        , description = Some "A versioned keychain encryption key."
+        }
+
 let Group =
       s.record.from
         s.record.props::{
@@ -278,8 +311,9 @@ in  Document::{
     , headers = [] : List Text
     , schemas =
         [ s.root.from Workspace s.root.meta::{ name = "Workspace" }
-        , s.root.from Principal s.root.meta::{ name = "Principal" }
+         , s.root.from Principal s.root.meta::{ name = "Principal" }
          , s.root.from Identity s.root.meta::{ name = "Identity" }
+         , s.root.from Keychain s.root.meta::{ name = "Keychain" }
          , s.root.from Group s.root.meta::{ name = "Group" }
         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
         , s.root.from Tool s.root.meta::{ name = "Tool" }

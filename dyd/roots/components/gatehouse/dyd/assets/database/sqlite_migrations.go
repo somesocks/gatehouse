@@ -139,6 +139,21 @@ func sqliteMigrations(state config.State) (error, Registry) {
 					REFERENCES gatehouse_resources (workspace_id, id)
 			) STRICT;
 		`,
+		}, {
+			Index:       5,
+			Description: "create_keychains",
+			SQL: `
+			CREATE TABLE gatehouse_keychains (
+				id TEXT NOT NULL
+					CHECK (id GLOB '[a-z]*')
+					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				version INTEGER NOT NULL CHECK (version > 0),
+				kek_kdf TEXT NOT NULL CHECK (length(trim(kek_kdf)) > 0),
+				key TEXT NOT NULL CHECK (length(trim(key)) > 0),
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				PRIMARY KEY (id, version)
+			) STRICT;
+		`,
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
