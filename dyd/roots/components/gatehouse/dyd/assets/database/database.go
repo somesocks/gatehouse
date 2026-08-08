@@ -11,15 +11,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *sql.DB) {
+type Store struct {
+	*sql.DB
+	kind config.DatabaseKind
+}
+
+func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *Store) {
 	switch configuration.Kind {
 	case config.DatabaseKindSQLite:
 		if err := prepareSQLitePath(configuration.Path); err != nil {
 			return err, nil
 		}
-		return openSQLite(ctx, configuration.Path)
+		err, database := openSQLite(ctx, configuration.Path)
+		if err != nil {
+			return err, nil
+		}
+		return nil, &Store{DB: database, kind: config.DatabaseKindSQLite}
 	case config.DatabaseKindEphemeral:
-		return openSQLite(ctx, ":memory:")
+		err, database := openSQLite(ctx, ":memory:")
+		if err != nil {
+			return err, nil
+		}
+		return nil, &Store{DB: database, kind: config.DatabaseKindSQLite}
 	case config.DatabaseKindPostgres:
 		return fmt.Errorf("PostgreSQL databases are not supported yet"), nil
 	default:
@@ -51,12 +64,12 @@ func BuildMigrations(configuration config.DatabaseConfig, state config.State) (e
 	}
 }
 
-func Migrate(ctx context.Context, database *sql.DB, migrations MigrationSet) error {
+func Migrate(ctx context.Context, database *Store, migrations MigrationSet) error {
 	switch migrations.kind {
 	case config.DatabaseKindSQLite:
-		return migrateSQLite(ctx, database, migrations.registry)
+		return migrateSQLite(ctx, database.DB, migrations.registry)
 	case config.DatabaseKindPostgres:
-		return migratePostgres(ctx, database, migrations.registry)
+		return migratePostgres(ctx, database.DB, migrations.registry)
 	default:
 		return fmt.Errorf("unsupported migration database kind %q", migrations.kind)
 	}

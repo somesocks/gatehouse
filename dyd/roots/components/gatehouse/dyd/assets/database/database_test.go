@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"gatehouse/config"
+	"gatehouse/model"
 )
 
 func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
@@ -635,11 +637,101 @@ func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {
 	}
 }
 
+func TestKeychainsInsertAndGet(t *testing.T) {
+	err, database := openConfigured(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	keychains := []model.Keychain{
+		{
+			Ref:     model.KeychainRef{Id: "default", Version: 1},
+			KekKdf:  "gh-kdf:default?alg=pbkdf2-hmac-sha256-v1",
+			Key:     "gh-enc:default?alg=aes128-gcm-v1",
+			Enabled: true,
+		},
+		{
+			Ref:     model.KeychainRef{Id: "alpha", Version: 1},
+			KekKdf:  "gh-kdf:alpha?alg=pbkdf2-hmac-sha256-v1",
+			Key:     "gh-enc:alpha?alg=aes128-gcm-v1",
+			Enabled: true,
+		},
+	}
+	if err := database.KeychainsInsert(context.Background(), keychains); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.KeychainsInsert(context.Background(), []model.Keychain{{
+		Ref:     model.KeychainRef{Id: "default", Version: 1},
+		KekKdf:  "replacement",
+		Key:     "replacement",
+		Enabled: false,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.KeychainsInsert(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+
+	err, got := database.KeychainsGet(context.Background(), []model.KeychainRef{
+		{Id: "default", Version: 1},
+		{Id: "missing", Version: 1},
+		{Id: "alpha", Version: 1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []model.Keychain{keychains[1], keychains[0]}) {
+		t.Fatalf("KeychainsGet() = %#v, want %#v", got, []model.Keychain{keychains[1], keychains[0]})
+	}
+	err, got = database.KeychainsGet(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("KeychainsGet(nil) = %#v, want no keychains", got)
+	}
+}
+
+func TestKeychainsGetCurrent(t *testing.T) {
+	err, database := openConfigured(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	keychains := []model.Keychain{
+		{Ref: model.KeychainRef{Id: "alpha", Version: 1}, KekKdf: "alpha-1", Key: "alpha-1", Enabled: true},
+		{Ref: model.KeychainRef{Id: "alpha", Version: 2}, KekKdf: "alpha-2", Key: "alpha-2", Enabled: true},
+		{Ref: model.KeychainRef{Id: "alpha", Version: 3}, KekKdf: "alpha-3", Key: "alpha-3", Enabled: false},
+		{Ref: model.KeychainRef{Id: "default", Version: 1}, KekKdf: "default-1", Key: "default-1", Enabled: false},
+	}
+	if err := database.KeychainsInsert(context.Background(), keychains); err != nil {
+		t.Fatal(err)
+	}
+
+	err, got := database.KeychainsGetCurrent(context.Background(), []string{"default", "missing", "alpha"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []model.Keychain{keychains[1]}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("KeychainsGetCurrent() = %#v, want %#v", got, want)
+	}
+	err, got = database.KeychainsGetCurrent(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("KeychainsGetCurrent(nil) = %#v, want no keychains", got)
+	}
+}
+
 func stringPointer(value string) *string {
 	return &value
 }
 
-func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *sql.DB) {
+func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *Store) {
 	err, database := Open(ctx, configuration)
 	if err != nil {
 		return err, nil

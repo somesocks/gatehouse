@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"strconv"
+
+	"gatehouse/model"
 )
 
 const (
@@ -22,14 +24,9 @@ type KDF struct {
 	Salt []byte
 }
 
-type KeychainRef struct {
-	ID      string
-	Version int64
-}
-
 type Encrypted struct {
 	Payload []byte
-	Key     *KeychainRef
+	Key     *model.KeychainRef
 }
 
 func ParseKDF(value string) (error, KDF) {
@@ -71,7 +68,7 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		return fmt.Errorf("%s key and ver must be specified together", encryptionScheme), Encrypted{}
 	}
 	expected := url.Values{"alg": []string{encryptionAlg}}
-	var reference *KeychainRef
+	var reference *model.KeychainRef
 	if hasKey {
 		if len(key) != 1 || !keyID.MatchString(key[0]) {
 			return fmt.Errorf("%s key must match %q", encryptionScheme, keyID.String()), Encrypted{}
@@ -79,11 +76,11 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		if len(version) != 1 {
 			return fmt.Errorf("%s ver must be a positive integer", encryptionScheme), Encrypted{}
 		}
-		parsedVersion, err := strconv.ParseInt(version[0], 10, 64)
-		if err != nil || parsedVersion <= 0 || strconv.FormatInt(parsedVersion, 10) != version[0] {
+		parsedVersion, err := strconv.Atoi(version[0])
+		if err != nil || parsedVersion <= 0 || strconv.Itoa(parsedVersion) != version[0] {
 			return fmt.Errorf("%s ver must be a positive canonical integer", encryptionScheme), Encrypted{}
 		}
-		reference = &KeychainRef{ID: key[0], Version: parsedVersion}
+		reference = &model.KeychainRef{Id: key[0], Version: parsedVersion}
 		expected.Set("key", key[0])
 		expected.Set("ver", version[0])
 	}
@@ -122,8 +119,8 @@ func ParseResource(value string) (error, Encrypted) {
 func (encrypted Encrypted) String() string {
 	query := url.Values{"alg": []string{encryptionAlg}}
 	if encrypted.Key != nil {
-		query.Set("key", encrypted.Key.ID)
-		query.Set("ver", strconv.FormatInt(encrypted.Key.Version, 10))
+		query.Set("key", encrypted.Key.Id)
+		query.Set("ver", strconv.Itoa(encrypted.Key.Version))
 	}
 	return encryptionScheme + ":" + base64.RawURLEncoding.EncodeToString(encrypted.Payload) + "?" + query.Encode()
 }

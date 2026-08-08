@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"strings"
 	"testing"
+
+	"gatehouse/model"
 )
 
 func TestKDFRoundTrip(t *testing.T) {
@@ -44,7 +46,7 @@ func TestParseKDFRejectsInvalidValues(t *testing.T) {
 
 func TestEncryptedRoundTrip(t *testing.T) {
 	payload := []byte("0123456789abcdefghijklmnopqr")
-	value := Encrypted{Payload: payload, Key: &KeychainRef{ID: "default", Version: 1}}.String()
+	value := Encrypted{Payload: payload, Key: &model.KeychainRef{Id: "default", Version: 1}}.String()
 	want := "gh-enc:" + base64.RawURLEncoding.EncodeToString(payload) + "?alg=aes128-gcm-v1&key=default&ver=1"
 	if value != want {
 		t.Fatalf("Encrypted.String() = %q, want %q", value, want)
@@ -53,7 +55,7 @@ func TestEncryptedRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(parsed.Payload) != string(payload) || parsed.Key == nil || *parsed.Key != (KeychainRef{ID: "default", Version: 1}) {
+	if string(parsed.Payload) != string(payload) || parsed.Key == nil || *parsed.Key != (model.KeychainRef{Id: "default", Version: 1}) {
 		t.Fatalf("ParseResource() = %#v, want payload %x and default/1", parsed, payload)
 	}
 }

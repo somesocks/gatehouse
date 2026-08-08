@@ -10,11 +10,12 @@ VERSION=$(cat "$SRC_DIR/dyd/traits/version")
 FINGERPRINT=$(cat "$SRC_DIR/dyd/fingerprint")
 WORK_DIR="$DEST_DIR/source"
 
-mkdir -p "$DEST_DIR/dyd/commands" "$WORK_DIR/config" "$WORK_DIR/configschema"
+mkdir -p "$DEST_DIR/dyd/commands" "$WORK_DIR/config" "$WORK_DIR/configschema" "$WORK_DIR/model"
 cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
 chmod -R +w "$WORK_DIR"
 cp -R "$SRC_DIR/dyd/dependencies/config-schema-codec/dyd/assets/." "$WORK_DIR/configschema"
 cp "$SRC_DIR/dyd/dependencies/config-schema-json/dyd/assets/schema.json" "$WORK_DIR/config/schema.json"
+cp -R "$SRC_DIR/dyd/dependencies/model-schema/dyd/assets/." "$WORK_DIR/model"
 
 cd "$WORK_DIR"
 GOWORK=off go test ./...
