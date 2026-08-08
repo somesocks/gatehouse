@@ -79,6 +79,56 @@ let GroupMember =
         }
         s.record.meta::{ name = Some "GroupMember" }
 
+let GroupToolGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { tool =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "granted workspace-local tool identity" }
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the tool grant is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "GroupToolGrant" }
+
+let GroupToolGrants =
+      s.list.from
+        s.list.props::{ values = GroupToolGrant }
+        s.list.meta::{ description = Some "configured direct tool grants" }
+
+let GroupResourceGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { resource =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "granted workspace-local resource identity" }
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the resource grant is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "GroupResourceGrant" }
+
+let GroupResourceGrants =
+      s.list.from
+        s.list.props::{ values = GroupResourceGrant }
+        s.list.meta::{ description = Some "configured direct resource grants" }
+
 let GroupMembers =
       s.list.from
         s.list.props::{ values = GroupMember }
@@ -100,12 +150,14 @@ let Group =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "group display name" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the group is enabled" }
-              , members = GroupMembers
-              }
+               , enabled =
+                   s.boolean.from
+                     s.boolean.props::{=}
+                     s.boolean.meta::{ description = Some "whether the group is enabled" }
+               , members = GroupMembers
+               , tool_grants = GroupToolGrants
+               , resource_grants = GroupResourceGrants
+               }
         }
         s.record.meta::{ name = Some "Group" }
 
@@ -113,6 +165,68 @@ let Groups =
       s.list.from
         s.list.props::{ values = Group }
         s.list.meta::{ description = Some "configured workspace authorization groups" }
+
+let Tool =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local tool identity" }
+              , ref =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "tool module reference" }
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the tool is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "Tool" }
+
+let Tools =
+      s.list.from
+        s.list.props::{ values = Tool }
+        s.list.meta::{ description = Some "configured workspace tools" }
+
+let Resource =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local resource identity" }
+              , ref =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "resource value reference" }
+              , secret =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the resource value is secret" }
+              }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the resource is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "Resource" }
+
+let Resources =
+      s.list.from
+        s.list.props::{ values = Resource }
+        s.list.meta::{ description = Some "configured workspace resources" }
 
 let Workspace =
       s.record.from
@@ -130,12 +244,14 @@ let Workspace =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace display name" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the workspace is enabled" }
-              , groups = Groups
-              }
+               , enabled =
+                   s.boolean.from
+                     s.boolean.props::{=}
+                     s.boolean.meta::{ description = Some "whether the workspace is enabled" }
+               , groups = Groups
+               , tools = Tools
+               , resources = Resources
+               }
         }
         s.record.meta::{ name = Some "Workspace" }
 

@@ -86,6 +86,53 @@ func postgresMigrations(state config.State) (error, Registry) {
 			CREATE INDEX gatehouse_group_members_by_principal
 			ON gatehouse_group_members (principal_id);
 		`,
+		}, {
+			Index:       4,
+			Description: "create_tools_resources_and_group_grants",
+			SQL: `
+			CREATE TABLE gatehouse_tools (
+				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				id TEXT NOT NULL
+					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				ref TEXT NOT NULL CHECK (length(trim(ref)) > 0),
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace_id, id)
+			);
+
+			CREATE TABLE gatehouse_resources (
+				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				id TEXT NOT NULL
+					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				ref TEXT NOT NULL CHECK (length(trim(ref)) > 0),
+				secret BOOLEAN NOT NULL,
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace_id, id)
+			);
+
+			CREATE TABLE gatehouse_group_tool_grants (
+				workspace_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				tool_id TEXT NOT NULL,
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace_id, group_id, tool_id),
+				FOREIGN KEY (workspace_id, group_id)
+					REFERENCES gatehouse_groups (workspace_id, id),
+				FOREIGN KEY (workspace_id, tool_id)
+					REFERENCES gatehouse_tools (workspace_id, id)
+			);
+
+			CREATE TABLE gatehouse_group_resource_grants (
+				workspace_id TEXT NOT NULL,
+				group_id TEXT NOT NULL,
+				resource_id TEXT NOT NULL,
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace_id, group_id, resource_id),
+				FOREIGN KEY (workspace_id, group_id)
+					REFERENCES gatehouse_groups (workspace_id, id),
+				FOREIGN KEY (workspace_id, resource_id)
+					REFERENCES gatehouse_resources (workspace_id, id)
+			);
+		`,
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
@@ -148,6 +195,48 @@ func postgresMigrations(state config.State) (error, Registry) {
 			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
 			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
+				enabled = excluded.enabled;
+			{{ end }}
+			{{ end }}
+		`,
+		}, {
+			Index:       5,
+			Description: "reconcile_tools_and_resources",
+			Template: `
+			SELECT 1;
+			{{ range .Tools }}
+			INSERT INTO gatehouse_tools (workspace_id, id, ref, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Ref }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, id) DO UPDATE SET
+				ref = excluded.ref,
+				enabled = excluded.enabled;
+			{{ end }}
+			{{ range .Resources }}
+			INSERT INTO gatehouse_resources (workspace_id, id, ref, secret, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Ref }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, id) DO UPDATE SET
+				ref = excluded.ref,
+				secret = excluded.secret,
+				enabled = excluded.enabled;
+			{{ end }}
+		`,
+		}, {
+			Index:       6,
+			Description: "reconcile_group_grants",
+			Template: `
+			SELECT 1;
+			{{ range .Groups }}
+			{{ $group := . }}
+			{{ range .ToolGrants }}
+			INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
+			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, group_id, tool_id) DO UPDATE SET
+				enabled = excluded.enabled;
+			{{ end }}
+			{{ range .ResourceGrants }}
+			INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
+			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, group_id, resource_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ end }}

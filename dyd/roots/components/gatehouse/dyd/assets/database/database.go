@@ -65,6 +65,8 @@ func Migrate(ctx context.Context, database *sql.DB, migrations MigrationSet) err
 type migrationValues struct {
 	Workspaces []workspaceMigrationValue
 	Principals []principalMigrationValue
+	Tools      []toolMigrationValue
+	Resources  []resourceMigrationValue
 	Groups     []groupMigrationValue
 }
 
@@ -88,11 +90,13 @@ type identityMigrationValue struct {
 }
 
 type groupMigrationValue struct {
-	WorkspaceID string
-	ID          string
-	Name        any
-	Enabled     bool
-	Members     []groupMemberMigrationValue
+	WorkspaceID    string
+	ID             string
+	Name           any
+	Enabled        bool
+	Members        []groupMemberMigrationValue
+	ToolGrants     []groupToolGrantMigrationValue
+	ResourceGrants []groupResourceGrantMigrationValue
 }
 
 type groupMemberMigrationValue struct {
@@ -100,10 +104,37 @@ type groupMemberMigrationValue struct {
 	Enabled     bool
 }
 
+type toolMigrationValue struct {
+	WorkspaceID string
+	ID          string
+	Ref         string
+	Enabled     bool
+}
+
+type resourceMigrationValue struct {
+	WorkspaceID string
+	ID          string
+	Ref         string
+	Secret      bool
+	Enabled     bool
+}
+
+type groupToolGrantMigrationValue struct {
+	ToolID  string
+	Enabled bool
+}
+
+type groupResourceGrantMigrationValue struct {
+	ResourceID string
+	Enabled    bool
+}
+
 func migrationValuesFor(state config.State) migrationValues {
 	values := migrationValues{
 		Workspaces: make([]workspaceMigrationValue, 0, len(state.Workspaces)),
 		Principals: make([]principalMigrationValue, 0, len(state.Principals)),
+		Tools:      make([]toolMigrationValue, 0, len(state.Tools)),
+		Resources:  make([]resourceMigrationValue, 0, len(state.Resources)),
 		Groups:     make([]groupMigrationValue, 0, len(state.Groups)),
 	}
 	for _, workspace := range state.Workspaces {
@@ -137,6 +168,23 @@ func migrationValuesFor(state config.State) migrationValues {
 			Identities: identities,
 		})
 	}
+	for _, tool := range state.Tools {
+		values.Tools = append(values.Tools, toolMigrationValue{
+			WorkspaceID: tool.WorkspaceID,
+			ID:          tool.ID,
+			Ref:         tool.Ref,
+			Enabled:     tool.Enabled,
+		})
+	}
+	for _, resource := range state.Resources {
+		values.Resources = append(values.Resources, resourceMigrationValue{
+			WorkspaceID: resource.WorkspaceID,
+			ID:          resource.ID,
+			Ref:         resource.Ref,
+			Secret:      resource.Secret,
+			Enabled:     resource.Enabled,
+		})
+	}
 	for _, group := range state.Groups {
 		var name any
 		if group.Name != nil {
@@ -149,12 +197,28 @@ func migrationValuesFor(state config.State) migrationValues {
 				Enabled:     member.Enabled,
 			})
 		}
+		toolGrants := make([]groupToolGrantMigrationValue, 0, len(group.ToolGrants))
+		for _, grant := range group.ToolGrants {
+			toolGrants = append(toolGrants, groupToolGrantMigrationValue{
+				ToolID:  grant.ToolID,
+				Enabled: grant.Enabled,
+			})
+		}
+		resourceGrants := make([]groupResourceGrantMigrationValue, 0, len(group.ResourceGrants))
+		for _, grant := range group.ResourceGrants {
+			resourceGrants = append(resourceGrants, groupResourceGrantMigrationValue{
+				ResourceID: grant.ResourceID,
+				Enabled:    grant.Enabled,
+			})
+		}
 		values.Groups = append(values.Groups, groupMigrationValue{
-			WorkspaceID: group.WorkspaceID,
-			ID:          group.ID,
-			Name:        name,
-			Enabled:     group.Enabled,
-			Members:     members,
+			WorkspaceID:    group.WorkspaceID,
+			ID:             group.ID,
+			Name:           name,
+			Enabled:        group.Enabled,
+			Members:        members,
+			ToolGrants:     toolGrants,
+			ResourceGrants: resourceGrants,
 		})
 	}
 	return values

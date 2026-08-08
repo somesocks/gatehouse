@@ -28,6 +28,8 @@ var compiledSchema struct {
 type State struct {
 	Workspaces []Workspace
 	Principals []Principal
+	Tools      []Tool
+	Resources  []Resource
 	Groups     []Group
 }
 
@@ -74,11 +76,19 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil {
 		return err, State{}
 	}
+	err, tools := ResolveTools(document)
+	if err != nil {
+		return err, State{}
+	}
+	err, resources := ResolveResources(document)
+	if err != nil {
+		return err, State{}
+	}
 	err, groups := ResolveGroups(document)
 	if err != nil {
 		return err, State{}
 	}
-	return nil, State{Workspaces: workspaces, Principals: principals, Groups: groups}
+	return nil, State{Workspaces: workspaces, Principals: principals, Tools: tools, Resources: resources, Groups: groups}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {

@@ -9,16 +9,28 @@ import (
 )
 
 type Group struct {
-	WorkspaceID string
-	ID          string
-	Name        *string
-	Enabled     bool
-	Members     []GroupMember
+	WorkspaceID      string
+	ID               string
+	Name             *string
+	Enabled          bool
+	Members          []GroupMember
+	ToolGrants       []GroupToolGrant
+	ResourceGrants   []GroupResourceGrant
 }
 
 type GroupMember struct {
 	PrincipalID string
 	Enabled     bool
+}
+
+type GroupToolGrant struct {
+	ToolID  string
+	Enabled bool
+}
+
+type GroupResourceGrant struct {
+	ResourceID string
+	Enabled    bool
 }
 
 func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
@@ -72,14 +84,61 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 			sort.Slice(members, func(left, right int) bool {
 				return members[left].PrincipalID < members[right].PrincipalID
 			})
+			toolGrants := make([]GroupToolGrant, 0)
+			if configured.ToolGrants != nil {
+				toolGrants = make([]GroupToolGrant, 0, len(*configured.ToolGrants))
+				toolIDs := make(map[string]struct{}, len(*configured.ToolGrants))
+				for grantIndex, configuredGrant := range *configured.ToolGrants {
+					if !workspaceID.MatchString(configuredGrant.Tool) {
+						return fmt.Errorf("workspaces[%d].groups[%d].tool_grants[%d].tool must match %q", workspaceIndex, groupIndex, grantIndex, workspaceID.String()), nil
+					}
+					if _, exists := toolIDs[configuredGrant.Tool]; exists {
+						return fmt.Errorf("workspaces[%d].groups[%d].tool_grants[%d].tool %q is duplicated", workspaceIndex, groupIndex, grantIndex, configuredGrant.Tool), nil
+					}
+					enabled := true
+					if configuredGrant.Enabled != nil {
+						enabled = *configuredGrant.Enabled
+					}
+					toolIDs[configuredGrant.Tool] = struct{}{}
+					toolGrants = append(toolGrants, GroupToolGrant{ToolID: configuredGrant.Tool, Enabled: enabled})
+				}
+			}
+			sort.Slice(toolGrants, func(left, right int) bool {
+				return toolGrants[left].ToolID < toolGrants[right].ToolID
+			})
+
+			resourceGrants := make([]GroupResourceGrant, 0)
+			if configured.ResourceGrants != nil {
+				resourceGrants = make([]GroupResourceGrant, 0, len(*configured.ResourceGrants))
+				resourceIDs := make(map[string]struct{}, len(*configured.ResourceGrants))
+				for grantIndex, configuredGrant := range *configured.ResourceGrants {
+					if !workspaceID.MatchString(configuredGrant.Resource) {
+						return fmt.Errorf("workspaces[%d].groups[%d].resource_grants[%d].resource must match %q", workspaceIndex, groupIndex, grantIndex, workspaceID.String()), nil
+					}
+					if _, exists := resourceIDs[configuredGrant.Resource]; exists {
+						return fmt.Errorf("workspaces[%d].groups[%d].resource_grants[%d].resource %q is duplicated", workspaceIndex, groupIndex, grantIndex, configuredGrant.Resource), nil
+					}
+					enabled := true
+					if configuredGrant.Enabled != nil {
+						enabled = *configuredGrant.Enabled
+					}
+					resourceIDs[configuredGrant.Resource] = struct{}{}
+					resourceGrants = append(resourceGrants, GroupResourceGrant{ResourceID: configuredGrant.Resource, Enabled: enabled})
+				}
+			}
+			sort.Slice(resourceGrants, func(left, right int) bool {
+				return resourceGrants[left].ResourceID < resourceGrants[right].ResourceID
+			})
 
 			groupIDs[configured.Id] = struct{}{}
 			groups = append(groups, Group{
-				WorkspaceID: workspace.Id,
-				ID:          configured.Id,
-				Name:        configured.Name,
-				Enabled:     enabled,
-				Members:     members,
+				WorkspaceID:    workspace.Id,
+				ID:             configured.Id,
+				Name:           configured.Name,
+				Enabled:        enabled,
+				Members:        members,
+				ToolGrants:     toolGrants,
+				ResourceGrants: resourceGrants,
 			})
 		}
 	}

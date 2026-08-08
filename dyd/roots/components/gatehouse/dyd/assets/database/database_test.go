@@ -30,8 +30,8 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 7 {
-		t.Fatalf("migration history count = %d, want 7", migrationCount)
+	if migrationCount != 10 {
+		t.Fatalf("migration history count = %d, want 10", migrationCount)
 	}
 	var workspaceCount int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_workspaces`).Scan(&workspaceCount); err != nil {
@@ -61,8 +61,8 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 7 {
-		t.Fatalf("migration history count = %d, want 7", count)
+	if count != 10 {
+		t.Fatalf("migration history count = %d, want 10", count)
 	}
 	var gatehouseName string
 	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
@@ -86,8 +86,8 @@ func TestSQLiteMigrationsMaterializeRegisteredRepeatables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(registry.Repeatable) != 4 {
-		t.Fatalf("repeatable migration count = %d, want 4", len(registry.Repeatable))
+	if len(registry.Repeatable) != 6 {
+		t.Fatalf("repeatable migration count = %d, want 6", len(registry.Repeatable))
 	}
 	for index, migration := range registry.Repeatable {
 		if migration.Template != "" || migration.Source == "" {
@@ -428,6 +428,166 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		VALUES ('engineering', 'admins', 'unknown', TRUE)
 	`); err == nil {
 		t.Fatal("membership without a principal was accepted")
+	}
+}
+
+func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, database := Open(context.Background(), configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	state := config.State{
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Tools: []config.Tool{{
+			WorkspaceID: "engineering",
+			ID:          "github",
+			Ref:         "file:./tools/github.lisp",
+			Enabled:     true,
+		}},
+		Resources: []config.Resource{
+			{WorkspaceID: "engineering", ID: "github-url", Ref: "file:./resources/github-url", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", ID: "github-token", Ref: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
+		},
+		Groups: []config.Group{{
+			WorkspaceID: "engineering",
+			ID:          "developers",
+			Enabled:     true,
+			ToolGrants: []config.GroupToolGrant{{
+				ToolID: "github", Enabled: true,
+			}},
+			ResourceGrants: []config.GroupResourceGrant{
+				{ResourceID: "github-url", Enabled: true},
+				{ResourceID: "github-token", Enabled: false},
+			},
+		}},
+	}
+	err, migrations := BuildMigrations(configuration, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), database, migrations); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		toolRef          string
+		toolEnabled      bool
+		resourceRef      string
+		resourceSecret   bool
+		resourceEnabled  bool
+		grantEnabled     bool
+		resourceGrantOn  bool
+	)
+	if err := database.QueryRow(`
+		SELECT ref, enabled FROM gatehouse_tools
+		WHERE workspace_id = 'engineering' AND id = 'github'
+	`).Scan(&toolRef, &toolEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if toolRef != "file:./tools/github.lisp" || !toolEnabled {
+		t.Fatalf("tool = (%q, %t), want (%q, %t)", toolRef, toolEnabled, "file:./tools/github.lisp", true)
+	}
+	if err := database.QueryRow(`
+		SELECT ref, secret, enabled FROM gatehouse_resources
+		WHERE workspace_id = 'engineering' AND id = 'github-token'
+	`).Scan(&resourceRef, &resourceSecret, &resourceEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if resourceRef != "env:GITHUB_TOKEN" || !resourceSecret || !resourceEnabled {
+		t.Fatalf("resource = (%q, %t, %t), want (%q, %t, %t)", resourceRef, resourceSecret, resourceEnabled, "env:GITHUB_TOKEN", true, true)
+	}
+	if err := database.QueryRow(`
+		SELECT enabled FROM gatehouse_group_tool_grants
+		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND tool_id = 'github'
+	`).Scan(&grantEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if !grantEnabled {
+		t.Fatal("tool grant is disabled, want enabled")
+	}
+	if err := database.QueryRow(`
+		SELECT enabled FROM gatehouse_group_resource_grants
+		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND resource_id = 'github-token'
+	`).Scan(&resourceGrantOn); err != nil {
+		t.Fatal(err)
+	}
+	if resourceGrantOn {
+		t.Fatal("resource grant is enabled, want disabled")
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
+		VALUES ('engineering', 'developers', 'unknown', TRUE)
+	`); err == nil {
+		t.Fatal("tool grant without a tool was accepted")
+	}
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
+		VALUES ('engineering', 'developers', 'unknown', TRUE)
+	`); err == nil {
+		t.Fatal("resource grant without a resource was accepted")
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_tools (workspace_id, id, ref, enabled)
+		VALUES ('engineering', 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
+		INSERT INTO gatehouse_resources (workspace_id, id, ref, secret, enabled)
+		VALUES ('engineering', 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
+	`); err != nil {
+		t.Fatal(err)
+	}
+	state.Tools[0].Ref = "file:./tools/github-v2.lisp"
+	state.Tools[0].Enabled = false
+	state.Resources[1].Enabled = false
+	state.Groups[0].ToolGrants[0].Enabled = false
+	state.Groups[0].ResourceGrants[1].Enabled = true
+	err, migrations = BuildMigrations(configuration, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), database, migrations); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := database.QueryRow(`
+		SELECT ref, enabled FROM gatehouse_tools
+		WHERE workspace_id = 'engineering' AND id = 'github'
+	`).Scan(&toolRef, &toolEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if toolRef != "file:./tools/github-v2.lisp" || toolEnabled {
+		t.Fatalf("updated tool = (%q, %t), want (%q, %t)", toolRef, toolEnabled, "file:./tools/github-v2.lisp", false)
+	}
+	if err := database.QueryRow(`
+		SELECT enabled FROM gatehouse_group_tool_grants
+		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND tool_id = 'github'
+	`).Scan(&grantEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if grantEnabled {
+		t.Fatal("updated tool grant is enabled, want disabled")
+	}
+	if err := database.QueryRow(`
+		SELECT enabled FROM gatehouse_group_resource_grants
+		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND resource_id = 'github-token'
+	`).Scan(&resourceGrantOn); err != nil {
+		t.Fatal(err)
+	}
+	if !resourceGrantOn {
+		t.Fatal("updated resource grant is disabled, want enabled")
+	}
+	var runtimeCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*) FROM gatehouse_tools
+		WHERE workspace_id = 'engineering' AND id = 'runtime-tool'
+	`).Scan(&runtimeCount); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeCount != 1 {
+		t.Fatalf("runtime tool count = %d, want 1", runtimeCount)
 	}
 }
 
