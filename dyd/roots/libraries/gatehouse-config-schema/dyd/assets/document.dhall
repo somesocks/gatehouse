@@ -334,7 +334,7 @@ let KeychainPassphraseSource =
 let KeychainPassphraseSources =
       s.list.from
         s.list.props::{ values = KeychainPassphraseSource }
-        s.list.meta::{ description = Some "ordered keychain passphrase source fallbacks" }
+        s.list.meta::{ description = Some "ordered keychain passphrase sources" }
 
 let Keychain =
       s.record.from

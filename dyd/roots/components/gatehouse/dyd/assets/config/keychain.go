@@ -49,9 +49,6 @@ func ResolveKeychains(document configschema.GatehouseConfig) (error, []Keychain)
 			switch {
 			case environmentReference.MatchString(source):
 			case source == "stdin:":
-				if sourceIndex != len(configured.Sources)-1 {
-					return fmt.Errorf("keychains[%d].sources[%d] stdin: must be the final fallback", keychainIndex, sourceIndex), nil
-				}
 			default:
 				return fmt.Errorf("keychains[%d].sources[%d] must be an env:VARIABLE_NAME or stdin: source", keychainIndex, sourceIndex), nil
 			}

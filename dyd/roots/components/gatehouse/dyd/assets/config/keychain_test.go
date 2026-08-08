@@ -88,13 +88,6 @@ func TestResolveKeychainsRejectsInvalidValues(t *testing.T) {
 			contains: "must be an env",
 		},
 		{
-			name: "stdin is not final",
-			keychains: []configschema.GatehouseConfigKeychainsValues{{
-				Id: "default", Sources: []string{"stdin:", "env:KEY"},
-			}},
-			contains: "must be the final fallback",
-		},
-		{
 			name: "duplicate source",
 			keychains: []configschema.GatehouseConfigKeychainsValues{{
 				Id: "default", Sources: []string{"env:KEY", "env:KEY"},
@@ -111,5 +104,26 @@ func TestResolveKeychainsRejectsInvalidValues(t *testing.T) {
 				t.Fatalf("ResolveKeychains() error = %v, want %q", err, test.contains)
 			}
 		})
+	}
+}
+
+func TestResolveKeychainsPreservesSourceOrder(t *testing.T) {
+	document := configschema.GatehouseConfig{
+		ApiVersion: "v1",
+		Keychains: &[]configschema.GatehouseConfigKeychainsValues{{
+			Id:      "default",
+			Sources: []string{"stdin:", "env:KEY"},
+		}},
+	}
+	err, keychains := ResolveKeychains(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Keychain{{
+		ID:      "default",
+		Sources: []KeychainPassphraseSource{"stdin:", "env:KEY"},
+	}}
+	if !reflect.DeepEqual(keychains, want) {
+		t.Fatalf("ResolveKeychains() = %#v, want %#v", keychains, want)
 	}
 }
