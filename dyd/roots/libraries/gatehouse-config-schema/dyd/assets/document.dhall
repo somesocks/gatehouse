@@ -326,6 +326,36 @@ let Principals =
         s.list.props::{ values = Principal }
         s.list.meta::{ description = Some "configured principals" }
 
+let KeychainRef =
+      s.text.from
+        s.text.props::{ variant = s.text.variants.none }
+        s.text.meta::{ description = Some "ordered keychain passphrase source reference" }
+
+let KeychainRefs =
+      s.list.from
+        s.list.props::{ values = KeychainRef }
+        s.list.meta::{ description = Some "ordered keychain passphrase source fallbacks" }
+
+let Keychain =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "stable keychain identity" }
+              , refs = KeychainRefs
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "Keychain" }
+
+let Keychains =
+      s.list.from
+        s.list.props::{ values = Keychain }
+        s.list.meta::{ description = Some "configured keychain passphrase sources" }
+
 let GatehouseConfig =
       s.record.from
         s.record.props::{
@@ -335,7 +365,12 @@ let GatehouseConfig =
                   s.text.props::{ variant = s.text.variants.literal "v1" }
                   s.text.meta::{ description = Some "configuration API version" }
               }
-        , optional = toMap { database = Database, workspaces = Workspaces, principals = Principals }
+        , optional = toMap
+            { database = Database
+            , workspaces = Workspaces
+            , principals = Principals
+            , keychains = Keychains
+            }
         }
         s.record.meta::{ description = Some "Gatehouse configuration" }
 
