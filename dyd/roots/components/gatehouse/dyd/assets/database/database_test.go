@@ -591,6 +591,50 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 }
 
+func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, database := Open(context.Background(), configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	err, migrations := BuildMigrations(configuration, config.State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Migrate(context.Background(), database, migrations); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
+		VALUES ('default', 1, 'gh-kdf:salt?alg=pbkdf2-hmac-sha256-v1', 'gh-enc:payload?alg=aes128-gcm-v1', TRUE)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
+		VALUES ('default', 2, 'gh-kdf:salt?alg=pbkdf2-hmac-sha256-v1', 'gh-enc:payload?alg=aes128-gcm-v1', TRUE)
+	`); err != nil {
+		t.Fatalf("second enabled keychain version was rejected: %v", err)
+	}
+
+	invalid := []string{
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('Default', 3, 'kdf', 'key', TRUE)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', 0, 'kdf', 'key', TRUE)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', -1, 'kdf', 'key', TRUE)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', 3, ' ', 'key', TRUE)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', 3, 'kdf', ' ', TRUE)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', 3, 'kdf', 'key', 2)`,
+		`INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled) VALUES ('default', 1, 'kdf', 'key', TRUE)`,
+	}
+	for _, statement := range invalid {
+		if _, err := database.Exec(statement); err == nil {
+			t.Fatalf("invalid keychain row was accepted: %s", statement)
+		}
+	}
+}
+
 func stringPointer(value string) *string {
 	return &value
 }
