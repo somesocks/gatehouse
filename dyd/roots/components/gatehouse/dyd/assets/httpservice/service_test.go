@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 )
 
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
-	handler := Handler(config.HTTPService{Web: true, API: true})
+	handler := Handler(config.HTTPService{Web: true, API: true}, nil)
 	for _, test := range []struct {
 		path string
 		body string
@@ -42,7 +43,7 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 }
 
 func TestHandlerServesHealthWithoutRouteGroups(t *testing.T) {
-	handler := Handler(config.HTTPService{})
+	handler := Handler(config.HTTPService{}, nil)
 	for _, path := range []string{"/healthz", "/readyz"} {
 		t.Run(path, func(t *testing.T) {
 			response := httptest.NewRecorder()
@@ -56,15 +57,15 @@ func TestHandlerServesHealthWithoutRouteGroups(t *testing.T) {
 
 func TestHandlerDisablesWebRouteGroup(t *testing.T) {
 	response := httptest.NewRecorder()
-	Handler(config.HTTPService{}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	Handler(config.HTTPService{}, nil).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("GET / status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
 
 func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
-	tokens := testBearerTokens(t)
-	handler := Handler(config.HTTPService{API: true}, tokens)
+	tokens, store := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	unauthenticated := httptest.NewRecorder()
 	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
 	if unauthenticated.Code != http.StatusUnauthorized || unauthenticated.Header().Get("WWW-Authenticate") != "Bearer" {
@@ -105,7 +106,8 @@ func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidLogin(t *testing.T) {
-	handler := Handler(config.HTTPService{API: true}, testBearerTokens(t))
+	tokens, store := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"wrong password"}`)))
 	if response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") != "Bearer" {
@@ -113,7 +115,51 @@ func TestHandlerRejectsInvalidLogin(t *testing.T) {
 	}
 }
 
-func testBearerTokens(t *testing.T) *auth.BearerTokens {
+func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
+	tokens, store := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: "alice", Identity: "gatehouse:alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := func(path string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(http.MethodGet, path, nil)
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	workspaces := request("/api/v1/workspaces")
+	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\"operations\"}]\n" {
+		t.Fatalf("GET workspaces = status %d body %q", workspaces.Code, workspaces.Body.String())
+	}
+	tools := request("/api/v1/workspaces/engineering/tools")
+	if tools.Code != http.StatusOK || tools.Body.String() != "[{\"id\":\"git\"}]\n" {
+		t.Fatalf("GET tools = status %d body %q", tools.Code, tools.Body.String())
+	}
+	groups := request("/api/v1/workspaces/engineering/groups")
+	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\"developers\",\"name\":\"Developers\"}]\n" {
+		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
+	}
+	resources := request("/api/v1/workspaces/engineering/resources")
+	if resources.Code != http.StatusOK || resources.Body.String() != "[{\"id\":\"docs\",\"secret\":false},{\"id\":\"token\",\"secret\":true}]\n" {
+		t.Fatalf("GET resources = status %d body %q", resources.Code, resources.Body.String())
+	}
+	if strings.Contains(resources.Body.String(), "file:") || strings.Contains(resources.Body.String(), "env:") || strings.Contains(resources.Body.String(), "TOP_SECRET") {
+		t.Fatalf("GET resources disclosed a resource source: %q", resources.Body.String())
+	}
+	operations := request("/api/v1/workspaces/operations/resources")
+	if operations.Code != http.StatusOK || operations.Body.String() != "[]\n" {
+		t.Fatalf("GET ungranted workspace resources = status %d body %q", operations.Code, operations.Body.String())
+	}
+	private := request("/api/v1/workspaces/private/tools")
+	if private.Code != http.StatusNotFound {
+		t.Fatalf("GET inaccessible workspace tools = status %d, want %d", private.Code, http.StatusNotFound)
+	}
+}
+
+func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	t.Helper()
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
@@ -129,6 +175,31 @@ func testBearerTokens(t *testing.T) *auth.BearerTokens {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES
+			('engineering', 'Engineering', TRUE),
+			('operations', NULL, TRUE),
+			('private', 'Private', TRUE);
+		INSERT INTO gatehouse_groups (workspace_id, id, name, enabled) VALUES
+			('engineering', 'developers', 'Developers', TRUE),
+			('operations', 'operators', 'Operators', TRUE),
+			('private', 'owners', 'Owners', TRUE);
+		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled) VALUES
+			('engineering', 'developers', 'alice', TRUE),
+			('operations', 'operators', 'alice', TRUE);
+		INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
+			VALUES ('engineering', 'git', 'file:./git.lisp', TRUE);
+		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled) VALUES
+			('engineering', 'docs', 'file:./docs', FALSE, TRUE),
+			('engineering', 'token', 'env:TOP_SECRET', TRUE, TRUE);
+		INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
+			VALUES ('engineering', 'developers', 'git', TRUE);
+		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled) VALUES
+			('engineering', 'developers', 'docs', TRUE),
+			('engineering', 'developers', 'token', TRUE);
+	`); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
@@ -153,11 +224,11 @@ func testBearerTokens(t *testing.T) *auth.BearerTokens {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tokens
+	return tokens, store
 }
 
 func TestServiceStartsServesAndStops(t *testing.T) {
-	err, service := Start(config.HTTPService{Listen: "127.0.0.1:0"})
+	err, service := Start(config.HTTPService{Listen: "127.0.0.1:0"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

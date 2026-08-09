@@ -12,6 +12,8 @@ import (
 
 	"gatehouse/auth"
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/model"
 )
 
 type Service struct {
@@ -20,7 +22,7 @@ type Service struct {
 	done     chan error
 }
 
-func Start(configuration config.HTTPService, tokens ...*auth.BearerTokens) (error, *Service) {
+func Start(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) (error, *Service) {
 	listener, err := net.Listen("tcp", configuration.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", configuration.Listen, err), nil
@@ -29,7 +31,7 @@ func Start(configuration config.HTTPService, tokens ...*auth.BearerTokens) (erro
 	service := &Service{
 		listener: listener,
 		server: &http.Server{
-			Handler:           Handler(configuration, tokens...),
+			Handler:           Handler(configuration, store, tokens...),
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       time.Minute,
 			MaxHeaderBytes:    1 << 20,
@@ -59,7 +61,7 @@ func (service *Service) Shutdown(ctx context.Context) error {
 	return service.server.Shutdown(ctx)
 }
 
-func Handler(configuration config.HTTPService, tokens ...*auth.BearerTokens) http.Handler {
+func Handler(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
@@ -70,6 +72,10 @@ func Handler(configuration config.HTTPService, tokens ...*auth.BearerTokens) htt
 		mux.HandleFunc("/api/v1/auth/login", login(tokens[0]))
 		mux.HandleFunc("/api/v1/auth/me", me(tokens[0]))
 		mux.HandleFunc("/api/v1/auth/logout", logout)
+		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
 	}
 	return mux
 }
@@ -133,6 +139,168 @@ func me(tokens *auth.BearerTokens) http.HandlerFunc {
 		response.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(response).Encode(claims)
 	}
+}
+
+type workspaceResponse struct {
+	ID   string  `json:"id"`
+	Name *string `json:"name,omitempty"`
+}
+
+type toolResponse struct {
+	ID string `json:"id"`
+}
+
+type groupResponse struct {
+	ID   string  `json:"id"`
+	Name *string `json:"name,omitempty"`
+}
+
+type resourceResponse struct {
+	ID     string `json:"id"`
+	Secret bool   `json:"secret"`
+}
+
+func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		err, configured := store.WorkspacesGet(request.Context(), model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]workspaceResponse, 0, len(configured))
+		for _, workspace := range configured {
+			result = append(result, workspaceResponse{ID: workspace.Ref.Id, Name: workspace.Name})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceTools(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		err, ids := store.WorkspaceToolIDsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]toolResponse, 0, len(ids))
+		for _, id := range ids {
+			result = append(result, toolResponse{ID: id})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]groupResponse, 0, len(groups))
+		for _, group := range groups {
+			result = append(result, groupResponse{ID: group.Ref.Id, Name: group.Name})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceResources(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		err, resources := store.WorkspaceResourceSummariesGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]resourceResponse, 0, len(resources))
+		for _, resource := range resources {
+			result = append(result, resourceResponse{ID: resource.ID, Secret: resource.Secret})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func authenticate(response http.ResponseWriter, request *http.Request, tokens *auth.BearerTokens) (auth.Claims, bool) {
+	err, claims := tokens.Authenticate(request.Context(), requestAuthorization(request))
+	if err == nil {
+		return claims, true
+	}
+	if errors.Is(err, auth.ErrUnauthenticated) {
+		response.Header().Set("WWW-Authenticate", "Bearer")
+		response.WriteHeader(http.StatusUnauthorized)
+	} else {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+	}
+	return auth.Claims{}, false
+}
+
+func authorizedWorkspace(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.WorkspaceRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	if workspaceID == "" {
+		http.NotFound(response, request)
+		return model.WorkspaceRef{}, false
+	}
+	workspace := model.WorkspaceRef{Id: workspaceID}
+	err, configured := store.WorkspaceGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return model.WorkspaceRef{}, false
+	}
+	if configured == nil {
+		http.NotFound(response, request)
+		return model.WorkspaceRef{}, false
+	}
+	return workspace, true
+}
+
+func writeJSON(response http.ResponseWriter, value any) {
+	noStore(response)
+	response.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(response).Encode(value)
 }
 
 func logout(response http.ResponseWriter, request *http.Request) {
