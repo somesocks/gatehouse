@@ -17,8 +17,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 			Id: "engineering",
 			Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
-				{Id: "zulu", Ref: "file:./tools/zulu.lisp"},
-				{Id: "alpha", Ref: "file:./tools/alpha.lisp", Enabled: &disabled},
+				{Id: "zulu", Source: "file:./tools/zulu.lisp"},
+				{Id: "alpha", Source: "file:./tools/alpha.lisp", Enabled: &disabled},
 			},
 			Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{
 				{Id: "token", Source: "env:GITHUB_TOKEN", Secret: true},
@@ -32,8 +32,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantTools := []Tool{
-		{WorkspaceID: "engineering", ID: "alpha", Ref: "file:./tools/alpha.lisp", Enabled: false},
-		{WorkspaceID: "engineering", ID: "zulu", Ref: "file:./tools/zulu.lisp", Enabled: true},
+		{WorkspaceID: "engineering", ID: "alpha", Source: "file:./tools/alpha.lisp", Enabled: false},
+		{WorkspaceID: "engineering", ID: "zulu", Source: "file:./tools/zulu.lisp", Enabled: true},
 	}
 	if !reflect.DeepEqual(tools, wantTools) {
 		t.Fatalf("ResolveTools() = %#v, want %#v", tools, wantTools)
@@ -64,8 +64,8 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 				Id: "engineering",
 				Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
-					{Id: "github", Ref: "file:./github.lisp"},
-					{Id: "github", Ref: "file:./other.lisp"},
+					{Id: "github", Source: "file:./github.lisp"},
+					{Id: "github", Source: "file:./other.lisp"},
 				},
 			}}},
 			resolve: func(document configschema.GatehouseConfig) (error, any) {

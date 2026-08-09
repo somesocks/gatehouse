@@ -120,7 +120,7 @@ type groupMemberMigrationValue struct {
 type toolMigrationValue struct {
 	WorkspaceID string
 	ID          string
-	Ref         string
+	Source      string
 	Enabled     bool
 }
 
@@ -185,7 +185,7 @@ func migrationValuesFor(state config.State) migrationValues {
 		values.Tools = append(values.Tools, toolMigrationValue{
 			WorkspaceID: tool.WorkspaceID,
 			ID:          tool.ID,
-			Ref:         tool.Ref,
+			Source:      tool.Source,
 			Enabled:     tool.Enabled,
 		})
 	}

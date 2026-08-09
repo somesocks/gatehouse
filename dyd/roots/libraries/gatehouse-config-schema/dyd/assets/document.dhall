@@ -175,10 +175,10 @@ let Tool =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace-local tool identity" }
-              , ref =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "tool module reference" }
+               , source =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "tool module source" }
               }
         , optional =
             toMap

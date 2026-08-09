@@ -204,7 +204,7 @@ let GroupMember =
         , description = Some "A principal assigned to a workspace-local authorization group."
         }
 
-let Tool =
+let ToolRef =
       s.record.from
         s.record.props::{
         , required =
@@ -214,13 +214,30 @@ let Tool =
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "owning workspace identity" }
               , id =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "workspace-local tool identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "ToolRef"
+        , description = Some "The stable identity of a workspace tool."
+        }
+
+let Tool =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "ToolRef" }
+                    s.reference.meta::{ description = Some "tool identity" }
+              , source =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local tool identity" }
-              , ref =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "tool module reference" }
+                    s.text.meta::{ description = Some "tool module source" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -297,9 +314,9 @@ let GroupToolGrant =
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace-local group identity" }
               , tool =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "granted workspace-local tool identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "ToolRef" }
+                    s.reference.meta::{ description = Some "granted tool identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -350,6 +367,7 @@ in  Document::{
           , s.root.from KeychainRef s.root.meta::{ name = "KeychainRef" }
           , s.root.from Keychain s.root.meta::{ name = "Keychain" }
           , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
+          , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
           , s.root.from Group s.root.meta::{ name = "Group" }
         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
         , s.root.from Tool s.root.meta::{ name = "Tool" }

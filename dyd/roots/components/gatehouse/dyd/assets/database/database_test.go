@@ -446,7 +446,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		Tools: []config.Tool{{
 			WorkspaceID: "engineering",
 			ID:          "github",
-			Ref:         "file:./tools/github.lisp",
+			Source:      "file:./tools/github.lisp",
 			Enabled:     true,
 		}},
 		Resources: []config.Resource{
@@ -484,7 +484,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		resourceGrantOn  bool
 	)
 	if err := database.QueryRow(`
-		SELECT ref, enabled FROM gatehouse_tools
+		SELECT source, enabled FROM gatehouse_tools
 		WHERE workspace_id = 'engineering' AND id = 'github'
 	`).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)
@@ -534,14 +534,14 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 
 	if _, err := database.Exec(`
-		INSERT INTO gatehouse_tools (workspace_id, id, ref, enabled)
+		INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
 		VALUES ('engineering', 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
 		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
 		VALUES ('engineering', 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
 	`); err != nil {
 		t.Fatal(err)
 	}
-	state.Tools[0].Ref = "file:./tools/github-v2.lisp"
+	state.Tools[0].Source = "file:./tools/github-v2.lisp"
 	state.Tools[0].Enabled = false
 	state.Resources[1].Enabled = false
 	state.Groups[0].ToolGrants[0].Enabled = false
@@ -555,7 +555,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 
 	if err := database.QueryRow(`
-		SELECT ref, enabled FROM gatehouse_tools
+		SELECT source, enabled FROM gatehouse_tools
 		WHERE workspace_id = 'engineering' AND id = 'github'
 	`).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)

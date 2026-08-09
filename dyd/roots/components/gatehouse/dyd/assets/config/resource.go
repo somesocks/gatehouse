@@ -11,7 +11,7 @@ import (
 type Tool struct {
 	WorkspaceID string
 	ID          string
-	Ref         string
+	Source      string
 	Enabled     bool
 }
 
@@ -44,8 +44,8 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 			if _, exists := ids[configured.Id]; exists {
 				return fmt.Errorf("workspaces[%d].tools[%d].id %q is duplicated", workspaceIndex, toolIndex, configured.Id), nil
 			}
-			if strings.TrimSpace(configured.Ref) == "" {
-				return fmt.Errorf("workspaces[%d].tools[%d].ref must not be blank", workspaceIndex, toolIndex), nil
+			if strings.TrimSpace(configured.Source) == "" {
+				return fmt.Errorf("workspaces[%d].tools[%d].source must not be blank", workspaceIndex, toolIndex), nil
 			}
 
 			enabled := true
@@ -53,7 +53,7 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 				enabled = *configured.Enabled
 			}
 			ids[configured.Id] = struct{}{}
-			tools = append(tools, Tool{WorkspaceID: workspace.Id, ID: configured.Id, Ref: configured.Ref, Enabled: enabled})
+			tools = append(tools, Tool{WorkspaceID: workspace.Id, ID: configured.Id, Source: configured.Source, Enabled: enabled})
 		}
 	}
 	sort.Slice(tools, func(left, right int) bool {
