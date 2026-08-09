@@ -144,7 +144,7 @@ let Keychain =
         , description = Some "A versioned keychain encryption key."
         }
 
-let Group =
+let GroupRef =
       s.record.from
         s.record.props::{
         , required =
@@ -154,9 +154,26 @@ let Group =
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "owning workspace identity" }
               , id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group identity" }
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "workspace-local group identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "GroupRef"
+        , description = Some "The stable identity of a workspace group."
+        }
+
+let Group =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "group identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -180,14 +197,10 @@ let GroupMember =
         s.record.props::{
         , required =
             toMap
-              { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
-              , group =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group identity" }
+              { group =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "assigned group identity" }
               , principal =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
@@ -305,14 +318,10 @@ let GroupToolGrant =
         s.record.props::{
         , required =
             toMap
-              { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
-              , group =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group identity" }
+              { group =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "granted group identity" }
               , tool =
                   s.reference.from
                     s.reference.props::{ to = "ToolRef" }
@@ -334,18 +343,14 @@ let GroupResourceGrant =
         s.record.props::{
         , required =
             toMap
-              { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
-              , group =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group identity" }
+              { group =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "granted group identity" }
               , resource =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "granted workspace-local resource identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "ResourceRef" }
+                    s.reference.meta::{ description = Some "granted resource identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -368,6 +373,7 @@ in  Document::{
           , s.root.from Keychain s.root.meta::{ name = "Keychain" }
           , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
           , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
+          , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
           , s.root.from Group s.root.meta::{ name = "Group" }
         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
         , s.root.from Tool s.root.meta::{ name = "Tool" }
