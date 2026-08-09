@@ -204,10 +204,10 @@ let Resource =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace-local resource identity" }
-              , ref =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "resource value reference" }
+               , source =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "resource value source" }
               , secret =
                   s.boolean.from
                     s.boolean.props::{=}

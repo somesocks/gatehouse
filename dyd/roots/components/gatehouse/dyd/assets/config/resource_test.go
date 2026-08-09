@@ -21,8 +21,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 				{Id: "alpha", Ref: "file:./tools/alpha.lisp", Enabled: &disabled},
 			},
 			Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{
-				{Id: "token", Ref: "env:GITHUB_TOKEN", Secret: true},
-				{Id: "endpoint", Ref: "file:./resources/endpoint", Secret: false, Enabled: &disabled},
+				{Id: "token", Source: "env:GITHUB_TOKEN", Secret: true},
+				{Id: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: &disabled},
 			},
 		}},
 	}
@@ -44,8 +44,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantResources := []Resource{
-		{WorkspaceID: "engineering", ID: "endpoint", Ref: "file:./resources/endpoint", Secret: false, Enabled: false},
-		{WorkspaceID: "engineering", ID: "token", Ref: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
+		{WorkspaceID: "engineering", ID: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: false},
+		{WorkspaceID: "engineering", ID: "token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
 	}
 	if !reflect.DeepEqual(resources, wantResources) {
 		t.Fatalf("ResolveResources() = %#v, want %#v", resources, wantResources)
@@ -75,11 +75,11 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 			contains: "duplicated",
 		},
 		{
-			name: "blank resource ref",
+			name: "blank resource source",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 				Id: "engineering",
 				Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{{
-					Id: "token", Ref: " ", Secret: true,
+					Id: "token", Source: " ", Secret: true,
 				}},
 			}}},
 			resolve: func(document configschema.GatehouseConfig) (error, any) {
@@ -108,7 +108,7 @@ workspaces:
   - id: engineering
     resources:
       - id: github-token
-        ref: env:GITHUB_TOKEN
+        source: env:GITHUB_TOKEN
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}

@@ -18,7 +18,7 @@ type Tool struct {
 type Resource struct {
 	WorkspaceID string
 	ID          string
-	Ref         string
+	Source      string
 	Secret      bool
 	Enabled     bool
 }
@@ -86,8 +86,8 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 			if _, exists := ids[configured.Id]; exists {
 				return fmt.Errorf("workspaces[%d].resources[%d].id %q is duplicated", workspaceIndex, resourceIndex, configured.Id), nil
 			}
-			if strings.TrimSpace(configured.Ref) == "" {
-				return fmt.Errorf("workspaces[%d].resources[%d].ref must not be blank", workspaceIndex, resourceIndex), nil
+			if strings.TrimSpace(configured.Source) == "" {
+				return fmt.Errorf("workspaces[%d].resources[%d].source must not be blank", workspaceIndex, resourceIndex), nil
 			}
 
 			enabled := true
@@ -98,7 +98,7 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 			resources = append(resources, Resource{
 				WorkspaceID: workspace.Id,
 				ID:          configured.Id,
-				Ref:         configured.Ref,
+				Source:      configured.Source,
 				Secret:      configured.Secret,
 				Enabled:     enabled,
 			})

@@ -450,8 +450,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 			Enabled:     true,
 		}},
 		Resources: []config.Resource{
-			{WorkspaceID: "engineering", ID: "github-url", Ref: "file:./resources/github-url", Secret: false, Enabled: true},
-			{WorkspaceID: "engineering", ID: "github-token", Ref: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
+			{WorkspaceID: "engineering", ID: "github-url", Source: "file:./resources/github-url", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", ID: "github-token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
 		},
 		Groups: []config.Group{{
 			WorkspaceID: "engineering",
@@ -493,7 +493,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		t.Fatalf("tool = (%q, %t), want (%q, %t)", toolRef, toolEnabled, "file:./tools/github.lisp", true)
 	}
 	if err := database.QueryRow(`
-		SELECT ref, secret, enabled FROM gatehouse_resources
+		SELECT source, secret, enabled FROM gatehouse_resources
 		WHERE workspace_id = 'engineering' AND id = 'github-token'
 	`).Scan(&resourceRef, &resourceSecret, &resourceEnabled); err != nil {
 		t.Fatal(err)
@@ -536,7 +536,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_tools (workspace_id, id, ref, enabled)
 		VALUES ('engineering', 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
-		INSERT INTO gatehouse_resources (workspace_id, id, ref, secret, enabled)
+		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
 		VALUES ('engineering', 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
 	`); err != nil {
 		t.Fatal(err)

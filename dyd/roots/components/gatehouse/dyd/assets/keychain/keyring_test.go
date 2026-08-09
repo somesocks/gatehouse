@@ -74,6 +74,49 @@ func TestPrepareRejectsWrongPassphrase(t *testing.T) {
 	}
 }
 
+func TestKeyringGetLoadsExactVersion(t *testing.T) {
+	store := openKeyringTestStore(t, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	configured := []config.Keychain{{
+		ID:      "default",
+		Sources: []config.KeychainPassphraseSource{"env:DEFAULT"},
+	}}
+	err, keyring := prepare(context.Background(), store, configured, testResolver(map[string]string{"DEFAULT": "passphrase"}), testRandom(1, 2, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+
+	reference := model.KeychainRef{Id: "default", Version: 2}
+	passphrase := []byte("passphrase")
+	kdf := KDF{Salt: bytes.Repeat([]byte{4}, saltSize)}
+	err, kek := DeriveKEK(passphrase, kdf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dek := bytes.Repeat([]byte{5}, keySize)
+	err, encrypted := Seal(bytes.NewReader(bytes.Repeat([]byte{6}, encryptionNonceSize)), kek, keychainAssociatedData(reference), dek)
+	clear(kek)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.KeychainsInsert(context.Background(), []model.Keychain{{
+		Ref:     reference,
+		KekKdf:  kdf.String(),
+		Key:     encrypted.String(),
+		Enabled: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	err, keys := keyring.Get(context.Background(), []model.KeychainRef{reference})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := keys[reference]; !bytes.Equal(got, dek) {
+		t.Fatalf("Keyring.Get() = %x, want %x", got, dek)
+	}
+}
+
 func TestPrepareConcurrentReplicas(t *testing.T) {
 	configuration := config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,

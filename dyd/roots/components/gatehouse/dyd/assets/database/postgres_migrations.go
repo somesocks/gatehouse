@@ -103,7 +103,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL
 					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
-				ref TEXT NOT NULL CHECK (length(trim(ref)) > 0),
+				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				secret BOOLEAN NOT NULL,
 				enabled BOOLEAN NOT NULL,
 				PRIMARY KEY (workspace_id, id)
@@ -226,10 +226,10 @@ func postgresMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .Resources }}
-			INSERT INTO gatehouse_resources (workspace_id, id, ref, secret, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Ref }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
+			INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, id) DO UPDATE SET
-				ref = excluded.ref,
+				source = excluded.source,
 				secret = excluded.secret,
 				enabled = excluded.enabled;
 			{{ end }}

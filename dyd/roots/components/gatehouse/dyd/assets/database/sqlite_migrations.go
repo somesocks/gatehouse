@@ -109,7 +109,7 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				id TEXT NOT NULL
 					CHECK (id GLOB '[a-z]*')
 					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
-				ref TEXT NOT NULL CHECK (length(trim(ref)) > 0),
+				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				secret INTEGER NOT NULL CHECK (secret IN (0, 1)),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
 				PRIMARY KEY (workspace_id, id)
@@ -233,10 +233,10 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .Resources }}
-			INSERT INTO gatehouse_resources (workspace_id, id, ref, secret, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Ref }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
+			INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, id) DO UPDATE SET
-				ref = excluded.ref,
+				source = excluded.source,
 				secret = excluded.secret,
 				enabled = excluded.enabled;
 			{{ end }}

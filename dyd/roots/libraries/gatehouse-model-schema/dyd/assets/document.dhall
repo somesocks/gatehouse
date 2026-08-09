@@ -233,7 +233,7 @@ let Tool =
         , description = Some "A workspace-bound Lisp tool module."
         }
 
-let Resource =
+let ResourceRef =
       s.record.from
         s.record.props::{
         , required =
@@ -243,13 +243,30 @@ let Resource =
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "owning workspace identity" }
               , id =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "workspace-local resource identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "ResourceRef"
+        , description = Some "The stable identity of a workspace resource."
+        }
+
+let Resource =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "ResourceRef" }
+                    s.reference.meta::{ description = Some "resource identity" }
+              , source =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local resource identity" }
-              , ref =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "resource value reference" }
+                    s.text.meta::{ description = Some "resource value source" }
               , secret =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -332,7 +349,8 @@ in  Document::{
           , s.root.from Identity s.root.meta::{ name = "Identity" }
           , s.root.from KeychainRef s.root.meta::{ name = "KeychainRef" }
           , s.root.from Keychain s.root.meta::{ name = "Keychain" }
-         , s.root.from Group s.root.meta::{ name = "Group" }
+          , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
+          , s.root.from Group s.root.meta::{ name = "Group" }
         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
         , s.root.from Tool s.root.meta::{ name = "Tool" }
         , s.root.from Resource s.root.meta::{ name = "Resource" }
