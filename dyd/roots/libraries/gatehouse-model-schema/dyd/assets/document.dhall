@@ -4,7 +4,7 @@ let Document = Grammar.Document
 
 let s = Grammar.Schema
 
-let Workspace =
+let WorkspaceRef =
       s.record.from
         s.record.props::{
         , required =
@@ -13,6 +13,23 @@ let Workspace =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "stable workspace identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "WorkspaceRef"
+        , description = Some "The stable identity of a workspace."
+        }
+
+let Workspace =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "workspace identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -31,15 +48,32 @@ let Workspace =
         , description = Some "A Gatehouse tenant and hard security boundary."
         }
 
-let Principal =
+let PrincipalRef =
       s.record.from
         s.record.props::{
         , required =
             toMap
               { id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "stable principal identity" }
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "stable principal identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "PrincipalRef"
+        , description = Some "The stable identity of a principal."
+        }
+
+let Principal =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "principal identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -78,9 +112,9 @@ let Identity =
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "globally namespaced identity" }
               , principal =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning principal identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "owning principal identity" }
               , verifiers = Verifiers
               , enabled =
                   s.boolean.from
@@ -150,9 +184,9 @@ let GroupRef =
         , required =
             toMap
               { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
@@ -202,9 +236,9 @@ let GroupMember =
                     s.reference.props::{ to = "GroupRef" }
                     s.reference.meta::{ description = Some "assigned group identity" }
               , principal =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "assigned principal identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "assigned principal identity" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
@@ -223,9 +257,9 @@ let ToolRef =
         , required =
             toMap
               { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
@@ -269,9 +303,9 @@ let ResourceRef =
         , required =
             toMap
               { workspace =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "owning workspace identity" }
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
@@ -366,7 +400,9 @@ let GroupResourceGrant =
 in  Document::{
     , headers = [] : List Text
     , schemas =
-          [ s.root.from Workspace s.root.meta::{ name = "Workspace" }
+          [ s.root.from WorkspaceRef s.root.meta::{ name = "WorkspaceRef" }
+          , s.root.from Workspace s.root.meta::{ name = "Workspace" }
+          , s.root.from PrincipalRef s.root.meta::{ name = "PrincipalRef" }
           , s.root.from Principal s.root.meta::{ name = "Principal" }
           , s.root.from Identity s.root.meta::{ name = "Identity" }
           , s.root.from KeychainRef s.root.meta::{ name = "KeychainRef" }

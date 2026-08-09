@@ -35,7 +35,10 @@ func (resolver *Resolver) Resolve(ctx context.Context, resources []config.Resour
 	encryptedResources := make([]encryptedResource, 0)
 	references := make([]model.KeychainRef, 0)
 	for _, configured := range resources {
-		ref := model.ResourceRef{Workspace: configured.WorkspaceID, Id: configured.ID}
+		ref := model.ResourceRef{
+			Workspace: model.WorkspaceRef{Id: configured.WorkspaceID},
+			Id:        configured.ID,
+		}
 		switch {
 		case strings.HasPrefix(configured.Source, "file:"):
 			path := strings.TrimPrefix(configured.Source, "file:")

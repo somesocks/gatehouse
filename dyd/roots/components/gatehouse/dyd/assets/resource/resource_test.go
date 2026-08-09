@@ -41,13 +41,13 @@ func TestResolverResolvesBatchSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := values[model.ResourceRef{Workspace: "engineering", Id: "endpoint"}]; len(got) != 0 {
+	if got := values[model.ResourceRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "endpoint"}]; len(got) != 0 {
 		t.Fatalf("file resource = %q, want empty value", got)
 	}
-	if got := values[model.ResourceRef{Workspace: "engineering", Id: "empty"}]; len(got) != 0 {
+	if got := values[model.ResourceRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "empty"}]; len(got) != 0 {
 		t.Fatalf("environment resource = %q, want empty value", got)
 	}
-	if got, want := values[model.ResourceRef{Workspace: "engineering", Id: "token"}], []byte("encrypted"); !bytes.Equal(got, want) {
+	if got, want := values[model.ResourceRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "token"}], []byte("encrypted"); !bytes.Equal(got, want) {
 		t.Fatalf("encrypted resource = %q, want %q", got, want)
 	}
 }
