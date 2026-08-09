@@ -264,6 +264,10 @@ func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
 		database.Close()
 		return fmt.Errorf("ping SQLite database: %w", err), nil
 	}
+	if _, err := database.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
+		database.Close()
+		return fmt.Errorf("set SQLite busy timeout: %w", err), nil
+	}
 	if _, err := database.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
 		database.Close()
 		return fmt.Errorf("enable SQLite foreign keys: %w", err), nil

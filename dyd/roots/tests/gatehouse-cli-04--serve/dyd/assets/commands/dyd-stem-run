@@ -53,11 +53,11 @@ _setup() {
 }
 
 _test() {
-    start_and_stop "$TEMP_DIR/ephemeral.output" gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
-    start_and_stop "$TEMP_DIR/sqlite.output" gatehouse serve --config="$TEMP_DIR/configured-sqlite.yaml"
+    start_and_stop "$TEMP_DIR/ephemeral.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
+    start_and_stop "$TEMP_DIR/sqlite.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/configured-sqlite.yaml"
     test -f "$TEMP_DIR/gatehouse.db"
 
-    start_and_stop "$TEMP_DIR/default.output" env XDG_DATA_HOME="$TEMP_DIR/default-data" gatehouse serve
+    start_and_stop "$TEMP_DIR/default.output" env XDG_DATA_HOME="$TEMP_DIR/default-data" GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve
     test -f "$TEMP_DIR/default-data/gatehouse/gatehouse.db"
 
     if gatehouse serve --config="$TEMP_DIR/postgres.yaml" >"$TEMP_DIR/postgres.output" 2>&1; then

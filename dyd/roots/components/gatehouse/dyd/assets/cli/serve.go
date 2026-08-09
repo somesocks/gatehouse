@@ -11,6 +11,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/configschema"
 	"gatehouse/database"
+	"gatehouse/keychain"
 )
 
 var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
@@ -63,6 +64,12 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}
+		err, keyring := keychain.Prepare(ctx, store, state.Keychains, keychain.NewPassphraseSourceResolver())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare keychains: %v\n", err)
+			return 1
+		}
+		defer keyring.Close()
 
 		fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 		<-ctx.Done()

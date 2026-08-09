@@ -7,7 +7,7 @@ import (
 	"fmt"
 )
 
-const sqliteMigrationBusyTimeout = 30_000
+const sqliteBusyTimeout = 30_000
 
 func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry) error {
 	if err := validateRegistry(registry); err != nil {
@@ -34,7 +34,7 @@ func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry) err
 }
 
 func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Registry) (error, bool) {
-	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteMigrationBusyTimeout)); err != nil {
+	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
 		return fmt.Errorf("set SQLite migration busy timeout: %w", err), false
 	}
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
