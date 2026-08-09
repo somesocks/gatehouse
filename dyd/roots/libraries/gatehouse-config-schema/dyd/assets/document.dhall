@@ -356,6 +356,48 @@ let Keychains =
         s.list.props::{ values = Keychain }
         s.list.meta::{ description = Some "configured keychain passphrase sources" }
 
+let HTTPComponent =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the HTTP route group is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "HTTPComponent" }
+
+let HTTPService =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the HTTP service is enabled" }
+               , listen =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "TCP listener address" }
+               , web = HTTPComponent
+               , api = HTTPComponent
+              }
+        }
+        s.record.meta::{ name = Some "HTTPService" }
+
+let Services =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = toMap { http = HTTPService }
+        }
+        s.record.meta::{ name = Some "Services" }
+
 let GatehouseConfig =
       s.record.from
         s.record.props::{
@@ -367,10 +409,11 @@ let GatehouseConfig =
               }
         , optional = toMap
             { database = Database
-            , workspaces = Workspaces
-            , principals = Principals
-            , keychains = Keychains
-            }
+             , workspaces = Workspaces
+             , principals = Principals
+             , keychains = Keychains
+             , services = Services
+             }
         }
         s.record.meta::{ description = Some "Gatehouse configuration" }
 

@@ -6,11 +6,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	clib "gatehouse/cli-builder"
 	"gatehouse/config"
 	"gatehouse/configschema"
 	"gatehouse/database"
+	"gatehouse/httpservice"
 	"gatehouse/keychain"
 )
 
@@ -20,6 +22,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		document := configschema.GatehouseConfig{ApiVersion: "v1"}
 		var databaseConfig config.DatabaseConfig
 		var state config.State
+		var services config.Services
 		var warnings []config.Warning
 		var err error
 
@@ -43,6 +46,11 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		err, state = config.ResolveState(document)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "configure state: %v\n", err)
+			return 1
+		}
+		err, services = config.ResolveServices(document)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "configure services: %v\n", err)
 			return 1
 		}
 
@@ -71,7 +79,36 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		}
 		defer keyring.Close()
 
-		fmt.Fprintln(os.Stderr, "Gatehouse is serving")
-		<-ctx.Done()
+		if services.HTTP == nil || !services.HTTP.Enabled {
+			fmt.Fprintln(os.Stderr, "Gatehouse is serving")
+			<-ctx.Done()
+			return 0
+		}
+
+		err, service := httpservice.Start(*services.HTTP)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "start HTTP service: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(os.Stderr, "Gatehouse is serving at http://%s\n", service.Address())
+
+		select {
+		case <-ctx.Done():
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := service.Shutdown(shutdownContext); err != nil {
+				fmt.Fprintf(os.Stderr, "stop HTTP service: %v\n", err)
+				return 1
+			}
+			if err := <-service.Done(); err != nil {
+				fmt.Fprintf(os.Stderr, "serve HTTP service: %v\n", err)
+				return 1
+			}
+		case err := <-service.Done():
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "serve HTTP service: %v\n", err)
+				return 1
+			}
+		}
 		return 0
 	})

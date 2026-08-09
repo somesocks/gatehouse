@@ -46,6 +46,9 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid-groups.yaml" >"$TEMP_DIR/valid-groups.stdout" 2>"$TEMP_DIR/valid-groups.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-groups.stderr")" "configuration is valid" "group validation"
 
+    gatehouse config validate "$TEMP_DIR/valid-services.yaml" >"$TEMP_DIR/valid-services.stdout" 2>"$TEMP_DIR/valid-services.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-services.stderr")" "configuration is valid" "service validation"
+
     if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
         printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
         return 1
@@ -72,6 +75,12 @@ _test() {
         printf '%s\n' "[ERROR] Fail: group member with principal_id unexpectedly succeeded" >&2
         return 1
     fi
+
+    if gatehouse config validate "$TEMP_DIR/invalid-http-listen.yaml" >"$TEMP_DIR/invalid-http-listen.stdout" 2>"$TEMP_DIR/invalid-http-listen.stderr"; then
+        printf '%s\n' "[ERROR] Fail: invalid HTTP listener configuration unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/invalid-http-listen.stderr")" "services.http.listen" "HTTP listener validation"
 }
 
 _teardown() {

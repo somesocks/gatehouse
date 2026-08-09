@@ -1,0 +1,4 @@
+api_version: v1
+services:
+  http:
+    listen: localhost:0
