@@ -74,6 +74,7 @@ func Handler(configuration config.HTTPService, store *database.Store, tokens ...
 		mux.HandleFunc("/api/v1/auth/logout", logout)
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
 	}
@@ -160,6 +161,10 @@ type resourceResponse struct {
 	Secret bool   `json:"secret"`
 }
 
+type sessionResponse struct {
+	ID string `json:"id"`
+}
+
 func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -232,6 +237,38 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		result := make([]groupResponse, 0, len(groups))
 		for _, group := range groups {
 			result = append(result, groupResponse{ID: group.Ref.Id, Name: group.Name})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		if workspaceID == "" {
+			http.NotFound(response, request)
+			return
+		}
+		err, sessions := store.SessionsGet(
+			request.Context(),
+			model.WorkspaceRef{Id: workspaceID},
+			model.PrincipalRef{Id: claims.Principal},
+		)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]sessionResponse, 0, len(sessions))
+		for _, session := range sessions {
+			result = append(result, sessionResponse{ID: session.Ref.Id})
 		}
 		writeJSON(response, result)
 	}

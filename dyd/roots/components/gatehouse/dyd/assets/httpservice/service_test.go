@@ -142,6 +142,10 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\"developers\",\"name\":\"Developers\"}]\n" {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
+	sessions := request("/api/v1/workspaces/engineering/sessions")
+	if sessions.Code != http.StatusOK || sessions.Body.String() != "[{\"id\":\"shared\"},{\"id\":\"private\"}]\n" {
+		t.Fatalf("GET sessions = status %d body %q", sessions.Code, sessions.Body.String())
+	}
 	resources := request("/api/v1/workspaces/engineering/resources")
 	if resources.Code != http.StatusOK || resources.Body.String() != "[{\"id\":\"docs\",\"secret\":false},{\"id\":\"token\",\"secret\":true}]\n" {
 		t.Fatalf("GET resources = status %d body %q", resources.Code, resources.Body.String())
@@ -199,6 +203,13 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled) VALUES
 			('engineering', 'developers', 'docs', TRUE),
 			('engineering', 'developers', 'token', TRUE);
+		INSERT INTO gatehouse_sessions (workspace, id, created_by, enabled, created_at) VALUES
+			('engineering', 'private', 'alice', TRUE, '2026-01-01 00:00:01'),
+			('engineering', 'shared', 'alice', TRUE, '2026-01-01 00:00:02');
+		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
+			VALUES ('engineering', 'private', 'alice', TRUE);
+		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
+			VALUES ('engineering', 'shared', 'developers', TRUE);
 	`); err != nil {
 		t.Fatal(err)
 	}

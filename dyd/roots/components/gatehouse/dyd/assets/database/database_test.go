@@ -32,8 +32,8 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 12 {
-		t.Fatalf("migration history count = %d, want 12", migrationCount)
+	if migrationCount != 13 {
+		t.Fatalf("migration history count = %d, want 13", migrationCount)
 	}
 	var workspaceCount int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_workspaces`).Scan(&workspaceCount); err != nil {
@@ -63,8 +63,8 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 12 {
-		t.Fatalf("migration history count = %d, want 12", count)
+	if count != 13 {
+		t.Fatalf("migration history count = %d, want 13", count)
 	}
 	var gatehouseName string
 	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {

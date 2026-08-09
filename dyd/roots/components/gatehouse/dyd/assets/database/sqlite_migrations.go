@@ -161,6 +161,50 @@ func sqliteMigrations(state config.State) (error, Registry) {
 			ALTER TABLE gatehouse_identities
 			ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0);
 		`,
+		}, {
+			Index:       7,
+			Description: "create_sessions_and_grants",
+			SQL: `
+			CREATE TABLE gatehouse_sessions (
+				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				id TEXT NOT NULL,
+				created_by TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (workspace, id)
+			) STRICT;
+
+			CREATE INDEX gatehouse_sessions_by_workspace
+			ON gatehouse_sessions (workspace, created_at);
+
+			CREATE TABLE gatehouse_session_principal_grants (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				principal TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				PRIMARY KEY (workspace, session, principal),
+				FOREIGN KEY (workspace, session)
+					REFERENCES gatehouse_sessions (workspace, id)
+			) STRICT;
+
+			CREATE INDEX gatehouse_session_principal_grants_by_principal
+			ON gatehouse_session_principal_grants (principal, workspace, session);
+
+			CREATE TABLE gatehouse_session_group_grants (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				"group" TEXT NOT NULL,
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				PRIMARY KEY (workspace, session, "group"),
+				FOREIGN KEY (workspace, session)
+					REFERENCES gatehouse_sessions (workspace, id),
+				FOREIGN KEY (workspace, "group")
+					REFERENCES gatehouse_groups (workspace_id, id)
+			) STRICT;
+
+			CREATE INDEX gatehouse_session_group_grants_by_group
+			ON gatehouse_session_group_grants (workspace, "group", session);
+		`,
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,

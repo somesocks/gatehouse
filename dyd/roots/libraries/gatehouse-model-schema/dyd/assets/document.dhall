@@ -255,6 +255,106 @@ let GroupMember =
         , description = Some "A principal assigned to a workspace-local authorization group."
         }
 
+let SessionRef =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { workspace =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
+              , id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local session identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "SessionRef"
+        , description = Some "The stable identity of a workspace session."
+        }
+
+let Session =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionRef" }
+                    s.reference.meta::{ description = Some "session identity" }
+              , created_by =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "creating principal identity" }
+              , created_at =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "session creation timestamp" }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the session is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "Session"
+        , description = Some "A durable workspace session."
+        }
+
+let SessionPrincipalGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { session =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionRef" }
+                    s.reference.meta::{ description = Some "granted session identity" }
+              , principal =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "granted principal identity" }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the principal grant is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "SessionPrincipalGrant"
+        , description = Some "A principal granted access to a session."
+        }
+
+let SessionGroupGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { session =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionRef" }
+                    s.reference.meta::{ description = Some "granted session identity" }
+              , group =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "granted group identity" }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the group grant is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "SessionGroupGrant"
+        , description = Some "A workspace group granted access to a session."
+        }
+
 let ToolRef =
       s.record.from
         s.record.props::{
@@ -413,10 +513,14 @@ in  Document::{
           , s.root.from Keychain s.root.meta::{ name = "Keychain" }
           , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
           , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
-          , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
-          , s.root.from Group s.root.meta::{ name = "Group" }
-        , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
-        , s.root.from Tool s.root.meta::{ name = "Tool" }
+           , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
+           , s.root.from Group s.root.meta::{ name = "Group" }
+         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
+         , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
+         , s.root.from Session s.root.meta::{ name = "Session" }
+         , s.root.from SessionPrincipalGrant s.root.meta::{ name = "SessionPrincipalGrant" }
+         , s.root.from SessionGroupGrant s.root.meta::{ name = "SessionGroupGrant" }
+         , s.root.from Tool s.root.meta::{ name = "Tool" }
         , s.root.from Resource s.root.meta::{ name = "Resource" }
         , s.root.from GroupToolGrant s.root.meta::{ name = "GroupToolGrant" }
         , s.root.from GroupResourceGrant s.root.meta::{ name = "GroupResourceGrant" }
