@@ -15,7 +15,7 @@ func TestResolveServicesUsesImplicitHTTPService(t *testing.T) {
 	if services.HTTP == nil {
 		t.Fatal("ResolveServices() returned no implicit HTTP service")
 	}
-	want := &HTTPService{Enabled: true, Listen: "127.0.0.1:4283", Web: true, API: true}
+	want := &HTTPService{Enabled: true, Listen: "127.0.0.1:4283", Keychain: "default", Web: true, API: true}
 	if *services.HTTP != *want {
 		t.Fatalf("ResolveServices() = %#v, want %#v", services.HTTP, want)
 	}
@@ -38,7 +38,7 @@ func TestResolveServicesUsesExplicitConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &HTTPService{Enabled: true, Listen: "localhost:7183", Web: false, API: true}
+	want := &HTTPService{Enabled: true, Listen: "localhost:7183", Keychain: "default", Web: false, API: true}
 	if services.HTTP == nil || *services.HTTP != *want {
 		t.Fatalf("ResolveServices() = %#v, want %#v", services.HTTP, want)
 	}

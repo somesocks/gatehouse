@@ -90,16 +90,9 @@ type workspaceMigrationValue struct {
 }
 
 type principalMigrationValue struct {
-	ID         string
-	Name       any
-	Enabled    bool
-	Identities []identityMigrationValue
-}
-
-type identityMigrationValue struct {
-	ID        string
-	Verifiers string
-	Enabled   bool
+	ID      string
+	Name    any
+	Enabled bool
 }
 
 type groupMigrationValue struct {
@@ -166,19 +159,10 @@ func migrationValuesFor(state config.State) migrationValues {
 		if principal.Name != nil {
 			name = *principal.Name
 		}
-		identities := make([]identityMigrationValue, 0, len(principal.Identities))
-		for _, identity := range principal.Identities {
-			identities = append(identities, identityMigrationValue{
-				ID:        identity.ID,
-				Verifiers: identity.Verifiers,
-				Enabled:   identity.Enabled,
-			})
-		}
 		values.Principals = append(values.Principals, principalMigrationValue{
-			ID:         principal.ID,
-			Name:       name,
-			Enabled:    principal.Enabled,
-			Identities: identities,
+			ID:      principal.ID,
+			Name:    name,
+			Enabled: principal.Enabled,
 		})
 	}
 	for _, tool := range state.Tools {

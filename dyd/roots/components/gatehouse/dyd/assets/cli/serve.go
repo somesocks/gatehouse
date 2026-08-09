@@ -8,11 +8,13 @@ import (
 	"syscall"
 	"time"
 
+	"gatehouse/auth"
 	clib "gatehouse/cli-builder"
 	"gatehouse/config"
 	"gatehouse/configschema"
 	"gatehouse/database"
 	"gatehouse/httpservice"
+	"gatehouse/identity"
 	"gatehouse/keychain"
 )
 
@@ -78,14 +80,23 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 		defer keyring.Close()
+		if err := identity.Prepare(ctx, store, state.Principals, identity.NewPasswordSourceResolver()); err != nil {
+			fmt.Fprintf(os.Stderr, "prepare identities: %v\n", err)
+			return 1
+		}
 
 		if services.HTTP == nil || !services.HTTP.Enabled {
 			fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 			<-ctx.Done()
 			return 0
 		}
+		err, tokens := auth.Prepare(ctx, store, keyring, services.HTTP.Keychain)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare bearer tokens: %v\n", err)
+			return 1
+		}
 
-		err, service := httpservice.Start(*services.HTTP)
+		err, service := httpservice.Start(*services.HTTP, tokens)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start HTTP service: %v\n", err)
 			return 1

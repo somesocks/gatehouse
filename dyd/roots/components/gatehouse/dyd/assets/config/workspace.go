@@ -18,10 +18,11 @@ type Workspace struct {
 var workspaceID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 const gatehouseWorkspaceID = "gatehouse"
+const defaultWorkspaceID = "admin"
 
 func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspace) {
 	if document.Workspaces == nil {
-		return nil, nil
+		return nil, []Workspace{{ID: defaultWorkspaceID, Enabled: true}}
 	}
 
 	workspaces := make([]Workspace, 0, len(*document.Workspaces))

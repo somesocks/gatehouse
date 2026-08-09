@@ -154,6 +154,13 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				PRIMARY KEY (id, version)
 			) STRICT;
 		`,
+		}, {
+			Index:       6,
+			Description: "add_identity_revisions",
+			SQL: `
+			ALTER TABLE gatehouse_identities
+			ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0);
+		`,
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
@@ -180,24 +187,15 @@ func sqliteMigrations(state config.State) (error, Registry) {
 		`,
 		}, {
 			Index:       3,
-			Description: "reconcile_principals_and_identities",
+			Description: "reconcile_principals",
 			Template: `
 			SELECT 1;
 			{{ range .Principals }}
-			{{ $principal := . }}
 			INSERT INTO gatehouse_principals (id, name, enabled)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
-			{{ range .Identities }}
-			INSERT INTO gatehouse_identities (id, principal_id, verifiers, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral $principal.ID }}, {{ sqlLiteral .Verifiers }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (id) DO UPDATE SET
-				principal_id = excluded.principal_id,
-				verifiers = excluded.verifiers,
-				enabled = excluded.enabled;
-			{{ end }}
 			{{ end }}
 		`,
 		}, {

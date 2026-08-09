@@ -17,6 +17,7 @@ type Services struct {
 type HTTPService struct {
 	Enabled bool
 	Listen  string
+	Keychain string
 	Web     bool
 	API     bool
 }
@@ -37,6 +38,9 @@ func ResolveServices(document configschema.GatehouseConfig) (error, Services) {
 	if configured.Listen != nil {
 		service.Listen = *configured.Listen
 	}
+	if configured.Keychain != nil {
+		service.Keychain = *configured.Keychain
+	}
 	if configured.Web != nil && configured.Web.Enabled != nil {
 		service.Web = *configured.Web.Enabled
 	}
@@ -46,7 +50,6 @@ func ResolveServices(document configschema.GatehouseConfig) (error, Services) {
 	if err := validateHTTPListen(service.Listen); err != nil {
 		return fmt.Errorf("services.http.listen: %w", err), Services{}
 	}
-
 	return nil, Services{HTTP: service}
 }
 
@@ -54,6 +57,7 @@ func defaultHTTPService() *HTTPService {
 	return &HTTPService{
 		Enabled: true,
 		Listen:  defaultHTTPListen,
+		Keychain: defaultKeychainID,
 		Web:     true,
 		API:     true,
 	}

@@ -116,11 +116,15 @@ let Identity =
                     s.reference.props::{ to = "PrincipalRef" }
                     s.reference.meta::{ description = Some "owning principal identity" }
               , verifiers = Verifiers
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
+               , enabled =
+                   s.boolean.from
+                     s.boolean.props::{=}
+                     s.boolean.meta::{ description = Some "whether the identity is enabled" }
+               , revision =
+                   s.number.from
+                     s.number.props::{ variant = s.number.variants.integer }
+                     s.number.meta::{ description = Some "monotonic identity configuration revision" }
+               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{

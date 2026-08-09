@@ -1,14 +1,20 @@
 package httpservice
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
+	"gatehouse/auth"
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/identity"
+	"gatehouse/keychain"
 )
 
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
@@ -54,6 +60,100 @@ func TestHandlerDisablesWebRouteGroup(t *testing.T) {
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("GET / status = %d, want %d", response.Code, http.StatusNotFound)
 	}
+}
+
+func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
+	tokens := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, tokens)
+	unauthenticated := httptest.NewRecorder()
+	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
+	if unauthenticated.Code != http.StatusUnauthorized || unauthenticated.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Fatalf("GET me without credentials = status %d authenticate %q", unauthenticated.Code, unauthenticated.Header().Get("WWW-Authenticate"))
+	}
+
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	if login.Code != http.StatusOK || login.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("POST login = status %d cache %q", login.Code, login.Header().Get("Cache-Control"))
+	}
+	var body loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.TokenType != "Bearer" || body.AccessToken == "" {
+		t.Fatalf("POST login response = %#v", body)
+	}
+	cookies := login.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "gatehouse_auth" || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteLaxMode || cookies[0].Path != "/api" {
+		t.Fatalf("POST login cookie = %#v", cookies)
+	}
+
+	me := httptest.NewRecorder()
+	meRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	meRequest.AddCookie(cookies[0])
+	handler.ServeHTTP(me, meRequest)
+	if me.Code != http.StatusOK || me.Header().Get("Cache-Control") != "no-store" || me.Body.String() != "{\"principal\":\"alice\",\"identity\":\"gatehouse:alice\"}\n" {
+		t.Fatalf("GET me = status %d cache %q body %q", me.Code, me.Header().Get("Cache-Control"), me.Body.String())
+	}
+
+	logoutResponse := httptest.NewRecorder()
+	handler.ServeHTTP(logoutResponse, httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil))
+	logoutCookies := logoutResponse.Result().Cookies()
+	if logoutResponse.Code != http.StatusNoContent || len(logoutCookies) != 1 || logoutCookies[0].Name != "gatehouse_auth" || logoutCookies[0].MaxAge >= 0 {
+		t.Fatalf("POST logout = status %d cookies %#v", logoutResponse.Code, logoutCookies)
+	}
+}
+
+func TestHandlerRejectsInvalidLogin(t *testing.T) {
+	handler := Handler(config.HTTPService{API: true}, testBearerTokens(t))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"wrong password"}`)))
+	if response.Code != http.StatusUnauthorized || response.Header().Get("WWW-Authenticate") != "Bearer" {
+		t.Fatalf("POST login = status %d authenticate %q", response.Code, response.Header().Get("WWW-Authenticate"))
+	}
+}
+
+func testBearerTokens(t *testing.T) *auth.BearerTokens {
+	t.Helper()
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	err, migrations := database.BuildMigrations(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.Migrate(ctx, store, migrations); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
+	t.Setenv("GATEHOUSE_TEST_PASSWORD", "correct password")
+	err, keyring := keychain.Prepare(ctx, store, []config.Keychain{{
+		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
+	}}, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(keyring.Close)
+	algorithm := "pbkdf2-hmac-sha256-v1"
+	if err := identity.Prepare(ctx, store, []config.Principal{{
+		ID: "alice", Enabled: true, Identities: []config.Identity{{
+			ID: "gatehouse:alice", Revision: 1, Enabled: true,
+			Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
+		}},
+	}}, identity.NewPasswordSourceResolver()); err != nil {
+		t.Fatal(err)
+	}
+	err, tokens := auth.Prepare(ctx, store, keyring, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return tokens
 }
 
 func TestServiceStartsServesAndStops(t *testing.T) {

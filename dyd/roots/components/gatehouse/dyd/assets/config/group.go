@@ -35,6 +35,14 @@ type GroupResourceGrant struct {
 
 func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 	if document.Workspaces == nil {
+		if document.Principals == nil {
+			return nil, []Group{{
+				WorkspaceID: defaultWorkspaceID,
+				ID:          "root",
+				Enabled:     true,
+				Members:     []GroupMember{{PrincipalID: defaultPrincipalID, Enabled: true}},
+			}}
+		}
 		return nil, nil
 	}
 

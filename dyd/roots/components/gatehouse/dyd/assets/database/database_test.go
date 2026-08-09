@@ -32,8 +32,8 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 11 {
-		t.Fatalf("migration history count = %d, want 11", migrationCount)
+	if migrationCount != 12 {
+		t.Fatalf("migration history count = %d, want 12", migrationCount)
 	}
 	var workspaceCount int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_workspaces`).Scan(&workspaceCount); err != nil {
@@ -63,8 +63,8 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 11 {
-		t.Fatalf("migration history count = %d, want 11", count)
+	if count != 12 {
+		t.Fatalf("migration history count = %d, want 12", count)
 	}
 	var gatehouseName string
 	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
@@ -242,17 +242,17 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 		ID:      "alice",
 		Name:    stringPointer("Alice"),
 		Enabled: true,
-		Identities: []config.Identity{{
-			ID:        "gatehouse:alice",
-			Verifiers: `[{"kind":"argon2id","password_verifier":"first"}]`,
-			Enabled:   true,
-		}},
 	}}
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
 	}, nil, principals)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
+		Id: "gatehouse:alice", Principal: model.PrincipalRef{Id: "alice"}, Revision: 1, Verifiers: []interface{}{"gh-ver:first"}, Enabled: true,
+	}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := first.Close(); err != nil {
@@ -263,11 +263,6 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 		ID:      "alice",
 		Name:    stringPointer("Alice Example"),
 		Enabled: false,
-		Identities: []config.Identity{{
-			ID:        "gatehouse:alice",
-			Verifiers: `[{"kind":"argon2id","password_verifier":"second {{ brace }}"}]`,
-			Enabled:   false,
-		}},
 	}}
 	err, second := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
@@ -277,6 +272,11 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
+	if err := second.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
+		Id: "gatehouse:alice", Principal: model.PrincipalRef{Id: "alice"}, Revision: 2, Verifiers: []interface{}{"gh-ver:second"}, Enabled: false,
+	}}); err != nil {
+		t.Fatal(err)
+	}
 
 	var (
 		principalName string
@@ -284,17 +284,29 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 		identityOwner string
 		verifiers     string
 		identityOn    bool
+		revision      int
 	)
 	if err := second.QueryRow(`
-		SELECT p.name, p.enabled, i.principal_id, i.verifiers, i.enabled
+		SELECT p.name, p.enabled, i.principal_id, i.verifiers, i.enabled, i.revision
 		FROM gatehouse_principals AS p
 		JOIN gatehouse_identities AS i ON i.principal_id = p.id
 		WHERE p.id = 'alice' AND i.id = 'gatehouse:alice'
-	`).Scan(&principalName, &principalOn, &identityOwner, &verifiers, &identityOn); err != nil {
+	`).Scan(&principalName, &principalOn, &identityOwner, &verifiers, &identityOn, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if principalName != "Alice Example" || principalOn || identityOwner != "alice" || verifiers != `[{"kind":"argon2id","password_verifier":"second {{ brace }}"}]` || identityOn {
-		t.Fatalf("reconciled principal and identity = (%q, %t, %q, %q, %t)", principalName, principalOn, identityOwner, verifiers, identityOn)
+	if principalName != "Alice Example" || principalOn || identityOwner != "alice" || verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
+		t.Fatalf("reconciled principal and identity = (%q, %t, %q, %q, %t, %d)", principalName, principalOn, identityOwner, verifiers, identityOn, revision)
+	}
+	if err := second.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
+		Id: "gatehouse:alice", Principal: model.PrincipalRef{Id: "alice"}, Revision: 1, Verifiers: []interface{}{"gh-ver:older"}, Enabled: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.QueryRow(`SELECT verifiers, enabled, revision FROM gatehouse_identities WHERE id = 'gatehouse:alice'`).Scan(&verifiers, &identityOn, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
+		t.Fatalf("lower revision replaced identity = (%q, %t, %d)", verifiers, identityOn, revision)
 	}
 
 	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, principal_id, verifiers, enabled) VALUES ('matrix:@unknown:example.org', 'unknown', '[{"kind":"matrix"}]', TRUE)`); err == nil {
@@ -308,9 +320,10 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 		ID:      "alice",
 		Enabled: true,
 		Identities: []config.Identity{{
-			ID:        "gatehouse:alice",
-			Verifiers: `[{"kind":"argon2id","password_verifier":"configured"}]`,
-			Enabled:   true,
+			ID:       "gatehouse:alice",
+			Revision: 1,
+			Verifiers: []config.Verifier{{Value: stringPointer("gh-ver:configured"), Stored: "gh-ver:configured"}},
+			Enabled:  true,
 		}},
 	}}
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{

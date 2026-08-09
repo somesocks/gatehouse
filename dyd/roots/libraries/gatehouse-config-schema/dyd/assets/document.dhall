@@ -283,11 +283,15 @@ let Identity =
               }
         , optional =
             toMap
-              { enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
+               { enabled =
+                   s.boolean.from
+                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the identity is enabled" }
-              }
+               , revision =
+                   s.number.from
+                     s.number.props::{ variant = s.number.variants.integer }
+                     s.number.meta::{ description = Some "monotonic identity configuration revision" }
+               }
         }
         s.record.meta::{ name = Some "Identity" }
 
@@ -384,6 +388,10 @@ let HTTPService =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
                      s.text.meta::{ description = Some "TCP listener address" }
+               , keychain =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "keychain used for sealed bearer tokens" }
                , web = HTTPComponent
                , api = HTTPComponent
               }

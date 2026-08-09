@@ -25,10 +25,9 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByID(t *testing.T) {
 				Name:    stringPointer("Alpha"),
 				Enabled: &disabled,
 				Identities: &[]configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-					Id: "gatehouse:alpha",
-					Verifiers: []interface{}{map[string]any{
-						"kind":              "argon2id",
-						"password_verifier": "env:GATEHOUSE_ALPHA_PASSWORD_VERIFIER",
+				Id: "gatehouse:alpha",
+				Verifiers: []interface{}{map[string]any{
+					"value": "gh-ver:AAAA",
 					}},
 				}},
 			},
@@ -45,18 +44,20 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByID(t *testing.T) {
 			Name:    stringPointer("Alpha"),
 			Enabled: false,
 			Identities: []Identity{{
-				ID:        "gatehouse:alpha",
-				Verifiers: `[{"kind":"argon2id","password_verifier":"env:GATEHOUSE_ALPHA_PASSWORD_VERIFIER"}]`,
-				Enabled:   true,
+				ID:       "gatehouse:alpha",
+				Revision: 1,
+				Verifiers: []Verifier{{Value: stringPointer("gh-ver:AAAA"), Stored: "gh-ver:AAAA"}},
+				Enabled:  true,
 			}},
 		},
 		{
 			ID:      "zebra",
 			Enabled: true,
 			Identities: []Identity{{
-				ID:        "matrix:@zebra:example.org",
-				Verifiers: `[{"kind":"matrix"}]`,
-				Enabled:   true,
+				ID:       "matrix:@zebra:example.org",
+				Revision: 1,
+				Verifiers: []Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+				Enabled:  true,
 			}},
 		},
 	}
@@ -67,8 +68,7 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByID(t *testing.T) {
 
 func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 	validGatehouseVerifier := []interface{}{map[string]any{
-		"kind":              "argon2id",
-		"password_verifier": "env:GATEHOUSE_PASSWORD_VERIFIER",
+		"value": "gh-ver:AAAA",
 	}}
 	tests := []struct {
 		name     string
@@ -138,12 +138,12 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 			contains: "namespace",
 		},
 		{
-			name: "gatehouse verifier without password verifier",
+			name: "gatehouse verifier without canonical value",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
 				Id:        "gatehouse:alice",
 				Verifiers: []interface{}{map[string]any{"kind": "argon2id"}},
 			}}),
-			contains: "password_verifier",
+			contains: "not supported",
 		},
 	}
 
