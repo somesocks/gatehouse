@@ -166,16 +166,25 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0);
 		`),
 		}, {
-			Index:       7,
-			Description: "create_sessions_and_grants",
+			Index:       8,
+			Description: "create_sessions_grants_and_events",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL,
-				created_by TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				author_principal TEXT REFERENCES gatehouse_principals (id),
+				author_agent TEXT,
+				author_gateway TEXT,
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
 				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-				PRIMARY KEY (workspace, id)
+				PRIMARY KEY (workspace, id),
+				FOREIGN KEY (workspace, author_agent)
+					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
+				CHECK (
+					(author_principal IS NOT NULL AND author_agent IS NULL AND author_gateway IS NULL)
+					OR (author_principal IS NULL AND author_agent IS NOT NULL AND author_gateway IS NULL)
+					OR (author_principal IS NULL AND author_agent IS NULL AND author_gateway IS NOT NULL)
+				)
 			) STRICT;
 
 			CREATE INDEX gatehouse_sessions_by_workspace
@@ -208,9 +217,31 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 
 			CREATE INDEX gatehouse_session_group_grants_by_group
 			ON gatehouse_session_group_grants (workspace, "group", session);
+
+			CREATE TABLE gatehouse_session_events (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
+				author_principal TEXT REFERENCES gatehouse_principals (id),
+				author_agent TEXT,
+				author_gateway TEXT,
+				payload TEXT NOT NULL CHECK (json_valid(payload)) CHECK (json_type(payload) = 'object'),
+				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				PRIMARY KEY (workspace, session, id),
+				FOREIGN KEY (workspace, session)
+					REFERENCES gatehouse_sessions (workspace, id),
+				FOREIGN KEY (workspace, author_agent)
+					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
+				CHECK (
+					(author_principal IS NOT NULL AND author_agent IS NULL AND author_gateway IS NULL)
+					OR (author_principal IS NULL AND author_agent IS NOT NULL AND author_gateway IS NULL)
+					OR (author_principal IS NULL AND author_agent IS NULL AND author_gateway IS NOT NULL)
+				)
+			) STRICT;
 		`),
 		}, {
-			Index:       8,
+			Index:       7,
 			Description: "create_agents",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (

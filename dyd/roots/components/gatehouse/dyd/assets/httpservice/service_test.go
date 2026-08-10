@@ -16,6 +16,7 @@ import (
 	"gatehouse/database"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
+	"gatehouse/model"
 )
 
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
@@ -163,6 +164,62 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	}
 }
 
+func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
+	tokens, store := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("POST login = status %d body %q", login.Code, login.Body.String())
+	}
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	if credentials.AccessToken == "" {
+		t.Fatalf("POST login response = %#v", credentials)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	created := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	if created.Code != http.StatusCreated || created.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("POST session = status %d cache %q", created.Code, created.Header().Get("Cache-Control"))
+	}
+	var session sessionResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &session); err != nil {
+		t.Fatal(err)
+	}
+	if session.ID == "" {
+		t.Fatalf("POST session response = %#v", session)
+	}
+
+	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages", `{"text":"hello"}`)
+	if message.Code != http.StatusCreated || message.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("POST message = status %d cache %q", message.Code, message.Header().Get("Cache-Control"))
+	}
+	var event model.SessionEvent
+	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event.Ref.Id == "" || event.Ref.Session.Id != session.ID || event.Kind != "message.text" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Id != "alice" || event.AuthorAgent != nil || event.AuthorGateway != nil || event.Payload["text"] != "hello" || event.CreatedAt == "" {
+		t.Fatalf("POST message response = %#v", event)
+	}
+
+	err, events := store.SessionEventsGet(context.Background(), model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: session.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 1 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Id != "alice" {
+		t.Fatalf("stored session events = %#v", events)
+	}
+}
+
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -178,14 +235,40 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
 	algorithm := "pbkdf2-hmac-sha256-v1"
+	engineering := "Engineering"
+	private := "Private"
+	developers := "Developers"
 	state := config.State{
 		Keychains: configured,
+		Workspaces: []config.Workspace{
+			{ID: "engineering", Name: &engineering, Enabled: true},
+			{ID: "operations", Enabled: true},
+			{ID: "private", Name: &private, Enabled: true},
+		},
 		Principals: []config.Principal{{
 			ID: "alice", Enabled: true, Identities: []config.Identity{{
 				ID: "gatehouse:alice", Revision: 1, Enabled: true,
 				Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
 			}},
 		}},
+		Groups: []config.Group{
+			{
+				WorkspaceID: "engineering", ID: "developers", Name: &developers, Enabled: true,
+				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
+				ToolGrants: []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
+				ResourceGrants: []config.GroupResourceGrant{{ResourceID: "docs", Enabled: true}, {ResourceID: "token", Enabled: true}},
+			},
+			{
+				WorkspaceID: "operations", ID: "operators", Enabled: true,
+				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
+			},
+			{WorkspaceID: "private", ID: "owners", Enabled: true},
+		},
+		Tools: []config.Tool{{WorkspaceID: "engineering", ID: "git", Source: "file:./git.lisp", Enabled: true}},
+		Resources: []config.Resource{
+			{WorkspaceID: "engineering", ID: "docs", Source: "file:./docs", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", ID: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
+		},
 	}
 	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
 	if err != nil {
@@ -200,28 +283,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES
-			('engineering', 'Engineering', TRUE),
-			('operations', NULL, TRUE),
-			('private', 'Private', TRUE);
-		INSERT INTO gatehouse_groups (workspace_id, id, name, enabled) VALUES
-			('engineering', 'developers', 'Developers', TRUE),
-			('operations', 'operators', 'Operators', TRUE),
-			('private', 'owners', 'Owners', TRUE);
-		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled) VALUES
-			('engineering', 'developers', 'alice', TRUE),
-			('operations', 'operators', 'alice', TRUE);
-		INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
-			VALUES ('engineering', 'git', 'file:./git.lisp', TRUE);
-		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled) VALUES
-			('engineering', 'docs', 'file:./docs', FALSE, TRUE),
-			('engineering', 'token', 'env:TOP_SECRET', TRUE, TRUE);
-		INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-			VALUES ('engineering', 'developers', 'git', TRUE);
-		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled) VALUES
-			('engineering', 'developers', 'docs', TRUE),
-			('engineering', 'developers', 'token', TRUE);
-		INSERT INTO gatehouse_sessions (workspace, id, created_by, enabled, created_at) VALUES
+		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
 			('engineering', 'private', 'alice', TRUE, '2026-01-01 00:00:01'),
 			('engineering', 'shared', 'alice', TRUE, '2026-01-01 00:00:02');
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)

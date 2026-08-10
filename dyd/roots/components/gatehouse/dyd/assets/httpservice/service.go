@@ -2,6 +2,8 @@ package httpservice
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -75,6 +77,7 @@ func Handler(configuration config.HTTPService, store *database.Store, tokens ...
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
 	}
@@ -165,6 +168,10 @@ type sessionResponse struct {
 	ID string `json:"id"`
 }
 
+type sessionMessageRequest struct {
+	Text string `json:"text"`
+}
+
 func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -244,7 +251,70 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 
 func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
+		switch request.Method {
+		case http.MethodGet:
+			workspaceSessionsGet(store, tokens, response, request)
+		case http.MethodPost:
+			workspaceSessionsCreate(store, tokens, response, request)
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, response http.ResponseWriter, request *http.Request) {
+	claims, ok := authenticate(response, request, tokens)
+	if !ok {
+		return
+	}
+	workspaceID := request.PathValue("workspace")
+	if workspaceID == "" {
+		http.NotFound(response, request)
+		return
+	}
+	err, sessions := store.SessionsGet(
+		request.Context(),
+		model.WorkspaceRef{Id: workspaceID},
+		model.PrincipalRef{Id: claims.Principal},
+	)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	result := make([]sessionResponse, 0, len(sessions))
+	for _, session := range sessions {
+		result = append(result, sessionResponse{ID: session.Ref.Id})
+	}
+	writeJSON(response, result)
+}
+
+func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, response http.ResponseWriter, request *http.Request) {
+	claims, ok := authenticate(response, request, tokens)
+	if !ok {
+		return
+	}
+	workspace, ok := authorizedWorkspace(response, request, store, claims)
+	if !ok {
+		return
+	}
+	id, err := randomUUID()
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	principal := model.PrincipalRef{Id: claims.Principal}
+	session := model.Session{Ref: model.SessionRef{Workspace: workspace, Id: id}, AuthorPrincipal: &principal, Enabled: true}
+	err, stored := store.SessionsCreate(request.Context(), session, principal)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return
+	}
+	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id})
+}
+
+func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -253,24 +323,46 @@ func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			return
 		}
 		workspaceID := request.PathValue("workspace")
-		if workspaceID == "" {
+		sessionID := request.PathValue("session")
+		if workspaceID == "" || sessionID == "" {
 			http.NotFound(response, request)
 			return
 		}
-		err, sessions := store.SessionsGet(
-			request.Context(),
-			model.WorkspaceRef{Id: workspaceID},
-			model.PrincipalRef{Id: claims.Principal},
-		)
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		result := make([]sessionResponse, 0, len(sessions))
-		for _, session := range sessions {
-			result = append(result, sessionResponse{ID: session.Ref.Id})
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
 		}
-		writeJSON(response, result)
+
+		var message sessionMessageRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&message); err != nil || strings.TrimSpace(message.Text) == "" {
+			http.Error(response, "invalid message", http.StatusBadRequest)
+			return
+		}
+		id, err := randomUUID()
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		event := model.SessionEvent{
+			Ref:             model.SessionEventRef{Session: session, Id: id},
+			Kind:            "message.text",
+			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
+			Payload:         map[string]interface{}{"text": message.Text},
+		}
+		err, stored := store.SessionEventsCreate(request.Context(), event)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSONStatus(response, http.StatusCreated, stored)
 	}
 }
 
@@ -335,9 +427,25 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 }
 
 func writeJSON(response http.ResponseWriter, value any) {
+	writeJSONStatus(response, http.StatusOK, value)
+}
+
+func writeJSONStatus(response http.ResponseWriter, status int, value any) {
 	noStore(response)
 	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(status)
 	_ = json.NewEncoder(response).Encode(value)
+}
+
+func randomUUID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	value[6] = value[6]&0x0f | 0x40
+	value[8] = value[8]&0x3f | 0x80
+	encoded := hex.EncodeToString(value[:])
+	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
 }
 
 func logout(response http.ResponseWriter, request *http.Request) {

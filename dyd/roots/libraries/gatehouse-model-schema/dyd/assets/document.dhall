@@ -231,12 +231,22 @@ let AgentModel =
         }
         s.record.meta::{ name = Some "AgentModel", description = Some "A configured provider model." }
 
-let WorkspaceAgent =
+let WorkspaceAgentRef =
       s.record.from
         s.record.props::{
         , required = toMap
             { workspace = s.reference.from s.reference.props::{ to = "WorkspaceRef" } s.reference.meta::{ description = Some "owning workspace identity" }
             , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "agent model identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "WorkspaceAgentRef", description = Some "The stable identity of a workspace agent binding." }
+
+let WorkspaceAgent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
             }
@@ -343,15 +353,11 @@ let Session =
         s.record.props::{
         , required =
             toMap
-              { ref =
-                  s.reference.from
-                    s.reference.props::{ to = "SessionRef" }
-                    s.reference.meta::{ description = Some "session identity" }
-              , created_by =
-                  s.reference.from
-                    s.reference.props::{ to = "PrincipalRef" }
-                    s.reference.meta::{ description = Some "creating principal identity" }
-              , created_at =
+               { ref =
+                   s.reference.from
+                     s.reference.props::{ to = "SessionRef" }
+                     s.reference.meta::{ description = Some "session identity" }
+               , created_at =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "session creation timestamp" }
@@ -360,12 +366,97 @@ let Session =
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the session is enabled" }
               }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { author_principal =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "principal session author" }
+              , author_agent =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceAgentRef" }
+                    s.reference.meta::{ description = Some "workspace agent session author" }
+              , author_gateway =
+                  s.reference.from
+                    s.reference.props::{ to = "GatewayRef" }
+                    s.reference.meta::{ description = Some "gateway session author" }
+              }
         }
         s.record.meta::{
         , name = Some "Session"
         , description = Some "A durable workspace session."
         }
+
+let GatewayRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "gateway process identity" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "GatewayRef", description = Some "The runtime identity of a gateway process." }
+
+let SessionEventRef =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { session =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionRef" }
+                    s.reference.meta::{ description = Some "owning session identity" }
+              , id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.uuid }
+                    s.text.meta::{ description = Some "session-local event identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionEventRef", description = Some "The stable identity of a session event." }
+
+let SessionEvent =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionEventRef" }
+                    s.reference.meta::{ description = Some "event identity" }
+              , kind =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "event kind" }
+              , payload =
+                  s.map.from
+                    s.map.props::{
+                    , keys = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "payload property name" }
+                    , values = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "payload property value" }
+                    , variant = s.map.variants.none
+                    }
+                    s.map.meta::{ description = Some "event payload" }
+              , created_at =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "event creation timestamp" }
+              }
+        , optional =
+            toMap
+              { author_principal =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "principal event author" }
+              , author_agent =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceAgentRef" }
+                    s.reference.meta::{ description = Some "workspace agent event author" }
+              , author_gateway =
+                  s.reference.from
+                    s.reference.props::{ to = "GatewayRef" }
+                    s.reference.meta::{ description = Some "gateway event author" }
+              }
+        }
+        s.record.meta::{ name = Some "SessionEvent", description = Some "An immutable event in a durable workspace session." }
 
 let SessionPrincipalGrant =
       s.record.from
@@ -575,16 +666,20 @@ in  Document::{
            , s.root.from Keychain s.root.meta::{ name = "Keychain" }
            , s.root.from AgentProviderRef s.root.meta::{ name = "AgentProviderRef" }
            , s.root.from AgentProvider s.root.meta::{ name = "AgentProvider" }
-           , s.root.from AgentModelRef s.root.meta::{ name = "AgentModelRef" }
+            , s.root.from AgentModelRef s.root.meta::{ name = "AgentModelRef" }
            , s.root.from AgentModel s.root.meta::{ name = "AgentModel" }
+           , s.root.from WorkspaceAgentRef s.root.meta::{ name = "WorkspaceAgentRef" }
            , s.root.from WorkspaceAgent s.root.meta::{ name = "WorkspaceAgent" }
           , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
           , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
            , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
            , s.root.from Group s.root.meta::{ name = "Group" }
          , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
-         , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
-         , s.root.from Session s.root.meta::{ name = "Session" }
+           , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
+           , s.root.from Session s.root.meta::{ name = "Session" }
+           , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
+           , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
+           , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
          , s.root.from SessionPrincipalGrant s.root.meta::{ name = "SessionPrincipalGrant" }
          , s.root.from SessionGroupGrant s.root.meta::{ name = "SessionGroupGrant" }
          , s.root.from Tool s.root.meta::{ name = "Tool" }
