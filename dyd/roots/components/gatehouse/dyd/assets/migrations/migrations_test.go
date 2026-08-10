@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -20,19 +21,19 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 			{
 				Index:       2,
 				Description: "record_second_version",
-				SQL: `
+				Builder: staticMigrationBuilder(`
 					INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-2');
-				`,
+				`),
 			},
 			{
 				Index:       1,
 				Description: "create_events",
-				SQL: `
+				Builder: staticMigrationBuilder(`
 					CREATE TABLE gatehouse_test_events (
 						entry TEXT NOT NULL
 					) STRICT;
 					INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-1');
-				`,
+				`),
 			},
 		},
 	}
@@ -59,14 +60,15 @@ func TestMigrateRejectsChangedVersionedMigration(t *testing.T) {
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "create_events",
-			SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
+			Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
 		}},
 	}
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 
-	registry.Versioned[0].SQL += "\n-- changed"
+	registry.Versioned[0].Builder = staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;
+-- changed`)
 	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "different checksum") {
 		t.Fatalf("migrate() error = %v, want changed checksum error", err)
@@ -80,7 +82,7 @@ func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 		Versioned: []VersionedMigration{{
 			Index:       2,
 			Description: "create_events",
-			SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
+			Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
 		}},
 	}
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
@@ -90,7 +92,7 @@ func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	registry.Versioned = append(registry.Versioned, VersionedMigration{
 		Index:       1,
 		Description: "create_legacy_events",
-		SQL:         `CREATE TABLE gatehouse_test_legacy_events (entry TEXT NOT NULL) STRICT;`,
+		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_legacy_events (entry TEXT NOT NULL) STRICT;`),
 	})
 	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "would run out of order") {
@@ -103,8 +105,8 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 	registry := Registry{
 		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{
-			{Index: 1, Description: "first", SQL: `CREATE TABLE gatehouse_test_first (value TEXT) STRICT;`},
-			{Index: 2, Description: "second", SQL: `CREATE TABLE gatehouse_test_second (value TEXT) STRICT;`},
+			{Index: 1, Description: "first", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_test_first (value TEXT) STRICT;`)},
+			{Index: 2, Description: "second", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_test_second (value TEXT) STRICT;`)},
 		},
 	}
 	if err := migrateSQLite(context.Background(), database, Registry{Init: testSQLiteRegistry(t).Init}); err != nil {
@@ -112,7 +114,7 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 	}
 	for _, index := range []int{2, 1} {
 		migration := registry.Versioned[index-1]
-		checksum := sha256.Sum256([]byte(migration.SQL))
+		checksum := sha256.Sum256([]byte(versionedMigrationSource(t, migration)))
 		if _, err := database.Exec(`
 			INSERT INTO gatehouse_schema_migrations (
 				migration_type, migration_index, description, checksum
@@ -130,48 +132,33 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 
 func TestMigrateAppliesOnlyChangedRepeatablesInIndexOrder(t *testing.T) {
 	database := openMigrationTestDatabase(t)
-	templateRegistry := Registry{
-		Init: testSQLiteRegistry(t).Init,
-		Versioned: []VersionedMigration{{
-			Index:       1,
-			Description: "create_events",
-			SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
-		}},
-		Repeatable: []RepeatableMigration{
-			{
-				Index:       2,
-				Description: "record_second_value",
-				Template:    `INSERT INTO gatehouse_test_events (entry) VALUES ('second:' || {{ sqlLiteral .Second }});`,
-			},
-			{
+	registryFor := func(values repeatableValues) Registry {
+		return Registry{
+			Init: testSQLiteRegistry(t).Init,
+			Versioned: []VersionedMigration{{
 				Index:       1,
-				Description: "record_first_value",
-				Template:    `INSERT INTO gatehouse_test_events (entry) VALUES ('first:' || {{ sqlLiteral .First }});`,
+				Description: "create_events",
+				Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
+			}},
+			Repeatable: []RepeatableMigration{
+				{Index: 2, Description: "record_second_value", Builder: templateMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('second:' || {{ sqlLiteral .Second }});`, values)},
+				{Index: 1, Description: "record_first_value", Builder: templateMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('first:' || {{ sqlLiteral .First }});`, values)},
 			},
-		},
+		}
 	}
 
-	err, registry := materializeRegistry(templateRegistry, repeatableValues{First: "one", Second: "two"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry := registryFor(repeatableValues{First: "one", Second: "two"})
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
-	err, registry = materializeRegistry(templateRegistry, repeatableValues{First: "o'hare", Second: "two"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry = registryFor(repeatableValues{First: "o'hare", Second: "two"})
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
-	err, registry = materializeRegistry(templateRegistry, repeatableValues{First: "three", Second: "four"})
-	if err != nil {
-		t.Fatal(err)
-	}
+	registry = registryFor(repeatableValues{First: "three", Second: "four"})
 	if err := migrateSQLite(context.Background(), database, registry); err != nil {
 		t.Fatal(err)
 	}
@@ -185,35 +172,43 @@ func TestMigrateAppliesOnlyChangedRepeatablesInIndexOrder(t *testing.T) {
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("event entries = %#v, want %#v", got, want)
 	}
-	if got, want := historyIndexes(t, database, migrationTypeRepeatable), []int64{1, 2, 1, 1, 2}; !reflect.DeepEqual(got, want) {
+	if got, want := historyIndexes(t, database, migrationTypeRepeatable), []int64{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("repeatable migration indexes = %#v, want %#v", got, want)
+	}
+	if got, want := historyChecksum(t, database, migrationTypeRepeatable, 1), sha256.Sum256([]byte(migrationSource(t, registry.Repeatable[1]))); got != want {
+		t.Fatalf("repeatable migration 1 checksum = %x, want %x", got, want)
+	}
+	if got, want := historyChecksum(t, database, migrationTypeRepeatable, 2), sha256.Sum256([]byte(migrationSource(t, registry.Repeatable[0]))); got != want {
+		t.Fatalf("repeatable migration 2 checksum = %x, want %x", got, want)
 	}
 }
 
-func TestMigrateRejectsTemplateActionsInVersionedMigration(t *testing.T) {
+func TestMigrateRejectsEmptyBuiltMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	err := migrateSQLite(context.Background(), database, Registry{
 		Init: testSQLiteRegistry(t).Init,
 		Versioned: []VersionedMigration{{
 			Index:       1,
-			Description: "invalid_template",
-			SQL:         `CREATE TABLE {{ .Table }} (value TEXT) STRICT;`,
+			Description: "empty_source",
+			Builder:     staticMigrationBuilder(""),
 		}},
 	})
-	if err == nil || !strings.Contains(err.Error(), "must not contain template actions") {
-		t.Fatalf("migrate() error = %v, want versioned template error", err)
+	if err == nil || !strings.Contains(err.Error(), "has no SQL") {
+		t.Fatalf("migrate() error = %v, want empty source error", err)
 	}
 }
 
 func TestMigrateRejectsMissingRepeatableTemplateValues(t *testing.T) {
-	err, _ := materializeRegistry(Registry{
+	database := openMigrationTestDatabase(t)
+	registry := Registry{
 		Init: testSQLiteRegistry(t).Init,
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
 			Description: "missing_value",
-			Template:    `SELECT {{ sqlLiteral .Missing }};`,
+			Builder:     templateMigrationBuilder(`SELECT {{ sqlLiteral .Missing }};`, struct{}{}),
 		}},
-	}, struct{}{})
+	}
+	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "can't evaluate field Missing") {
 		t.Fatalf("migrate() error = %v, want missing template value error", err)
 	}
@@ -226,7 +221,7 @@ func TestMigrateRollsBackFailedMigration(t *testing.T) {
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "invalid_sql",
-			SQL:         `CREATE TABL gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
+			Builder:     staticMigrationBuilder(`CREATE TABL gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
 		}},
 	}
 	if err := migrateSQLite(context.Background(), database, registry); err == nil {
@@ -256,24 +251,19 @@ func TestMigrateCoordinatesConcurrentSQLiteRunners(t *testing.T) {
 			{
 				Index:       1,
 				Description: "create_events",
-				SQL:         `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`,
+				Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
 			},
 			{
 				Index:       2,
 				Description: "record_versioned",
-				SQL:         `INSERT INTO gatehouse_test_events (entry) VALUES ('versioned');`,
+				Builder:     staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('versioned');`),
 			},
 		},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
 			Description: "record_repeatable",
-			Template:    `INSERT INTO gatehouse_test_events (entry) VALUES ('repeatable');`,
+			Builder:     staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('repeatable');`),
 		}},
-	}
-
-	err, registry := materializeRegistry(registry, struct{}{})
-	if err != nil {
-		t.Fatal(err)
 	}
 
 	start := make(chan struct{})
@@ -314,6 +304,79 @@ func testSQLiteRegistry(t *testing.T) Registry {
 		t.Fatal(err)
 	}
 	return registry
+}
+
+func TestMigrateBuildsRepeatablesOneAtATime(t *testing.T) {
+	database := openMigrationTestDatabase(t)
+	laterBuilt := false
+	registry := Registry{
+		Init: testSQLiteRegistry(t).Init,
+		Versioned: []VersionedMigration{{
+			Index:       1,
+			Description: "create_events",
+			Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
+		}},
+		Repeatable: []RepeatableMigration{
+			{Index: 1, Description: "fail_before_later_builder", Builder: func(context.Context, *MigrationSession) (error, string) {
+				return fmt.Errorf("expected builder failure"), ""
+			}},
+			{Index: 2, Description: "must_not_be_built", Builder: func(context.Context, *MigrationSession) (error, string) {
+				laterBuilt = true
+				return nil, `SELECT 1;`
+			}},
+		},
+	}
+	err := migrateSQLite(context.Background(), database, registry)
+	if err == nil || !strings.Contains(err.Error(), "expected builder failure") {
+		t.Fatalf("migrate() error = %v, want builder failure", err)
+	}
+	if laterBuilt {
+		t.Fatal("later repeatable builder ran after an earlier builder failed")
+	}
+}
+
+func TestMigrateBuildsEachMigrationOnce(t *testing.T) {
+	database := openMigrationTestDatabase(t)
+	initBuilds := 0
+	versionedBuilds := 0
+	repeatableBuilds := 0
+	init := testSQLiteRegistry(t).Init
+	initBuilder := init.Builder
+	init.Builder = func(ctx context.Context, session *MigrationSession) (error, string) {
+		initBuilds++
+		return initBuilder(ctx, session)
+	}
+	registry := Registry{
+		Init: init,
+		Versioned: []VersionedMigration{{
+			Index:       1,
+			Description: "create_events",
+			Builder: func(context.Context, *MigrationSession) (error, string) {
+				versionedBuilds++
+				return nil, `CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`
+			},
+		}},
+		Repeatable: []RepeatableMigration{{
+			Index:       1,
+			Description: "record_event",
+			Builder: func(context.Context, *MigrationSession) (error, string) {
+				repeatableBuilds++
+				return nil, `INSERT INTO gatehouse_test_events (entry) VALUES ('repeatable');`
+			},
+		}},
+	}
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
+		t.Fatal(err)
+	}
+	if initBuilds != 1 {
+		t.Fatalf("init builder calls = %d, want 1", initBuilds)
+	}
+	if versionedBuilds != 1 {
+		t.Fatalf("versioned builder calls = %d, want 1", versionedBuilds)
+	}
+	if repeatableBuilds != 1 {
+		t.Fatalf("repeatable builder calls = %d, want 1", repeatableBuilds)
+	}
 }
 
 func openMigrationTestDatabase(t *testing.T) *sql.DB {
@@ -368,6 +431,56 @@ func eventEntries(t *testing.T, database queryer) []string {
 		t.Fatal(err)
 	}
 	return entries
+}
+
+func historyChecksum(t *testing.T, database queryer, migrationType string, index int64) [sha256.Size]byte {
+	t.Helper()
+	rows, err := database.Query(`
+		SELECT checksum
+		FROM gatehouse_schema_migrations
+		WHERE migration_type = ? AND migration_index = ?
+	`, migrationType, index)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("migration checksum not found")
+	}
+	var checksum []byte
+	if err := rows.Scan(&checksum); err != nil {
+		t.Fatal(err)
+	}
+	if rows.Next() {
+		t.Fatal("multiple migration checksums found")
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(checksum) != sha256.Size {
+		t.Fatalf("migration checksum length = %d, want %d", len(checksum), sha256.Size)
+	}
+	var result [sha256.Size]byte
+	copy(result[:], checksum)
+	return result
+}
+
+func migrationSource(t *testing.T, migration RepeatableMigration) string {
+	t.Helper()
+	err, source := migration.Builder(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
+}
+
+func versionedMigrationSource(t *testing.T, migration VersionedMigration) string {
+	t.Helper()
+	err, source := migration.Builder(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return source
 }
 
 func historyIndexes(t *testing.T, database queryer, migrationType string) []int64 {

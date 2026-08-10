@@ -2,12 +2,32 @@ package migrations
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
+	"database/sql"
 	"fmt"
 	"sort"
 	"strings"
 	"text/template"
 )
+
+type MigrationBuilder func(context.Context, *MigrationSession) (error, string)
+
+type MigrationSession struct {
+	connection *sql.Conn
+}
+
+func (session *MigrationSession) ExecContext(ctx context.Context, query string, arguments ...any) (sql.Result, error) {
+	return session.connection.ExecContext(ctx, query, arguments...)
+}
+
+func (session *MigrationSession) QueryContext(ctx context.Context, query string, arguments ...any) (*sql.Rows, error) {
+	return session.connection.QueryContext(ctx, query, arguments...)
+}
+
+func (session *MigrationSession) RenderTemplate(source string, values any) (error, string) {
+	return renderTemplate("migration", source, values)
+}
 
 type Registry struct {
 	Init       InitMigration
@@ -16,25 +36,35 @@ type Registry struct {
 }
 
 type InitMigration struct {
-	SQL string
+	Builder MigrationBuilder
 }
 
 type VersionedMigration struct {
 	Index       int64
 	Description string
-	SQL         string
+	Builder     MigrationBuilder
 }
 
 type RepeatableMigration struct {
 	Index       int64
 	Description string
-	Template    string
-	Source      string
+	Builder     MigrationBuilder
 }
 
 const (
 	migrationTypeVersioned  = "versioned"
 	migrationTypeRepeatable = "repeatable"
+	compactRepeatableHistorySQL = `
+		DELETE FROM gatehouse_schema_migrations AS older
+		WHERE older.migration_type = 'repeatable'
+			AND EXISTS (
+				SELECT 1
+				FROM gatehouse_schema_migrations AS newer
+				WHERE newer.migration_type = 'repeatable'
+					AND newer.migration_index = older.migration_index
+					AND newer.installed_rank > older.installed_rank
+			);
+	`
 )
 
 type appliedMigration struct {
@@ -52,41 +82,36 @@ type resolvedMigration struct {
 	source        string
 }
 
-func materializeRegistry(registry Registry, values any) (error, Registry) {
-	repeatable := make([]RepeatableMigration, 0, len(registry.Repeatable))
-	for _, migration := range registry.Repeatable {
-		if migration.Template == "" {
-			return fmt.Errorf("repeatable migration %d (%s) has no template", migration.Index, migration.Description), Registry{}
-		}
-		err, source := renderTemplate(migration.Description, migration.Template, values)
-		if err != nil {
-			return fmt.Errorf("materialize repeatable migration %d (%s): %w", migration.Index, migration.Description, err), Registry{}
-		}
-		repeatable = append(repeatable, RepeatableMigration{
-			Index:       migration.Index,
-			Description: migration.Description,
-			Source:      source,
-		})
+type migrationCursor struct {
+	init       string
+	versioned  int
+	repeatable int
+}
+
+func staticMigrationBuilder(source string) MigrationBuilder {
+	return func(context.Context, *MigrationSession) (error, string) {
+		return nil, source
 	}
-	registry.Repeatable = repeatable
-	return nil, registry
+}
+
+func templateMigrationBuilder(source string, values any) MigrationBuilder {
+	return func(context.Context, *MigrationSession) (error, string) {
+		return renderTemplate("migration", source, values)
+	}
 }
 
 func validateRegistry(registry Registry) error {
-	if strings.TrimSpace(registry.Init.SQL) == "" {
-		return fmt.Errorf("migration registry has no init SQL")
-	}
-	if strings.Contains(registry.Init.SQL, "{{") || strings.Contains(registry.Init.SQL, "}}") {
-		return fmt.Errorf("init migration must not contain template actions")
+	if registry.Init.Builder == nil {
+		return fmt.Errorf("migration registry has no init builder")
 	}
 
 	versionedIndexes := make(map[int64]struct{}, len(registry.Versioned))
 	for _, migration := range registry.Versioned {
-		if err := validateMigration(migration.Index, migration.Description, migration.SQL, "versioned"); err != nil {
+		if err := validateMigration(migration.Index, migration.Description, "versioned"); err != nil {
 			return err
 		}
-		if strings.Contains(migration.SQL, "{{") || strings.Contains(migration.SQL, "}}") {
-			return fmt.Errorf("versioned migration %d (%s) must not contain template actions", migration.Index, migration.Description)
+		if migration.Builder == nil {
+			return fmt.Errorf("versioned migration %d (%s) has no builder", migration.Index, migration.Description)
 		}
 		if _, exists := versionedIndexes[migration.Index]; exists {
 			return fmt.Errorf("duplicate versioned migration index %d", migration.Index)
@@ -96,11 +121,11 @@ func validateRegistry(registry Registry) error {
 
 	repeatableIndexes := make(map[int64]struct{}, len(registry.Repeatable))
 	for _, migration := range registry.Repeatable {
-		if migration.Template != "" {
-			return fmt.Errorf("repeatable migration %d (%s) was not materialized", migration.Index, migration.Description)
-		}
-		if err := validateMigration(migration.Index, migration.Description, migration.Source, "repeatable"); err != nil {
+		if err := validateMigration(migration.Index, migration.Description, "repeatable"); err != nil {
 			return err
+		}
+		if migration.Builder == nil {
+			return fmt.Errorf("repeatable migration %d (%s) has no builder", migration.Index, migration.Description)
 		}
 		if _, exists := repeatableIndexes[migration.Index]; exists {
 			return fmt.Errorf("duplicate repeatable migration index %d", migration.Index)
@@ -110,15 +135,12 @@ func validateRegistry(registry Registry) error {
 	return nil
 }
 
-func validateMigration(index int64, description, source, kind string) error {
+func validateMigration(index int64, description, kind string) error {
 	if index <= 0 {
 		return fmt.Errorf("%s migration index must be positive", kind)
 	}
 	if strings.TrimSpace(description) == "" {
 		return fmt.Errorf("%s migration %d has no description", kind, index)
-	}
-	if strings.TrimSpace(source) == "" {
-		return fmt.Errorf("%s migration %d (%s) has no SQL", kind, index, description)
 	}
 	return nil
 }
@@ -146,9 +168,6 @@ func validateHistory(history []appliedMigration, registry Registry) error {
 			if applied.description != definition.Description {
 				return fmt.Errorf("applied versioned migration %d has a different description", applied.index)
 			}
-			if applied.checksum != sha256.Sum256([]byte(definition.SQL)) {
-				return fmt.Errorf("applied versioned migration %d (%s) has a different checksum", applied.index, applied.description)
-			}
 			if applied.index > highestVersionedIndex {
 				highestVersionedIndex = applied.index
 			}
@@ -169,32 +188,52 @@ func validateHistory(history []appliedMigration, registry Registry) error {
 	return nil
 }
 
-func nextMigration(history []appliedMigration, registry Registry) (error, resolvedMigration, bool) {
-	for _, migration := range sortedVersioned(registry.Versioned) {
-		if !hasMigration(history, migrationTypeVersioned, migration.Index) {
-			return nil, resolvedMigration{
-				migrationType: migrationTypeVersioned,
-				index:         migration.Index,
-				description:   migration.Description,
-				source:        migration.SQL,
-			}, true
+func nextMigration(ctx context.Context, session *MigrationSession, history []appliedMigration, registry Registry, cursor migrationCursor) (error, resolvedMigration, migrationCursor, bool) {
+	versioned := sortedVersioned(registry.Versioned)
+	for index := cursor.versioned; index < len(versioned); index++ {
+		migration := versioned[index]
+		err, source := buildMigration(ctx, session, migrationTypeVersioned, migration.Index, migration.Description, migration.Builder)
+		if err != nil {
+			return err, resolvedMigration{}, cursor, false
 		}
+		if applied, ok := latestMigration(history, migrationTypeVersioned, migration.Index); ok {
+			if applied.checksum != sha256.Sum256([]byte(source)) {
+				return fmt.Errorf("applied versioned migration %d (%s) has a different checksum", migration.Index, migration.Description), resolvedMigration{}, cursor, false
+			}
+			cursor.versioned = index + 1
+			continue
+		}
+		cursor.versioned = index + 1
+		return nil, resolvedMigration{migrationType: migrationTypeVersioned, index: migration.Index, description: migration.Description, source: source}, cursor, true
 	}
 
-	for _, migration := range sortedRepeatable(registry.Repeatable) {
-		rendered := migration.Source
-		checksum := sha256.Sum256([]byte(rendered))
+	repeatable := sortedRepeatable(registry.Repeatable)
+	for index := cursor.repeatable; index < len(repeatable); index++ {
+		migration := repeatable[index]
+		err, source := buildMigration(ctx, session, migrationTypeRepeatable, migration.Index, migration.Description, migration.Builder)
+		if err != nil {
+			return err, resolvedMigration{}, cursor, false
+		}
+		checksum := sha256.Sum256([]byte(source))
 		if latest, ok := latestMigration(history, migrationTypeRepeatable, migration.Index); !ok || latest.checksum != checksum {
-			return nil, resolvedMigration{
-				migrationType: migrationTypeRepeatable,
-				index:         migration.Index,
-				description:   migration.Description,
-				source:        rendered,
-			}, true
+			cursor.repeatable = index + 1
+			return nil, resolvedMigration{migrationType: migrationTypeRepeatable, index: migration.Index, description: migration.Description, source: source}, cursor, true
 		}
+		cursor.repeatable = index + 1
 	}
 
-	return nil, resolvedMigration{}, false
+	return nil, resolvedMigration{}, cursor, false
+}
+
+func buildMigration(ctx context.Context, session *MigrationSession, migrationType string, index int64, description string, builder MigrationBuilder) (error, string) {
+	err, source := builder(ctx, session)
+	if err != nil {
+		return fmt.Errorf("build %s migration %d (%s): %w", migrationType, index, description, err), ""
+	}
+	if strings.TrimSpace(source) == "" {
+		return fmt.Errorf("%s migration %d (%s) has no SQL", migrationType, index, description), ""
+	}
+	return nil, source
 }
 
 func hasMigration(history []appliedMigration, migrationType string, index int64) bool {

@@ -3,8 +3,9 @@ package migrations
 import "gatehouse/config"
 
 func sqliteMigrations(state config.State) (error, Registry) {
+	values := migrationValuesFor(state)
 	registry := Registry{
-		Init: InitMigration{SQL: `
+		Init: InitMigration{Builder: staticMigrationBuilder(`
 		CREATE TABLE IF NOT EXISTS gatehouse_schema_migrations (
 			installed_rank INTEGER PRIMARY KEY AUTOINCREMENT,
 			migration_type TEXT NOT NULL
@@ -25,11 +26,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 		CREATE INDEX IF NOT EXISTS gatehouse_schema_migrations_repeatable_latest
 		ON gatehouse_schema_migrations (migration_type, migration_index, installed_rank DESC)
 		WHERE migration_type = 'repeatable';
-	`},
+	`)},
 		Versioned: []VersionedMigration{{
 			Index:       1,
 			Description: "create_workspaces",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_workspaces (
 				id TEXT PRIMARY KEY
 					CHECK (id GLOB '[a-z]*')
@@ -37,11 +38,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
 			) STRICT;
-		`,
+		`),
 		}, {
 			Index:       2,
 			Description: "create_principals_and_identities",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_principals (
 				id TEXT PRIMARY KEY
 					CHECK (id GLOB '[a-z]*')
@@ -62,11 +63,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 
 			CREATE INDEX gatehouse_identities_by_principal
 			ON gatehouse_identities (principal_id);
-		`,
+		`),
 		}, {
 			Index:       3,
 			Description: "create_groups_and_memberships",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_groups (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL
@@ -89,11 +90,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 
 			CREATE INDEX gatehouse_group_members_by_principal
 			ON gatehouse_group_members (principal_id);
-		`,
+		`),
 		}, {
 			Index:       4,
 			Description: "create_tools_resources_and_group_grants",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_tools (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL
@@ -138,11 +139,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				FOREIGN KEY (workspace_id, resource_id)
 					REFERENCES gatehouse_resources (workspace_id, id)
 			) STRICT;
-		`,
+		`),
 		}, {
 			Index:       5,
 			Description: "create_keychains",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_keychains (
 				id TEXT NOT NULL
 					CHECK (id GLOB '[a-z]*')
@@ -153,18 +154,18 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
 				PRIMARY KEY (id, version)
 			) STRICT;
-		`,
+		`),
 		}, {
 			Index:       6,
 			Description: "add_identity_revisions",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			ALTER TABLE gatehouse_identities
 			ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0);
-		`,
+		`),
 		}, {
 			Index:       7,
 			Description: "create_sessions_and_grants",
-			SQL: `
+			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL,
@@ -204,22 +205,22 @@ func sqliteMigrations(state config.State) (error, Registry) {
 
 			CREATE INDEX gatehouse_session_group_grants_by_group
 			ON gatehouse_session_group_grants (workspace, "group", session);
-		`,
+		`),
 		}},
 		Repeatable: []RepeatableMigration{{
 			Index:       1,
 			Description: "seed_gatehouse_workspace",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			INSERT INTO gatehouse_workspaces (id, name, enabled)
 			VALUES ('gatehouse', 'Gatehouse', TRUE)
 			ON CONFLICT (id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
-		`,
+		`, values),
 		}, {
 			Index:       2,
 			Description: "reconcile_workspaces",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Workspaces }}
 			INSERT INTO gatehouse_workspaces (id, name, enabled)
@@ -228,11 +229,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				name = excluded.name,
 				enabled = excluded.enabled;
 			{{ end }}
-		`,
+		`, values),
 		}, {
 			Index:       3,
 			Description: "reconcile_principals",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Principals }}
 			INSERT INTO gatehouse_principals (id, name, enabled)
@@ -241,11 +242,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				name = excluded.name,
 				enabled = excluded.enabled;
 			{{ end }}
-		`,
+		`, values),
 		}, {
 			Index:       4,
 			Description: "reconcile_groups_and_memberships",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Groups }}
 			{{ $group := . }}
@@ -261,11 +262,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ end }}
-		`,
+		`, values),
 		}, {
 			Index:       5,
 			Description: "reconcile_tools_and_resources",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Tools }}
 			INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
@@ -282,11 +283,11 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				secret = excluded.secret,
 				enabled = excluded.enabled;
 			{{ end }}
-		`,
+		`, values),
 		}, {
 			Index:       6,
 			Description: "reconcile_group_grants",
-			Template: `
+			Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Groups }}
 			{{ $group := . }}
@@ -303,8 +304,8 @@ func sqliteMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ end }}
-		`,
+		`, values),
 		}},
 	}
-	return materializeRegistry(registry, migrationValuesFor(state))
+	return nil, registry
 }
