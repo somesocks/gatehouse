@@ -182,6 +182,68 @@ let Keychain =
         , description = Some "A versioned keychain encryption key."
         }
 
+let AgentProviderRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent provider identity" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "AgentProviderRef", description = Some "The stable identity of an agent provider." }
+
+let AgentProvider =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "AgentProviderRef" } s.reference.meta::{ description = Some "provider identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "provider configuration revision" }
+            , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider protocol" }
+            , base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
+            , keychain = s.reference.from s.reference.props::{ to = "KeychainRef" } s.reference.meta::{ description = Some "API key encryption key" }
+            , api_key = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted API key" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "AgentProvider", description = Some "A configured model-provider endpoint." }
+
+let AgentModelRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent model identity" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "AgentModelRef", description = Some "The stable identity of an agent model." }
+
+let AgentModel =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "model identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "model configuration revision" }
+            , provider = s.reference.from s.reference.props::{ to = "AgentProviderRef" } s.reference.meta::{ description = Some "provider identity" }
+            , model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider model identifier" }
+            , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "AgentModel", description = Some "A configured provider model." }
+
+let WorkspaceAgent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { workspace = s.reference.from s.reference.props::{ to = "WorkspaceRef" } s.reference.meta::{ description = Some "owning workspace identity" }
+            , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "agent model identity" }
+            , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "WorkspaceAgent", description = Some "A model assigned to a workspace." }
+
 let GroupRef =
       s.record.from
         s.record.props::{
@@ -510,7 +572,12 @@ in  Document::{
           , s.root.from Principal s.root.meta::{ name = "Principal" }
           , s.root.from Identity s.root.meta::{ name = "Identity" }
           , s.root.from KeychainRef s.root.meta::{ name = "KeychainRef" }
-          , s.root.from Keychain s.root.meta::{ name = "Keychain" }
+           , s.root.from Keychain s.root.meta::{ name = "Keychain" }
+           , s.root.from AgentProviderRef s.root.meta::{ name = "AgentProviderRef" }
+           , s.root.from AgentProvider s.root.meta::{ name = "AgentProvider" }
+           , s.root.from AgentModelRef s.root.meta::{ name = "AgentModelRef" }
+           , s.root.from AgentModel s.root.meta::{ name = "AgentModel" }
+           , s.root.from WorkspaceAgent s.root.meta::{ name = "WorkspaceAgent" }
           , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
           , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
            , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }

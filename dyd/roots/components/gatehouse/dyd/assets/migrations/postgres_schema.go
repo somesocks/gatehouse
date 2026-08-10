@@ -202,6 +202,39 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE INDEX gatehouse_session_group_grants_by_group
 			ON gatehouse_session_group_grants (workspace, "group", session);
 		`),
+		}, {
+			Index:       8,
+			Description: "create_agents",
+			Builder: staticMigrationBuilder(`
+			CREATE TABLE gatehouse_agent_providers (
+				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				revision BIGINT NOT NULL CHECK (revision > 0),
+				protocol TEXT NOT NULL CHECK (protocol = 'openai-compatible'),
+				base_url TEXT NOT NULL CHECK (length(trim(base_url)) > 0),
+				keychain_id TEXT NOT NULL,
+				keychain_version BIGINT NOT NULL CHECK (keychain_version > 0),
+				api_key TEXT NOT NULL CHECK (length(trim(api_key)) > 0),
+				enabled BOOLEAN NOT NULL,
+				FOREIGN KEY (keychain_id, keychain_version) REFERENCES gatehouse_keychains (id, version)
+			);
+
+			CREATE TABLE gatehouse_agent_models (
+				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				revision BIGINT NOT NULL CHECK (revision > 0),
+				provider_id TEXT NOT NULL REFERENCES gatehouse_agent_providers (id),
+				model TEXT NOT NULL CHECK (length(trim(model)) > 0),
+				parameters JSONB NOT NULL CHECK (jsonb_typeof(parameters) = 'object'),
+				enabled BOOLEAN NOT NULL
+			);
+
+			CREATE TABLE gatehouse_workspace_agents (
+				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				model_id TEXT NOT NULL REFERENCES gatehouse_agent_models (id),
+				priority BIGINT NOT NULL CHECK (priority > 0),
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace_id, model_id)
+			);
+		`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{
@@ -311,6 +344,18 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			{{ end }}
 			{{ end }}
 		`, values),
+			}, {
+				Index:       9,
+				Description: "reconcile_agent_providers",
+				Builder:     agentProviderMigrationBuilder(state.AgentProviders, keyring),
+			}, {
+				Index:       10,
+				Description: "reconcile_agent_models",
+				Builder:     agentModelMigrationBuilder(state.AgentModels),
+			}, {
+				Index:       11,
+				Description: "reconcile_workspace_agents",
+				Builder:     workspaceAgentMigrationBuilder(state.WorkspaceAgents),
 			}},
 	}
 	return nil, registry

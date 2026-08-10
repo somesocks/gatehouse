@@ -228,6 +228,22 @@ let Resources =
         s.list.props::{ values = Resource }
         s.list.meta::{ description = Some "configured workspace resources" }
 
+let WorkspaceAgent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model identity" }
+            , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+            }
+        , optional = toMap
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" } }
+        }
+        s.record.meta::{ name = Some "WorkspaceAgent" }
+
+let WorkspaceAgents =
+      s.list.from s.list.props::{ values = WorkspaceAgent }
+        s.list.meta::{ description = Some "configured workspace agents" }
+
 let Workspace =
       s.record.from
         s.record.props::{
@@ -250,8 +266,9 @@ let Workspace =
                      s.boolean.meta::{ description = Some "whether the workspace is enabled" }
                , groups = Groups
                , tools = Tools
-               , resources = Resources
-               }
+                , resources = Resources
+                , agents = WorkspaceAgents
+                }
         }
         s.record.meta::{ name = Some "Workspace" }
 
@@ -360,6 +377,57 @@ let Keychains =
         s.list.props::{ values = Keychain }
         s.list.meta::{ description = Some "configured keychain passphrase sources" }
 
+let AgentProviderAPIKey =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { sources = s.list.from
+                s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "API key source" } }
+                s.list.meta::{ description = Some "ordered API key sources" }
+            }
+        , optional = toMap
+            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to seal the API key" } }
+        }
+        s.record.meta::{ name = Some "AgentProviderAPIKey" }
+
+let AgentProvider =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent provider identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic provider configuration revision" }
+            , protocol = s.text.from s.text.props::{ variant = s.text.variants.literal "openai-compatible" } s.text.meta::{ description = Some "provider protocol" }
+            , base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
+            , api_key = AgentProviderAPIKey
+            }
+        , optional = toMap
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" } }
+        }
+        s.record.meta::{ name = Some "AgentProvider" }
+
+let AgentProviders =
+      s.list.from s.list.props::{ values = AgentProvider }
+        s.list.meta::{ description = Some "configured agent providers" }
+
+let AgentModel =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent model identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic model configuration revision" }
+            , provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider identity" }
+            , model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider model identifier" }
+            , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
+            }
+        , optional = toMap
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" } }
+        }
+        s.record.meta::{ name = Some "AgentModel" }
+
+let AgentModels =
+      s.list.from s.list.props::{ values = AgentModel }
+        s.list.meta::{ description = Some "configured agent models" }
+
 let HTTPComponent =
       s.record.from
         s.record.props::{
@@ -419,8 +487,10 @@ let GatehouseConfig =
             { database = Database
              , workspaces = Workspaces
              , principals = Principals
-             , keychains = Keychains
-             , services = Services
+              , keychains = Keychains
+              , agent_providers = AgentProviders
+              , agent_models = AgentModels
+              , services = Services
              }
         }
         s.record.meta::{ description = Some "Gatehouse configuration" }

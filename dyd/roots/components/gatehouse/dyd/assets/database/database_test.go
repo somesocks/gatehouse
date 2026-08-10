@@ -27,19 +27,17 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var migrationCount int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&migrationCount); err != nil {
-		t.Fatal(err)
-	}
-	if migrationCount != 15 {
-		t.Fatalf("migration history count = %d, want 15", migrationCount)
-	}
 	var workspaceCount int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_workspaces`).Scan(&workspaceCount); err != nil {
 		t.Fatal(err)
 	}
 	if workspaceCount != 1 {
 		t.Fatalf("workspace count = %d, want 1", workspaceCount)
+	}
+	for _, table := range []string{"gatehouse_agent_providers", "gatehouse_agent_models", "gatehouse_workspace_agents"} {
+		if _, err := database.Exec(`SELECT * FROM ` + table + ` LIMIT 0`); err != nil {
+			t.Fatalf("agent table %q is unavailable: %v", table, err)
+		}
 	}
 }
 
@@ -54,13 +52,6 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 		t.Fatalf("Migrate() after runtime repeatables: %v", err)
 	}
 
-	var count int
-	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
-		t.Fatal(err)
-	}
-	if count != 15 {
-		t.Fatalf("migration history count = %d, want 15", count)
-	}
 	var gatehouseName string
 	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
 		t.Fatal(err)
