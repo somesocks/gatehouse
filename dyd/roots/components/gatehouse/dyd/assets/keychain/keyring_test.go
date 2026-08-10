@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
@@ -195,12 +196,12 @@ func openKeyringTestStore(t *testing.T, configuration config.DatabaseConfig) *da
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, migrations := database.BuildMigrations(configuration, config.State{})
+	err, set := migrations.Build(configuration, config.State{})
 	if err != nil {
 		store.Close()
 		t.Fatal(err)
 	}
-	if err := database.Migrate(context.Background(), store, migrations); err != nil {
+	if err := migrations.Run(context.Background(), store, set); err != nil {
 		store.Close()
 		t.Fatal(err)
 	}

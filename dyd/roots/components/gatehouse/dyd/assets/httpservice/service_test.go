@@ -14,6 +14,7 @@ import (
 	"gatehouse/auth"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/identity"
 	"gatehouse/keychain"
 )
@@ -171,11 +172,11 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	err, migrations := database.BuildMigrations(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
+	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Migrate(ctx, store, migrations); err != nil {
+	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {

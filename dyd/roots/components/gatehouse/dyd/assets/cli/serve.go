@@ -16,6 +16,7 @@ import (
 	"gatehouse/httpservice"
 	"gatehouse/identity"
 	"gatehouse/keychain"
+	"gatehouse/migrations"
 )
 
 var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
@@ -65,12 +66,12 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 		defer store.Close()
-		err, migrations := database.BuildMigrations(databaseConfig, state)
+		err, set := migrations.Build(databaseConfig, state)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "generate migrations: %v\n", err)
 			return 1
 		}
-		if err := database.Migrate(ctx, store, migrations); err != nil {
+		if err := migrations.Run(ctx, store, set); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}

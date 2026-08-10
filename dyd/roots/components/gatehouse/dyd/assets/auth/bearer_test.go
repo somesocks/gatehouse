@@ -7,6 +7,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/keychain"
 	"gatehouse/model"
 )
@@ -18,11 +19,11 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	err, migrations := database.BuildMigrations(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
+	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Migrate(ctx, store, migrations); err != nil {
+	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {

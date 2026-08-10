@@ -1,4 +1,4 @@
-package database
+package database_test
 
 import (
 	"context"
@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
 func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := Open(ctx, configuration)
+	err, store := database.Open(ctx, configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,11 +36,11 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 			},
 		}},
 	}
-	err, migrations := BuildMigrations(configuration, state)
+	err, set := migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(ctx, store, migrations); err != nil {
+	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `

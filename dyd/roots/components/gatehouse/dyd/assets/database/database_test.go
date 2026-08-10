@@ -1,4 +1,4 @@
-package database
+package database_test
 
 import (
 	"context"
@@ -10,21 +10,23 @@ import (
 	"testing"
 
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
 func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, database := Open(context.Background(), configuration)
+	err, database := database.Open(context.Background(), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	err, migrations := BuildMigrations(configuration, config.State{})
+	err, set := migrations.Build(configuration, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,11 +53,11 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	}
 	defer database.Close()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, migrations := BuildMigrations(configuration, config.State{})
+	err, set := migrations.Build(configuration, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatalf("Migrate() after runtime repeatables: %v", err)
 	}
 
@@ -80,21 +82,6 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 		) VALUES ('versioned', 'invalid', 'test', zeroblob(32))
 	`); err == nil {
 		t.Fatal("strict migration history accepted text for migration_index")
-	}
-}
-
-func TestSQLiteMigrationsMaterializeRegisteredRepeatables(t *testing.T) {
-	err, registry := sqliteMigrations(config.State{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(registry.Repeatable) != 6 {
-		t.Fatalf("repeatable migration count = %d, want 6", len(registry.Repeatable))
-	}
-	for index, migration := range registry.Repeatable {
-		if migration.Template != "" || migration.Source == "" {
-			t.Fatalf("repeatable migration %d was not materialized", index)
-		}
 	}
 }
 
@@ -123,7 +110,7 @@ func TestOpenEphemeralDiscardsStateAfterClose(t *testing.T) {
 
 func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "data", "gatehouse.db")
-	err, database := Open(context.Background(), config.DatabaseConfig{
+	err, database := database.Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
 	})
@@ -140,7 +127,7 @@ func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 }
 
 func TestOpenPostgresReportsUnsupported(t *testing.T) {
-	err, _ := Open(context.Background(), config.DatabaseConfig{
+	err, _ := database.Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindPostgres,
 		URL:  "env:GATEHOUSE_DATABASE_URL",
 	})
@@ -369,7 +356,7 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 
 func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, database := Open(context.Background(), configuration)
+	err, database := database.Open(context.Background(), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -379,11 +366,11 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
-	err, migrations := BuildMigrations(configuration, state)
+	err, set := migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`INSERT INTO gatehouse_principals (id, name, enabled) VALUES ('bob', 'Bob', TRUE)`); err != nil {
@@ -400,11 +387,11 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 			{PrincipalID: "bob", Enabled: false},
 		},
 	}}
-	err, migrations = BuildMigrations(configuration, state)
+	err, set = migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 
@@ -448,7 +435,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 
 func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, database := Open(context.Background(), configuration)
+	err, database := database.Open(context.Background(), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -479,11 +466,11 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 			},
 		}},
 	}
-	err, migrations := BuildMigrations(configuration, state)
+	err, set := migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 
@@ -559,11 +546,11 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	state.Resources[1].Enabled = false
 	state.Groups[0].ToolGrants[0].Enabled = false
 	state.Groups[0].ResourceGrants[1].Enabled = true
-	err, migrations = BuildMigrations(configuration, state)
+	err, set = migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 
@@ -608,16 +595,16 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 
 func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, database := Open(context.Background(), configuration)
+	err, database := database.Open(context.Background(), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	err, migrations := BuildMigrations(configuration, config.State{})
+	err, set := migrations.Build(configuration, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), database, migrations); err != nil {
+	if err := migrations.Run(context.Background(), database, set); err != nil {
 		t.Fatal(err)
 	}
 
@@ -744,17 +731,17 @@ func stringPointer(value string) *string {
 	return &value
 }
 
-func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *Store) {
-	err, database := Open(ctx, configuration)
+func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *database.Store) {
+	err, database := database.Open(ctx, configuration)
 	if err != nil {
 		return err, nil
 	}
-	err, migrations := BuildMigrations(configuration, config.State{Workspaces: workspaces, Principals: principals})
+	err, set := migrations.Build(configuration, config.State{Workspaces: workspaces, Principals: principals})
 	if err != nil {
 		database.Close()
 		return err, nil
 	}
-	if err := Migrate(ctx, database, migrations); err != nil {
+	if err := migrations.Run(ctx, database, set); err != nil {
 		database.Close()
 		return err, nil
 	}

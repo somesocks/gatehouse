@@ -8,6 +8,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/keychain"
 	"gatehouse/model"
 )
@@ -119,11 +120,11 @@ func openResourceKeyring(t *testing.T) *keychain.Keyring {
 			t.Error(err)
 		}
 	})
-	err, migrations := database.BuildMigrations(configuration, config.State{})
+	err, set := migrations.Build(configuration, config.State{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := database.Migrate(context.Background(), store, migrations); err != nil {
+	if err := migrations.Run(context.Background(), store, set); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("RESOURCE_KEYCHAIN", "passphrase")

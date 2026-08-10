@@ -1,4 +1,4 @@
-package database
+package database_test
 
 import (
 	"context"
@@ -6,12 +6,14 @@ import (
 	"testing"
 
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
 func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := Open(context.Background(), configuration)
+	err, store := database.Open(context.Background(), configuration)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +69,11 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 			},
 		},
 	}
-	err, migrations := BuildMigrations(configuration, state)
+	err, set := migrations.Build(configuration, state)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Migrate(context.Background(), store, migrations); err != nil {
+	if err := migrations.Run(context.Background(), store, set); err != nil {
 		t.Fatal(err)
 	}
 

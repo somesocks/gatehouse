@@ -1,4 +1,4 @@
-package database
+package migrations
 
 import (
 	"context"
@@ -314,6 +314,38 @@ func testSQLiteRegistry(t *testing.T) Registry {
 		t.Fatal(err)
 	}
 	return registry
+}
+
+func openMigrationTestDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return database
+}
+
+func openMigrationTestFileDatabase(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	database, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	database.SetMaxOpenConns(1)
+	database.SetMaxIdleConns(1)
+	t.Cleanup(func() {
+		if err := database.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return database
 }
 
 func eventEntries(t *testing.T, database queryer) []string {
