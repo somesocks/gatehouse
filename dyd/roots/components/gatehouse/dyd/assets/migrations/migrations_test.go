@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -11,6 +12,9 @@ import (
 	"testing"
 
 	"gatehouse/config"
+	"gatehouse/database"
+	"gatehouse/keychain"
+	"gatehouse/model"
 )
 
 func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
@@ -50,6 +54,105 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 	}
 	if got, want := historyIndexes(t, database, migrationTypeVersioned), []int64{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("versioned migration indexes = %#v, want %#v", got, want)
+	}
+}
+
+func TestMigratePreparesKeychainsFirstWithoutReplacement(t *testing.T) {
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(context.Background(), configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{Keychains: []config.Keychain{{
+		ID:      "default",
+		Sources: []config.KeychainPassphraseSource{"env:DEFAULT"},
+	}}}
+	t.Setenv("DEFAULT", "passphrase")
+	err, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+	err, set := Build(configuration, state, keyring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), store, set); err != nil {
+		t.Fatal(err)
+	}
+
+	var firstRepeatable int64
+	if err := store.QueryRow(`
+		SELECT migration_index
+		FROM gatehouse_schema_migrations
+		WHERE migration_type = 'repeatable'
+		ORDER BY installed_rank
+		LIMIT 1
+	`).Scan(&firstRepeatable); err != nil {
+		t.Fatal(err)
+	}
+	if firstRepeatable != 1 {
+		t.Fatalf("first repeatable migration = %d, want 1", firstRepeatable)
+	}
+
+	reference := model.KeychainRef{Id: "default", Version: 1}
+	err, stored := store.KeychainsGet(context.Background(), []model.KeychainRef{reference})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(stored) != 1 {
+		t.Fatalf("stored keychains = %#v, want one keychain", stored)
+	}
+	var firstChecksum []byte
+	if err := store.QueryRow(`
+		SELECT checksum
+		FROM gatehouse_schema_migrations
+		WHERE migration_type = 'repeatable' AND migration_index = 1
+	`).Scan(&firstChecksum); err != nil {
+		t.Fatal(err)
+	}
+
+	err, repeatKeyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repeatKeyring.Close()
+	err, repeat := Build(configuration, state, repeatKeyring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), store, repeat); err != nil {
+		t.Fatal(err)
+	}
+	err, repeated := store.KeychainsGet(context.Background(), []model.KeychainRef{reference})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repeated) != 1 {
+		t.Fatalf("stored keychains after repeat = %#v, want one keychain", repeated)
+	}
+	if repeated[0].KekKdf != stored[0].KekKdf || repeated[0].Key != stored[0].Key || repeated[0].Enabled != stored[0].Enabled {
+		t.Fatalf("stored keychain after repeat = %#v, want %#v", repeated[0], stored[0])
+	}
+	var secondChecksum []byte
+	if err := store.QueryRow(`
+		SELECT checksum
+		FROM gatehouse_schema_migrations
+		WHERE migration_type = 'repeatable' AND migration_index = 1
+	`).Scan(&secondChecksum); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(secondChecksum, firstChecksum) {
+		t.Fatal("keychain migration checksum did not change after generating new candidates")
+	}
+
+	err, keys := repeatKeyring.Get(context.Background(), []model.KeychainRef{reference})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(keys[reference]); got != 16 {
+		t.Fatalf("prepared DEK length = %d, want 16", got)
 	}
 }
 

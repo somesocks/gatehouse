@@ -14,37 +14,52 @@ import (
 )
 
 type Keyring struct {
-	store      *database.Store
-	configured map[string]config.Keychain
-	resolver   *PassphraseSourceResolver
-	keys       map[model.KeychainRef][]byte
-	mutex      sync.Mutex
+	store       *database.Store
+	ids         []string
+	passphrases map[string][]byte
+	keys        map[model.KeychainRef][]byte
+	random      io.Reader
+	mutex       sync.Mutex
 }
 
-func Prepare(ctx context.Context, store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver) (error, *Keyring) {
-	return prepare(ctx, store, configured, resolver, rand.Reader)
+func NewKeyring(store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver) (error, *Keyring) {
+	return newKeyring(store, configured, resolver, rand.Reader)
 }
 
-func prepare(ctx context.Context, store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver, random io.Reader) (error, *Keyring) {
-	references := make([]model.KeychainRef, 0, len(configured))
-	candidates := make([]model.Keychain, 0, len(configured))
-	passphrases := make(map[model.KeychainRef][]byte, len(configured))
-	defer func() {
-		for _, passphrase := range passphrases {
-			clear(passphrase)
-		}
-	}()
-
+func newKeyring(store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver, random io.Reader) (error, *Keyring) {
+	keyring := &Keyring{
+		store:       store,
+		ids:         make([]string, 0, len(configured)),
+		passphrases: make(map[string][]byte, len(configured)),
+		keys:        make(map[model.KeychainRef][]byte, len(configured)),
+		random:      random,
+	}
 	for _, configuredKeychain := range configured {
-		reference := model.KeychainRef{Id: configuredKeychain.ID, Version: 1}
 		err, passphrase := resolver.Resolve(configuredKeychain)
 		if err != nil {
+			keyring.Close()
 			return err, nil
 		}
-		passphrases[reference] = passphrase
+		keyring.ids = append(keyring.ids, configuredKeychain.ID)
+		keyring.passphrases[configuredKeychain.ID] = passphrase
+	}
+	return nil, keyring
+}
+
+func (keyring *Keyring) Candidates() (error, []model.Keychain) {
+	keyring.mutex.Lock()
+	defer keyring.mutex.Unlock()
+
+	candidates := make([]model.Keychain, 0, len(keyring.ids))
+	for _, id := range keyring.ids {
+		reference := model.KeychainRef{Id: id, Version: 1}
+		passphrase, ok := keyring.passphrases[id]
+		if !ok {
+			return fmt.Errorf("generate keychain %q: no cached passphrase", id), nil
+		}
 
 		salt := make([]byte, saltSize)
-		if _, err := io.ReadFull(random, salt); err != nil {
+		if _, err := io.ReadFull(keyring.random, salt); err != nil {
 			return fmt.Errorf("generate keychain KDF salt for %q: %w", reference.Id, err), nil
 		}
 		kdf := KDF{Salt: salt}
@@ -54,53 +69,19 @@ func prepare(ctx context.Context, store *database.Store, configured []config.Key
 		}
 
 		dek := make([]byte, keySize)
-		if _, err := io.ReadFull(random, dek); err != nil {
+		if _, err := io.ReadFull(keyring.random, dek); err != nil {
 			clear(kek)
 			return fmt.Errorf("generate keychain DEK for %q: %w", reference.Id, err), nil
 		}
-		err, encrypted := Seal(random, kek, keychainAssociatedData(reference), dek)
+		err, encrypted := Seal(keyring.random, kek, keychainAssociatedData(reference), dek)
 		clear(kek)
 		clear(dek)
 		if err != nil {
 			return fmt.Errorf("encrypt DEK for keychain %q: %w", reference.Id, err), nil
 		}
-
-		references = append(references, reference)
-		candidates = append(candidates, model.Keychain{
-			Ref:     reference,
-			KekKdf:  kdf.String(),
-			Key:     encrypted.String(),
-			Enabled: true,
-		})
+		candidates = append(candidates, model.Keychain{Ref: reference, KekKdf: kdf.String(), Key: encrypted.String(), Enabled: true})
 	}
-
-	if err := store.KeychainsInsert(ctx, candidates); err != nil {
-		return err, nil
-	}
-	err, persisted := store.KeychainsGet(ctx, references)
-	if err != nil {
-		return err, nil
-	}
-	stored := make(map[model.KeychainRef]model.Keychain, len(persisted))
-	for _, keychain := range persisted {
-		stored[keychain.Ref] = keychain
-	}
-
-	keyring := newKeyring(store, configured, resolver)
-	for _, reference := range references {
-		keychain, ok := stored[reference]
-		if !ok {
-			keyring.Close()
-			return fmt.Errorf("get keychain %q version %d: not found after insert", reference.Id, reference.Version), nil
-		}
-		err, dek := decryptKeychain(reference, keychain, passphrases[reference])
-		if err != nil {
-			keyring.Close()
-			return err, nil
-		}
-		keyring.keys[reference] = dek
-	}
-	return nil, keyring
+	return nil, candidates
 }
 
 func (keyring *Keyring) Get(ctx context.Context, references []model.KeychainRef) (error, map[model.KeychainRef][]byte) {
@@ -133,28 +114,14 @@ func (keyring *Keyring) Get(ctx context.Context, references []model.KeychainRef)
 	for _, keychain := range stored {
 		keychains[keychain.Ref] = keychain
 	}
-	passphrases := make(map[string][]byte)
-	defer func() {
-		for _, passphrase := range passphrases {
-			clear(passphrase)
-		}
-	}()
 	for _, reference := range missing {
 		keychain, ok := keychains[reference]
 		if !ok {
 			return fmt.Errorf("get keychain %q version %d: not found", reference.Id, reference.Version), nil
 		}
-		passphrase, ok := passphrases[reference.Id]
+		passphrase, ok := keyring.passphrases[reference.Id]
 		if !ok {
-			configured, ok := keyring.configured[reference.Id]
-			if !ok {
-				return fmt.Errorf("get keychain %q version %d: no configured passphrase source", reference.Id, reference.Version), nil
-			}
-			err, passphrase = keyring.resolver.Resolve(configured)
-			if err != nil {
-				return err, nil
-			}
-			passphrases[reference.Id] = passphrase
+			return fmt.Errorf("get keychain %q version %d: no cached passphrase", reference.Id, reference.Version), nil
 		}
 		err, dek := decryptKeychain(reference, keychain, passphrase)
 		if err != nil {
@@ -169,23 +136,14 @@ func (keyring *Keyring) Get(ctx context.Context, references []model.KeychainRef)
 func (keyring *Keyring) Close() {
 	keyring.mutex.Lock()
 	defer keyring.mutex.Unlock()
+	for _, passphrase := range keyring.passphrases {
+		clear(passphrase)
+	}
+	clear(keyring.passphrases)
 	for _, key := range keyring.keys {
 		clear(key)
 	}
 	clear(keyring.keys)
-}
-
-func newKeyring(store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver) *Keyring {
-	sources := make(map[string]config.Keychain, len(configured))
-	for _, keychain := range configured {
-		sources[keychain.ID] = keychain
-	}
-	return &Keyring{
-		store:      store,
-		configured: sources,
-		resolver:   resolver,
-		keys:       make(map[model.KeychainRef][]byte, len(configured)),
-	}
 }
 
 func decryptKeychain(reference model.KeychainRef, keychain model.Keychain, passphrase []byte) (error, []byte) {

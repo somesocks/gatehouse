@@ -52,8 +52,8 @@ type RepeatableMigration struct {
 }
 
 const (
-	migrationTypeVersioned  = "versioned"
-	migrationTypeRepeatable = "repeatable"
+	migrationTypeVersioned      = "versioned"
+	migrationTypeRepeatable     = "repeatable"
 	compactRepeatableHistorySQL = `
 		DELETE FROM gatehouse_schema_migrations AS older
 		WHERE older.migration_type = 'repeatable'

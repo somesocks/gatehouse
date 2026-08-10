@@ -7,8 +7,8 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/migrations"
 	"gatehouse/keychain"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
@@ -19,7 +19,17 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	configured := []config.Keychain{{
+		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
+	}}
+	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
+	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+	err, set := migrations.Build(configuration, config.State{Keychains: configured}, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,14 +44,6 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
-	err, keyring := keychain.Prepare(ctx, store, []config.Keychain{{
-		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
-	}}, keychain.NewPassphraseSourceResolver())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer keyring.Close()
 	err, tokens := Prepare(ctx, store, keyring, "test")
 	if err != nil {
 		t.Fatal(err)
@@ -62,7 +64,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if claims != (Claims{Principal: "alice", Identity: "gatehouse:alice"}) {
 		t.Fatalf("Authenticate() = %#v", claims)
 	}
-	err, unavailableKeyring := keychain.Prepare(ctx, store, nil, keychain.NewPassphraseSourceResolver())
+	err, unavailableKeyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +93,7 @@ func TestPrepareDoesNotRequireSelectedKeychain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	err, keyring := keychain.Prepare(ctx, store, nil, keychain.NewPassphraseSourceResolver())
+	err, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}

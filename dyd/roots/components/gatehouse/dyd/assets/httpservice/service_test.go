@@ -14,9 +14,9 @@ import (
 	"gatehouse/auth"
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/migrations"
 	"gatehouse/identity"
 	"gatehouse/keychain"
+	"gatehouse/migrations"
 )
 
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
@@ -172,7 +172,17 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.State{})
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
+	configured := []config.Keychain{{
+		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
+	}}
+	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(keyring.Close)
+	err, set := migrations.Build(configuration, config.State{Keychains: configured}, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,15 +224,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	`); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
 	t.Setenv("GATEHOUSE_TEST_PASSWORD", "correct password")
-	err, keyring := keychain.Prepare(ctx, store, []config.Keychain{{
-		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
-	}}, keychain.NewPassphraseSourceResolver())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(keyring.Close)
 	algorithm := "pbkdf2-hmac-sha256-v1"
 	if err := identity.Prepare(ctx, store, []config.Principal{{
 		ID: "alice", Enabled: true, Identities: []config.Identity{{

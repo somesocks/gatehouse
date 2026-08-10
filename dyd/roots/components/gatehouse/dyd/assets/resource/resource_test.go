@@ -8,8 +8,8 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/migrations"
 	"gatehouse/keychain"
+	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
@@ -72,9 +72,9 @@ func TestResolverRejectsIdentityMismatchTamperingAndMissingKey(t *testing.T) {
 	}
 	resolver := newResolver(keyring, nil, nil)
 	tests := []struct {
-		name      string
-		resource  config.Resource
-		contains  string
+		name     string
+		resource config.Resource
+		contains string
 	}{
 		{
 			name:     "identity mismatch",
@@ -120,19 +120,21 @@ func openResourceKeyring(t *testing.T) *keychain.Keyring {
 			t.Error(err)
 		}
 	})
-	err, set := migrations.Build(configuration, config.State{})
+	t.Setenv("RESOURCE_KEYCHAIN", "passphrase")
+	configured := []config.Keychain{{
+		ID:      "default",
+		Sources: []config.KeychainPassphraseSource{"env:RESOURCE_KEYCHAIN"},
+	}}
+	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(keyring.Close)
+	err, set := migrations.Build(configuration, config.State{Keychains: configured}, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := migrations.Run(context.Background(), store, set); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("RESOURCE_KEYCHAIN", "passphrase")
-	err, keyring := keychain.Prepare(context.Background(), store, []config.Keychain{{
-		ID:      "default",
-		Sources: []config.KeychainPassphraseSource{"env:RESOURCE_KEYCHAIN"},
-	}}, keychain.NewPassphraseSourceResolver())
-	if err != nil {
 		t.Fatal(err)
 	}
 	return keyring

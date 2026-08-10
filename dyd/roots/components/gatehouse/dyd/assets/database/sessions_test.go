@@ -7,7 +7,6 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
@@ -36,11 +35,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 			},
 		}},
 	}
-	err, set := migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(ctx, store, set); err != nil {
+	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `

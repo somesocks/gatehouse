@@ -66,7 +66,13 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 		defer store.Close()
-		err, set := migrations.Build(databaseConfig, state)
+		err, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare keychain passphrases: %v\n", err)
+			return 1
+		}
+		defer keyring.Close()
+		err, set := migrations.Build(databaseConfig, state, keyring)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "generate migrations: %v\n", err)
 			return 1
@@ -75,12 +81,6 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}
-		err, keyring := keychain.Prepare(ctx, store, state.Keychains, keychain.NewPassphraseSourceResolver())
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "prepare keychains: %v\n", err)
-			return 1
-		}
-		defer keyring.Close()
 		if err := identity.Prepare(ctx, store, state.Principals, identity.NewPasswordSourceResolver()); err != nil {
 			fmt.Fprintf(os.Stderr, "prepare identities: %v\n", err)
 			return 1

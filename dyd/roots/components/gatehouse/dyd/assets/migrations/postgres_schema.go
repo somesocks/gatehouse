@@ -201,7 +201,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 		`),
 		}},
 		Repeatable: []RepeatableMigration{{
-			Index:       1,
+			Index:       2,
 			Description: "seed_gatehouse_workspace",
 			Builder: templateMigrationBuilder(`
 			INSERT INTO gatehouse_workspaces (id, name, enabled)
@@ -211,7 +211,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 		`, values),
 		}, {
-			Index:       2,
+			Index:       3,
 			Description: "reconcile_workspaces",
 			Builder: templateMigrationBuilder(`
 			SELECT 1;
@@ -224,7 +224,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 		`, values),
 		}, {
-			Index:       3,
+			Index:       4,
 			Description: "reconcile_principals",
 			Builder: templateMigrationBuilder(`
 			SELECT 1;
@@ -237,7 +237,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 		`, values),
 		}, {
-			Index:       4,
+			Index:       5,
 			Description: "reconcile_groups_and_memberships",
 			Builder: templateMigrationBuilder(`
 			SELECT 1;
@@ -257,7 +257,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 		`, values),
 		}, {
-			Index:       5,
+			Index:       6,
 			Description: "reconcile_tools_and_resources",
 			Builder: templateMigrationBuilder(`
 			SELECT 1;
@@ -278,7 +278,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 		`, values),
 		}, {
-			Index:       6,
+			Index:       7,
 			Description: "reconcile_group_grants",
 			Builder: templateMigrationBuilder(`
 			SELECT 1;

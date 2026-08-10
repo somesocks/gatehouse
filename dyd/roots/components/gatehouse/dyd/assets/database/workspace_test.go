@@ -7,7 +7,6 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/migrations"
 	"gatehouse/model"
 )
 
@@ -69,11 +68,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 			},
 		},
 	}
-	err, set := migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), store, set); err != nil {
+	if err := migrateState(context.Background(), store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 

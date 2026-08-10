@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
 )
@@ -22,11 +23,7 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	err, set := migrations.Build(configuration, config.State{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, config.State{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -34,8 +31,8 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&migrationCount); err != nil {
 		t.Fatal(err)
 	}
-	if migrationCount != 13 {
-		t.Fatalf("migration history count = %d, want 13", migrationCount)
+	if migrationCount != 14 {
+		t.Fatalf("migration history count = %d, want 14", migrationCount)
 	}
 	var workspaceCount int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_workspaces`).Scan(&workspaceCount); err != nil {
@@ -53,11 +50,7 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	}
 	defer database.Close()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, set := migrations.Build(configuration, config.State{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, config.State{}); err != nil {
 		t.Fatalf("Migrate() after runtime repeatables: %v", err)
 	}
 
@@ -65,8 +58,8 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_schema_migrations`).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 13 {
-		t.Fatalf("migration history count = %d, want 13", count)
+	if count != 14 {
+		t.Fatalf("migration history count = %d, want 14", count)
 	}
 	var gatehouseName string
 	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
@@ -366,11 +359,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
-	err, set := migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := database.Exec(`INSERT INTO gatehouse_principals (id, name, enabled) VALUES ('bob', 'Bob', TRUE)`); err != nil {
@@ -387,11 +376,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 			{PrincipalID: "bob", Enabled: false},
 		},
 	}}
-	err, set = migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 
@@ -466,11 +451,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 			},
 		}},
 	}
-	err, set := migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 
@@ -546,11 +527,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	state.Resources[1].Enabled = false
 	state.Groups[0].ToolGrants[0].Enabled = false
 	state.Groups[0].ResourceGrants[1].Enabled = true
-	err, set = migrations.Build(configuration, state)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 
@@ -600,11 +577,7 @@ func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer database.Close()
-	err, set := migrations.Build(configuration, config.State{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := migrations.Run(context.Background(), database, set); err != nil {
+	if err := migrateState(context.Background(), database, configuration, config.State{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -736,16 +709,24 @@ func openConfigured(ctx context.Context, configuration config.DatabaseConfig, wo
 	if err != nil {
 		return err, nil
 	}
-	err, set := migrations.Build(configuration, config.State{Workspaces: workspaces, Principals: principals})
-	if err != nil {
-		database.Close()
-		return err, nil
-	}
-	if err := migrations.Run(ctx, database, set); err != nil {
+	if err := migrateState(ctx, database, configuration, config.State{Workspaces: workspaces, Principals: principals}); err != nil {
 		database.Close()
 		return err, nil
 	}
 	return nil, database
+}
+
+func migrateState(ctx context.Context, store *database.Store, configuration config.DatabaseConfig, state config.State) error {
+	err, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		return err
+	}
+	defer keyring.Close()
+	err, set := migrations.Build(configuration, state, keyring)
+	if err != nil {
+		return err
+	}
+	return migrations.Run(ctx, store, set)
 }
 
 func openMigrationTestDatabase(t *testing.T) *sql.DB {
