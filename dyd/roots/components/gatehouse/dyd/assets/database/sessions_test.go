@@ -4,6 +4,7 @@ import (
 	"context"
 	"reflect"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
@@ -123,6 +124,9 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if stored.CreatedAt == "" {
 		t.Fatalf("SessionsCreate() = %#v", stored)
 	}
+	if _, err := time.Parse("2006-01-02T15:04:05.000Z", stored.CreatedAt); err != nil {
+		t.Fatalf("SessionsCreate() timestamp = %q: %v", stored.CreatedAt, err)
+	}
 	err, storedSession := store.SessionGet(ctx, session, alice)
 	if err != nil || storedSession == nil || storedSession.AuthorPrincipal == nil || *storedSession.AuthorPrincipal != alice || storedSession.AuthorAgent != nil || storedSession.AuthorGateway != nil || !storedSession.Enabled || storedSession.CreatedAt == "" {
 		t.Fatalf("SessionGet() for creator = (%#v, %v)", storedSession, err)
@@ -144,6 +148,9 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	if storedEvent.CreatedAt == "" {
 		t.Fatalf("SessionEventsCreate() = %#v", storedEvent)
+	}
+	if _, err := time.Parse("2006-01-02T15:04:05.000Z", storedEvent.CreatedAt); err != nil {
+		t.Fatalf("SessionEventsCreate() timestamp = %q: %v", storedEvent.CreatedAt, err)
 	}
 	err, events := store.SessionEventsGet(ctx, session)
 	if err != nil {
@@ -227,9 +234,21 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatal("SessionEventsCreate() accepted an event without an author")
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload)
-		VALUES ('engineering', 'session-one', 'unknown-author', 'message.text', 'unknown', '{}')
+		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at)
+		VALUES ('engineering', 'session-one', 'unknown-author', 'message.text', 'unknown', '{}', '2026-01-01T00:00:00.000Z')
 	`); err == nil {
 		t.Fatal("session events accepted an unknown principal author")
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled)
+		VALUES ('engineering', 'missing-timestamp', 'alice', TRUE)
+	`); err == nil {
+		t.Fatal("sessions accepted a missing timestamp")
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload)
+		VALUES ('engineering', 'session-one', 'missing-timestamp', 'message.text', 'alice', '{}')
+	`); err == nil {
+		t.Fatal("session events accepted a missing timestamp")
 	}
 }

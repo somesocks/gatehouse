@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"fmt"
+	"time"
 )
 
 const postgresMigrationLockID int64 = 6_741_942_832_512_869_207
@@ -87,11 +88,12 @@ func migratePostgresOne(ctx context.Context, connection *sql.Conn, registry Regi
 		return fmt.Errorf("execute %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
 	}
 	checksum := sha256.Sum256([]byte(migration.source))
+	appliedAt := time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 	if _, err := connection.ExecContext(ctx, `
 		INSERT INTO gatehouse_schema_migrations (
-			migration_type, migration_index, description, checksum
-		) VALUES ($1, $2, $3, $4)
-	`, migration.migrationType, migration.index, migration.description, checksum[:]); err != nil {
+			migration_type, migration_index, description, checksum, applied_at
+		) VALUES ($1, $2, $3, $4, $5)
+	`, migration.migrationType, migration.index, migration.description, checksum[:], appliedAt); err != nil {
 		return fmt.Errorf("record %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
 	}
 	if err := commitPostgresMigration(ctx, connection, fmt.Sprintf("%s migration %d (%s)", migration.migrationType, migration.index, migration.description)); err != nil {

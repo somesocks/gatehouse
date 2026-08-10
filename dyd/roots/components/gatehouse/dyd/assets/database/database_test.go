@@ -62,8 +62,8 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_schema_migrations (
-			migration_type, migration_index, description, checksum
-		) VALUES ('versioned', 'invalid', 'test', zeroblob(32))
+			migration_type, migration_index, description, checksum, applied_at
+		) VALUES ('versioned', 'invalid', 'test', zeroblob(32), '2026-01-01T00:00:00.000Z')
 	`); err == nil {
 		t.Fatal("strict migration history accepted text for migration_index")
 	}

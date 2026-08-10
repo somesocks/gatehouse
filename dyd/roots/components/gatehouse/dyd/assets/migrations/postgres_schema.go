@@ -19,7 +19,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				CHECK (length(description) > 0),
 			checksum BYTEA NOT NULL
 				CHECK (octet_length(checksum) = 32),
-			applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+			applied_at TIMESTAMPTZ NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS gatehouse_schema_migrations_once
@@ -169,7 +169,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				author_agent TEXT,
 				author_gateway TEXT,
 				enabled BOOLEAN NOT NULL,
-				created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at TIMESTAMPTZ NOT NULL,
 				PRIMARY KEY (workspace, id),
 				FOREIGN KEY (workspace, author_agent)
 					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
@@ -220,7 +220,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				author_agent TEXT,
 				author_gateway TEXT,
 				payload JSONB NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
-				created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at TIMESTAMPTZ NOT NULL,
 				PRIMARY KEY (workspace, session, id),
 				FOREIGN KEY (workspace, session)
 					REFERENCES gatehouse_sessions (workspace, id),

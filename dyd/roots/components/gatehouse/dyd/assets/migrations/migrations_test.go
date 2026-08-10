@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
@@ -55,6 +56,24 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 	}
 	if got, want := historyIndexes(t, database, migrationTypeVersioned), []int64{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("versioned migration indexes = %#v, want %#v", got, want)
+	}
+	var appliedAt string
+	if err := database.QueryRow(`
+		SELECT applied_at
+		FROM gatehouse_schema_migrations
+		WHERE migration_type = ? AND migration_index = ?
+	`, migrationTypeVersioned, 1).Scan(&appliedAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := time.Parse("2006-01-02T15:04:05.000Z", appliedAt); err != nil {
+		t.Fatalf("migration timestamp = %q: %v", appliedAt, err)
+	}
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_schema_migrations (
+			migration_type, migration_index, description, checksum
+		) VALUES ('baseline', 1, 'missing timestamp', zeroblob(32))
+	`); err == nil {
+		t.Fatal("migration history accepted a missing timestamp")
 	}
 }
 
@@ -311,9 +330,9 @@ func TestMigrateRejectsPersistedOutOfOrderVersionedHistory(t *testing.T) {
 		checksum := sha256.Sum256([]byte(versionedMigrationSource(t, migration)))
 		if _, err := database.Exec(`
 			INSERT INTO gatehouse_schema_migrations (
-				migration_type, migration_index, description, checksum
-			) VALUES (?, ?, ?, ?)
-		`, migrationTypeVersioned, migration.Index, migration.Description, checksum[:]); err != nil {
+				migration_type, migration_index, description, checksum, applied_at
+			) VALUES (?, ?, ?, ?, ?)
+		`, migrationTypeVersioned, migration.Index, migration.Description, checksum[:], "2026-01-01T00:00:00.000Z"); err != nil {
 			t.Fatal(err)
 		}
 	}

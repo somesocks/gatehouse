@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"gatehouse/model"
 )
@@ -18,6 +19,7 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	if err != nil {
 		return err, model.Session{}
 	}
+	session.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -27,10 +29,10 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 
 	placeholder := keychainPlaceholder(store.kind)
 	row := transaction.QueryRowContext(ctx, `
-		INSERT INTO gatehouse_sessions (workspace, id, author_principal, author_agent, author_gateway, enabled)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`)
+		INSERT INTO gatehouse_sessions (workspace, id, author_principal, author_agent, author_gateway, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
 		RETURNING created_at
-	`, session.Ref.Workspace.Id, session.Ref.Id, authorPrincipal, authorAgent, authorGateway, session.Enabled)
+	`, session.Ref.Workspace.Id, session.Ref.Id, authorPrincipal, authorAgent, authorGateway, session.Enabled, session.CreatedAt)
 	if err := row.Scan(&session.CreatedAt); err != nil {
 		return fmt.Errorf("insert session: %w", err), model.Session{}
 	}
@@ -113,6 +115,7 @@ func (store *Store) SessionEventsCreate(ctx context.Context, event model.Session
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
+	event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 	payload, err := json.Marshal(event.Payload)
 	if err != nil {
 		return fmt.Errorf("encode session event payload: %w", err), model.SessionEvent{}
@@ -120,13 +123,13 @@ func (store *Store) SessionEventsCreate(ctx context.Context, event model.Session
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		INSERT INTO gatehouse_session_events (
-			workspace, session, id, kind, author_principal, author_agent, author_gateway, payload
+			workspace, session, id, kind, author_principal, author_agent, author_gateway, payload, created_at
 		) VALUES (
 			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`,
-			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`
+			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`
 		)
 		RETURNING created_at
-	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, event.Kind, principal, agent, gateway, string(payload))
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, event.Kind, principal, agent, gateway, string(payload), event.CreatedAt)
 	if err := row.Scan(&event.CreatedAt); err != nil {
 		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
 	}

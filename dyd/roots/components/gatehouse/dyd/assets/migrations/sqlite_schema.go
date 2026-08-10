@@ -19,7 +19,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				CHECK (length(description) > 0),
 			checksum BLOB NOT NULL
 				CHECK (length(checksum) = 32),
-			applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+			applied_at TEXT NOT NULL
 		) STRICT;
 
 		CREATE UNIQUE INDEX IF NOT EXISTS gatehouse_schema_migrations_once
@@ -176,7 +176,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				author_agent TEXT,
 				author_gateway TEXT,
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at TEXT NOT NULL,
 				PRIMARY KEY (workspace, id),
 				FOREIGN KEY (workspace, author_agent)
 					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
@@ -227,7 +227,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				author_agent TEXT,
 				author_gateway TEXT,
 				payload TEXT NOT NULL CHECK (json_valid(payload)) CHECK (json_type(payload) = 'object'),
-				created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+				created_at TEXT NOT NULL,
 				PRIMARY KEY (workspace, session, id),
 				FOREIGN KEY (workspace, session)
 					REFERENCES gatehouse_sessions (workspace, id),
