@@ -20,42 +20,19 @@ func Build(configuration config.DatabaseConfig, state config.State, keyring *key
 	}
 	switch configuration.Kind {
 	case config.DatabaseKindSQLite, config.DatabaseKindEphemeral:
-		err, registry := sqliteMigrations(state)
+		err, registry := sqliteMigrations(state, keyring)
 		if err != nil {
 			return err, Set{}
 		}
-		registry.Repeatable = append([]RepeatableMigration{keychainRepeatableMigration(keyring)}, registry.Repeatable...)
 		return nil, Set{kind: config.DatabaseKindSQLite, registry: registry}
 	case config.DatabaseKindPostgres:
-		err, registry := postgresMigrations(state)
+		err, registry := postgresMigrations(state, keyring)
 		if err != nil {
 			return err, Set{}
 		}
-		registry.Repeatable = append([]RepeatableMigration{keychainRepeatableMigration(keyring)}, registry.Repeatable...)
 		return nil, Set{kind: config.DatabaseKindPostgres, registry: registry}
 	default:
 		return fmt.Errorf("unsupported migration database kind %q", configuration.Kind), Set{}
-	}
-}
-
-func keychainRepeatableMigration(keyring *keychain.Keyring) RepeatableMigration {
-	return RepeatableMigration{
-		Index:       1,
-		Description: "prepare_keychains",
-		Builder: func(ctx context.Context, session *MigrationSession) (error, string) {
-			err, candidates := keyring.Candidates()
-			if err != nil {
-				return err, ""
-			}
-			return session.RenderTemplate(`
-				SELECT 1;
-				{{ range . }}
-				INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
-				VALUES ({{ sqlLiteral .Ref.Id }}, {{ sqlLiteral .Ref.Version }}, {{ sqlLiteral .KekKdf }}, {{ sqlLiteral .Key }}, {{ sqlBool .Enabled }})
-				ON CONFLICT (id, version) DO NOTHING;
-				{{ end }}
-			`, candidates)
-		},
 	}
 }
 

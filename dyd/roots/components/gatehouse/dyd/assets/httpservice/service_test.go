@@ -14,7 +14,6 @@ import (
 	"gatehouse/auth"
 	"gatehouse/config"
 	"gatehouse/database"
-	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 )
@@ -174,22 +173,30 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	t.Cleanup(func() { _ = store.Close() })
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
+	t.Setenv("GATEHOUSE_TEST_PASSWORD", "correct password")
 	configured := []config.Keychain{{
 		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
+	algorithm := "pbkdf2-hmac-sha256-v1"
+	state := config.State{
+		Keychains: configured,
+		Principals: []config.Principal{{
+			ID: "alice", Enabled: true, Identities: []config.Identity{{
+				ID: "gatehouse:alice", Revision: 1, Enabled: true,
+				Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
+			}},
+		}},
+	}
 	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(keyring.Close)
-	err, set := migrations.Build(configuration, config.State{Keychains: configured}, keyring)
+	err, set := migrations.Build(configuration, state, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := migrations.Run(ctx, store, set); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
@@ -222,16 +229,6 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
 			VALUES ('engineering', 'shared', 'developers', TRUE);
 	`); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("GATEHOUSE_TEST_PASSWORD", "correct password")
-	algorithm := "pbkdf2-hmac-sha256-v1"
-	if err := identity.Prepare(ctx, store, []config.Principal{{
-		ID: "alice", Enabled: true, Identities: []config.Identity{{
-			ID: "gatehouse:alice", Revision: 1, Enabled: true,
-			Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
-		}},
-	}}, identity.NewPasswordSourceResolver()); err != nil {
 		t.Fatal(err)
 	}
 	err, tokens := auth.Prepare(ctx, store, keyring, "test")

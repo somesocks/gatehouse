@@ -55,41 +55,6 @@ func (store *Store) IdentitiesUpsertRevisions(ctx context.Context, identities []
 	return nil
 }
 
-func (store *Store) IdentityRevisions(ctx context.Context, ids []string) (error, map[string]int) {
-	if len(ids) == 0 {
-		return nil, map[string]int{}
-	}
-	placeholder := keychainPlaceholder(store.kind)
-	values := make([]string, len(ids))
-	arguments := make([]any, len(ids))
-	for index, id := range ids {
-		values[index] = placeholder(index + 1)
-		arguments[index] = id
-	}
-	rows, err := store.QueryContext(ctx, `
-		SELECT id, revision
-		FROM gatehouse_identities
-		WHERE id IN (`+strings.Join(values, ", ")+`)
-	`, arguments...)
-	if err != nil {
-		return fmt.Errorf("get identity revisions: %w", err), nil
-	}
-	defer rows.Close()
-	revisions := make(map[string]int, len(ids))
-	for rows.Next() {
-		var id string
-		var revision int
-		if err := rows.Scan(&id, &revision); err != nil {
-			return fmt.Errorf("read identity revision: %w", err), nil
-		}
-		revisions[id] = revision
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read identity revisions: %w", err), nil
-	}
-	return nil, revisions
-}
-
 func (store *Store) ActiveIdentityGet(ctx context.Context, id string) (error, *ActiveIdentity) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `

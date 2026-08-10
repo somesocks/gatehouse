@@ -3,10 +3,9 @@ package identity
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -16,8 +15,6 @@ import (
 
 	"crypto/pbkdf2"
 	"gatehouse/config"
-	"gatehouse/database"
-	"gatehouse/model"
 )
 
 const (
@@ -58,46 +55,16 @@ func (resolver *PasswordSourceResolver) Resolve(identityID string, sources []con
 	return fmt.Errorf("resolve password for identity %q: no source provided a password", identityID), nil
 }
 
-func Prepare(ctx context.Context, store *database.Store, principals []config.Principal, resolver *PasswordSourceResolver) error {
-	type configuredIdentity struct {
-		principalID string
-		identity    config.Identity
-	}
-	configured := make([]configuredIdentity, 0)
-	ids := make([]string, 0)
-	for _, principal := range principals {
-		for _, identity := range principal.Identities {
-			configured = append(configured, configuredIdentity{principalID: principal.ID, identity: identity})
-			ids = append(ids, identity.ID)
+func ResolveVerifiers(identityID string, configured []config.Verifier, resolver *PasswordSourceResolver) (error, []interface{}) {
+	verifiers := make([]interface{}, 0, len(configured))
+	for _, verifier := range configured {
+		resolved, err := resolveVerifier(identityID, verifier, resolver)
+		if err != nil {
+			return err, nil
 		}
+		verifiers = append(verifiers, resolved)
 	}
-	err, revisions := store.IdentityRevisions(ctx, ids)
-	if err != nil {
-		return err
-	}
-
-	identities := make([]model.Identity, 0)
-	for _, entry := range configured {
-		if revisions[entry.identity.ID] >= entry.identity.Revision {
-			continue
-		}
-		verifiers := make([]interface{}, 0, len(entry.identity.Verifiers))
-		for _, configuredVerifier := range entry.identity.Verifiers {
-			verifier, err := resolveVerifier(entry.identity.ID, configuredVerifier, resolver)
-			if err != nil {
-				return err
-			}
-			verifiers = append(verifiers, verifier)
-		}
-		identities = append(identities, model.Identity{
-			Id:        entry.identity.ID,
-			Principal: model.PrincipalRef{Id: entry.principalID},
-			Revision:  entry.identity.Revision,
-			Verifiers: verifiers,
-			Enabled:   entry.identity.Enabled,
-		})
-	}
-	return store.IdentitiesUpsertRevisions(ctx, identities)
+	return nil, verifiers
 }
 
 func resolveVerifier(identityID string, configured config.Verifier, resolver *PasswordSourceResolver) (interface{}, error) {
@@ -111,6 +78,7 @@ func resolveVerifier(identityID string, configured config.Verifier, resolver *Pa
 	if passwordErr != nil {
 		return nil, passwordErr
 	}
+	defer clear(password)
 	if bytes.IndexByte(password, 0) >= 0 {
 		return nil, fmt.Errorf("password for identity %q must not contain NUL", identityID)
 	}

@@ -1,8 +1,11 @@
 package migrations
 
-import "gatehouse/config"
+import (
+	"gatehouse/config"
+	"gatehouse/keychain"
+)
 
-func postgresMigrations(state config.State) (error, Registry) {
+func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, Registry) {
 	values := migrationValuesFor(state)
 	registry := Registry{
 		Init: InitMigration{Builder: staticMigrationBuilder(`
@@ -200,20 +203,26 @@ func postgresMigrations(state config.State) (error, Registry) {
 			ON gatehouse_session_group_grants (workspace, "group", session);
 		`),
 		}},
-		Repeatable: []RepeatableMigration{{
-			Index:       2,
-			Description: "seed_gatehouse_workspace",
-			Builder: templateMigrationBuilder(`
+		Repeatable: []RepeatableMigration{
+			{
+				Index:       1,
+				Description: "prepare_keychains",
+				Builder:     keychainMigrationBuilder(keyring),
+			},
+			{
+				Index:       2,
+				Description: "seed_gatehouse_workspace",
+				Builder: templateMigrationBuilder(`
 			INSERT INTO gatehouse_workspaces (id, name, enabled)
 			VALUES ('gatehouse', 'Gatehouse', TRUE)
 			ON CONFLICT (id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
 		`, values),
-		}, {
-			Index:       3,
-			Description: "reconcile_workspaces",
-			Builder: templateMigrationBuilder(`
+			}, {
+				Index:       3,
+				Description: "reconcile_workspaces",
+				Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Workspaces }}
 			INSERT INTO gatehouse_workspaces (id, name, enabled)
@@ -223,10 +232,10 @@ func postgresMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 		`, values),
-		}, {
-			Index:       4,
-			Description: "reconcile_principals",
-			Builder: templateMigrationBuilder(`
+			}, {
+				Index:       4,
+				Description: "reconcile_principals",
+				Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Principals }}
 			INSERT INTO gatehouse_principals (id, name, enabled)
@@ -236,10 +245,14 @@ func postgresMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 		`, values),
-		}, {
-			Index:       5,
-			Description: "reconcile_groups_and_memberships",
-			Builder: templateMigrationBuilder(`
+			}, {
+				Index:       5,
+				Description: "reconcile_identities",
+				Builder:     identityMigrationBuilder(state.Principals),
+			}, {
+				Index:       6,
+				Description: "reconcile_groups_and_memberships",
+				Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Groups }}
 			{{ $group := . }}
@@ -256,10 +269,10 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 			{{ end }}
 		`, values),
-		}, {
-			Index:       6,
-			Description: "reconcile_tools_and_resources",
-			Builder: templateMigrationBuilder(`
+			}, {
+				Index:       7,
+				Description: "reconcile_tools_and_resources",
+				Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Tools }}
 			INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
@@ -277,10 +290,10 @@ func postgresMigrations(state config.State) (error, Registry) {
 				enabled = excluded.enabled;
 			{{ end }}
 		`, values),
-		}, {
-			Index:       7,
-			Description: "reconcile_group_grants",
-			Builder: templateMigrationBuilder(`
+			}, {
+				Index:       8,
+				Description: "reconcile_group_grants",
+				Builder: templateMigrationBuilder(`
 			SELECT 1;
 			{{ range .Groups }}
 			{{ $group := . }}
@@ -298,7 +311,7 @@ func postgresMigrations(state config.State) (error, Registry) {
 			{{ end }}
 			{{ end }}
 		`, values),
-		}},
+			}},
 	}
 	return nil, registry
 }

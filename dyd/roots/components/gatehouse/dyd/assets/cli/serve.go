@@ -14,7 +14,6 @@ import (
 	"gatehouse/configschema"
 	"gatehouse/database"
 	"gatehouse/httpservice"
-	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 )
@@ -81,11 +80,6 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}
-		if err := identity.Prepare(ctx, store, state.Principals, identity.NewPasswordSourceResolver()); err != nil {
-			fmt.Fprintf(os.Stderr, "prepare identities: %v\n", err)
-			return 1
-		}
-
 		if services.HTTP == nil || !services.HTTP.Enabled {
 			fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 			<-ctx.Done()

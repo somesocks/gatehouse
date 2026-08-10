@@ -13,6 +13,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/model"
 )
@@ -153,6 +154,96 @@ func TestMigratePreparesKeychainsFirstWithoutReplacement(t *testing.T) {
 	}
 	if got := len(keys[reference]); got != 16 {
 		t.Fatalf("prepared DEK length = %d, want 16", got)
+	}
+}
+
+func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(context.Background(), configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	algorithm := "pbkdf2-hmac-sha256-v1"
+	state := config.State{Principals: []config.Principal{{
+		ID: "alice", Enabled: true, Identities: []config.Identity{{
+			ID: "gatehouse:alice", Revision: 1, Enabled: true,
+			Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:IDENTITY_PASSWORD"}}},
+		}},
+	}}}
+	run := func() {
+		err, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer keyring.Close()
+		err, set := Build(configuration, state, keyring)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Run(context.Background(), store, set); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identityID := "gatehouse:alice"
+	t.Setenv("IDENTITY_PASSWORD", "first password")
+	run()
+	err, first := store.ActiveIdentityGet(context.Background(), identityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == nil || len(first.Verifiers) != 1 {
+		t.Fatalf("active identity = %#v, want one verifier", first)
+	}
+	firstVerifier, ok := first.Verifiers[0].(string)
+	if !ok {
+		t.Fatalf("identity verifier = %#v, want string", first.Verifiers[0])
+	}
+	if err, valid := identity.VerifyPassword(firstVerifier, []byte("first password")); err != nil || !valid {
+		t.Fatalf("first verifier validation = (%v, %t), want (nil, true)", err, valid)
+	}
+
+	t.Setenv("IDENTITY_PASSWORD", "")
+	run()
+	err, unchanged := store.ActiveIdentityGet(context.Background(), identityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged == nil || unchanged.Verifiers[0] != firstVerifier {
+		t.Fatalf("identity at unchanged revision = %#v, want verifier %q", unchanged, firstVerifier)
+	}
+
+	state.Principals[0].Identities[0].Revision = 2
+	t.Setenv("IDENTITY_PASSWORD", "second password")
+	run()
+	err, updated := store.ActiveIdentityGet(context.Background(), identityID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updatedVerifier, ok := updated.Verifiers[0].(string)
+	if !ok {
+		t.Fatalf("updated identity verifier = %#v, want string", updated.Verifiers[0])
+	}
+	if err, valid := identity.VerifyPassword(updatedVerifier, []byte("second password")); err != nil || !valid {
+		t.Fatalf("updated verifier validation = (%v, %t), want (nil, true)", err, valid)
+	}
+	if err, valid := identity.VerifyPassword(updatedVerifier, []byte("first password")); err != nil || valid {
+		t.Fatalf("updated verifier validation with prior password = (%v, %t), want (nil, false)", err, valid)
+	}
+
+	if err := store.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
+		Id: identityID, Principal: model.PrincipalRef{Id: "alice"}, Revision: 3, Verifiers: []interface{}{updatedVerifier}, Enabled: true,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("IDENTITY_PASSWORD", "")
+	run()
+	var revision int
+	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE id = ?`, identityID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 3 {
+		t.Fatalf("stored identity revision = %d, want 3", revision)
 	}
 }
 
@@ -402,7 +493,12 @@ type repeatableValues struct {
 
 func testSQLiteRegistry(t *testing.T) Registry {
 	t.Helper()
-	err, registry := sqliteMigrations(config.State{})
+	err, keyring := keychain.NewKeyring(nil, nil, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+	err, registry := sqliteMigrations(config.State{}, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
