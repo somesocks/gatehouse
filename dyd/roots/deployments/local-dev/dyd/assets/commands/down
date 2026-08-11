@@ -3,5 +3,7 @@
 set -eu
 
 ASSETS_DIR="$DYD_STEM/dyd/assets"
+IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-gatehouse/dyd/assets"
 
+export GATEHOUSE_IMAGE="localhost/$(cat "$IMAGE_DIR/image")"
 docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" down

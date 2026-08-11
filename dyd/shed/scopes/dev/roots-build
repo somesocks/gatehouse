@@ -1,1 +1,1 @@
---include=~test=true
+--include=~test=true --include=dyd/roots/deployments/local-dev --variant=arch=host

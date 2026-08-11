@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+set -eu
+
+exec dryad sprout run --scope="$DYD_SCOPE" --variant=arch=host dyd/sprouts/deployments/local-dev "$@"
