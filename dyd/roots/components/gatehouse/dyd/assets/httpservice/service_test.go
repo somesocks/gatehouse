@@ -72,8 +72,13 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 	}
 	root := httptest.NewRecorder()
 	handler.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/", nil))
-	if root.Code != http.StatusNotFound {
-		t.Fatalf("GET / = status %d, want %d", root.Code, http.StatusNotFound)
+	if root.Code != http.StatusTemporaryRedirect || root.Header().Get("Location") != "/app/" {
+		t.Fatalf("GET / = status %d location %q", root.Code, root.Header().Get("Location"))
+	}
+	unknown := httptest.NewRecorder()
+	handler.ServeHTTP(unknown, httptest.NewRequest(http.MethodGet, "/unknown", nil))
+	if unknown.Code != http.StatusNotFound {
+		t.Fatalf("GET unknown route = status %d, want %d", unknown.Code, http.StatusNotFound)
 	}
 }
 

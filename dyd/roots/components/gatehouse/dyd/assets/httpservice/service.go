@@ -104,6 +104,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
 	if configuration.Web {
+		mux.HandleFunc("/", webRoot)
 		mux.HandleFunc("/app", web)
 		mux.HandleFunc("/app/", web)
 	}
@@ -641,4 +642,16 @@ func web(response http.ResponseWriter, request *http.Request) {
 	}
 	served.URL.RawPath = ""
 	webFileServer.ServeHTTP(response, served)
+}
+
+func webRoot(response http.ResponseWriter, request *http.Request) {
+	if request.URL.Path != "/" {
+		http.NotFound(response, request)
+		return
+	}
+	if request.Method != http.MethodGet {
+		response.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	http.Redirect(response, request, "/app/", http.StatusTemporaryRedirect)
 }
