@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+
+set -eu
+
+mkdir -p "$DYD_BUILD/dyd/assets"
+cp -R "$DYD_STEM/dyd/assets/." "$DYD_BUILD/dyd/assets"

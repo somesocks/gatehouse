@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SOURCE_DIR="$DYD_STEM/dyd/dependencies/source/dyd/assets"
+
+mkdir -p "$DYD_BUILD/dyd/assets"
+cp "$SOURCE_DIR/package.json" "$DYD_BUILD/dyd/assets/"
+cp "$SOURCE_DIR/package-lock.json" "$DYD_BUILD/dyd/assets/"

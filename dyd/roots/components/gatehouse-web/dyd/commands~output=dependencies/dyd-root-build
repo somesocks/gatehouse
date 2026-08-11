@@ -1,0 +1,15 @@
+#!/usr/bin/env sh
+
+set -eu
+
+MANIFESTS_DIR="$DYD_STEM/dyd/dependencies/manifests/dyd/assets"
+WORK_DIR="$DYD_BUILD/npm-work"
+
+mkdir -p "$DYD_BUILD/dyd/assets" "$WORK_DIR"
+cp "$MANIFESTS_DIR/package.json" "$WORK_DIR/"
+cp "$MANIFESTS_DIR/package-lock.json" "$WORK_DIR/"
+
+cd "$WORK_DIR"
+node--npm ci --cache "$WORK_DIR/cache"
+cp -R node_modules "$DYD_BUILD/dyd/assets/node_modules"
+rm -rf "$WORK_DIR"
