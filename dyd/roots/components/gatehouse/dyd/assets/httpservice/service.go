@@ -3,10 +3,12 @@ package httpservice
 import (
 	"context"
 	"crypto/rand"
+	"embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"strconv"
@@ -18,6 +20,19 @@ import (
 	"gatehouse/database"
 	"gatehouse/model"
 )
+
+//go:embed web
+var webAssets embed.FS
+
+var webFiles = func() fs.FS {
+	files, err := fs.Sub(webAssets, "web")
+	if err != nil {
+		panic(err)
+	}
+	return files
+}()
+
+var webFileServer = http.FileServer(http.FS(webFiles))
 
 type Service struct {
 	listener net.Listener
@@ -89,7 +104,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
 	if configuration.Web {
-		mux.HandleFunc("/", web)
+		mux.HandleFunc("/app", web)
+		mux.HandleFunc("/app/", web)
 	}
 	if configuration.API && len(tokens) > 0 && tokens[0] != nil {
 		mux.HandleFunc("/api/v1/auth/login", login(tokens[0]))
@@ -597,14 +613,32 @@ func health(response http.ResponseWriter, request *http.Request) {
 }
 
 func web(response http.ResponseWriter, request *http.Request) {
-	if request.URL.Path != "/" {
-		http.NotFound(response, request)
-		return
-	}
 	if request.Method != http.MethodGet {
 		response.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	response.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = response.Write([]byte("<!doctype html><title>Gatehouse</title><h1>Gatehouse</h1>\n"))
+	if request.URL.Path == "/app" {
+		http.Redirect(response, request, "/app/", http.StatusTemporaryRedirect)
+		return
+	}
+	name := strings.TrimPrefix(request.URL.Path, "/app/")
+	if name == "" {
+		name = "index.html"
+	}
+	info, err := fs.Stat(webFiles, name)
+	if err != nil || info.IsDir() {
+		if strings.HasPrefix(name, "assets/") {
+			http.NotFound(response, request)
+			return
+		}
+		name = "index.html"
+	}
+	served := request.Clone(request.Context())
+	if name == "index.html" {
+		served.URL.Path = "/"
+	} else {
+		served.URL.Path = "/" + name
+	}
+	served.URL.RawPath = ""
+	webFileServer.ServeHTTP(response, served)
 }

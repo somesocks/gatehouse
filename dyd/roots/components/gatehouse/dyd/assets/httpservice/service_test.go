@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,6 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 	}{
 		{path: "/healthz", body: "ok\n"},
 		{path: "/readyz", body: "ok\n"},
-		{path: "/", body: "<!doctype html><title>Gatehouse</title><h1>Gatehouse</h1>\n"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -40,6 +40,40 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 				t.Fatalf("GET %s body = %q, want %q", test.path, response.Body.String(), test.body)
 			}
 		})
+	}
+	redirect := httptest.NewRecorder()
+	handler.ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/app", nil))
+	if redirect.Code != http.StatusTemporaryRedirect || redirect.Header().Get("Location") != "/app/" {
+		t.Fatalf("GET /app = status %d location %q", redirect.Code, redirect.Header().Get("Location"))
+	}
+	app := httptest.NewRecorder()
+	handler.ServeHTTP(app, httptest.NewRequest(http.MethodGet, "/app/", nil))
+	if app.Code != http.StatusOK || !strings.Contains(app.Header().Get("Content-Type"), "text/html") || !strings.Contains(app.Body.String(), `<div id="app"></div>`) {
+		t.Fatalf("GET /app/ = status %d content type %q body %q", app.Code, app.Header().Get("Content-Type"), app.Body.String())
+	}
+	route := httptest.NewRecorder()
+	handler.ServeHTTP(route, httptest.NewRequest(http.MethodGet, "/app/w/engineering/s/session-one", nil))
+	if route.Code != http.StatusOK || route.Body.String() != app.Body.String() {
+		t.Fatalf("GET client route = status %d body %q", route.Code, route.Body.String())
+	}
+	entries, err := fs.ReadDir(webFiles, "assets")
+	if err != nil || len(entries) == 0 {
+		t.Fatalf("embedded web assets = (%#v, %v)", entries, err)
+	}
+	embeddedAsset := httptest.NewRecorder()
+	handler.ServeHTTP(embeddedAsset, httptest.NewRequest(http.MethodGet, "/app/assets/"+entries[0].Name(), nil))
+	if embeddedAsset.Code != http.StatusOK || embeddedAsset.Body.Len() == 0 {
+		t.Fatalf("GET embedded asset = status %d body length %d", embeddedAsset.Code, embeddedAsset.Body.Len())
+	}
+	asset := httptest.NewRecorder()
+	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "/app/assets/missing.js", nil))
+	if asset.Code != http.StatusNotFound {
+		t.Fatalf("GET missing asset = status %d", asset.Code)
+	}
+	root := httptest.NewRecorder()
+	handler.ServeHTTP(root, httptest.NewRequest(http.MethodGet, "/", nil))
+	if root.Code != http.StatusNotFound {
+		t.Fatalf("GET / = status %d, want %d", root.Code, http.StatusNotFound)
 	}
 }
 
