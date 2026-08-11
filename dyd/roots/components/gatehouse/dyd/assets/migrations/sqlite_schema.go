@@ -247,13 +247,17 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_agent_providers (
 				id TEXT PRIMARY KEY CHECK (id GLOB '[a-z]*') CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
 				revision INTEGER NOT NULL CHECK (revision > 0),
-				protocol TEXT NOT NULL CHECK (protocol = 'openai-compatible'),
-				base_url TEXT NOT NULL CHECK (length(trim(base_url)) > 0),
-				keychain_id TEXT NOT NULL,
-				keychain_version INTEGER NOT NULL CHECK (keychain_version > 0),
-				api_key TEXT NOT NULL CHECK (length(trim(api_key)) > 0),
+				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-compatible')),
+				base_url TEXT CHECK (base_url IS NULL OR length(trim(base_url)) > 0),
+				keychain_id TEXT,
+				keychain_version INTEGER CHECK (keychain_version IS NULL OR keychain_version > 0),
+				api_key TEXT CHECK (api_key IS NULL OR length(trim(api_key)) > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-				FOREIGN KEY (keychain_id, keychain_version) REFERENCES gatehouse_keychains (id, version)
+				FOREIGN KEY (keychain_id, keychain_version) REFERENCES gatehouse_keychains (id, version),
+				CHECK (
+					(protocol = 'builtin' AND base_url IS NULL AND keychain_id IS NULL AND keychain_version IS NULL AND api_key IS NULL)
+					OR (protocol = 'openai-compatible' AND base_url IS NOT NULL AND keychain_id IS NOT NULL AND keychain_version IS NOT NULL AND api_key IS NOT NULL)
+				)
 			) STRICT;
 
 			CREATE TABLE gatehouse_agent_models (
@@ -271,6 +275,20 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				priority INTEGER NOT NULL CHECK (priority > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
 				PRIMARY KEY (workspace_id, model_id)
+			) STRICT;
+		`),
+		}, {
+			Index:       9,
+			Description: "create_session_event_reply_tasks",
+			Builder: staticMigrationBuilder(`
+			CREATE TABLE gatehouse_agent_tasks__session_event_reply (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				event TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, session, event),
+				FOREIGN KEY (workspace, session, event)
+					REFERENCES gatehouse_session_events (workspace, session, id)
 			) STRICT;
 		`),
 		}},

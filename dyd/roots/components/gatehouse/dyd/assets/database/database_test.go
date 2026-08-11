@@ -34,10 +34,61 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	if workspaceCount != 1 {
 		t.Fatalf("workspace count = %d, want 1", workspaceCount)
 	}
-	for _, table := range []string{"gatehouse_agent_providers", "gatehouse_agent_models", "gatehouse_workspace_agents"} {
+	for _, table := range []string{
+		"gatehouse_agent_providers",
+		"gatehouse_agent_models",
+		"gatehouse_workspace_agents",
+		"gatehouse_agent_tasks__session_event_reply",
+	} {
 		if _, err := database.Exec(`SELECT * FROM ` + table + ` LIMIT 0`); err != nil {
 			t.Fatalf("agent table %q is unavailable: %v", table, err)
 		}
+	}
+}
+
+func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		AgentProviders: []config.AgentProvider{{
+			ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true,
+		}},
+		AgentModels: []config.AgentModel{{
+			ID: "fallback", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`, Enabled: true,
+		}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+
+	var protocol string
+	var baseURL, keychainID, apiKey sql.NullString
+	var keychainVersion sql.NullInt64
+	if err := store.QueryRowContext(ctx, `
+		SELECT protocol, base_url, keychain_id, keychain_version, api_key
+		FROM gatehouse_agent_providers
+		WHERE id = 'builtin'
+	`).Scan(&protocol, &baseURL, &keychainID, &keychainVersion, &apiKey); err != nil {
+		t.Fatal(err)
+	}
+	if protocol != "builtin" || baseURL.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
+		t.Fatalf("builtin provider credentials = protocol %q base_url %#v keychain_id %#v keychain_version %#v api_key %#v", protocol, baseURL, keychainID, keychainVersion, apiKey)
+	}
+	var model, parameters string
+	if err := store.QueryRowContext(ctx, `
+		SELECT model, parameters
+		FROM gatehouse_agent_models
+		WHERE id = 'fallback'
+	`).Scan(&model, &parameters); err != nil {
+		t.Fatal(err)
+	}
+	if model != "dummy.fixed-reply" || parameters != `{"text":"Fallback reply."}` {
+		t.Fatalf("builtin model = (%q, %q)", model, parameters)
 	}
 }
 
@@ -291,10 +342,10 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 		ID:      "alice",
 		Enabled: true,
 		Identities: []config.Identity{{
-			ID:       "gatehouse:alice",
-			Revision: 1,
+			ID:        "gatehouse:alice",
+			Revision:  1,
 			Verifiers: []config.Verifier{{Value: stringPointer("gh-ver:configured"), Stored: "gh-ver:configured"}},
-			Enabled:  true,
+			Enabled:   true,
 		}},
 	}}
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{
@@ -447,13 +498,13 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 
 	var (
-		toolRef          string
-		toolEnabled      bool
-		resourceRef      string
-		resourceSecret   bool
-		resourceEnabled  bool
-		grantEnabled     bool
-		resourceGrantOn  bool
+		toolRef         string
+		toolEnabled     bool
+		resourceRef     string
+		resourceSecret  bool
+		resourceEnabled bool
+		grantEnabled    bool
+		resourceGrantOn bool
 	)
 	if err := database.QueryRow(`
 		SELECT source, enabled FROM gatehouse_tools

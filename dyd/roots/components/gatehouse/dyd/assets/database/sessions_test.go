@@ -160,6 +160,30 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("SessionEventsGet() = %#v", events)
 	}
 	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
+		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
+	`); err != nil {
+		t.Fatalf("create session event reply task: %v", err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
+		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
+	`); err == nil {
+		t.Fatal("session event reply tasks accepted a duplicate event")
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
+		VALUES ('engineering', 'session-one', 'missing-event', '2026-01-01T00:00:00.000Z')
+	`); err == nil {
+		t.Fatal("session event reply tasks accepted a missing event")
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event)
+		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892')
+	`); err == nil {
+		t.Fatal("session event reply tasks accepted a missing timestamp")
+	}
+	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
 		INSERT INTO gatehouse_agent_providers (id, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)

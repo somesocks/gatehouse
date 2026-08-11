@@ -396,12 +396,14 @@ let AgentProvider =
         , required = toMap
             { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent provider identity" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic provider configuration revision" }
-            , protocol = s.text.from s.text.props::{ variant = s.text.variants.literal "openai-compatible" } s.text.meta::{ description = Some "provider protocol" }
-            , base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
-            , api_key = AgentProviderAPIKey
+            , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider protocol" }
             }
-        , optional = toMap
-            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" } }
+        , optional =
+            toMap
+              { base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
+              , api_key = AgentProviderAPIKey
+              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }
+              }
         }
         s.record.meta::{ name = Some "AgentProvider" }
 
