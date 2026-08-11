@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+
+case "$ARCH" in
+    amd64) NODE_ARCH=x64 ;;
+    arm64) NODE_ARCH=arm64 ;;
+    *)
+        printf '%s\n' "unsupported Node architecture: $ARCH" >&2
+        exit 1
+        ;;
+esac
+
+NODE_DIR="$SRC_DIR/dyd/dependencies/node/dyd/assets/node-v$VERSION-$OS-$NODE_ARCH/node-v$VERSION-$OS-$NODE_ARCH"
+if [ ! -f "$NODE_DIR/bin/node" ] || [ ! -e "$NODE_DIR/bin/npm" ]; then
+    printf '%s\n' "missing Node executable for $OS-$ARCH version $VERSION" >&2
+    exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp -R "$NODE_DIR" "$DEST_DIR/dyd/assets/node"
+chmod +x "$DEST_DIR/dyd/assets/node/bin/node" "$DEST_DIR/dyd/assets/node/bin/npm" "$DEST_DIR/dyd/assets/node/bin/npx"
+
+printf '%s' node > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"
+cp "$SRC_DIR/dyd/assets/main" "$DEST_DIR/dyd/commands/dyd-stem-run"

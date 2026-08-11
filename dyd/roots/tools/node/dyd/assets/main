@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+set -eu
+
+NODE_HOME="$DYD_STEM/dyd/assets/node"
+export PATH="$NODE_HOME/bin:$PATH"
+
+exec node "$@"
