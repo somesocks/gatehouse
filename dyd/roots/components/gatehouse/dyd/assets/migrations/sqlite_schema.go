@@ -222,6 +222,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
 				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				parent TEXT,
 				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
@@ -231,14 +232,27 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				PRIMARY KEY (workspace, session, id),
 				FOREIGN KEY (workspace, session)
 					REFERENCES gatehouse_sessions (workspace, id),
+				FOREIGN KEY (workspace, session, parent)
+					REFERENCES gatehouse_session_events (workspace, session, id),
 				FOREIGN KEY (workspace, author_agent)
 					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
 				CHECK (
 					(author_principal IS NOT NULL AND author_agent IS NULL AND author_gateway IS NULL)
 					OR (author_principal IS NULL AND author_agent IS NOT NULL AND author_gateway IS NULL)
 					OR (author_principal IS NULL AND author_agent IS NULL AND author_gateway IS NOT NULL)
-				)
+				),
+				CHECK (parent IS NULL OR parent <> id)
 			) STRICT;
+
+			CREATE INDEX gatehouse_session_events_by_session_order
+			ON gatehouse_session_events (workspace, session, created_at, id);
+
+			CREATE INDEX gatehouse_session_events_roots
+			ON gatehouse_session_events (workspace, session, created_at, id)
+			WHERE parent IS NULL;
+
+			CREATE INDEX gatehouse_session_events_children
+			ON gatehouse_session_events (workspace, session, parent, created_at, id);
 		`),
 		}, {
 			Index:       7,

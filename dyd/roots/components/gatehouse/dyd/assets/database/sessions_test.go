@@ -276,3 +276,262 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatal("session events accepted a missing timestamp")
 	}
 }
+
+func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Principals: []config.Principal{{ID: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	alice := model.PrincipalRef{Id: "alice"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	message := model.SessionEvent{
+		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c892"},
+		Kind:            "message.text",
+		AuthorPrincipal: &alice,
+		Payload:         map[string]interface{}{"text": "hello"},
+	}
+	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
+		t.Fatal(err)
+	}
+	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Event != message.Ref {
+		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
+	}
+
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at) VALUES
+			('engineering', 'session-one', '00000000-0000-4000-8000-000000000001', 'message.text', 'alice', '{"text":"first"}', '2026-01-01T00:00:00.000Z'),
+			('engineering', 'session-one', '00000000-0000-4000-8000-000000000002', 'message.text', 'alice', '{"text":"second"}', '2026-01-01T00:00:00.000Z'),
+			('engineering', 'session-one', '00000000-0000-4000-8000-000000000003', 'message.text', 'alice', '{"text":"third"}', '2026-01-01T00:00:01.000Z')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	err, events := store.SessionEventsPageGet(ctx, session, "2026-01-01T00:00:00.000Z", "00000000-0000-4000-8000-000000000001", 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 2 || events[0].Ref.Id != "00000000-0000-4000-8000-000000000002" || events[1].Ref.Id != "00000000-0000-4000-8000-000000000003" {
+		t.Fatalf("SessionEventsPageGet() = %#v", events)
+	}
+}
+
+func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{
+			{ID: "first", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
+			{ID: "second", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Second"}`, Enabled: true},
+			{ID: "lower", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
+		},
+		WorkspaceAgents: []config.WorkspaceAgent{
+			{WorkspaceID: "engineering", Model: "first", Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", Model: "second", Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", Model: "lower", Priority: 1, Enabled: true},
+		},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	for range 5 {
+		err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"})
+		if err != nil || selected == nil {
+			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
+		}
+		if selected.Ref.Model.Id != "first" && selected.Ref.Model.Id != "second" {
+			t.Fatalf("WorkspaceAgentModelSelect() selected %#v outside the highest priority tier", selected)
+		}
+	}
+}
+
+func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Principals: []config.Principal{{ID: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	alice := model.PrincipalRef{Id: "alice"}
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	create := func(id, kind string, parent *model.SessionEventRef) model.SessionEvent {
+		err, event := store.SessionEventsCreate(ctx, model.SessionEvent{
+			Ref:             model.SessionEventRef{Session: session, Id: id},
+			Parent:          parent,
+			Kind:            kind,
+			AuthorPrincipal: &alice,
+			Payload:         map[string]interface{}{},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return event
+	}
+	root := create("00000000-0000-4000-8000-000000000001", "message.text", nil)
+	reasoning := create("00000000-0000-4000-8000-000000000002", "message.reasoning", &root.Ref)
+	call := create("00000000-0000-4000-8000-000000000003", "tool.call", &root.Ref)
+	result := create("00000000-0000-4000-8000-000000000004", "tool.result", &call.Ref)
+	text := create("00000000-0000-4000-8000-000000000005", "message.text", &root.Ref)
+
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]model.SessionEvent{}
+	for _, event := range events {
+		byID[event.Ref.Id] = event
+	}
+	for _, expected := range []struct {
+		event  model.SessionEvent
+		parent model.SessionEventRef
+	}{
+		{reasoning, root.Ref},
+		{call, root.Ref},
+		{result, call.Ref},
+		{text, root.Ref},
+	} {
+		stored := byID[expected.event.Ref.Id]
+		if stored.Parent == nil || *stored.Parent != expected.parent {
+			t.Fatalf("event %#v parent = %#v, want %#v", stored.Ref, stored.Parent, expected.parent)
+		}
+	}
+
+	err, entries := store.SessionEventsTreePageGet(ctx, session, "", "", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 5 {
+		t.Fatalf("SessionEventsTreePageGet() = %#v", entries)
+	}
+	for index, expected := range []struct {
+		id    string
+		depth int
+	}{
+		{root.Ref.Id, 0},
+		{reasoning.Ref.Id, 1},
+		{call.Ref.Id, 1},
+		{result.Ref.Id, 2},
+		{text.Ref.Id, 1},
+	} {
+		if entries[index].Event.Ref.Id != expected.id || entries[index].Depth != expected.depth {
+			t.Fatalf("tree entry %d = %#v, want ID %q at depth %d", index, entries[index], expected.id, expected.depth)
+		}
+	}
+
+	otherSession := model.SessionRef{Workspace: session.Workspace, Id: "session-two"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: otherSession, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{
+		Ref:             model.SessionEventRef{Session: otherSession, Id: "00000000-0000-4000-8000-000000000006"},
+		Parent:          &root.Ref,
+		Kind:            "message.text",
+		AuthorPrincipal: &alice,
+		Payload:         map[string]interface{}{},
+	})
+	if err == nil {
+		t.Fatal("SessionEventsCreate() accepted a parent from another session")
+	}
+	for _, index := range []string{
+		"gatehouse_session_events_by_session_order",
+		"gatehouse_session_events_roots",
+		"gatehouse_session_events_children",
+	} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?`, index).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("session event index %q count = %d", index, count)
+		}
+	}
+}
+
+func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Principals: []config.Principal{{ID: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	alice := model.PrincipalRef{Id: "alice"}
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	root := model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000001"}
+	call := model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000002"}
+	events := []model.SessionEvent{
+		{Ref: root, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{"text": "hello"}},
+		{Ref: call, Parent: &root, Kind: "tool.call", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+		{Ref: model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000003"}, Parent: &call, Kind: "tool.result", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+	}
+	err, stored := store.SessionEventsCreateBatch(ctx, events)
+	if err != nil || len(stored) != len(events) {
+		t.Fatalf("SessionEventsCreateBatch() = (%#v, %v)", stored, err)
+	}
+	for index := range events {
+		if stored[index].Ref != events[index].Ref || stored[index].CreatedAt == "" {
+			t.Fatalf("stored batch event %d = %#v", index, stored[index])
+		}
+	}
+
+	forward := model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000004"}
+	err, _ = store.SessionEventsCreateBatch(ctx, []model.SessionEvent{
+		{Ref: model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000005"}, Parent: &forward, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+		{Ref: forward, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+	})
+	if err == nil {
+		t.Fatal("SessionEventsCreateBatch() accepted a forward parent")
+	}
+	err, all := store.SessionEventsGet(ctx, session)
+	if err != nil || len(all) != len(events) {
+		t.Fatalf("events after rejected batch = (%#v, %v)", all, err)
+	}
+
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_events (workspace, session, id, parent, kind, author_principal, payload, created_at)
+		VALUES ('engineering', 'session-one', '10000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000006', 'message.text', 'alice', '{}', '2026-01-01T00:00:00.000Z')
+	`); err == nil {
+		t.Fatal("session events accepted a self parent")
+	}
+}

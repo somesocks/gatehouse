@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,18 @@ type Service struct {
 }
 
 func Start(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) (error, *Service) {
+	return start(configuration, store, nil, tokens...)
+}
+
+type ReplyDispatcher interface {
+	Reconcile() error
+}
+
+func StartWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
+	return start(configuration, store, dispatcher, tokens...)
+}
+
+func start(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
 	listener, err := net.Listen("tcp", configuration.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", configuration.Listen, err), nil
@@ -33,7 +46,7 @@ func Start(configuration config.HTTPService, store *database.Store, tokens ...*a
 	service := &Service{
 		listener: listener,
 		server: &http.Server{
-			Handler:           Handler(configuration, store, tokens...),
+			Handler:           handler(configuration, store, dispatcher, tokens...),
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       time.Minute,
 			MaxHeaderBytes:    1 << 20,
@@ -64,6 +77,14 @@ func (service *Service) Shutdown(ctx context.Context) error {
 }
 
 func Handler(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) http.Handler {
+	return handler(configuration, store, nil, tokens...)
+}
+
+func HandlerWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) http.Handler {
+	return handler(configuration, store, dispatcher, tokens...)
+}
+
+func handler(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
@@ -77,7 +98,8 @@ func Handler(configuration config.HTTPService, store *database.Store, tokens ...
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
-		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
 	}
@@ -312,7 +334,7 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id})
 }
 
-func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, dispatcher ReplyDispatcher) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)
@@ -357,12 +379,72 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens) 
 			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
 			Payload:         map[string]interface{}{"text": message.Text},
 		}
-		err, stored := store.SessionEventsCreate(request.Context(), event)
+		err, stored := store.SessionMessagesCreate(request.Context(), event)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSONStatus(response, http.StatusCreated, stored)
+		if dispatcher != nil {
+			_ = dispatcher.Reconcile()
+		}
+		writeJSONStatus(response, http.StatusAccepted, stored)
+	}
+}
+
+func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		if workspaceID == "" || sessionID == "" {
+			http.NotFound(response, request)
+			return
+		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
+		}
+		afterCreatedAt := request.URL.Query().Get("after_created_at")
+		afterID := request.URL.Query().Get("after_id")
+		if (afterCreatedAt == "") != (afterID == "") {
+			http.Error(response, "invalid event cursor", http.StatusBadRequest)
+			return
+		}
+		if afterCreatedAt != "" {
+			parsed, err := time.Parse("2006-01-02T15:04:05.000Z", afterCreatedAt)
+			if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != afterCreatedAt || !validUUID(afterID) {
+				http.Error(response, "invalid event cursor", http.StatusBadRequest)
+				return
+			}
+		}
+		limit := 100
+		if encodedLimit := request.URL.Query().Get("limit"); encodedLimit != "" {
+			parsed, err := strconv.Atoi(encodedLimit)
+			if err != nil || parsed < 1 || parsed > 100 {
+				http.Error(response, "invalid event limit", http.StatusBadRequest)
+				return
+			}
+			limit = parsed
+		}
+		err, events := store.SessionEventsPageGet(request.Context(), session, afterCreatedAt, afterID, limit)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, events)
 	}
 }
 
@@ -446,6 +528,14 @@ func randomUUID() (string, error) {
 	value[8] = value[8]&0x3f | 0x80
 	encoded := hex.EncodeToString(value[:])
 	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
+}
+
+func validUUID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	_, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
+	return err == nil
 }
 
 func logout(response http.ResponseWriter, request *http.Request) {

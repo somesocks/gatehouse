@@ -200,7 +200,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	}
 
 	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages", `{"text":"hello"}`)
-	if message.Code != http.StatusCreated || message.Header().Get("Cache-Control") != "no-store" {
+	if message.Code != http.StatusAccepted || message.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("POST message = status %d cache %q", message.Code, message.Header().Get("Cache-Control"))
 	}
 	var event model.SessionEvent
@@ -210,6 +210,29 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if event.Ref.Id == "" || event.Ref.Session.Id != session.ID || event.Kind != "message.text" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Id != "alice" || event.AuthorAgent != nil || event.AuthorGateway != nil || event.Payload["text"] != "hello" || event.CreatedAt == "" {
 		t.Fatalf("POST message response = %#v", event)
 	}
+	poll := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?limit=1", "")
+	if poll.Code != http.StatusOK || poll.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("GET events = status %d cache %q", poll.Code, poll.Header().Get("Cache-Control"))
+	}
+	var polled []model.SessionEvent
+	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil {
+		t.Fatal(err)
+	}
+	if len(polled) != 1 || polled[0].Ref != event.Ref {
+		t.Fatalf("GET events response = %#v", polled)
+	}
+	after := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id="+event.Ref.Id, "")
+	if after.Code != http.StatusOK || after.Body.String() != "[]\n" {
+		t.Fatalf("GET events after cursor = status %d body %q", after.Code, after.Body.String())
+	}
+	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
+	if invalidCursor.Code != http.StatusBadRequest {
+		t.Fatalf("GET events with incomplete cursor = status %d", invalidCursor.Code)
+	}
+	invalidID := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id=invalid", "")
+	if invalidID.Code != http.StatusBadRequest {
+		t.Fatalf("GET events with invalid cursor ID = status %d", invalidID.Code)
+	}
 
 	err, events := store.SessionEventsGet(context.Background(), model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: session.ID})
 	if err != nil {
@@ -217,6 +240,10 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	}
 	if len(events) != 1 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Id != "alice" {
 		t.Fatalf("stored session events = %#v", events)
+	}
+	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
+		t.Fatalf("stored session reply tasks = (%#v, %v)", tasks, err)
 	}
 }
 
@@ -254,8 +281,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		Groups: []config.Group{
 			{
 				WorkspaceID: "engineering", ID: "developers", Name: &developers, Enabled: true,
-				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
-				ToolGrants: []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
+				Members:        []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
+				ToolGrants:     []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{{ResourceID: "docs", Enabled: true}, {ResourceID: "token", Enabled: true}},
 			},
 			{

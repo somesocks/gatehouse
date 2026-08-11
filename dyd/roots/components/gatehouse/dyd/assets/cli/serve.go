@@ -11,6 +11,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 	_ "github.com/dbos-inc/dbos-transact-golang/dbos/driver/sqlite"
 
+	"gatehouse/agent"
 	"gatehouse/auth"
 	clib "gatehouse/cli-builder"
 	"gatehouse/config"
@@ -84,11 +85,16 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 		dbosContext, err := dbos.NewContext(ctx, dbos.Config{
-			AppName:       "gatehouse",
+			AppName:        "gatehouse",
 			SQLiteSystemDB: store.DB,
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start DBOS: %v\n", err)
+			return 1
+		}
+		err, replies := agent.NewSessionEventReplyRuntime(dbosContext, store)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare agent replies: %v\n", err)
 			return 1
 		}
 		defer func() {
@@ -100,6 +106,27 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "launch DBOS: %v\n", err)
 			return 1
 		}
+		reconcileContext, stopReconciliation := context.WithCancel(ctx)
+		reconciliationDone := make(chan struct{})
+		go func() {
+			defer close(reconciliationDone)
+			ticker := time.NewTicker(time.Second)
+			defer ticker.Stop()
+			for {
+				if err := replies.Reconcile(); err != nil {
+					fmt.Fprintf(os.Stderr, "reconcile agent replies: %v\n", err)
+				}
+				select {
+				case <-reconcileContext.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
+		defer func() {
+			stopReconciliation()
+			<-reconciliationDone
+		}()
 		if services.HTTP == nil || !services.HTTP.Enabled {
 			fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 			<-ctx.Done()
@@ -111,7 +138,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 
-		err, service := httpservice.Start(*services.HTTP, store, tokens)
+		err, service := httpservice.StartWithReplyDispatcher(*services.HTTP, store, replies, tokens)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start HTTP service: %v\n", err)
 			return 1

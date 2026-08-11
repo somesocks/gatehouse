@@ -442,7 +442,11 @@ let SessionEvent =
               }
         , optional =
             toMap
-              { author_principal =
+              { parent =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionEventRef" }
+                    s.reference.meta::{ description = Some "parent session event" }
+              , author_principal =
                   s.reference.from
                     s.reference.props::{ to = "PrincipalRef" }
                     s.reference.meta::{ description = Some "principal event author" }
