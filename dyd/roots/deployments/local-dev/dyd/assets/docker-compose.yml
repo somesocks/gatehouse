@@ -1,0 +1,11 @@
+name: gatehouse-local-dev
+
+services:
+  gatehouse:
+    image: ${GATEHOUSE_IMAGE}
+    ports:
+      - "4283:4283"
+    environment:
+      - GATEHOUSE_CONFIG
+      - GATEHOUSE_KEYCHAIN=local-development-keychain
+      - GATEHOUSE_ROOT_PASSWORD=local-development-root

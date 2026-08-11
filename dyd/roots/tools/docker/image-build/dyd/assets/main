@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+
+set -eu
+
+if [ "$#" -ne 2 ]; then
+    printf '%s\n' 'usage: image-build <destination> <context>' >&2
+    exit 2
+fi
+
+DEST_DIR=$1
+CONTEXT=$2
+CONFIG="$CONTEXT/dyd/assets/config.sh"
+SOURCE_DIR="$CONTEXT/dyd/assets/src"
+ASSETS_DIR="$DEST_DIR/dyd/assets"
+
+if [ ! -f "$CONFIG" ] || [ ! -f "$SOURCE_DIR/Dockerfile" ] || [ ! -f "$CONTEXT/dyd/fingerprint" ]; then
+    printf '%s\n' 'image build context is incomplete' >&2
+    exit 1
+fi
+
+. "$CONFIG"
+
+if [ -n "${DYD_IMAGE_PLATFORMS:-}" ]; then
+    IMAGE_PLATFORMS=$DYD_IMAGE_PLATFORMS
+fi
+
+if [ -z "${IMAGE_NAME:-}" ] || [ -z "${IMAGE_PLATFORMS:-}" ]; then
+    printf '%s\n' 'image build context must define IMAGE_NAME and IMAGE_PLATFORMS' >&2
+    exit 1
+fi
+
+IMAGE_TAG="dryad-$(cat "$CONTEXT/dyd/fingerprint")"
+BUILDER=${DRYAD_IMAGE_BUILDER:-dryad}
+
+if ! docker-buildx inspect "$BUILDER" >/dev/null 2>&1; then
+    docker-buildx create --name "$BUILDER" --driver docker-container --driver-opt network=host --use
+fi
+
+mkdir -p "$ASSETS_DIR/oci"
+SOURCE_DATE_EPOCH=0 docker-buildx build \
+    --builder "$BUILDER" \
+    --output "type=oci,name=$IMAGE_NAME:$IMAGE_TAG,dest=$ASSETS_DIR/image.tar" \
+    --platform "$IMAGE_PLATFORMS" \
+    --provenance=false \
+    --sbom=false \
+    --file "$SOURCE_DIR/Dockerfile" \
+    "$SOURCE_DIR"
+tar -xf "$ASSETS_DIR/image.tar" -C "$ASSETS_DIR/oci"
+rm "$ASSETS_DIR/image.tar"
+
+printf '%s' "$IMAGE_NAME" > "$ASSETS_DIR/image-name"
+printf '%s' "$IMAGE_TAG" > "$ASSETS_DIR/image-tag"
+printf '%s:%s' "$IMAGE_NAME" "$IMAGE_TAG" > "$ASSETS_DIR/image"

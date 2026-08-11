@@ -1,0 +1,24 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+SOURCE="$SRC_DIR/dyd/dependencies/regctl-bin/dyd/assets/regctl"
+
+if [ ! -f "$SOURCE" ]; then
+    printf '%s\n' "missing regctl binary for $OS-$ARCH version $VERSION" >&2
+    exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp "$SOURCE" "$DEST_DIR/dyd/commands/dyd-stem-run"
+chmod +x "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' regctl > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"

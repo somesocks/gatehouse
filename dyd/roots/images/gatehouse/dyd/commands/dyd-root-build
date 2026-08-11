@@ -1,0 +1,42 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+PLATFORM=$(cat "$SRC_DIR/dyd/traits/platform")
+CONTEXT="$DEST_DIR/dyd/build/context"
+
+case "$PLATFORM" in
+    amd64)
+        IMAGE_PLATFORMS=linux/amd64
+        ARCHES=amd64
+        ;;
+    arm64)
+        IMAGE_PLATFORMS=linux/arm64
+        ARCHES=arm64
+        ;;
+    universal)
+        IMAGE_PLATFORMS=linux/amd64,linux/arm64
+        ARCHES="amd64 arm64"
+        ;;
+    *)
+        printf '%s\n' "unsupported Gatehouse image platform: $PLATFORM" >&2
+        exit 1
+        ;;
+esac
+
+mkdir -p "$CONTEXT/dyd/assets/src/bin" "$CONTEXT/dyd/traits"
+cp "$SRC_DIR/dyd/assets/config.sh" "$CONTEXT/dyd/assets/config.sh"
+cp "$SRC_DIR/dyd/assets/Dockerfile" "$CONTEXT/dyd/assets/src/Dockerfile"
+cp "$SRC_DIR/dyd/assets/entrypoint.sh" "$CONTEXT/dyd/assets/src/entrypoint.sh"
+for arch in $ARCHES; do
+    mkdir -p "$CONTEXT/dyd/assets/src/bin/$arch"
+    cp "$SRC_DIR/dyd/dependencies/gatehouse-$arch/dyd/commands/dyd-stem-run" "$CONTEXT/dyd/assets/src/bin/$arch/gatehouse"
+done
+cp "$SRC_DIR/dyd/fingerprint" "$CONTEXT/dyd/fingerprint"
+printf '%s' gatehouse-image > "$CONTEXT/dyd/traits/name"
+printf '%s' "$PLATFORM" > "$CONTEXT/dyd/traits/platform"
+
+DYD_IMAGE_PLATFORMS=$IMAGE_PLATFORMS image-build "$DEST_DIR" "$CONTEXT"
+rm -rf "$DEST_DIR/dyd/build"

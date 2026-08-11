@@ -1,0 +1,10 @@
+api_version: v1
+database:
+  kind: ephemeral
+services:
+  http:
+    listen: 0.0.0.0:4283
+    web:
+      enabled: true
+    api:
+      enabled: true

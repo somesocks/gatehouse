@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+
+set -eu
+
+ASSETS_DIR="$DYD_STEM/dyd/assets"
+
+docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" down

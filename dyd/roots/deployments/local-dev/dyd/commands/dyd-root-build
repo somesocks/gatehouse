@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+
+set -eu
+
+mkdir -p "$DYD_BUILD/dyd/assets" "$DYD_BUILD/dyd/commands" "$DYD_BUILD/dyd/dependencies"
+cp -R "$DYD_STEM/dyd/assets/." "$DYD_BUILD/dyd/assets"
+cp -R "$DYD_STEM/dyd/assets/commands/." "$DYD_BUILD/dyd/commands"
+ln -s "$DYD_STEM/dyd/dependencies/image-gatehouse" "$DYD_BUILD/dyd/dependencies/image-gatehouse"
+ln -s "$DYD_STEM/dyd/dependencies/image-local-load" "$DYD_BUILD/dyd/dependencies/image-local-load"

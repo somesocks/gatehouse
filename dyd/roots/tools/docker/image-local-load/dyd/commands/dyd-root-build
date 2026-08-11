@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+
+set -eu
+
+mkdir -p "$DYD_BUILD/dyd/commands" "$DYD_BUILD/dyd/dependencies"
+cp "$DYD_STEM/dyd/assets/main" "$DYD_BUILD/dyd/commands/dyd-stem-run"
+ln -s "$DYD_STEM/dyd/dependencies/regctl" "$DYD_BUILD/dyd/dependencies/regctl"

@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+set -eu
+
+ASSETS_DIR="$DYD_STEM/dyd/assets"
+IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-gatehouse/dyd/assets"
+
+image-local-load "$(cat "$IMAGE_DIR/image-name")" "$(cat "$IMAGE_DIR/image-tag")" "$IMAGE_DIR/oci"
+export GATEHOUSE_IMAGE="localhost/$(cat "$IMAGE_DIR/image")"
+export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse.yaml")"
+
+docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" up -d --remove-orphans

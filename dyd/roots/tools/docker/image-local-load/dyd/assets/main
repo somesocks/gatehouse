@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+
+set -eu
+
+if [ "$#" -ne 3 ]; then
+    printf '%s\n' 'usage: image-local-load <name> <tag> <oci-directory>' >&2
+    exit 2
+fi
+
+IMAGE_NAME=$1
+IMAGE_TAG=$2
+OCI_DIR=$3
+LOCAL_IMAGE="localhost/$IMAGE_NAME:$IMAGE_TAG"
+
+if docker image inspect "$LOCAL_IMAGE" >/dev/null 2>&1; then
+    printf '%s\n' "local image already loaded: $LOCAL_IMAGE"
+    exit 0
+fi
+
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+ln -s "$OCI_DIR" "$TEMP_DIR/image"
+
+DIGEST=$(cd "$TEMP_DIR" && regctl image digest --platform local "ocidir://image:$IMAGE_TAG")
+(cd "$TEMP_DIR" && regctl image export "ocidir://image:$IMAGE_TAG@$DIGEST") | docker load
+docker image tag "$DIGEST" "$LOCAL_IMAGE"
