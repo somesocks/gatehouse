@@ -8,6 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dbos-inc/dbos-transact-golang/dbos"
+	_ "github.com/dbos-inc/dbos-transact-golang/dbos/driver/sqlite"
+
 	"gatehouse/auth"
 	clib "gatehouse/cli-builder"
 	"gatehouse/config"
@@ -78,6 +81,23 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		}
 		if err := migrations.Run(ctx, store, set); err != nil {
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
+			return 1
+		}
+		dbosContext, err := dbos.NewContext(ctx, dbos.Config{
+			AppName:       "gatehouse",
+			SQLiteSystemDB: store.DB,
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "start DBOS: %v\n", err)
+			return 1
+		}
+		defer func() {
+			if err := dbos.Shutdown(dbosContext, 10*time.Second); err != nil {
+				fmt.Fprintf(os.Stderr, "stop DBOS: %v\n", err)
+			}
+		}()
+		if err := dbos.Launch(dbosContext); err != nil {
+			fmt.Fprintf(os.Stderr, "launch DBOS: %v\n", err)
 			return 1
 		}
 		if services.HTTP == nil || !services.HTTP.Enabled {
