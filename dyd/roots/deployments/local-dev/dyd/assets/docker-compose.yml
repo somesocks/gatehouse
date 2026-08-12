@@ -8,4 +8,5 @@ services:
     environment:
       - GATEHOUSE_CONFIG
       - GATEHOUSE_KEYCHAIN=local-development-keychain
-      - GATEHOUSE_ROOT_PASSWORD=local-development-root
+      - GATEHOUSE_ROOT_PASSWORD=password-root
+      - OPENAI_API_KEY

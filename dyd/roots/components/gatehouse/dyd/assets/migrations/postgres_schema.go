@@ -254,7 +254,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE TABLE gatehouse_agent_providers (
 				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
-				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-compatible')),
+				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-chat-completions', 'openai-responses')),
 				base_url TEXT CHECK (base_url IS NULL OR length(trim(base_url)) > 0),
 				keychain_id TEXT,
 				keychain_version BIGINT CHECK (keychain_version IS NULL OR keychain_version > 0),
@@ -263,7 +263,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				FOREIGN KEY (keychain_id, keychain_version) REFERENCES gatehouse_keychains (id, version),
 				CHECK (
 					(protocol = 'builtin' AND base_url IS NULL AND keychain_id IS NULL AND keychain_version IS NULL AND api_key IS NULL)
-					OR (protocol = 'openai-compatible' AND base_url IS NOT NULL AND keychain_id IS NOT NULL AND keychain_version IS NOT NULL AND api_key IS NOT NULL)
+					OR (protocol IN ('openai-chat-completions', 'openai-responses') AND base_url IS NOT NULL AND keychain_id IS NOT NULL AND keychain_version IS NOT NULL AND api_key IS NOT NULL)
 				)
 			);
 

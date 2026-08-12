@@ -1,17 +1,685 @@
+<script lang="ts">
+  import { onMount, tick } from "svelte"
+
+  type Claims = {
+    principal: string
+    identity: string
+  }
+
+  type Workspace = {
+    id: string
+    name?: string
+  }
+
+  type Group = {
+    id: string
+    name?: string
+  }
+
+  type Session = {
+    id: string
+  }
+
+  type SessionEvent = {
+    created_at: string
+    kind: string
+    payload: { text?: string; name?: string; reason?: string; code?: string; output?: string }
+    ref: { id: string }
+    parent?: { id: string }
+    author_principal?: { id: string }
+    author_agent?: { model: { id: string } }
+  }
+
+  type SessionEventTree = {
+    event: SessionEvent
+    children: SessionEventTree[]
+  }
+
+  type AuthenticationStatus = "checking" | "anonymous" | "authenticated" | "unavailable"
+  type WorkspaceStatus = "checking" | "ready" | "empty" | "unavailable"
+  type WorkspaceContentStatus = "checking" | "ready" | "unavailable"
+
+  let status = $state<AuthenticationStatus>("checking")
+  let workspaceStatus = $state<WorkspaceStatus>("checking")
+  let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
+  let claims = $state<Claims | null>(null)
+  let currentPath = $state("/app/")
+  let identity = $state("")
+  let password = $state("")
+  let submitting = $state(false)
+  let loginError = $state("")
+  let workspaces = $state<Workspace[]>([])
+  let activeWorkspace = $state<Workspace | null>(null)
+  let groups = $state<Group[]>([])
+  let sessions = $state<Session[]>([])
+  let activeSession = $state<Session | null>(null)
+  let events = $state<SessionEventTree[]>([])
+  let eventStatus = $state<WorkspaceContentStatus>("checking")
+  let messageText = $state("")
+  let messageError = $state("")
+  let sendingMessage = $state(false)
+  let awaitingReplyFor = $state<string[]>([])
+  let showJumpToLatest = $state(false)
+  let chatEventsElement: HTMLDivElement | undefined
+  let messageInputElement: HTMLTextAreaElement | undefined
+  let pollTimer: ReturnType<typeof setTimeout> | undefined
+
+  onMount(() => {
+    currentPath = window.location.pathname
+    const handlePopState = () => {
+      currentPath = window.location.pathname
+      void checkSession()
+    }
+    window.addEventListener("popstate", handlePopState)
+    void checkSession()
+    return () => {
+      window.removeEventListener("popstate", handlePopState)
+      stopPolling()
+    }
+  })
+
+  function isLoginPath() {
+    return currentPath === "/app/login" || currentPath === "/app/login/"
+  }
+
+  function nextPath() {
+    const next = new URLSearchParams(window.location.search).get("next")
+    if (next === null) {
+      return "/app/"
+    }
+    let destination: URL
+    try {
+      destination = new URL(next, window.location.origin)
+    } catch {
+      return "/app/"
+    }
+    if (destination.origin !== window.location.origin || !destination.pathname.startsWith("/app/") || destination.pathname === "/app/login" || destination.pathname === "/app/login/") {
+      return "/app/"
+    }
+    return destination.pathname + destination.search + destination.hash
+  }
+
+  function workspaceIDFromPath(path: string) {
+    const match = /^\/app\/w\/([^/]+)(?:\/|$)/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
+  function sessionIDFromPath(path: string) {
+    const match = /^\/app\/w\/[^/]+\/s\/([^/]+)(?:\/|$)/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
+  function navigate(path: string, replace = true) {
+    window.history[replace ? "replaceState" : "pushState"](null, "", path)
+    currentPath = new URL(path, window.location.origin).pathname
+  }
+
+  function redirectToLogin() {
+    const requested = window.location.pathname + window.location.search + window.location.hash
+    navigate(`/app/login?next=${encodeURIComponent(requested)}`)
+  }
+
+  function signInRequired() {
+    stopPolling()
+    claims = null
+    workspaces = []
+    activeWorkspace = null
+    groups = []
+    sessions = []
+    activeSession = null
+    events = []
+    showJumpToLatest = false
+    status = "anonymous"
+    workspaceStatus = "checking"
+    if (!isLoginPath()) {
+      redirectToLogin()
+    }
+  }
+
+  async function checkSession(preferFirstWorkspace = false) {
+    status = "checking"
+    try {
+      const response = await fetch("/api/v1/auth/me", { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`authentication check returned ${response.status}`)
+      }
+      claims = (await response.json()) as Claims
+      status = "authenticated"
+      await loadWorkspaces(preferFirstWorkspace)
+    } catch {
+      claims = null
+      status = "unavailable"
+    }
+  }
+
+  async function loadWorkspaces(preferFirstWorkspace = false) {
+    workspaceStatus = "checking"
+    try {
+      const response = await fetch("/api/v1/workspaces", { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`workspace catalog returned ${response.status}`)
+      }
+      workspaces = (await response.json()) as Workspace[]
+      if (workspaces.length === 0) {
+        activeWorkspace = null
+        groups = []
+        sessions = []
+        workspaceStatus = "empty"
+        navigate("/app/no-access")
+        return
+      }
+      workspaceStatus = "ready"
+      const requestedPath = isLoginPath() ? nextPath() : currentPath
+      const requestedID = preferFirstWorkspace ? null : workspaceIDFromPath(requestedPath)
+      const workspace = workspaces.find((candidate) => candidate.id === requestedID) ?? workspaces[0]
+      if (requestedID !== null && workspace.id === requestedID && isLoginPath()) {
+        navigate(requestedPath)
+      }
+      await selectWorkspace(workspace, true)
+    } catch {
+      workspaceStatus = "unavailable"
+    }
+  }
+
+  async function selectWorkspace(workspace: Workspace, replace = false) {
+    stopPolling()
+    activeWorkspace = workspace
+    groups = []
+    sessions = []
+    activeSession = null
+    events = []
+    showJumpToLatest = false
+    workspaceContentStatus = "checking"
+    if (workspaceIDFromPath(currentPath) !== workspace.id) {
+      navigate(`/app/w/${encodeURIComponent(workspace.id)}`, replace)
+    }
+    try {
+      const [groupsResponse, sessionsResponse] = await Promise.all([
+        fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/groups`, { credentials: "same-origin" }),
+        fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions`, { credentials: "same-origin" }),
+      ])
+      if (groupsResponse.status === 401 || sessionsResponse.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!groupsResponse.ok || !sessionsResponse.ok) {
+        throw new Error("workspace data could not be loaded")
+      }
+      groups = (await groupsResponse.json()) as Group[]
+      sessions = (await sessionsResponse.json()) as Session[]
+      workspaceContentStatus = "ready"
+      const sessionID = sessionIDFromPath(currentPath)
+      const session = sessions.find((candidate) => candidate.id === sessionID)
+      if (session !== undefined) {
+        await selectSession(session, true)
+      }
+    } catch {
+      workspaceContentStatus = "unavailable"
+    }
+  }
+
+  async function selectSession(session: Session, replace = false) {
+    if (activeWorkspace === null) {
+      return
+    }
+    stopPolling()
+    activeSession = session
+    events = []
+    showJumpToLatest = false
+    eventStatus = "checking"
+    messageError = ""
+    if (sessionIDFromPath(currentPath) !== session.id) {
+      navigate(`/app/w/${encodeURIComponent(activeWorkspace.id)}/s/${encodeURIComponent(session.id)}`, replace)
+    }
+    await loadSessionEvents(session)
+  }
+
+  async function loadSessionEvents(session: Session, showLoading = true) {
+    if (activeWorkspace === null) {
+      return
+    }
+    if (showLoading) {
+      eventStatus = "checking"
+    }
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions/${encodeURIComponent(session.id)}/events?limit=100`, { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session events could not be loaded")
+      }
+      const loaded = (await response.json()) as SessionEventTree[]
+      if (activeSession?.id !== session.id) {
+        return
+      }
+      const knownEvents = new Set(events.flatMap(eventTreeIDs))
+      const hasNewEvents = loaded.some((tree) => eventTreeIDs(tree).some((id) => !knownEvents.has(id)))
+      const shouldFollow = showLoading || isNearChatBottom()
+      events = loaded
+      eventStatus = "ready"
+      if (showLoading || hasNewEvents) {
+        if (shouldFollow) {
+          void scrollToLatest(showLoading ? "instant" : "smooth")
+        } else {
+          showJumpToLatest = true
+        }
+      }
+      const repliedTo = new Set(loaded.flatMap((tree) => finalReplies(tree).map(() => tree.event.ref.id)))
+      if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => repliedTo.has(eventID))) {
+        awaitingReplyFor = awaitingReplyFor.filter((eventID) => !repliedTo.has(eventID))
+      }
+      if (awaitingReplyFor.length === 0) {
+        stopPolling()
+      }
+    } catch {
+      if (activeSession?.id === session.id) {
+        eventStatus = "unavailable"
+      }
+    }
+  }
+
+  function stopPolling() {
+    if (pollTimer !== undefined) {
+      clearTimeout(pollTimer)
+      pollTimer = undefined
+    }
+    awaitingReplyFor = []
+  }
+
+  function eventTreeIDs(tree: SessionEventTree): string[] {
+    return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)]
+  }
+
+  function finalReplies(tree: SessionEventTree) {
+    return tree.children.filter((child) => child.event.kind === "message.text" && child.event.author_agent !== undefined && child.event.payload.text !== undefined)
+  }
+
+  function activityEvents(tree: SessionEventTree) {
+    return tree.children.filter((child) => !finalReplies(tree).includes(child))
+  }
+
+  function toolStatus(tree: SessionEventTree) {
+    if (tree.children.some((child) => child.event.kind === "tool.failed")) {
+      return "failed"
+    }
+    if (tree.children.some((child) => child.event.kind === "tool.result")) {
+      return "succeeded"
+    }
+    return "working"
+  }
+
+  function isNearChatBottom() {
+    if (chatEventsElement === undefined) {
+      return true
+    }
+    return chatEventsElement.scrollHeight - chatEventsElement.scrollTop - chatEventsElement.clientHeight < 64
+  }
+
+  async function scrollToLatest(behavior: ScrollBehavior = "smooth") {
+    await tick()
+    if (chatEventsElement === undefined) {
+      return
+    }
+    chatEventsElement.scrollTo({ top: chatEventsElement.scrollHeight, behavior })
+    showJumpToLatest = false
+  }
+
+  function trackChatScroll() {
+    if (isNearChatBottom()) {
+      showJumpToLatest = false
+    }
+  }
+
+  function pollForReply(session: Session) {
+    if (pollTimer !== undefined) {
+      return
+    }
+    const poll = async () => {
+      if (activeSession?.id !== session.id || awaitingReplyFor.length === 0) {
+        return
+      }
+      await loadSessionEvents(session, false)
+      if (awaitingReplyFor.length === 0) {
+        return
+      }
+      pollTimer = setTimeout(poll, 1000)
+    }
+    pollTimer = setTimeout(poll, 1000)
+  }
+
+  async function createSession() {
+    if (activeWorkspace === null) {
+      return
+    }
+    messageError = ""
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions`, {
+        method: "POST",
+        credentials: "same-origin",
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session could not be created")
+      }
+      const session = (await response.json()) as Session
+      sessions = [session, ...sessions]
+      await selectSession(session)
+    } catch {
+      messageError = "A new chat could not be created. Try again."
+    }
+  }
+
+  async function sendMessage() {
+    if (activeWorkspace === null || activeSession === null || messageText.trim() === "") {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    messageError = ""
+    sendingMessage = true
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/messages`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: messageText }),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("message could not be sent")
+      }
+      const event = (await response.json()) as SessionEvent
+      messageText = ""
+      if (activeSession?.id !== session.id) {
+        return
+      }
+      events = [...events, { event, children: [] }]
+      void scrollToLatest()
+      awaitingReplyFor = [...awaitingReplyFor, event.ref.id]
+      pollForReply(session)
+    } catch {
+      messageError = "Your message could not be sent. Try again."
+    } finally {
+      sendingMessage = false
+      await tick()
+      messageInputElement?.focus()
+    }
+  }
+
+  async function login() {
+    loginError = ""
+    submitting = true
+    try {
+      const response = await fetch("/api/v1/auth/login", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ identity, password }),
+      })
+      if (response.status === 401) {
+        loginError = "The username or password is incorrect."
+        return
+      }
+      if (!response.ok) {
+        throw new Error(`login returned ${response.status}`)
+      }
+      password = ""
+      await checkSession(true)
+    } catch {
+      loginError = "Gatehouse could not be reached. Try again."
+    } finally {
+      submitting = false
+    }
+  }
+
+  async function logout() {
+    try {
+      await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" })
+    } finally {
+      signInRequired()
+    }
+  }
+</script>
+
 <svelte:head>
   <meta name="description" content="Gatehouse hosted chat" />
+  <title>Gatehouse</title>
 </svelte:head>
 
-<main class="hero is-fullheight">
-  <div class="hero-body">
-    <section class="container is-max-desktop">
-      <div class="intro">
-        <p class="eyebrow">Gatehouse</p>
-        <h1 class="title is-1">Hello, world.</h1>
-        <p class="subtitle is-4">
-          The hosted chat client is ready for its first conversation.
-        </p>
-      </div>
+{#if status === "checking" || (status === "authenticated" && workspaceStatus === "checking")}
+  <main class="auth-shell" aria-busy="true" aria-live="polite">
+    <section class="status-card">
+      <p class="eyebrow">Gatehouse</p>
+      <div class="loading-mark" aria-hidden="true"></div>
+      <p>{status === "checking" ? "Checking your session." : "Loading your workspaces."}</p>
     </section>
+  </main>
+{:else if status === "unavailable" || workspaceStatus === "unavailable"}
+  <main class="auth-shell">
+    <section class="status-card">
+      <p class="eyebrow">Gatehouse</p>
+      <h1 class="title is-3">Connection unavailable</h1>
+      <p class="subtitle is-6">Gatehouse could not load your account.</p>
+      <button class="button is-primary" type="button" onclick={() => void checkSession()}>Try again</button>
+    </section>
+  </main>
+{:else if status === "anonymous"}
+  <main class="auth-shell">
+    <section class="login-card">
+      <p class="eyebrow">Gatehouse</p>
+      <h1 class="title is-2">Welcome back.</h1>
+      <p class="subtitle is-6">Sign in to continue to your workspace.</p>
+      <form onsubmit={(event) => { event.preventDefault(); void login() }}>
+        <div class="field">
+          <label class="label" for="identity">Username</label>
+          <div class="control">
+            <input class="input" id="identity" name="identity" autocomplete="username" placeholder="root" required bind:value={identity} />
+          </div>
+        </div>
+        <div class="field">
+          <label class="label" for="password">Password</label>
+          <div class="control">
+            <input class="input" id="password" name="password" type="password" autocomplete="current-password" required bind:value={password} />
+          </div>
+        </div>
+        {#if loginError !== ""}
+          <p class="help is-danger" aria-live="polite">{loginError}</p>
+        {/if}
+        <div class="field login-action">
+          <div class="control">
+            <button class="button is-primary is-fullwidth" type="submit" disabled={submitting}>
+              {submitting ? "Signing in..." : "Sign in"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+  </main>
+{:else if workspaceStatus === "empty"}
+  <main class="auth-shell">
+    <section class="status-card">
+      <p class="eyebrow">Gatehouse</p>
+      <h1 class="title is-3">No workspace access</h1>
+      <p class="subtitle is-6">Ask an administrator to add {claims?.principal} to a workspace group.</p>
+      <button class="button is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
+    </section>
+  </main>
+{:else}
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/app/">Gatehouse</a>
+
+      <div class="workspace-switcher">
+        <label for="workspace">Workspace</label>
+        <div class="select is-fullwidth">
+          <select id="workspace" value={activeWorkspace?.id ?? ""} onchange={(event) => {
+            const target = event.currentTarget as HTMLSelectElement
+            const workspace = workspaces.find((candidate) => candidate.id === target.value)
+            if (workspace !== undefined) {
+              void selectWorkspace(workspace)
+            }
+          }}>
+            {#each workspaces as workspace}
+              <option value={workspace.id}>{workspace.name ?? workspace.id}</option>
+            {/each}
+          </select>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Workspace navigation">
+        <section class="sidebar-section">
+          <div class="sidebar-section-heading">
+            <h2>Chats</h2>
+            <button class="new-chat" type="button" onclick={() => void createSession()}>New</button>
+          </div>
+          {#if workspaceContentStatus === "checking"}
+            <p class="sidebar-empty">Loading chats...</p>
+          {:else if workspaceContentStatus === "unavailable"}
+            <p class="sidebar-empty">Chats unavailable.</p>
+          {:else if sessions.length === 0}
+            <p class="sidebar-empty">No chats yet.</p>
+          {:else}
+            <ul>
+              {#each sessions as session}
+                <li><a class:active={activeSession?.id === session.id} href={`/app/w/${encodeURIComponent(activeWorkspace?.id ?? "")}/s/${encodeURIComponent(session.id)}`} onclick={(event) => {
+                  event.preventDefault()
+                  void selectSession(session)
+                }}>{session.id}</a></li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+
+        <section class="sidebar-section">
+          <h2>Groups</h2>
+          {#if workspaceContentStatus === "checking"}
+            <p class="sidebar-empty">Loading groups...</p>
+          {:else if workspaceContentStatus === "unavailable"}
+            <p class="sidebar-empty">Groups unavailable.</p>
+          {:else if groups.length === 0}
+            <p class="sidebar-empty">No groups yet.</p>
+          {:else}
+            <ul>
+              {#each groups as group}
+                <li>{group.name ?? group.id}</li>
+              {/each}
+            </ul>
+          {/if}
+        </section>
+      </nav>
+
+      <div class="sidebar-footer">
+        <span>{claims?.principal}</span>
+        <button class="button is-small is-light" type="button" onclick={() => void logout()}>Log out</button>
+      </div>
+    </aside>
+
+    <main class="workspace-main">
+      <header class="workspace-header">
+        <p class="eyebrow">Workspace</p>
+        <h1 class="title is-2">{activeWorkspace?.name ?? activeWorkspace?.id}</h1>
+      </header>
+      {#if activeSession === null}
+        <section class="workspace-empty">
+          <p class="eyebrow">Chats</p>
+          <h2 class="title is-3">Start a new conversation.</h2>
+          <p class="subtitle is-6">Create a chat to send the first message.</p>
+          <button class="button is-primary" type="button" onclick={() => void createSession()}>New chat</button>
+          {#if messageError !== ""}
+            <p class="help is-danger" aria-live="polite">{messageError}</p>
+          {/if}
+        </section>
+      {:else}
+        <section class="chat-pane">
+          <div class="chat-events" aria-live="polite" bind:this={chatEventsElement} onscroll={trackChatScroll}>
+            {#if eventStatus === "checking"}
+              <p class="chat-status">Loading chat...</p>
+            {:else if eventStatus === "unavailable"}
+              <p class="chat-status">This chat could not be loaded.</p>
+            {:else if events.length === 0}
+              <p class="chat-status">Send the first message to begin.</p>
+            {:else}
+              {#each events as tree (tree.event.ref.id)}
+                {#if tree.event.kind === "message.text" && tree.event.payload.text !== undefined}
+                  <article class="chat-message message-own">
+                    <p class="chat-message-author">{tree.event.author_principal?.id ?? "You"}</p>
+                    <p class="chat-message-text">{tree.event.payload.text}</p>
+                  </article>
+                  {#if activityEvents(tree).length > 0}
+                    <section class="agent-activity">
+                      <p class="agent-activity-heading">{finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}</p>
+                      {#each activityEvents(tree) as activity (activity.event.ref.id)}
+                        {#if activity.event.kind === "tool.call"}
+                          <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
+                            <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
+                            {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                          </p>
+                        {/if}
+                      {/each}
+                    </section>
+                  {/if}
+                  {#each finalReplies(tree) as reply (reply.event.ref.id)}
+                    <article class="chat-message">
+                      <p class="chat-message-author">Gatehouse</p>
+                      <p class="chat-message-text">{reply.event.payload.text}</p>
+                    </article>
+                  {/each}
+                {/if}
+              {/each}
+            {/if}
+            {#if showJumpToLatest}
+              <button class="button is-small chat-jump" type="button" onclick={() => void scrollToLatest()}>Jump to latest</button>
+            {/if}
+          </div>
+          <form class="chat-composer" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
+            <label class="is-sr-only" for="message">Message</label>
+            <textarea id="message" class="textarea" rows="3" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} onkeydown={(event) => {
+              if (event.ctrlKey && event.key === "Enter") {
+                event.preventDefault()
+                void sendMessage()
+              }
+            }}></textarea>
+            <div class="chat-composer-footer">
+              {#if messageError !== ""}
+                <p class="help is-danger" aria-live="polite">{messageError}</p>
+              {/if}
+              <button class="button is-primary" type="submit" disabled={sendingMessage || messageText.trim() === ""}>
+                {sendingMessage ? "Sending..." : "Send message"}
+              </button>
+            </div>
+          </form>
+        </section>
+      {/if}
+    </main>
   </div>
-</main>
+{/if}

@@ -89,3 +89,29 @@ agent_models:
 		})
 	}
 }
+
+func TestValidateFileRejectsChatCompletionsReasoningWithTools(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+api_version: v1
+agent_providers:
+  - id: openai
+    revision: 1
+    protocol: openai-chat-completions
+    base_url: https://example.test/v1
+    api_key:
+      sources: [env:OPENAI_API_KEY]
+agent_models:
+  - id: chat
+    revision: 1
+    provider: openai
+    model: gpt-5.6-luna
+    parameters:
+      reasoning_effort: low
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := ValidateFile(path); err == nil {
+		t.Fatal("ValidateFile() accepted unsupported Chat Completions reasoning effort")
+	}
+}

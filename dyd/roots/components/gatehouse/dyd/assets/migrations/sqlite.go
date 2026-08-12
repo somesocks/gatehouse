@@ -14,14 +14,42 @@ func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry) err
 	if err := validateRegistry(registry); err != nil {
 		return err
 	}
-
-	cursor := migrationCursor{}
+	initialized, err := initializeSQLite(ctx, database, registry.Init)
+	if err != nil {
+		return err
+	}
+	initializationPending := initialized
+	defer func() {
+		if initializationPending {
+			_ = dropSQLiteMigrationHistory(context.Background(), database)
+		}
+	}()
+	cursor := migrationCursor{init: "initialized"}
 	for {
+		err, history := readMigrationHistory(ctx, database)
+		if err != nil {
+			return err
+		}
+		if err := validateHistory(history, registry); err != nil {
+			return err
+		}
+		err, migration, next, ok := nextMigration(ctx, &MigrationSession{queryer: database}, history, registry, cursor)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			err := compactSQLiteMigrations(ctx, database)
+			if err == nil {
+				initializationPending = false
+			}
+			return err
+		}
+
 		connection, err := database.Conn(ctx)
 		if err != nil {
 			return fmt.Errorf("open migration connection: %w", err)
 		}
-		err, next, applied := migrateSQLiteOne(ctx, connection, registry, cursor)
+		err, applied := migrateSQLiteOne(ctx, connection, registry, migration)
 		closeErr := connection.Close()
 		if err != nil {
 			return err
@@ -30,18 +58,87 @@ func migrateSQLite(ctx context.Context, database *sql.DB, registry Registry) err
 			return fmt.Errorf("close migration connection: %w", closeErr)
 		}
 		cursor = next
-		if !applied {
-			return nil
+		if applied {
+			initializationPending = false
 		}
 	}
 }
 
-func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Registry, cursor migrationCursor) (error, migrationCursor, bool) {
+func compactSQLiteMigrations(ctx context.Context, database *sql.DB) error {
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open migration connection: %w", err)
+	}
+	defer connection.Close()
 	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
-		return fmt.Errorf("set SQLite migration busy timeout: %w", err), cursor, false
+		return fmt.Errorf("set SQLite migration busy timeout: %w", err)
 	}
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("begin immediate migration transaction: %w", err), cursor, false
+		return fmt.Errorf("begin SQLite migration transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = connection.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if _, err := connection.ExecContext(ctx, compactRepeatableHistorySQL); err != nil {
+		return fmt.Errorf("compact repeatable migration history: %w", err)
+	}
+	if err := commitSQLiteMigration(ctx, connection, "migration check"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func initializeSQLite(ctx context.Context, database *sql.DB, init InitMigration) (bool, error) {
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return false, fmt.Errorf("open initialization connection: %w", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
+		return false, fmt.Errorf("set SQLite initialization busy timeout: %w", err)
+	}
+	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return false, fmt.Errorf("begin SQLite initialization transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = connection.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	var existing int
+	if err := connection.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gatehouse_schema_migrations'`).Scan(&existing); err != nil {
+		return false, fmt.Errorf("check migration history: %w", err)
+	}
+	err, source := buildMigration(ctx, &MigrationSession{queryer: connection}, "init", 0, "initialize", init.Builder)
+	if err != nil {
+		return false, err
+	}
+	if _, err := connection.ExecContext(ctx, source); err != nil {
+		return false, fmt.Errorf("initialize migration history: %w", err)
+	}
+	if err := commitSQLiteMigration(ctx, connection, "initialization"); err != nil {
+		return false, err
+	}
+	committed = true
+	return existing == 0, nil
+}
+
+func dropSQLiteMigrationHistory(ctx context.Context, database *sql.DB) error {
+	_, err := database.ExecContext(ctx, `DROP TABLE IF EXISTS gatehouse_schema_migrations`)
+	return err
+}
+
+func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Registry, migration resolvedMigration) (error, bool) {
+	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
+		return fmt.Errorf("set SQLite migration busy timeout: %w", err), false
+	}
+	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		return fmt.Errorf("begin immediate migration transaction: %w", err), false
 	}
 	committed := false
 	defer func() {
@@ -50,43 +147,27 @@ func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Regist
 		}
 	}()
 
-	session := &MigrationSession{connection: connection}
-	init := cursor.init
-	if init == "" {
-		err, built := buildMigration(ctx, session, "init", 0, "initialize", registry.Init.Builder)
-		if err != nil {
-			return err, cursor, false
-		}
-		init = built
-		cursor.init = init
-	}
-	if _, err := connection.ExecContext(ctx, init); err != nil {
-		return fmt.Errorf("initialize migration history: %w", err), cursor, false
-	}
 	err, history := readMigrationHistory(ctx, connection)
 	if err != nil {
-		return err, cursor, false
+		return err, false
 	}
 	if err := validateHistory(history, registry); err != nil {
-		return err, cursor, false
+		return err, false
 	}
-	err, migration, next, ok := nextMigration(ctx, session, history, registry, cursor)
+	err, required := migrationRequired(history, migration)
 	if err != nil {
-		return err, cursor, false
+		return err, false
 	}
-	if !ok {
-		if _, err := connection.ExecContext(ctx, compactRepeatableHistorySQL); err != nil {
-			return fmt.Errorf("compact repeatable migration history: %w", err), cursor, false
-		}
+	if !required {
 		if err := commitSQLiteMigration(ctx, connection, "migration check"); err != nil {
-			return err, cursor, false
+			return err, false
 		}
 		committed = true
-		return nil, next, false
+		return nil, false
 	}
 
 	if _, err := connection.ExecContext(ctx, migration.source); err != nil {
-		return fmt.Errorf("execute %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
+		return fmt.Errorf("execute %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), false
 	}
 	checksum := sha256.Sum256([]byte(migration.source))
 	appliedAt := time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
@@ -95,13 +176,13 @@ func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Regist
 			migration_type, migration_index, description, checksum, applied_at
 		) VALUES (?, ?, ?, ?, ?)
 	`, migration.migrationType, migration.index, migration.description, checksum[:], appliedAt); err != nil {
-		return fmt.Errorf("record %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
+		return fmt.Errorf("record %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), false
 	}
 	if err := commitSQLiteMigration(ctx, connection, fmt.Sprintf("%s migration %d (%s)", migration.migrationType, migration.index, migration.description)); err != nil {
-		return err, cursor, false
+		return err, false
 	}
 	committed = true
-	return nil, next, true
+	return nil, true
 }
 
 func commitSQLiteMigration(ctx context.Context, connection *sql.Conn, operation string) error {

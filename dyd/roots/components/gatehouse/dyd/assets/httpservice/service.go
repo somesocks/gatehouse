@@ -146,7 +146,11 @@ func login(tokens *auth.BearerTokens) http.HandlerFunc {
 			invalidCredentials(response)
 			return
 		}
-		err, token := tokens.Login(request.Context(), credentials.Identity, []byte(credentials.Password))
+		identityID := strings.TrimSpace(credentials.Identity)
+		if !strings.Contains(identityID, ":") {
+			identityID = "gatehouse:" + identityID
+		}
+		err, token := tokens.Login(request.Context(), identityID, []byte(credentials.Password))
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidCredentials) {
 				invalidCredentials(response)
@@ -209,6 +213,11 @@ type sessionResponse struct {
 
 type sessionMessageRequest struct {
 	Text string `json:"text"`
+}
+
+type sessionEventTreeResponse struct {
+	Event    model.SessionEvent           `json:"event"`
+	Children []*sessionEventTreeResponse `json:"children"`
 }
 
 func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
@@ -456,13 +465,30 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			limit = parsed
 		}
-		err, events := store.SessionEventsPageGet(request.Context(), session, afterCreatedAt, afterID, limit)
+		err, entries := store.SessionEventsTreePageGet(request.Context(), session, afterCreatedAt, afterID, limit)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(response, events)
+		writeJSON(response, sessionEventTrees(entries))
 	}
+}
+
+func sessionEventTrees(entries []database.SessionEventTreeEntry) []*sessionEventTreeResponse {
+	trees := make([]*sessionEventTreeResponse, 0)
+	stack := make([]*sessionEventTreeResponse, 0)
+	for _, entry := range entries {
+		node := &sessionEventTreeResponse{Event: entry.Event, Children: []*sessionEventTreeResponse{}}
+		if entry.Depth == 0 {
+			trees = append(trees, node)
+			stack = []*sessionEventTreeResponse{node}
+			continue
+		}
+		parent := stack[entry.Depth-1]
+		parent.Children = append(parent.Children, node)
+		stack = append(stack[:entry.Depth], node)
+	}
+	return trees
 }
 
 func workspaceResources(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {

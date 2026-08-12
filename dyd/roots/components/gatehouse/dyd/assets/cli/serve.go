@@ -92,7 +92,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "start DBOS: %v\n", err)
 			return 1
 		}
-		err, replies := agent.NewSessionEventReplyRuntime(dbosContext, store)
+		err, replies := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "prepare agent replies: %v\n", err)
 			return 1

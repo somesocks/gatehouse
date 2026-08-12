@@ -14,15 +14,13 @@ import (
 type MigrationBuilder func(context.Context, *MigrationSession) (error, string)
 
 type MigrationSession struct {
-	connection *sql.Conn
-}
-
-func (session *MigrationSession) ExecContext(ctx context.Context, query string, arguments ...any) (sql.Result, error) {
-	return session.connection.ExecContext(ctx, query, arguments...)
+	queryer interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	}
 }
 
 func (session *MigrationSession) QueryContext(ctx context.Context, query string, arguments ...any) (*sql.Rows, error) {
-	return session.connection.QueryContext(ctx, query, arguments...)
+	return session.queryer.QueryContext(ctx, query, arguments...)
 }
 
 func (session *MigrationSession) RenderTemplate(source string, values any) (error, string) {
@@ -223,6 +221,25 @@ func nextMigration(ctx context.Context, session *MigrationSession, history []app
 	}
 
 	return nil, resolvedMigration{}, cursor, false
+}
+
+func migrationRequired(history []appliedMigration, migration resolvedMigration) (error, bool) {
+	checksum := sha256.Sum256([]byte(migration.source))
+	latest, exists := latestMigration(history, migration.migrationType, migration.index)
+	switch migration.migrationType {
+	case migrationTypeVersioned:
+		if !exists {
+			return nil, true
+		}
+		if latest.checksum != checksum {
+			return fmt.Errorf("applied versioned migration %d (%s) has a different checksum", migration.index, migration.description), false
+		}
+		return nil, false
+	case migrationTypeRepeatable:
+		return nil, !exists || latest.checksum != checksum
+	default:
+		return fmt.Errorf("unsupported migration type %q", migration.migrationType), false
+	}
 }
 
 func buildMigration(ctx context.Context, session *MigrationSession, migrationType string, index int64, description string, builder MigrationBuilder) (error, string) {

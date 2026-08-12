@@ -464,7 +464,11 @@ func (store *Store) SessionEventReplyTaskDelete(ctx context.Context, event model
 
 type WorkspaceAgentModel struct {
 	Ref        model.WorkspaceAgentRef
+	ProviderID string
 	Protocol   string
+	BaseURL    *string
+	Keychain   *model.KeychainRef
+	APIKey     *string
 	Model      string
 	Parameters string
 }
@@ -472,7 +476,7 @@ type WorkspaceAgentModel struct {
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.protocol, models.model, models.parameters
+		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -485,11 +489,21 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	`, workspace.Id)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.Protocol, &selected.Model, &selected.Parameters); err != nil {
+	var baseURL, keychainID, apiKey sql.NullString
+	var keychainVersion sql.NullInt64
+	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return fmt.Errorf("select workspace agent model: %w", err), nil
+	}
+	if baseURL.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
+		if !baseURL.Valid || !keychainID.Valid || !keychainVersion.Valid || keychainVersion.Int64 <= 0 || !apiKey.Valid {
+			return fmt.Errorf("select workspace agent model: invalid provider credentials"), nil
+		}
+		selected.BaseURL = &baseURL.String
+		selected.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
+		selected.APIKey = &apiKey.String
 	}
 	return nil, &selected
 }

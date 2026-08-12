@@ -43,14 +43,14 @@ func agentProviderMigrationBuilder(providers []config.AgentProvider, keyring *ke
 				return apiKeyErr, ""
 			}
 			reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
-			deksErr, deks := keyring.Get(ctx, []model.KeychainRef{reference})
-			if deksErr != nil {
+			keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
+			if keyringErr != nil {
 				clear(apiKey)
-				return fmt.Errorf("get keychain for provider %q: %w", provider.ID, deksErr), ""
+				return fmt.Errorf("get keychain for provider %q: %w", provider.ID, keyringErr), ""
 			}
-			sealErr, encrypted := keychain.Seal(rand.Reader, deks[reference], []byte("gh=v1|agent-provider="+provider.ID), apiKey)
+			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider="+provider.ID), apiKey)
 			clear(apiKey)
-			clear(deks[reference])
+			clear(keys[reference])
 			if sealErr != nil {
 				return fmt.Errorf("encrypt API key for provider %q: %w", provider.ID, sealErr), ""
 			}

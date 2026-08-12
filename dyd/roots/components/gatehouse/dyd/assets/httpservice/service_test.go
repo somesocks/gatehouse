@@ -113,7 +113,7 @@ func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 	}
 
 	login := httptest.NewRecorder()
-	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"alice","password":"correct password"}`)))
 	if login.Code != http.StatusOK || login.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("POST login = status %d cache %q", login.Code, login.Header().Get("Cache-Control"))
 	}
@@ -135,6 +135,12 @@ func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 	handler.ServeHTTP(me, meRequest)
 	if me.Code != http.StatusOK || me.Header().Get("Cache-Control") != "no-store" || me.Body.String() != "{\"principal\":\"alice\",\"identity\":\"gatehouse:alice\"}\n" {
 		t.Fatalf("GET me = status %d cache %q body %q", me.Code, me.Header().Get("Cache-Control"), me.Body.String())
+	}
+
+	qualified := httptest.NewRecorder()
+	handler.ServeHTTP(qualified, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	if qualified.Code != http.StatusOK {
+		t.Fatalf("POST login with qualified identity = status %d", qualified.Code)
 	}
 
 	logoutResponse := httptest.NewRecorder()
@@ -253,12 +259,22 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if poll.Code != http.StatusOK || poll.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("GET events = status %d cache %q", poll.Code, poll.Header().Get("Cache-Control"))
 	}
-	var polled []model.SessionEvent
+	var polled []sessionEventTreeResponse
 	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil {
 		t.Fatal(err)
 	}
-	if len(polled) != 1 || polled[0].Ref != event.Ref {
+	if len(polled) != 1 || polled[0].Event.Ref != event.Ref || len(polled[0].Children) != 0 {
 		t.Fatalf("GET events response = %#v", polled)
+	}
+	child := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: "1c76ece6-ef42-46e9-927f-b05084e5a997"}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
+	}
+	if err, _ := store.SessionEventsCreate(context.Background(), child); err != nil {
+		t.Fatal(err)
+	}
+	poll = request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?limit=1", "")
+	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil || len(polled) != 1 || len(polled[0].Children) != 1 || polled[0].Children[0].Event.Ref != child.Ref {
+		t.Fatalf("GET nested events response = (%#v, %v)", polled, err)
 	}
 	after := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id="+event.Ref.Id, "")
 	if after.Code != http.StatusOK || after.Body.String() != "[]\n" {
@@ -277,7 +293,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Id != "alice" {
+	if len(events) != 2 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Id != "alice" {
 		t.Fatalf("stored session events = %#v", events)
 	}
 	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)

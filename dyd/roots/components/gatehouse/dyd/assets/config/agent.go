@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	agentProviderProtocolBuiltin          = "builtin"
-	agentProviderProtocolOpenAICompatible = "openai-compatible"
+	agentProviderProtocolBuiltin                = "builtin"
+	agentProviderProtocolOpenAIChatCompletions  = "openai-chat-completions"
+	agentProviderProtocolOpenAIResponses        = "openai-responses"
 	agentModelBuiltinDummyFixedReply      = "dummy.fixed-reply"
 )
 
@@ -67,9 +68,9 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 			if configured.BaseUrl != nil || configured.ApiKey != nil {
 				return fmt.Errorf("agent_providers[%d] builtin providers do not accept base_url or api_key", index), nil
 			}
-		case agentProviderProtocolOpenAICompatible:
+		case agentProviderProtocolOpenAIChatCompletions, agentProviderProtocolOpenAIResponses:
 			if configured.BaseUrl == nil || configured.ApiKey == nil {
-				return fmt.Errorf("agent_providers[%d] openai-compatible providers require base_url and api_key", index), nil
+				return fmt.Errorf("agent_providers[%d] OpenAI providers require base_url and api_key", index), nil
 			}
 			parsed, err := url.ParseRequestURI(*configured.BaseUrl)
 			if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
@@ -138,6 +139,9 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 				return fmt.Errorf("agent_models[%d] has an invalid builtin model or parameters", index), nil
 			}
 		}
+		if err := validateOpenAIModelParameters(protocol, parameters); err != nil {
+			return fmt.Errorf("agent_models[%d].parameters: %w", index, err), nil
+		}
 		encoded, err := json.Marshal(parameters)
 		if err != nil {
 			return fmt.Errorf("encode agent_models[%d].parameters: %w", index, err), nil
@@ -148,6 +152,33 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 	}
 	sort.Slice(models, func(left, right int) bool { return models[left].ID < models[right].ID })
 	return nil, models
+}
+
+func validateOpenAIModelParameters(protocol string, parameters map[string]any) error {
+	if protocol == agentProviderProtocolBuiltin {
+		return nil
+	}
+	if len(parameters) == 0 {
+		return nil
+	}
+	effort, ok := parameters["reasoning_effort"].(string)
+	if !ok || len(parameters) != 1 {
+		return fmt.Errorf("must contain only an optional reasoning_effort string")
+	}
+	valid := false
+	for _, candidate := range []string{"none", "low", "medium", "high", "xhigh", "max"} {
+		if effort == candidate {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("reasoning_effort %q is invalid", effort)
+	}
+	if protocol == agentProviderProtocolOpenAIChatCompletions && effort != "none" {
+		return fmt.Errorf("reasoning_effort must be none for openai-chat-completions tool use")
+	}
+	return nil
 }
 
 func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []AgentModel) (error, []WorkspaceAgent) {

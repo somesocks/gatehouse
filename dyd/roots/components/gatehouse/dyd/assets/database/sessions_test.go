@@ -187,7 +187,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
 		INSERT INTO gatehouse_agent_providers (id, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-		VALUES ('provider', 1, 'openai-compatible', 'https://example.test/v1', 'events', 1, 'key', TRUE);
+		VALUES ('provider', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('assistant', 1, 'provider', 'example', '{}', TRUE);
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)

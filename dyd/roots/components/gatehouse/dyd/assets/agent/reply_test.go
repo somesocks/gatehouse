@@ -65,7 +65,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store)
+	runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
 	if runtimeErr != nil {
 		t.Fatal(runtimeErr)
 	}

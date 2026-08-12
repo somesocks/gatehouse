@@ -14,14 +14,42 @@ func migratePostgres(ctx context.Context, database *sql.DB, registry Registry) e
 	if err := validateRegistry(registry); err != nil {
 		return err
 	}
-
-	cursor := migrationCursor{}
+	initialized, err := initializePostgres(ctx, database, registry.Init)
+	if err != nil {
+		return err
+	}
+	initializationPending := initialized
+	defer func() {
+		if initializationPending {
+			_ = dropPostgresMigrationHistory(context.Background(), database)
+		}
+	}()
+	cursor := migrationCursor{init: "initialized"}
 	for {
+		err, history := readMigrationHistory(ctx, database)
+		if err != nil {
+			return err
+		}
+		if err := validateHistory(history, registry); err != nil {
+			return err
+		}
+		err, migration, next, ok := nextMigration(ctx, &MigrationSession{queryer: database}, history, registry, cursor)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			err := compactPostgresMigrations(ctx, database)
+			if err == nil {
+				initializationPending = false
+			}
+			return err
+		}
+
 		connection, err := database.Conn(ctx)
 		if err != nil {
 			return fmt.Errorf("open migration connection: %w", err)
 		}
-		err, next, applied := migratePostgresOne(ctx, connection, registry, cursor)
+		err, applied := migratePostgresOne(ctx, connection, registry, migration)
 		closeErr := connection.Close()
 		if err != nil {
 			return err
@@ -30,15 +58,20 @@ func migratePostgres(ctx context.Context, database *sql.DB, registry Registry) e
 			return fmt.Errorf("close migration connection: %w", closeErr)
 		}
 		cursor = next
-		if !applied {
-			return nil
+		if applied {
+			initializationPending = false
 		}
 	}
 }
 
-func migratePostgresOne(ctx context.Context, connection *sql.Conn, registry Registry, cursor migrationCursor) (error, migrationCursor, bool) {
+func compactPostgresMigrations(ctx context.Context, database *sql.DB) error {
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("open migration connection: %w", err)
+	}
+	defer connection.Close()
 	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
-		return fmt.Errorf("begin migration transaction: %w", err), cursor, false
+		return fmt.Errorf("begin PostgreSQL migration transaction: %w", err)
 	}
 	committed := false
 	defer func() {
@@ -47,45 +80,93 @@ func migratePostgresOne(ctx context.Context, connection *sql.Conn, registry Regi
 		}
 	}()
 	if _, err := connection.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresMigrationLockID); err != nil {
-		return fmt.Errorf("acquire PostgreSQL migration lock: %w", err), cursor, false
+		return fmt.Errorf("acquire PostgreSQL migration lock: %w", err)
 	}
-	session := &MigrationSession{connection: connection}
-	init := cursor.init
-	if init == "" {
-		err, built := buildMigration(ctx, session, "init", 0, "initialize", registry.Init.Builder)
-		if err != nil {
-			return err, cursor, false
+	if _, err := connection.ExecContext(ctx, compactRepeatableHistorySQL); err != nil {
+		return fmt.Errorf("compact repeatable migration history: %w", err)
+	}
+	if err := commitPostgresMigration(ctx, connection, "migration check"); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func initializePostgres(ctx context.Context, database *sql.DB, init InitMigration) (bool, error) {
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		return false, fmt.Errorf("open initialization connection: %w", err)
+	}
+	defer connection.Close()
+	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+		return false, fmt.Errorf("begin PostgreSQL initialization transaction: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = connection.ExecContext(context.Background(), "ROLLBACK")
 		}
-		init = built
-		cursor.init = init
+	}()
+	if _, err := connection.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresMigrationLockID); err != nil {
+		return false, fmt.Errorf("acquire PostgreSQL initialization lock: %w", err)
 	}
-	if _, err := connection.ExecContext(ctx, init); err != nil {
-		return fmt.Errorf("initialize migration history: %w", err), cursor, false
+	var existing bool
+	if err := connection.QueryRowContext(ctx, `SELECT to_regclass('gatehouse_schema_migrations') IS NOT NULL`).Scan(&existing); err != nil {
+		return false, fmt.Errorf("check migration history: %w", err)
+	}
+	err, source := buildMigration(ctx, &MigrationSession{queryer: connection}, "init", 0, "initialize", init.Builder)
+	if err != nil {
+		return false, err
+	}
+	if _, err := connection.ExecContext(ctx, source); err != nil {
+		return false, fmt.Errorf("initialize migration history: %w", err)
+	}
+	if err := commitPostgresMigration(ctx, connection, "initialization"); err != nil {
+		return false, err
+	}
+	committed = true
+	return !existing, nil
+}
+
+func dropPostgresMigrationHistory(ctx context.Context, database *sql.DB) error {
+	_, err := database.ExecContext(ctx, `DROP TABLE IF EXISTS gatehouse_schema_migrations`)
+	return err
+}
+
+func migratePostgresOne(ctx context.Context, connection *sql.Conn, registry Registry, migration resolvedMigration) (error, bool) {
+	if _, err := connection.ExecContext(ctx, "BEGIN"); err != nil {
+		return fmt.Errorf("begin migration transaction: %w", err), false
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = connection.ExecContext(context.Background(), "ROLLBACK")
+		}
+	}()
+	if _, err := connection.ExecContext(ctx, "SELECT pg_advisory_xact_lock($1)", postgresMigrationLockID); err != nil {
+		return fmt.Errorf("acquire PostgreSQL migration lock: %w", err), false
 	}
 	err, history := readMigrationHistory(ctx, connection)
 	if err != nil {
-		return err, cursor, false
+		return err, false
 	}
 	if err := validateHistory(history, registry); err != nil {
-		return err, cursor, false
+		return err, false
 	}
-	err, migration, next, ok := nextMigration(ctx, session, history, registry, cursor)
+	err, required := migrationRequired(history, migration)
 	if err != nil {
-		return err, cursor, false
+		return err, false
 	}
-	if !ok {
-		if _, err := connection.ExecContext(ctx, compactRepeatableHistorySQL); err != nil {
-			return fmt.Errorf("compact repeatable migration history: %w", err), cursor, false
-		}
+	if !required {
 		if err := commitPostgresMigration(ctx, connection, "migration check"); err != nil {
-			return err, cursor, false
+			return err, false
 		}
 		committed = true
-		return nil, next, false
+		return nil, false
 	}
 
 	if _, err := connection.ExecContext(ctx, migration.source); err != nil {
-		return fmt.Errorf("execute %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
+		return fmt.Errorf("execute %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), false
 	}
 	checksum := sha256.Sum256([]byte(migration.source))
 	appliedAt := time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
@@ -94,13 +175,13 @@ func migratePostgresOne(ctx context.Context, connection *sql.Conn, registry Regi
 			migration_type, migration_index, description, checksum, applied_at
 		) VALUES ($1, $2, $3, $4, $5)
 	`, migration.migrationType, migration.index, migration.description, checksum[:], appliedAt); err != nil {
-		return fmt.Errorf("record %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), cursor, false
+		return fmt.Errorf("record %s migration %d (%s): %w", migration.migrationType, migration.index, migration.description, err), false
 	}
 	if err := commitPostgresMigration(ctx, connection, fmt.Sprintf("%s migration %d (%s)", migration.migrationType, migration.index, migration.description)); err != nil {
-		return err, cursor, false
+		return err, false
 	}
 	committed = true
-	return nil, next, true
+	return nil, true
 }
 
 func commitPostgresMigration(ctx context.Context, connection *sql.Conn, operation string) error {

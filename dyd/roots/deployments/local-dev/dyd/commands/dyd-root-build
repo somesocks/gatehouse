@@ -2,8 +2,11 @@
 
 set -eu
 
-mkdir -p "$DYD_BUILD/dyd/assets" "$DYD_BUILD/dyd/commands" "$DYD_BUILD/dyd/dependencies"
+mkdir -p "$DYD_BUILD/dyd/assets" "$DYD_BUILD/dyd/commands" "$DYD_BUILD/dyd/dependencies" "$DYD_BUILD/dyd/secrets"
 cp -R "$DYD_STEM/dyd/assets/." "$DYD_BUILD/dyd/assets"
 cp -R "$DYD_STEM/dyd/assets/commands/." "$DYD_BUILD/dyd/commands"
+if [ -f "$DYD_STEM/dyd/dependencies/local-dev-env/dyd/secrets/local-dev.env" ]; then
+	cp "$DYD_STEM/dyd/dependencies/local-dev-env/dyd/secrets/local-dev.env" "$DYD_BUILD/dyd/secrets/local-dev.env"
+fi
 ln -s "$DYD_STEM/dyd/dependencies/image-gatehouse" "$DYD_BUILD/dyd/dependencies/image-gatehouse"
 ln -s "$DYD_STEM/dyd/dependencies/image-local-load" "$DYD_BUILD/dyd/dependencies/image-local-load"
