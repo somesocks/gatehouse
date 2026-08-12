@@ -1,6 +1,8 @@
 package lisp
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // TurnTool is an authorized module made available for one evaluation.
 type TurnTool struct {
@@ -15,10 +17,44 @@ type TurnResource struct {
 	Secret bool
 }
 
-// RunTurn evaluates source with only the supplied tool modules and resources.
-// Tools are available as tool-id/export and resources as resource/id.
+const defaultTurnPrelude = `(import/restrict
+  (@native:json/v1
+   @native:seq/v1
+   @native:crypto/digest/sha256/v1
+   @native:crypto/mac/hmac/sha256/v1
+   @native:crypto/cipher/aes/128/v1
+   @native:crypto/cipher/cbc/v1
+   @native:crypto/cipher/ctr/v1
+   @native:crypto/padding/pkcs7/v1)
+  (import
+    (json @native:json/v1)
+    (seq @native:seq/v1)
+    (crypto/digest/sha256 @native:crypto/digest/sha256/v1)
+    (crypto/mac/hmac/sha256 @native:crypto/mac/hmac/sha256/v1)
+    (crypto/cipher/aes/128 @native:crypto/cipher/aes/128/v1)
+    (crypto/cipher/cbc @native:crypto/cipher/cbc/v1)
+    (crypto/cipher/ctr @native:crypto/cipher/ctr/v1)
+    (crypto/padding/pkcs7 @native:crypto/padding/pkcs7/v1)
+    (eval agent/program)))`
+
+// RunTurn evaluates source using the default turn prelude.
 func RunTurn(source string, tools []TurnTool, resources []TurnResource) (error, Expr) {
+	return RunTurnWithPrelude(source, defaultTurnPrelude, tools, resources)
+}
+
+// RunTurnWithPrelude evaluates source through a prelude with only the supplied tools and resources.
+// The parsed source is bound as agent/program, tools as tool-id/export, and resources as resource/id.
+func RunTurnWithPrelude(source, prelude string, tools []TurnTool, resources []TurnResource) (error, Expr) {
+	err, program := Read(source)
+	if err != nil {
+		return err, nil
+	}
+	err, preludeProgram := Read(prelude)
+	if err != nil {
+		return fmt.Errorf("read turn prelude: %w", err), nil
+	}
 	env := bootstrap()
+	env.bind("agent/program", program)
 	for _, resource := range resources {
 		if resource.ID == "" {
 			return fmt.Errorf("turn resource ID must not be blank"), nil
@@ -39,7 +75,7 @@ func RunTurn(source string, tools []TurnTool, resources []TurnResource) (error, 
 		if err != nil {
 			return fmt.Errorf("read tool %q: %w", tool.ID, err), nil
 		}
-		// A tool may import safe native helpers while it is being loaded.
+		// Tool modules can import native helpers while they are being loaded.
 		toolEnv := &environment{parent: env, values: make(map[string]*Expr)}
 		bindImports(toolEnv, cache)
 		err, result := (&evaluator{}).eval(module, toolEnv)
@@ -58,21 +94,6 @@ func RunTurn(source string, tools []TurnTool, resources []TurnResource) (error, 
 			env.bind(name, export.value)
 		}
 	}
-	bindTurnImports(env)
-
-	err, expression := Read(source)
-	if err != nil {
-		return err, nil
-	}
-	return (&evaluator{}).eval(expression, env)
-}
-
-func bindTurnImports(env *environment) {
-	env.bind("import", withHelp(&builtin{
-		special: true,
-		call: func(_ *evaluator, _ *environment, _ []Expr) (error, Expr) {
-			return expressionError("imports are unavailable during turn evaluation"), nil
-		},
-	}, importDocumentation.text()))
-	env.bind("import/search", importSearchBuiltin(map[moduleReference]struct{}{}))
+	bindImports(env, cache)
+	return (&evaluator{}).eval(preludeProgram, env)
 }

@@ -665,19 +665,21 @@
                     <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                   </article>
                   {#if activityEvents(tree).length > 0}
-                    <section class="agent-activity">
+                    <section class="agent-activity-section">
                       <p class="agent-activity-heading">{finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}</p>
-                      {#each activityEvents(tree) as activity (activity.event.ref.id)}
-                        {#if activity.event.kind === "tool.call"}
-                          <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
-                            <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
-                            {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
-                            {#if toolCallDuration(activity) !== ""}
-                              <span class="tool-call-duration">{toolCallDuration(activity)}</span>
-                            {/if}
-                          </p>
-                        {/if}
-                      {/each}
+                      <div class="agent-activity">
+                        {#each activityEvents(tree) as activity (activity.event.ref.id)}
+                          {#if activity.event.kind === "tool.call"}
+                            <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
+                              <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
+                              {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                              {#if toolCallDuration(activity) !== ""}
+                                <span class="tool-call-duration">{toolCallDuration(activity)}</span>
+                              {/if}
+                            </p>
+                          {/if}
+                        {/each}
+                      </div>
                     </section>
                   {/if}
                   {#each finalReplies(tree) as reply (reply.event.ref.id)}

@@ -55,6 +55,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: mapValues},
 	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: filterValues},
 	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: foldValues},
+	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: evaluate},
 	{name: "string?", documentation: doc("(string? value) -> Boolean", "Returns whether value is a String.", "(string? \"text\")", "#t"), call: pure(isString)},
 	{name: "string/length", documentation: doc("(string/length text) -> Integer", "Returns the Unicode code-point length of text.", "(string/length \"hello\")", "5"), call: pure(stringLength)},
 	{name: "bytes?", documentation: doc("(bytes? value) -> Boolean", "Returns whether value is Bytes.", "(bytes? (bytes/utf8/encode \"x\"))", "#t"), call: pure(isBytes)},
@@ -474,6 +475,13 @@ func foldValues(evaluator *evaluator, env *environment, arguments []Expr) (error
 		}
 	}
 	return nil, result
+}
+
+func evaluate(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("eval requires one expression"), nil
+	}
+	return evaluator.eval(arguments[0], env)
 }
 
 func requireInteger(expr Expr) (error, int64) {
