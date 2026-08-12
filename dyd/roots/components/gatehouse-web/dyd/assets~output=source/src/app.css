@@ -493,8 +493,38 @@ body {
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
-  margin: 0;
+  margin: 0 0 0 1rem;
   text-transform: uppercase;
+}
+
+.agent-activity-duration {
+  color: #929a86;
+  font-size: 0.72rem;
+  font-weight: 400;
+  letter-spacing: normal;
+  margin-left: 0.25rem;
+  text-transform: none;
+}
+
+.agent-activity-overflow {
+  color: #929a86;
+  font-size: 0.72rem;
+  margin: 0;
+}
+
+.agent-activity-overflow button {
+  background: transparent;
+  border: 0;
+  color: #929a86;
+  cursor: pointer;
+  font: inherit;
+  font-size: inherit;
+  margin-left: 0.35rem;
+  padding: 0;
+}
+
+.agent-activity-overflow button:hover {
+  color: #cfd5c4;
 }
 
 .tool-call {

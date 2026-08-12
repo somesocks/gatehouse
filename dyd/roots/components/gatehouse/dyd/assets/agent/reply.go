@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -162,10 +163,20 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	var text string
 	switch selected.Protocol {
 	case "builtin":
+		err, thinking := runtime.thinkingStart(ctx, input.Event, selected.Ref, 0)
+		if err != nil {
+			return model.SessionEvent{}, err
+		}
 		text, err = dbos.RunAsStep(ctx, func(context.Context) (string, error) {
 			err, text := BuiltinReply(selected.Model, selected.Parameters)
 			return text, err
 		}, dbos.WithStepName("gatehouse.session-event-reply-builtin"))
+		if err != nil {
+			return model.SessionEvent{}, runtime.thinkingFinish(ctx, thinking, "thinking.failed", err)
+		}
+		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			return model.SessionEvent{}, err
+		}
 	case "openai-chat-completions", "openai-responses":
 		if message.AuthorPrincipal == nil {
 			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
@@ -185,7 +196,7 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		Payload:     map[string]interface{}{"text": text},
 	}
 	stored, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		err, stored := runtime.store.SessionEventsCreate(step, event)
+		err, stored := runtime.sessionEventGetOrCreate(step, event)
 		return stored, err
 	}, dbos.WithStepName("gatehouse.session-event-reply-persist"))
 	if err != nil {
@@ -208,20 +219,32 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	requestMessages := append([]openAICompatibleMessage{{Role: "system", Content: openAISystemPrompt}}, messages...)
 	callCount := 0
 	for round := 0; ; round++ {
+		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
+		if err != nil {
+			return err, ""
+		}
 		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
 				Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ParallelToolCalls: true, ReasoningEffort: reasoningEffort,
 			})
 		if err != nil {
-			return err, ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
 		}
 		if len(reply.ToolCalls) == 0 {
 			if strings.TrimSpace(reply.Content) == "" {
-				return fmt.Errorf("OpenAI-compatible completion returned no message"), ""
+				err := fmt.Errorf("OpenAI-compatible completion returned no message")
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			}
+			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+				return err, ""
 			}
 			return nil, reply.Content
 		}
 		if round >= selected.MaxTurns {
-			return fmt.Errorf("OpenAI-compatible completion exceeded turn limit"), ""
+			err := fmt.Errorf("OpenAI-compatible completion exceeded turn limit")
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+		}
+		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			return err, ""
 		}
 		output, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
@@ -400,11 +423,15 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 	}
 	callCount := 0
 	for round := 0; ; round++ {
+		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
+		if err != nil {
+			return err, ""
+		}
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
 				Model: selected.Model, Instructions: openAISystemPrompt, Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
 			})
 		if err != nil {
-			return err, ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
 		}
 		input = append(input, reply.Output...)
 		calls := make([]openAICompatibleToolCall, 0, 1)
@@ -412,7 +439,8 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		for _, raw := range reply.Output {
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
-				return fmt.Errorf("decode OpenAI Responses output: %w", err), ""
+				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
 			}
 			switch output.Type {
 			case "function_call":
@@ -430,12 +458,20 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		}
 		if len(calls) == 0 {
 			if strings.TrimSpace(text) == "" {
-				return fmt.Errorf("OpenAI Responses returned no message"), ""
+				err := fmt.Errorf("OpenAI Responses returned no message")
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			}
+			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+				return err, ""
 			}
 			return nil, text
 		}
 		if round >= selected.MaxTurns {
-			return fmt.Errorf("OpenAI Responses exceeded turn limit"), ""
+			err := fmt.Errorf("OpenAI Responses exceeded turn limit")
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+		}
+		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			return err, ""
 		}
 		outputs, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
@@ -475,6 +511,36 @@ func (runtime *SessionEventReplyRuntime) sessionEventGetOrCreate(ctx context.Con
 		return nil, *existing
 	}
 	return runtime.store.SessionEventsCreate(ctx, event)
+}
+
+func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {
+	started, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
+		event := model.SessionEvent{
+			Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, "thinking.started", turn)}, Parent: &parent, Kind: "thinking.started", AuthorAgent: &agent,
+			Payload: map[string]interface{}{"turn": turn},
+		}
+		err, stored := runtime.sessionEventGetOrCreate(step, event)
+		return stored, err
+	}, dbos.WithStepName("gatehouse.session-event-thinking-start"))
+	return err, started
+}
+
+func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error) error {
+	_, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
+		event := model.SessionEvent{
+			Ref: model.SessionEventRef{Session: started.Ref.Session, Id: sessionEventReplyChildID(started.Ref, kind, 0)}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
+			Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
+		}
+		err, stored := runtime.sessionEventGetOrCreate(step, event)
+		return stored, err
+	}, dbos.WithStepName("gatehouse.session-event-thinking-finish"))
+	if completionErr != nil && err != nil {
+		return errors.Join(completionErr, err)
+	}
+	if completionErr != nil {
+		return completionErr
+	}
+	return err
 }
 
 func openAICompatibleLispTool() openAICompatibleTool {
@@ -726,12 +792,16 @@ func openAICompatibleStoredToolCall(event model.SessionEvent) (openAICompatibleT
 }
 
 func toolOutputCreatedAt(callCreatedAt string) string {
-	callTime, err := time.Parse("2006-01-02T15:04:05.000Z", callCreatedAt)
+	return eventTerminalCreatedAt(callCreatedAt)
+}
+
+func eventTerminalCreatedAt(startedAt string) string {
+	started, err := time.Parse("2006-01-02T15:04:05.000Z", startedAt)
 	if err != nil {
 		return time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 	}
 	now := time.Now().UTC().Truncate(time.Millisecond)
-	minimum := callTime.Add(time.Millisecond)
+	minimum := started.Add(time.Millisecond)
 	if now.Before(minimum) {
 		return minimum.Format("2006-01-02T15:04:05.000Z")
 	}

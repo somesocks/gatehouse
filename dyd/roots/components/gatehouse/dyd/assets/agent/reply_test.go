@@ -86,15 +86,23 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(events) == 2 {
-			reply := events[1]
+		if len(events) == 4 {
+			started := events[1]
+			completed := events[2]
+			reply := events[3]
+			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Model.Id != "fallback" || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
+				t.Fatalf("thinking start event = %#v", started)
+			}
+			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Model.Id != "fallback" || completed.Ref.Id == "" {
+				t.Fatalf("thinking completion event = %#v", completed)
+			}
 			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Model.Id != "fallback" || reply.Payload["text"] != "Fallback reply." || reply.Ref.Id == "" {
 				t.Fatalf("reply event = %#v", reply)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session events = %#v, want message and reply", events)
+			t.Fatalf("session events = %#v, want message, thinking lifecycle, and reply", events)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

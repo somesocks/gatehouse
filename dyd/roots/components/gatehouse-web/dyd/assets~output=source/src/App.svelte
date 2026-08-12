@@ -61,6 +61,7 @@
   let messageError = $state("")
   let sendingMessage = $state(false)
   let awaitingReplyFor = $state<string[]>([])
+  let expandedActivity = $state<Set<string>>(new Set())
   let showJumpToLatest = $state(false)
   let chatEventsElement = $state<HTMLDivElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
@@ -290,9 +291,9 @@
           showJumpToLatest = true
         }
       }
-      const repliedTo = new Set(loaded.flatMap((tree) => finalReplies(tree).map(() => tree.event.ref.id)))
-      if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => repliedTo.has(eventID))) {
-        awaitingReplyFor = awaitingReplyFor.filter((eventID) => !repliedTo.has(eventID))
+      const finishedReplies = new Set(loaded.filter((tree) => finalReplies(tree).length > 0 || hasThinkingFailure(tree)).map((tree) => tree.event.ref.id))
+      if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))) {
+        awaitingReplyFor = awaitingReplyFor.filter((eventID) => !finishedReplies.has(eventID))
       }
       if (awaitingReplyFor.length === 0) {
         stopPolling()
@@ -324,29 +325,87 @@
     return tree.children.filter((child) => !finalReplies(tree).includes(child))
   }
 
+  function renderedActivityEvents(tree: SessionEventTree) {
+    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.call" || activity.event.kind === "thinking.started")
+  }
+
+  function displayedActivityEvents(tree: SessionEventTree) {
+    const activity = renderedActivityEvents(tree)
+    if (expandedActivity.has(tree.event.ref.id) || activity.length <= 5) {
+      return activity
+    }
+    return activity.slice(-5)
+  }
+
+  function toggleActivity(tree: SessionEventTree) {
+    const next = new Set(expandedActivity)
+    if (next.has(tree.event.ref.id)) {
+      next.delete(tree.event.ref.id)
+    } else {
+      next.add(tree.event.ref.id)
+    }
+    expandedActivity = next
+  }
+
+  function replyDuration(tree: SessionEventTree) {
+    const replies = finalReplies(tree)
+    if (replies.length === 0) {
+      return ""
+    }
+    return elapsedDuration(tree.event.created_at, replies[replies.length - 1].event.created_at)
+  }
+
   function toolStatus(tree: SessionEventTree) {
-    if (tree.children.some((child) => child.event.kind === "tool.failed")) {
+    return activityStatus(tree, "tool.result", "tool.failed")
+  }
+
+  function thinkingStatus(tree: SessionEventTree) {
+    return activityStatus(tree, "thinking.completed", "thinking.failed")
+  }
+
+  function activityStatus(tree: SessionEventTree, completedKind: string, failedKind: string) {
+    if (tree.children.some((child) => child.event.kind === failedKind)) {
       return "failed"
     }
-    if (tree.children.some((child) => child.event.kind === "tool.result")) {
+    if (tree.children.some((child) => child.event.kind === completedKind)) {
       return "succeeded"
     }
     return "working"
   }
 
   function toolCallDuration(tree: SessionEventTree) {
-    const completed = tree.children.find((child) => child.event.kind === "tool.result" || child.event.kind === "tool.failed")
+    return activityDuration(tree, "tool.result", "tool.failed")
+  }
+
+  function thinkingDuration(tree: SessionEventTree) {
+    return activityDuration(tree, "thinking.completed", "thinking.failed")
+  }
+
+  function activityDuration(tree: SessionEventTree, completedKind: string, failedKind: string) {
+    const completed = tree.children.find((child) => child.event.kind === completedKind || child.event.kind === failedKind)
     if (completed === undefined) {
       return ""
     }
-    const elapsed = new Date(completed.event.created_at).getTime() - new Date(tree.event.created_at).getTime()
+    return elapsedDuration(tree.event.created_at, completed.event.created_at)
+  }
+
+  function elapsedDuration(startedAt: string, completedAt: string) {
+    const elapsed = new Date(completedAt).getTime() - new Date(startedAt).getTime()
     if (!Number.isFinite(elapsed) || elapsed < 0) {
       return ""
     }
     if (elapsed < 100) {
       return "<0.1s"
     }
+    if (elapsed >= 60_000) {
+      const seconds = Math.floor(elapsed / 1000)
+      return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+    }
     return `${(elapsed / 1000).toFixed(1)}s`
+  }
+
+  function hasThinkingFailure(tree: SessionEventTree) {
+    return tree.children.some((child) => child.event.kind === "thinking.started" && thinkingStatus(child) === "failed")
   }
 
   async function copyMarkdown(text: string) {
@@ -666,19 +725,44 @@
                   </article>
                   {#if activityEvents(tree).length > 0}
                     <section class="agent-activity-section">
-                      <p class="agent-activity-heading">{finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}</p>
+                      <p class="agent-activity-heading">
+                        {finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
+                        {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
+                          <span class="agent-activity-duration">{replyDuration(tree)}</span>
+                        {/if}
+                      </p>
                       <div class="agent-activity">
-                        {#each activityEvents(tree) as activity (activity.event.ref.id)}
+                        {#if renderedActivityEvents(tree).length > 5 && !expandedActivity.has(tree.event.ref.id)}
+                          <p class="agent-activity-overflow">
+                            <span>({renderedActivityEvents(tree).length - 5} more)</span>
+                            <button type="button" onclick={() => toggleActivity(tree)}>Show all</button>
+                          </p>
+                        {/if}
+                        {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
                           {#if activity.event.kind === "tool.call"}
                             <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
                               <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
-                              {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                              Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
                               {#if toolCallDuration(activity) !== ""}
                                 <span class="tool-call-duration">{toolCallDuration(activity)}</span>
                               {/if}
                             </p>
+                          {:else if activity.event.kind === "thinking.started"}
+                            <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
+                              <span class:tool-status-working={thinkingStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
+                              {thinkingStatus(activity) === "working" ? "Thinking" : thinkingStatus(activity) === "succeeded" ? "Thought" : "Thinking failed after"}
+                              {#if thinkingDuration(activity) !== ""}
+                                <span class="tool-call-duration">{thinkingDuration(activity)}</span>
+                              {/if}
+                            </p>
                           {/if}
                         {/each}
+                        {#if renderedActivityEvents(tree).length > 5 && expandedActivity.has(tree.event.ref.id)}
+                          <p class="agent-activity-overflow">
+                            <span>({renderedActivityEvents(tree).length} steps)</span>
+                            <button type="button" onclick={() => toggleActivity(tree)}>Show less</button>
+                          </p>
+                        {/if}
                       </div>
                     </section>
                   {/if}
