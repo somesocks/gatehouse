@@ -236,7 +236,9 @@ let WorkspaceAgent =
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }
         , optional = toMap
-            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" } }
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" }
+            , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+            }
         }
         s.record.meta::{ name = Some "WorkspaceAgent" }
 

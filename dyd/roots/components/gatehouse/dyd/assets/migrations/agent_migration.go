@@ -88,9 +88,9 @@ func workspaceAgentMigrationBuilder(agents []config.WorkspaceAgent) MigrationBui
 	return templateMigrationBuilder(`
 		SELECT 1;
 		{{ range . }}
-		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)
-		VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }})
-		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled;
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, enabled)
+		VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlBool .Enabled }})
+		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, enabled = excluded.enabled;
 		{{ end }}
 	`, agents)
 }

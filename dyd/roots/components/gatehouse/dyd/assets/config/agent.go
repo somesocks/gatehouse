@@ -42,8 +42,11 @@ type WorkspaceAgent struct {
 	WorkspaceID string
 	Model       string
 	Priority    int
+	MaxTurns    int
 	Enabled     bool
 }
+
+const DefaultWorkspaceAgentMaxTurns = 127
 
 func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []AgentProvider) {
 	if document.AgentProviders == nil {
@@ -203,12 +206,19 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if !exists || configured.Priority <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d] is invalid", workspaceIndex, agentIndex), nil
 			}
+			maxTurns := DefaultWorkspaceAgentMaxTurns
+			if configured.MaxTurns != nil {
+				maxTurns = *configured.MaxTurns
+			}
+			if maxTurns <= 0 {
+				return fmt.Errorf("workspaces[%d].agents[%d].max_turns must be positive", workspaceIndex, agentIndex), nil
+			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Id, Model: configured.Model, Priority: configured.Priority, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Id, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

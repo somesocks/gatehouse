@@ -31,7 +31,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			ID: "fallback", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "fallback", Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "fallback", Priority: 1, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {

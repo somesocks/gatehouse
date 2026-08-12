@@ -207,7 +207,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	}
 	requestMessages := append([]openAICompatibleMessage{{Role: "system", Content: openAISystemPrompt}}, messages...)
 	callCount := 0
-	for round := 0; round < 16; round++ {
+	for round := 0; ; round++ {
 		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
 				Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ParallelToolCalls: true, ReasoningEffort: reasoningEffort,
 			})
@@ -220,8 +220,8 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			}
 			return nil, reply.Content
 		}
-		if callCount+len(reply.ToolCalls) > 16 {
-			return fmt.Errorf("OpenAI-compatible completion exceeded Lisp tool-call limit"), ""
+		if round >= selected.MaxTurns {
+			return fmt.Errorf("OpenAI-compatible completion exceeded turn limit"), ""
 		}
 		output, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
@@ -233,7 +233,6 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			requestMessages = append(requestMessages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output[index]})
 		}
 	}
-	return fmt.Errorf("OpenAI-compatible completion exceeded Lisp tool-call limit"), ""
 }
 
 func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleMessage, error) {
@@ -400,7 +399,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
 	}
 	callCount := 0
-	for round := 0; round < 16; round++ {
+	for round := 0; ; round++ {
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
 				Model: selected.Model, Instructions: openAISystemPrompt, Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
 			})
@@ -435,8 +434,8 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			}
 			return nil, text
 		}
-		if callCount+len(calls) > 16 {
-			return fmt.Errorf("OpenAI Responses exceeded Lisp tool-call limit"), ""
+		if round >= selected.MaxTurns {
+			return fmt.Errorf("OpenAI Responses exceeded turn limit"), ""
 		}
 		outputs, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
@@ -447,7 +446,6 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			input = append(input, openAIResponsesFunctionOutput(call.ID, outputs[index]))
 		}
 	}
-	return fmt.Errorf("OpenAI Responses exceeded Lisp tool-call limit"), ""
 }
 
 func openAICompatibleReasoningEffort(parameters string) (error, string) {

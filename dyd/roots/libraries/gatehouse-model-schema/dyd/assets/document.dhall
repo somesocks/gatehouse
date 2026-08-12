@@ -246,10 +246,11 @@ let WorkspaceAgent =
       s.record.from
         s.record.props::{
         , required = toMap
-            { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
-            , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
-            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
-            }
+             { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
+             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+             , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
+             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "WorkspaceAgent", description = Some "A model assigned to a workspace." }

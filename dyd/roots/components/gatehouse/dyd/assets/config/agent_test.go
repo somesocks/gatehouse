@@ -115,3 +115,105 @@ agent_models:
 		t.Fatal("ValidateFile() accepted unsupported Chat Completions reasoning effort")
 	}
 }
+
+func TestResolveWorkspaceAgentsMaxTurns(t *testing.T) {
+	for name, contents := range map[string]string{
+		"default": `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+`,
+		"configured": `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+        max_turns: 3
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err, document := ValidateFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, state := ResolveState(document)
+			if err != nil || len(state.WorkspaceAgents) != 1 {
+				t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+			}
+			want := DefaultWorkspaceAgentMaxTurns
+			if name == "configured" {
+				want = 3
+			}
+			if state.WorkspaceAgents[0].MaxTurns != want {
+				t.Fatalf("max turns = %d, want %d", state.WorkspaceAgents[0].MaxTurns, want)
+			}
+		})
+	}
+}
+
+func TestValidateFileRejectsNonPositiveWorkspaceAgentMaxTurns(t *testing.T) {
+	for _, value := range []string{"0", "-1"} {
+		path := filepath.Join(t.TempDir(), "config.yaml")
+		contents := `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+        max_turns: ` + value + `
+`
+		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		err, document := ValidateFile(path)
+		if err == nil {
+			err, _ = ResolveState(document)
+		}
+		if err == nil {
+			t.Fatal("configuration accepted an invalid workspace agent max_turns")
+		}
+	}
+}

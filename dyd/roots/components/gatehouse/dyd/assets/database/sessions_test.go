@@ -353,9 +353,9 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 			{ID: "lower", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Model: "first", Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", Model: "second", Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", Model: "lower", Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Model: "first", Priority: 2, MaxTurns: 3, Enabled: true},
+			{WorkspaceID: "engineering", Model: "second", Priority: 2, MaxTurns: 3, Enabled: true},
+			{WorkspaceID: "engineering", Model: "lower", Priority: 1, MaxTurns: 2, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -368,6 +368,9 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		}
 		if selected.Ref.Model.Id != "first" && selected.Ref.Model.Id != "second" {
 			t.Fatalf("WorkspaceAgentModelSelect() selected %#v outside the highest priority tier", selected)
+		}
+		if selected.MaxTurns != 3 {
+			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
 		}
 	}
 }

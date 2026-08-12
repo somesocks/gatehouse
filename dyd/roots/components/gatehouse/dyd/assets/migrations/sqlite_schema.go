@@ -305,6 +305,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 					REFERENCES gatehouse_session_events (workspace, session, id)
 			) STRICT;
 		`),
+		}, {
+			Index:       10,
+			Description: "add_workspace_agent_max_turns",
+			Builder: staticMigrationBuilder(`
+			ALTER TABLE gatehouse_workspace_agents
+			ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 127 CHECK (max_turns > 0);
+		`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{
