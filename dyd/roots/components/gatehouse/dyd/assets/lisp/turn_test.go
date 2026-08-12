@@ -1,9 +1,6 @@
 package lisp
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestRunTurnPreloadsAuthorizedToolsAndResources(t *testing.T) {
 	err, result := RunTurn(
@@ -52,15 +49,9 @@ func TestRunTurnPreludeEvaluatesParsedProgramLexically(t *testing.T) {
 	}
 }
 
-func TestRunTurnDefaultPreludeBlocksUnsupportedImports(t *testing.T) {
-	for _, source := range []string{
-		"(import (random @native:random/v1) (random/int 1))",
-		"(import (time @native:time/v1) (time/now))",
-		"(import (http @native:net/http/v1) http/request)",
-	} {
-		err, _ := RunTurn(source, nil, nil)
-		if err == nil || !strings.Contains(err.Error(), "not allowed") {
-			t.Fatalf("RunTurn(%s) import error = %v", source, err)
-		}
+func TestRunTurnDefaultPreludeHidesImports(t *testing.T) {
+	err, result := RunTurn("(list (= import null) (= import/restrict null) (= import/search null))", nil, nil)
+	if err != nil || result.String() != "(#t #t #t)" {
+		t.Fatalf("RunTurn() imports = (%s, %v)", result, err)
 	}
 }

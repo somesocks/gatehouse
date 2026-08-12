@@ -35,7 +35,10 @@ const defaultTurnPrelude = `(import/restrict
     (crypto/cipher/cbc @native:crypto/cipher/cbc/v1)
     (crypto/cipher/ctr @native:crypto/cipher/ctr/v1)
     (crypto/padding/pkcs7 @native:crypto/padding/pkcs7/v1)
-    (eval agent/program)))`
+    (let ((import null)
+          (import/restrict null)
+          (import/search null))
+      (eval agent/program))))`
 
 // RunTurn evaluates source using the default turn prelude.
 func RunTurn(source string, tools []TurnTool, resources []TurnResource) (error, Expr) {
