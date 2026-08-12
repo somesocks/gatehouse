@@ -185,3 +185,13 @@ func openAIResponsesFunctionOutput(callID, output string) json.RawMessage {
 	}{Type: "function_call_output", CallID: callID, Output: output})
 	return encoded
 }
+
+func openAIResponsesFunctionCall(call openAICompatibleToolCall) json.RawMessage {
+	encoded, _ := json.Marshal(struct {
+		Type      string `json:"type"`
+		CallID    string `json:"call_id"`
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	}{Type: "function_call", CallID: call.ID, Name: call.Function.Name, Arguments: call.Function.Arguments})
+	return encoded
+}

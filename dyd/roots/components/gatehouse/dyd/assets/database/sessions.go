@@ -180,7 +180,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 				}
 			}
 		}
-		event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+		if event.CreatedAt == "" {
+			event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+		}
 		payload, err := json.Marshal(event.Payload)
 		if err != nil {
 			return fmt.Errorf("encode session event payload: %w", err), nil

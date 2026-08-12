@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
+  import { Copy } from "@lucide/svelte"
+  import { renderMarkdown } from "./markdown"
 
   type Claims = {
     principal: string
@@ -60,8 +62,8 @@
   let sendingMessage = $state(false)
   let awaitingReplyFor = $state<string[]>([])
   let showJumpToLatest = $state(false)
-  let chatEventsElement: HTMLDivElement | undefined
-  let messageInputElement: HTMLTextAreaElement | undefined
+  let chatEventsElement = $state<HTMLDivElement | undefined>()
+  let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let pollTimer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
@@ -330,6 +332,10 @@
       return "succeeded"
     }
     return "working"
+  }
+
+  async function copyMarkdown(text: string) {
+    await navigator.clipboard.writeText(text)
   }
 
   function isNearChatBottom() {
@@ -633,7 +639,10 @@
                 {#if tree.event.kind === "message.text" && tree.event.payload.text !== undefined}
                   <article class="chat-message message-own">
                     <p class="chat-message-author">{tree.event.author_principal?.id ?? "You"}</p>
-                    <p class="chat-message-text">{tree.event.payload.text}</p>
+                    <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
+                      <Copy size={16} strokeWidth={2} />
+                    </button>
+                    <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                   </article>
                   {#if activityEvents(tree).length > 0}
                     <section class="agent-activity">
@@ -651,7 +660,10 @@
                   {#each finalReplies(tree) as reply (reply.event.ref.id)}
                     <article class="chat-message">
                       <p class="chat-message-author">Gatehouse</p>
-                      <p class="chat-message-text">{reply.event.payload.text}</p>
+                      <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
+                        <Copy size={16} strokeWidth={2} />
+                      </button>
+                      <div class="chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
                     </article>
                   {/each}
                 {/if}

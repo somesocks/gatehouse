@@ -103,7 +103,10 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		if err != nil {
 			return model.SessionEvent{}, err
 		}
-		messages := openAICompatibleMessages(events)
+		err, messages := openAICompatibleMessages(events)
+		if err != nil {
+			return model.SessionEvent{}, err
+		}
 		if len(messages) == 0 {
 			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: message has no text", input.Event.Id)
 		}
@@ -248,7 +251,7 @@ func (runtime *SessionEventReplyRuntime) runLispCall(ctx context.Context, parent
 		}
 		resultEvent := model.SessionEvent{
 			Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, kind, index)}, Parent: &storedCall.Ref, Kind: kind, AuthorAgent: &selected.Ref,
-			Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "output": output},
+			Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "output": output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
 		}
 		if err, _ := runtime.sessionEventGetOrCreate(ctx, resultEvent); err != nil {
 			return "", err
@@ -259,10 +262,7 @@ func (runtime *SessionEventReplyRuntime) runLispCall(ctx context.Context, parent
 const openAISystemPrompt = "You have one tool, lisp. The Lisp environment contains all other tools available to you. Write Lisp programs to use them. This is a custom Lisp environment, not Common Lisp or Scheme. Do not assume language features or builtin names. A tool failure is intermediate feedback: correct the Lisp and try again when the request remains answerable. Do not make a failed exploration your final answer when you can retry it. Do not mention the underlying tool, programming language, or implementation details to users; describe capabilities and results instead.\n\nExample programs:\n\n- (help/env) ; List all bindings.\n- (help/env \"prefix\") ; List bindings matching a prefix.\n- (help/search \"term\") ; Search documented capabilities.\n- (help 'binding) ; Inspect a binding.\n- (let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.\n- (list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9)."
 
 func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, tools []lisp.TurnTool, resources []lisp.TurnResource, apiKey, reasoningEffort string) (error, string) {
-	input := make([]json.RawMessage, 0, len(messages)+32)
-	for _, message := range messages {
-		input = append(input, openAIResponsesMessage(message.Role, message.Content))
-	}
+	input := openAIResponsesInput(messages)
 	var reasoning *openAIResponsesReasoning
 	if reasoningEffort != "" {
 		reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
@@ -447,23 +447,105 @@ func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, r
 	return nil, values
 }
 
-func openAICompatibleMessages(events []model.SessionEvent) []openAICompatibleMessage {
+func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompatibleMessage) {
 	messages := make([]openAICompatibleMessage, 0, len(events))
+	calls := map[string]openAICompatibleToolCall{}
 	for _, event := range events {
-		if event.Kind != "message.text" {
+		if event.Kind != "tool.call" || event.AuthorAgent == nil {
 			continue
 		}
-		text, ok := event.Payload["text"].(string)
-		if !ok || strings.TrimSpace(text) == "" {
-			continue
+		call, err := openAICompatibleStoredToolCall(event)
+		if err != nil {
+			return err, nil
 		}
-		if event.AuthorPrincipal != nil {
-			messages = append(messages, openAICompatibleMessage{Role: "user", Content: text})
-		} else if event.AuthorAgent != nil {
-			messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text})
+		calls[event.Ref.Id] = call
+	}
+	for _, event := range events {
+		switch event.Kind {
+		case "message.text":
+			text, ok := event.Payload["text"].(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			if event.AuthorPrincipal != nil {
+				messages = append(messages, openAICompatibleMessage{Role: "user", Content: text})
+			} else if event.AuthorAgent != nil {
+				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text})
+			}
+		case "tool.call":
+			if event.AuthorAgent == nil {
+				continue
+			}
+			call := calls[event.Ref.Id]
+			messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call}})
+		case "tool.result", "tool.failed":
+			if event.AuthorAgent == nil || event.Parent == nil {
+				continue
+			}
+			call, ok := calls[event.Parent.Id]
+			if !ok {
+				return fmt.Errorf("session tool output %q has no preceding tool call", event.Ref.Id), nil
+			}
+			output, ok := event.Payload["output"].(string)
+			if !ok {
+				return fmt.Errorf("session tool output %q has no text output", event.Ref.Id), nil
+			}
+			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output})
 		}
 	}
-	return messages
+	return nil, messages
+}
+
+func openAICompatibleStoredToolCall(event model.SessionEvent) (openAICompatibleToolCall, error) {
+	callID, callIDOK := event.Payload["call_id"].(string)
+	name, nameOK := event.Payload["name"].(string)
+	code, codeOK := event.Payload["code"].(string)
+	reason, reasonOK := event.Payload["reason"].(string)
+	if !callIDOK || callID == "" || !nameOK || name != "lisp" || !codeOK || strings.TrimSpace(code) == "" || !reasonOK || strings.TrimSpace(reason) == "" {
+		return openAICompatibleToolCall{}, fmt.Errorf("session tool call %q is invalid", event.Ref.Id)
+	}
+	arguments, err := json.Marshal(struct {
+		Code   string `json:"code"`
+		Reason string `json:"reason"`
+	}{Code: code, Reason: reason})
+	if err != nil {
+		return openAICompatibleToolCall{}, fmt.Errorf("encode session tool call %q arguments: %w", event.Ref.Id, err)
+	}
+	call := openAICompatibleToolCall{ID: callID, Type: "function"}
+	call.Function.Name = name
+	call.Function.Arguments = string(arguments)
+	return call, nil
+}
+
+func toolOutputCreatedAt(callCreatedAt string) string {
+	callTime, err := time.Parse("2006-01-02T15:04:05.000Z", callCreatedAt)
+	if err != nil {
+		return time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	}
+	now := time.Now().UTC().Truncate(time.Millisecond)
+	minimum := callTime.Add(time.Millisecond)
+	if now.Before(minimum) {
+		return minimum.Format("2006-01-02T15:04:05.000Z")
+	}
+	return now.Format("2006-01-02T15:04:05.000Z")
+}
+
+func openAIResponsesInput(messages []openAICompatibleMessage) []json.RawMessage {
+	input := make([]json.RawMessage, 0, len(messages))
+	for _, message := range messages {
+		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
+			for _, call := range message.ToolCalls {
+				input = append(input, openAIResponsesFunctionCall(call))
+			}
+			continue
+		}
+		if message.Role == "tool" {
+			input = append(input, openAIResponsesFunctionOutput(message.ToolCallID, message.Content))
+			continue
+		}
+		input = append(input, openAIResponsesMessage(message.Role, message.Content))
+	}
+	return input
 }
 
 func sessionEventReplyWorkflowID(event model.SessionEventRef) string {

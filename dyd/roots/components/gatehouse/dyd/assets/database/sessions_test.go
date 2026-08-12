@@ -152,11 +152,18 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if _, err := time.Parse("2006-01-02T15:04:05.000Z", storedEvent.CreatedAt); err != nil {
 		t.Fatalf("SessionEventsCreate() timestamp = %q: %v", storedEvent.CreatedAt, err)
 	}
+	preciselyTimedEvent := event
+	preciselyTimedEvent.Ref.Id = "c8607728-3072-4f6c-9bd4-d9f584b7c892"
+	preciselyTimedEvent.CreatedAt = "2026-01-01T00:00:00.001Z"
+	err, preciselyTimedEvent = store.SessionEventsCreate(ctx, preciselyTimedEvent)
+	if err != nil || preciselyTimedEvent.CreatedAt != "2026-01-01T00:00:00.001Z" {
+		t.Fatalf("SessionEventsCreate() explicit timestamp = (%#v, %v)", preciselyTimedEvent, err)
+	}
 	err, events := store.SessionEventsGet(ctx, session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 1 || events[0].Ref != event.Ref || events[0].Kind != event.Kind || events[0].AuthorPrincipal == nil || *events[0].AuthorPrincipal != alice || events[0].AuthorAgent != nil || events[0].AuthorGateway != nil || !reflect.DeepEqual(events[0].Payload, event.Payload) || events[0].CreatedAt == "" {
+	if len(events) != 2 || events[0].Ref != preciselyTimedEvent.Ref || events[0].CreatedAt != preciselyTimedEvent.CreatedAt || events[1].Ref != event.Ref || events[1].Kind != event.Kind || events[1].AuthorPrincipal == nil || *events[1].AuthorPrincipal != alice || events[1].AuthorAgent != nil || events[1].AuthorGateway != nil || !reflect.DeepEqual(events[1].Payload, event.Payload) || events[1].CreatedAt == "" {
 		t.Fatalf("SessionEventsGet() = %#v", events)
 	}
 	if _, err := store.ExecContext(ctx, `

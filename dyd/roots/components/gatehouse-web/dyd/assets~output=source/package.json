@@ -6,6 +6,11 @@
   "scripts": {
     "build": "vite build"
   },
+  "dependencies": {
+    "dompurify": "^3.4.13",
+    "@lucide/svelte": "^1.31.0",
+    "marked": "^17.0.5"
+  },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "bulma": "^1.0.4",
