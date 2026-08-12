@@ -326,7 +326,7 @@
   }
 
   function renderedActivityEvents(tree: SessionEventTree) {
-    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.call" || activity.event.kind === "thinking.started")
+    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.request" || activity.event.kind === "thinking.started")
   }
 
   function displayedActivityEvents(tree: SessionEventTree) {
@@ -356,7 +356,7 @@
   }
 
   function toolStatus(tree: SessionEventTree) {
-    return activityStatus(tree, "tool.result", "tool.failed")
+    return activityStatus(tree, "tool.success", "tool.failure")
   }
 
   function thinkingStatus(tree: SessionEventTree) {
@@ -374,7 +374,7 @@
   }
 
   function toolCallDuration(tree: SessionEventTree) {
-    return activityDuration(tree, "tool.result", "tool.failed")
+    return activityDuration(tree, "tool.success", "tool.failure")
   }
 
   function thinkingDuration(tree: SessionEventTree) {
@@ -739,7 +739,7 @@
                           </p>
                         {/if}
                         {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
-                          {#if activity.event.kind === "tool.call"}
+                          {#if activity.event.kind === "tool.request"}
                             <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
                               <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
                               Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}

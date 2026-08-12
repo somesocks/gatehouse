@@ -304,7 +304,7 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
 	storedCall, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
 	callEvent := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, "tool.call", input.Position)}, Parent: &input.Parent, Kind: "tool.call", AuthorAgent: &input.Agent,
+			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, "tool.request", input.Position)}, Parent: &input.Parent, Kind: "tool.request", AuthorAgent: &input.Agent,
 			Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "code": input.Code, "reason": input.Reason, "batch": input.Round, "position": input.Position},
 		}
 		err, event := runtime.sessionEventGetOrCreate(step, callEvent)
@@ -317,7 +317,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return "", err
 	}
 	storedOutput, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallStoredOutput, error) {
-		for _, kind := range []string{"tool.result", "tool.failed"} {
+		for _, kind := range []string{"tool.success", "tool.failure"} {
 			resultRef := model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, kind, input.Position)}
 			err, existing := runtime.store.SessionEventGet(step, resultRef)
 			if err != nil {
@@ -339,14 +339,14 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
 		err, tools, resources, values := runtime.turnEnvironment(step, input.Parent.Session.Workspace, input.Principal)
 		if err != nil {
-			return sessionToolCallExecution{Kind: "tool.failed", Output: err.Error()}, nil
+			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
 		defer clearResourceValues(values)
 		evalErr, result := lisp.RunTurn(input.Code, tools, resources)
 		if evalErr != nil {
-			return sessionToolCallExecution{Kind: "tool.failed", Output: evalErr.Error()}, nil
+			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
 		}
-		return sessionToolCallExecution{Kind: "tool.result", Output: result.String()}, nil
+		return sessionToolCallExecution{Kind: "tool.success", Output: result.String()}, nil
 	}, dbos.WithStepName("gatehouse.session-tool-call-evaluate"))
 	if err != nil {
 		return "", err
@@ -696,7 +696,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 	batches := map[string]*batch{}
 	callBatches := map[string]string{}
 	for _, event := range events {
-		if event.Kind != "tool.call" || event.AuthorAgent == nil {
+		if event.Kind != "tool.request" || event.AuthorAgent == nil {
 			continue
 		}
 		call, err := openAICompatibleStoredToolCall(event)
@@ -730,7 +730,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			} else if event.AuthorAgent != nil {
 				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text})
 			}
-		case "tool.call":
+		case "tool.request":
 			if event.AuthorAgent == nil {
 				continue
 			}
@@ -752,7 +752,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 				continue
 			}
 			messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call}})
-		case "tool.result", "tool.failed":
+		case "tool.success", "tool.failure":
 			if event.AuthorAgent == nil || event.Parent == nil {
 				continue
 			}

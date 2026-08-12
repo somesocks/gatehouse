@@ -410,8 +410,8 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 	}
 	root := create("00000000-0000-4000-8000-000000000001", "message.text", nil)
 	reasoning := create("00000000-0000-4000-8000-000000000002", "message.reasoning", &root.Ref)
-	call := create("00000000-0000-4000-8000-000000000003", "tool.call", &root.Ref)
-	result := create("00000000-0000-4000-8000-000000000004", "tool.result", &call.Ref)
+	call := create("00000000-0000-4000-8000-000000000003", "tool.request", &root.Ref)
+	result := create("00000000-0000-4000-8000-000000000004", "tool.success", &call.Ref)
 	text := create("00000000-0000-4000-8000-000000000005", "message.text", &root.Ref)
 
 	err, events := store.SessionEventsGet(ctx, session)
@@ -512,8 +512,8 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 	call := model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000002"}
 	events := []model.SessionEvent{
 		{Ref: root, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{"text": "hello"}},
-		{Ref: call, Parent: &root, Kind: "tool.call", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
-		{Ref: model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000003"}, Parent: &call, Kind: "tool.result", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+		{Ref: call, Parent: &root, Kind: "tool.request", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
+		{Ref: model.SessionEventRef{Session: session, Id: "10000000-0000-4000-8000-000000000003"}, Parent: &call, Kind: "tool.success", AuthorPrincipal: &alice, Payload: map[string]interface{}{}},
 	}
 	err, stored := store.SessionEventsCreateBatch(ctx, events)
 	if err != nil || len(stored) != len(events) {

@@ -13,12 +13,12 @@ func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 	principal := model.PrincipalRef{Id: "user"}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
 	user := event(session, "user", "message.text", &principal, nil, map[string]interface{}{"text": "Find the report."})
-	call := event(session, "call", "tool.call", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/find)", "reason": "Find the requested report."})
-	result := event(session, "result", "tool.result", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "output": "report-42"})
+	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/find)", "reason": "Find the requested report."})
+	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "output": "report-42"})
 	result.Parent = &call.Ref
 	reply := event(session, "reply", "message.text", nil, &agent, map[string]interface{}{"text": "I found it."})
-	failedCall := event(session, "failed-call", "tool.call", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(report/delete \"report-42\")", "reason": "Try to remove a duplicate."})
-	failed := event(session, "failed", "tool.failed", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "output": "permission denied"})
+	failedCall := event(session, "failed-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(report/delete \"report-42\")", "reason": "Try to remove a duplicate."})
+	failed := event(session, "failed", "tool.failure", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "output": "permission denied"})
 	failed.Parent = &failedCall.Ref
 	nextUser := event(session, "next-user", "message.text", &principal, nil, map[string]interface{}{"text": "What happened next?"})
 
@@ -96,13 +96,13 @@ func TestOpenAICompatibleMessagesReplaysToolBatch(t *testing.T) {
 	principal := model.PrincipalRef{Id: "user"}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
 	user := event(session, "user", "message.text", &principal, nil, map[string]interface{}{"text": "Check both reports."})
-	first := event(session, "first", "tool.call", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/get 1)", "reason": "Check the first report.", "batch": float64(0), "position": float64(1)})
-	second := event(session, "second", "tool.call", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(report/get 2)", "reason": "Check the second report.", "batch": float64(0), "position": float64(0)})
+	first := event(session, "first", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/get 1)", "reason": "Check the first report.", "batch": float64(0), "position": float64(1)})
+	second := event(session, "second", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(report/get 2)", "reason": "Check the second report.", "batch": float64(0), "position": float64(0)})
 	first.Parent = &user.Ref
 	second.Parent = &user.Ref
-	firstOutput := event(session, "first-output", "tool.result", nil, &agent, map[string]interface{}{"output": "first"})
+	firstOutput := event(session, "first-output", "tool.success", nil, &agent, map[string]interface{}{"output": "first"})
 	firstOutput.Parent = &first.Ref
-	secondOutput := event(session, "second-output", "tool.failed", nil, &agent, map[string]interface{}{"output": "not found"})
+	secondOutput := event(session, "second-output", "tool.failure", nil, &agent, map[string]interface{}{"output": "not found"})
 	secondOutput.Parent = &second.Ref
 
 	err, messages := openAICompatibleMessages([]model.SessionEvent{user, first, second, firstOutput, secondOutput})
@@ -126,7 +126,7 @@ func TestOpenAICompatibleMessagesReplaysToolBatch(t *testing.T) {
 func TestOpenAICompatibleMessagesRejectsInvalidToolHistory(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
-	output := event(session, "output", "tool.result", nil, &agent, map[string]interface{}{"output": "orphaned"})
+	output := event(session, "output", "tool.success", nil, &agent, map[string]interface{}{"output": "orphaned"})
 	output.Parent = &model.SessionEventRef{Session: session, Id: "missing"}
 	if err, _ := openAICompatibleMessages([]model.SessionEvent{output}); err == nil {
 		t.Fatal("openAICompatibleMessages() accepted an orphaned tool output")
