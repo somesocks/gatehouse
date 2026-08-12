@@ -343,10 +343,10 @@
     if (!Number.isFinite(elapsed) || elapsed < 0) {
       return ""
     }
-    if (elapsed < 1000) {
-      return `${elapsed}ms`
+    if (elapsed < 100) {
+      return "<0.1s"
     }
-    return `${(elapsed / 1000).toFixed(elapsed < 10_000 ? 1 : 0)}s`
+    return `${(elapsed / 1000).toFixed(1)}s`
   }
 
   async function copyMarkdown(text: string) {
