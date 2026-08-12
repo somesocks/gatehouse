@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Copy } from "@lucide/svelte"
+  import { CircleCheck, CircleX, Copy } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
 
   type Claims = {
@@ -783,7 +783,13 @@
                         {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
                           {#if activity.event.kind === "tool.request"}
                             <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
-                              <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
+                              {#if toolStatus(activity) === "working"}
+                                <span class="tool-status tool-status-working" aria-hidden="true"></span>
+                              {:else if toolStatus(activity) === "succeeded"}
+                                <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                              {:else}
+                                <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                              {/if}
                               Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
                               {#if toolCallDuration(activity) !== ""}
                                 <span class="tool-call-duration">{toolCallDuration(activity)}</span>
@@ -791,7 +797,13 @@
                             </p>
                           {:else if activity.event.kind === "thinking.started"}
                             <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
-                              <span class:tool-status-working={thinkingStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
+                              {#if thinkingStatus(activity) === "working"}
+                                <span class="tool-status tool-status-working" aria-hidden="true"></span>
+                              {:else if thinkingStatus(activity) === "succeeded"}
+                                <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                              {:else}
+                                <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                              {/if}
                               {thinkingStatus(activity) === "working" ? "Thinking" : thinkingStatus(activity) === "succeeded" ? "Thought" : "Thinking failed after"}
                               {#if thinkingDuration(activity) !== ""}
                                 <span class="tool-call-duration">{thinkingDuration(activity)}</span>

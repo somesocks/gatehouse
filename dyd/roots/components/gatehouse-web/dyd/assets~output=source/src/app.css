@@ -561,27 +561,13 @@ body {
 }
 
 .tool-status {
-  border: 0.12rem solid #7ca653;
-  border-radius: 50%;
-  box-sizing: border-box;
-  display: inline-block;
+  color: #7ca653;
   flex: 0 0 auto;
-  height: 0.8rem;
   margin-top: 0.08rem;
-  position: relative;
-  width: 0.8rem;
 }
 
-.tool-call-succeeded .tool-status::after {
-  border-bottom: 0.12rem solid #b9db6f;
-  border-right: 0.12rem solid #b9db6f;
-  content: "";
-  height: 0.38rem;
-  left: 0.22rem;
-  position: absolute;
-  top: 0.08rem;
-  transform: rotate(45deg);
-  width: 0.18rem;
+.tool-call-succeeded .tool-status {
+  color: #b9db6f;
 }
 
 .tool-call-failed {
@@ -589,29 +575,19 @@ body {
 }
 
 .tool-call-failed .tool-status {
-  border-color: #de8f7c;
-}
-
-.tool-call-failed .tool-status::before,
-.tool-call-failed .tool-status::after {
-  background: #ffc0b0;
-  content: "";
-  height: 0.12rem;
-  left: 0.14rem;
-  position: absolute;
-  top: 0.28rem;
-  transform: rotate(45deg);
-  width: 0.48rem;
-}
-
-.tool-call-failed .tool-status::after {
-  transform: rotate(-45deg);
+  color: #ffc0b0;
 }
 
 .tool-status-working {
   animation: spin 0.85s linear infinite;
+  border: 0.12rem solid #b9db6f;
+  border-radius: 50%;
+  box-sizing: border-box;
+  display: inline-block;
+  height: 0.8rem;
   border-color: #b9db6f;
   border-left-color: #4f5442;
+  width: 0.8rem;
 }
 
 .chat-status {
