@@ -63,7 +63,7 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Model != "test-model" || body.Instructions != "test instructions" || body.Reasoning == nil || body.Reasoning.Effort != "low" || len(body.Input) != 1 || len(body.Tools) != 1 || body.Tools[0].Name != "lisp" || !body.Tools[0].Strict || body.ParallelToolCalls {
+		if body.Model != "test-model" || body.Instructions != "test instructions" || body.Reasoning == nil || body.Reasoning.Effort != "low" || len(body.Input) != 1 || len(body.Tools) != 1 || body.Tools[0].Name != "lisp" || !body.Tools[0].Strict || !body.ParallelToolCalls {
 			t.Fatalf("request body = %#v", body)
 		}
 		response.Header().Set("Content-Type", "application/json")
@@ -72,7 +72,7 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 	defer server.Close()
 
 	err, response := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+"/v1", "test-key", openAIResponsesRequest{
-		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, Reasoning: &openAIResponsesReasoning{Effort: "low"},
+		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, ParallelToolCalls: true, Reasoning: &openAIResponsesReasoning{Effort: "low"},
 	})
 	if err != nil || len(response.Output) != 1 {
 		t.Fatalf("OpenAIResponsesComplete() = (%#v, %v)", response, err)

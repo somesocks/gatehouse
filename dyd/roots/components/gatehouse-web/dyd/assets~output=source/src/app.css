@@ -253,12 +253,24 @@ body {
 }
 
 .workspace-header {
+  align-items: center;
   border-bottom: 1px solid #4f5442;
-  padding-bottom: 1.5rem;
+  display: flex;
+  min-height: 2.25rem;
+  padding-bottom: 0.75rem;
 }
 
-.workspace-header .title {
-  margin-bottom: 0;
+.workspace-breadcrumb {
+  color: #eff2e8;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.workspace-breadcrumb-separator {
+  color: #818878;
+  margin: 0 0.45rem;
 }
 
 .workspace-empty {
@@ -284,7 +296,7 @@ body {
   display: grid;
   flex: 1;
   grid-template-rows: minmax(0, 1fr) auto;
-  margin: 2rem 0 0;
+  margin: 1rem 0 0;
   min-height: 0;
   width: 100%;
 }
@@ -489,6 +501,13 @@ body {
   margin: 0;
 }
 
+.tool-call-duration {
+  color: #929a86;
+  font-size: 0.72rem;
+  margin-left: 0.15rem;
+  white-space: nowrap;
+}
+
 .tool-status {
   border: 0.12rem solid #7ca653;
   border-radius: 50%;
@@ -563,32 +582,30 @@ body {
   background: #242820;
   box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 18%);
   margin-top: 1rem;
-  padding: 1rem;
+  padding: 0.5rem;
 }
 
-.textarea {
+.chat-composer-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.chat-composer-row .textarea {
   border-color: #77806d;
   background: #12150e;
   color: #f4f4ee;
+  flex: 1;
+  min-width: 0;
   resize: vertical;
 }
 
-.textarea:focus {
+.chat-composer-row .textarea:focus {
   border-color: #b9db6f;
   box-shadow: 0 0 0 0.125em rgb(185 219 111 / 20%);
 }
 
-.chat-composer-footer {
-  align-items: center;
-  display: flex;
-  gap: 1rem;
-  justify-content: flex-end;
-  margin-top: 0.75rem;
-  min-height: 2.25rem;
-}
-
-.chat-composer-footer .help {
-  margin: 0 auto 0 0;
+.chat-composer .help {
+  margin: 0.4rem 0 0;
 }
 
 @media (max-width: 700px) {

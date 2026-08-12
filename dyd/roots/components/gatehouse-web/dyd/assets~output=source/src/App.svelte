@@ -334,6 +334,21 @@
     return "working"
   }
 
+  function toolCallDuration(tree: SessionEventTree) {
+    const completed = tree.children.find((child) => child.event.kind === "tool.result" || child.event.kind === "tool.failed")
+    if (completed === undefined) {
+      return ""
+    }
+    const elapsed = new Date(completed.event.created_at).getTime() - new Date(tree.event.created_at).getTime()
+    if (!Number.isFinite(elapsed) || elapsed < 0) {
+      return ""
+    }
+    if (elapsed < 1000) {
+      return `${elapsed}ms`
+    }
+    return `${(elapsed / 1000).toFixed(elapsed < 10_000 ? 1 : 0)}s`
+  }
+
   async function copyMarkdown(text: string) {
     await navigator.clipboard.writeText(text)
   }
@@ -505,11 +520,11 @@
       <p class="eyebrow">Gatehouse</p>
       <h1 class="title is-2">Welcome back.</h1>
       <p class="subtitle is-6">Sign in to continue to your workspace.</p>
-      <form onsubmit={(event) => { event.preventDefault(); void login() }}>
+      <form autocomplete="off" onsubmit={(event) => { event.preventDefault(); void login() }}>
         <div class="field">
           <label class="label" for="identity">Username</label>
           <div class="control">
-            <input class="input" id="identity" name="identity" autocomplete="username" placeholder="root" required bind:value={identity} />
+            <input class="input" id="identity" name="identity" autocomplete="off" placeholder="root" required bind:value={identity} />
           </div>
         </div>
         <div class="field">
@@ -610,10 +625,15 @@
       </div>
     </aside>
 
-    <main class="workspace-main">
-      <header class="workspace-header">
-        <p class="eyebrow">Workspace</p>
-        <h1 class="title is-2">{activeWorkspace?.name ?? activeWorkspace?.id}</h1>
+      <main class="workspace-main">
+        <header class="workspace-header">
+          <h1 class="workspace-breadcrumb">
+            <span>{activeWorkspace?.name ?? activeWorkspace?.id}</span>
+            {#if activeSession !== null}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>{activeSession.id}</span>
+            {/if}
+          </h1>
       </header>
       {#if activeSession === null}
         <section class="workspace-empty">
@@ -652,6 +672,9 @@
                           <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
                             <span class:tool-status-working={toolStatus(activity) === "working"} class="tool-status" aria-hidden="true"></span>
                             {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                            {#if toolCallDuration(activity) !== ""}
+                              <span class="tool-call-duration">{toolCallDuration(activity)}</span>
+                            {/if}
                           </p>
                         {/if}
                       {/each}
@@ -673,22 +696,22 @@
               <button class="button is-small chat-jump" type="button" onclick={() => void scrollToLatest()}>Jump to latest</button>
             {/if}
           </div>
-          <form class="chat-composer" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
+          <form class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
             <label class="is-sr-only" for="message">Message</label>
-            <textarea id="message" class="textarea" rows="3" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} onkeydown={(event) => {
-              if (event.ctrlKey && event.key === "Enter") {
-                event.preventDefault()
-                void sendMessage()
-              }
-            }}></textarea>
-            <div class="chat-composer-footer">
-              {#if messageError !== ""}
-                <p class="help is-danger" aria-live="polite">{messageError}</p>
-              {/if}
+            <div class="chat-composer-row">
+              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} onkeydown={(event) => {
+                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+                  event.preventDefault()
+                  void sendMessage()
+                }
+              }}></textarea>
               <button class="button is-primary" type="submit" disabled={sendingMessage || messageText.trim() === ""}>
-                {sendingMessage ? "Sending..." : "Send message"}
+                {sendingMessage ? "Sending..." : "Send"}
               </button>
             </div>
+            {#if messageError !== ""}
+              <p class="help is-danger" aria-live="polite">{messageError}</p>
+            {/if}
           </form>
         </section>
       {/if}

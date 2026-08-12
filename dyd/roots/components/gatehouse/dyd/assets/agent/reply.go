@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -20,10 +21,41 @@ import (
 	"gatehouse/model"
 )
 
-const sessionEventReplyQueue = "gatehouse.session-event-replies"
+const (
+	sessionEventReplyQueue = "gatehouse.session-event-replies"
+	sessionToolCallQueue   = "gatehouse.session-tool-calls"
+)
 
 type SessionEventReplyInput struct {
 	Event model.SessionEventRef
+}
+
+type SessionToolCallInput struct {
+	Parent    model.SessionEventRef
+	Agent     model.WorkspaceAgentRef
+	Principal model.PrincipalRef
+	Round     int
+	Position  int
+	CallID    string
+	Code      string
+	Reason    string
+}
+
+type sessionToolCallExecution struct {
+	Kind   string
+	Output string
+}
+
+type sessionReplyPreparation struct {
+	Existing *model.SessionEvent
+	Selected *database.WorkspaceAgentModel
+	Message  *model.SessionEvent
+	Messages []openAICompatibleMessage
+}
+
+type sessionToolCallStoredOutput struct {
+	Found  bool
+	Output string
 }
 
 type SessionEventReplyRuntime struct {
@@ -31,6 +63,7 @@ type SessionEventReplyRuntime struct {
 	keyring *keychain.Keyring
 	dbos  dbos.Context
 	queue dbos.Queue
+	toolQueue dbos.Queue
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
@@ -41,10 +74,18 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session event reply queue: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, dbos: ctx, queue: queue}
+	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue, dbos.WithGlobalConcurrency(4))
+	if err != nil {
+		return fmt.Errorf("register session tool-call queue: %w", err), nil
+	}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, dbos: ctx, queue: queue, toolQueue: toolQueue}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
+	)
+	dbos.RegisterWorkflow(ctx, runtime.toolCall,
+		dbos.WithInstance(runtime),
+		dbos.WithWorkflowName("gatehouse.session-tool-call"),
 	)
 	return nil, runtime
 }
@@ -76,134 +117,100 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 }
 
 func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEvent, error) {
-	return dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		replyRef := model.SessionEventRef{Session: input.Event.Session, Id: sessionEventReplyID(input.Event)}
+	replyRef := model.SessionEventRef{Session: input.Event.Session, Id: sessionEventReplyID(input.Event)}
+	preparation, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionReplyPreparation, error) {
 		err, existing := runtime.store.SessionEventGet(step, replyRef)
-		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		if existing != nil {
-			return *existing, nil
+		if err != nil || existing != nil {
+			return sessionReplyPreparation{Existing: existing}, err
 		}
 		err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Event.Session.Workspace)
 		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		if selected == nil {
-			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: no enabled workspace agent", input.Event.Id)
+			return sessionReplyPreparation{}, err
 		}
 		err, message := runtime.store.SessionEventGet(step, input.Event)
 		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		if message == nil {
-			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: event not found", input.Event.Id)
+			return sessionReplyPreparation{}, err
 		}
 		err, events := runtime.store.SessionEventsGet(step, input.Event.Session)
 		if err != nil {
-			return model.SessionEvent{}, err
+			return sessionReplyPreparation{}, err
 		}
 		err, messages := openAICompatibleMessages(events)
 		if err != nil {
-			return model.SessionEvent{}, err
+			return sessionReplyPreparation{}, err
 		}
-		if len(messages) == 0 {
-			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: message has no text", input.Event.Id)
+		return sessionReplyPreparation{Selected: selected, Message: message, Messages: messages}, nil
+	}, dbos.WithStepName("gatehouse.session-event-reply-prepare"))
+	if err != nil {
+		return model.SessionEvent{}, err
+	}
+	if preparation.Existing != nil {
+		return *preparation.Existing, nil
+	}
+	selected := preparation.Selected
+	if selected == nil {
+		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: no enabled workspace agent", input.Event.Id)
+	}
+	message := preparation.Message
+	if message == nil {
+		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: event not found", input.Event.Id)
+	}
+	messages := preparation.Messages
+	if len(messages) == 0 {
+		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: message has no text", input.Event.Id)
+	}
+	var text string
+	switch selected.Protocol {
+	case "builtin":
+		text, err = dbos.RunAsStep(ctx, func(context.Context) (string, error) {
+			err, text := BuiltinReply(selected.Model, selected.Parameters)
+			return text, err
+		}, dbos.WithStepName("gatehouse.session-event-reply-builtin"))
+	case "openai-chat-completions", "openai-responses":
+		if message.AuthorPrincipal == nil {
+			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
 		}
-		var text string
-		switch selected.Protocol {
-		case "builtin":
-			err, text = BuiltinReply(selected.Model, selected.Parameters)
-		case "openai-chat-completions", "openai-responses":
-			if message.AuthorPrincipal == nil {
-				return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
-			}
-			err, text = runtime.openAIReply(step, input.Event, selected, messages, *message.AuthorPrincipal)
-		default:
-			err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
-		}
-		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		event := model.SessionEvent{
-			Ref:         replyRef,
-			Parent:      &input.Event,
-			Kind:        "message.text",
-			AuthorAgent: &selected.Ref,
-			Payload:     map[string]interface{}{"text": text},
-		}
+		err, text = runtime.openAIReply(ctx, input.Event, selected, messages, *message.AuthorPrincipal)
+	default:
+		err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
+	}
+	if err != nil {
+		return model.SessionEvent{}, err
+	}
+	event := model.SessionEvent{
+		Ref:         replyRef,
+		Parent:      &input.Event,
+		Kind:        "message.text",
+		AuthorAgent: &selected.Ref,
+		Payload:     map[string]interface{}{"text": text},
+	}
+	stored, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
 		err, stored := runtime.store.SessionEventsCreate(step, event)
-		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		return stored, nil
-	}, dbos.WithStepName("gatehouse.session-event-reply"))
+		return stored, err
+	}, dbos.WithStepName("gatehouse.session-event-reply-persist"))
+	if err != nil {
+		return model.SessionEvent{}, err
+	}
+	return stored, nil
 }
 
-func (runtime *SessionEventReplyRuntime) openAIReply(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef) (error, string) {
+func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef) (error, string) {
 	if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
 		return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), ""
 	}
-	err, tools := runtime.store.WorkspaceToolsGet(ctx, parent.Session.Workspace, principal)
-	if err != nil {
-		return err, ""
-	}
-	err, configuredResources := runtime.store.WorkspaceResourcesGet(ctx, parent.Session.Workspace, principal)
-	if err != nil {
-		return err, ""
-	}
-	resources := make([]config.Resource, 0, len(configuredResources))
-	for _, configured := range configuredResources {
-		resources = append(resources, config.Resource{WorkspaceID: configured.Ref.Workspace.Id, ID: configured.Ref.Id, Source: configured.Source, Secret: configured.Secret, Enabled: configured.Enabled})
-	}
-	err, values := runtime.resolveResources(ctx, resources)
-	if err != nil {
-		return err, ""
-	}
-	defer clearResourceValues(values)
-	turnTools := make([]lisp.TurnTool, 0, len(tools))
-	for _, tool := range tools {
-		err, source := readToolSource(tool.Source)
-		if err != nil {
-			return fmt.Errorf("read tool %q: %w", tool.Ref.Id, err), ""
-		}
-		turnTools = append(turnTools, lisp.TurnTool{ID: tool.Ref.Id, Source: source})
-	}
-	turnResources := make([]lisp.TurnResource, 0, len(resources))
-	for _, configured := range resources {
-		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.WorkspaceID}, Id: configured.ID}
-		turnResources = append(turnResources, lisp.TurnResource{ID: configured.ID, Value: values[ref], Secret: configured.Secret})
-	}
-
-	err, encrypted := keychain.ParseKey(*selected.APIKey)
-	if err != nil {
-		return fmt.Errorf("parse API key for provider %q: %w", selected.ProviderID, err), ""
-	}
-	err, keys := runtime.keyring.Get(ctx, []model.KeychainRef{*selected.Keychain})
-	if err != nil {
-		return fmt.Errorf("get keychain for provider %q: %w", selected.ProviderID, err), ""
-	}
-	key := keys[*selected.Keychain]
-	decryptedErr, apiKey := keychain.Open(key, []byte("gh=v1|agent-provider="+selected.ProviderID), encrypted)
-	clear(key)
-	clear(keys)
-	if decryptedErr != nil {
-		return fmt.Errorf("decrypt API key for provider %q: %w", selected.ProviderID, decryptedErr), ""
-	}
-	defer clear(apiKey)
-
 	err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
 	if err != nil {
 		return err, ""
 	}
 	if selected.Protocol == "openai-responses" {
-		return runtime.openAIResponsesReply(ctx, parent, selected, messages, turnTools, turnResources, string(apiKey), reasoningEffort)
+		return runtime.openAIResponsesReply(ctx, parent, selected, messages, principal, reasoningEffort)
 	}
 	requestMessages := append([]openAICompatibleMessage{{Role: "system", Content: openAISystemPrompt}}, messages...)
-	for index := 0; index < 16; index++ {
-		err, reply := OpenAICompatibleComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), openAICompatibleRequest{
-			Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ReasoningEffort: reasoningEffort,
-		})
+	callCount := 0
+	for round := 0; round < 16; round++ {
+		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+				Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ParallelToolCalls: true, ReasoningEffort: reasoningEffort,
+			})
 		if err != nil {
 			return err, ""
 		}
@@ -213,69 +220,195 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx context.Context, parent
 			}
 			return nil, reply.Content
 		}
-		if len(reply.ToolCalls) != 1 || reply.ToolCalls[0].Type != "function" || reply.ToolCalls[0].Function.Name != "lisp" || reply.ToolCalls[0].ID == "" {
-			return fmt.Errorf("OpenAI-compatible completion requested an unsupported tool call"), ""
+		if callCount+len(reply.ToolCalls) > 16 {
+			return fmt.Errorf("OpenAI-compatible completion exceeded Lisp tool-call limit"), ""
 		}
-		call := reply.ToolCalls[0]
-		output, err := runtime.runLispCall(ctx, parent, selected, index, call.ID, call.Function.Arguments, turnTools, turnResources)
+		output, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
 			return err, ""
 		}
-		requestMessages = append(requestMessages, reply, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output})
+		callCount += len(reply.ToolCalls)
+		requestMessages = append(requestMessages, reply)
+		for index, call := range reply.ToolCalls {
+			requestMessages = append(requestMessages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output[index]})
+		}
 	}
 	return fmt.Errorf("OpenAI-compatible completion exceeded Lisp tool-call limit"), ""
 }
 
-func (runtime *SessionEventReplyRuntime) runLispCall(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, index int, callID, encodedArguments string, tools []lisp.TurnTool, resources []lisp.TurnResource) (string, error) {
-		var arguments struct {
-			Code   string `json:"code"`
-			Reason string `json:"reason"`
-		}
-		if err := json.Unmarshal([]byte(encodedArguments), &arguments); err != nil || strings.TrimSpace(arguments.Code) == "" || strings.TrimSpace(arguments.Reason) == "" {
-			return "", fmt.Errorf("OpenAI requested invalid Lisp arguments")
-		}
-		callEvent := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, "tool.call", index)}, Parent: &parent, Kind: "tool.call", AuthorAgent: &selected.Ref,
-			Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "code": arguments.Code, "reason": arguments.Reason},
-		}
-		err, storedCall := runtime.sessionEventGetOrCreate(ctx, callEvent)
+func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleMessage, error) {
+	return dbos.RunAsStep(ctx, func(step context.Context) (openAICompatibleMessage, error) {
+		err, apiKey := runtime.openAIAPIKey(step, selected)
 		if err != nil {
-			return "", err
+			return openAICompatibleMessage{}, err
 		}
-		evalErr, result := lisp.RunTurn(arguments.Code, tools, resources)
-		kind, output := "tool.result", ""
+		defer clear(apiKey)
+		err, reply := OpenAICompatibleComplete(step, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+		return reply, err
+	}, dbos.WithStepName("gatehouse.session-event-reply-completion"))
+}
+
+func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAIResponsesRequest) (openAIResponsesResponse, error) {
+	return dbos.RunAsStep(ctx, func(step context.Context) (openAIResponsesResponse, error) {
+		err, apiKey := runtime.openAIAPIKey(step, selected)
+		if err != nil {
+			return openAIResponsesResponse{}, err
+		}
+		defer clear(apiKey)
+		err, reply := OpenAIResponsesComplete(step, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+		return reply, err
+	}, dbos.WithStepName("gatehouse.session-event-reply-responses"))
+}
+
+func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selected *database.WorkspaceAgentModel) (error, []byte) {
+	err, encrypted := keychain.ParseKey(*selected.APIKey)
+	if err != nil {
+		return fmt.Errorf("parse API key for provider %q: %w", selected.ProviderID, err), nil
+	}
+	err, keys := runtime.keyring.Get(ctx, []model.KeychainRef{*selected.Keychain})
+	if err != nil {
+		return fmt.Errorf("get keychain for provider %q: %w", selected.ProviderID, err), nil
+	}
+	key := keys[*selected.Keychain]
+	decryptedErr, apiKey := keychain.Open(key, []byte("gh=v1|agent-provider="+selected.ProviderID), encrypted)
+	clear(key)
+	clear(keys)
+	if decryptedErr != nil {
+		return fmt.Errorf("decrypt API key for provider %q: %w", selected.ProviderID, decryptedErr), nil
+	}
+	return nil, apiKey
+}
+
+func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
+	storedCall, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
+	callEvent := model.SessionEvent{
+			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, "tool.call", input.Position)}, Parent: &input.Parent, Kind: "tool.call", AuthorAgent: &input.Agent,
+			Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "code": input.Code, "reason": input.Reason, "batch": input.Round, "position": input.Position},
+		}
+		err, event := runtime.sessionEventGetOrCreate(step, callEvent)
+		if err != nil {
+			return model.SessionEvent{}, err
+		}
+		return event, nil
+	}, dbos.WithStepName("gatehouse.session-tool-call-persist"))
+	if err != nil {
+		return "", err
+	}
+	storedOutput, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallStoredOutput, error) {
+		for _, kind := range []string{"tool.result", "tool.failed"} {
+			resultRef := model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, kind, input.Position)}
+			err, existing := runtime.store.SessionEventGet(step, resultRef)
+			if err != nil {
+				return sessionToolCallStoredOutput{}, err
+			}
+			if existing != nil {
+				output, _ := existing.Payload["output"].(string)
+				return sessionToolCallStoredOutput{Found: true, Output: output}, nil
+			}
+		}
+		return sessionToolCallStoredOutput{}, nil
+	}, dbos.WithStepName("gatehouse.session-tool-call-load-output"))
+	if err != nil {
+		return "", err
+	}
+	if storedOutput.Found {
+		return storedOutput.Output, nil
+	}
+	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
+		err, tools, resources, values := runtime.turnEnvironment(step, input.Parent.Session.Workspace, input.Principal)
+		if err != nil {
+			return sessionToolCallExecution{Kind: "tool.failed", Output: err.Error()}, nil
+		}
+		defer clearResourceValues(values)
+		evalErr, result := lisp.RunTurn(input.Code, tools, resources)
 		if evalErr != nil {
-			kind, output = "tool.failed", evalErr.Error()
-		} else {
-			output = result.String()
+			return sessionToolCallExecution{Kind: "tool.failed", Output: evalErr.Error()}, nil
 		}
+		return sessionToolCallExecution{Kind: "tool.result", Output: result.String()}, nil
+	}, dbos.WithStepName("gatehouse.session-tool-call-evaluate"))
+	if err != nil {
+		return "", err
+	}
+	_, err = dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
 		resultEvent := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, kind, index)}, Parent: &storedCall.Ref, Kind: kind, AuthorAgent: &selected.Ref,
-			Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "output": output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
+			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, execution.Kind, input.Position)}, Parent: &storedCall.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
+			Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
 		}
-		if err, _ := runtime.sessionEventGetOrCreate(ctx, resultEvent); err != nil {
-			return "", err
+		err, event := runtime.sessionEventGetOrCreate(step, resultEvent)
+		return event, err
+	}, dbos.WithStepName("gatehouse.session-tool-call-persist-output"))
+	if err != nil {
+		return "", err
+	}
+	return execution.Output, nil
+}
+
+func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]string, error) {
+	inputs := make([]SessionToolCallInput, len(calls))
+	seen := make(map[string]bool, len(calls))
+	for index, call := range calls {
+		code, reason, err := openAICompatibleLispArguments(call)
+		if err != nil {
+			return nil, err
 		}
-		return output, nil
+		if seen[call.ID] {
+			return nil, fmt.Errorf("OpenAI-compatible completion requested a duplicate tool call ID")
+		}
+		seen[call.ID] = true
+		inputs[index] = SessionToolCallInput{Parent: parent, Agent: agent, Principal: principal, Round: round, Position: offset + index, CallID: call.ID, Code: code, Reason: reason}
+	}
+	handles := make([]dbos.WorkflowHandle[string], len(inputs))
+	for index, input := range inputs {
+		handle, err := dbos.RunWorkflow(ctx, runtime.toolCall, input,
+			dbos.WithRunInstance(runtime),
+			dbos.WithWorkflowID(sessionToolCallWorkflowID(parent, input.Position)),
+			dbos.WithQueue(runtime.toolQueue),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("start session tool call %q: %w", input.CallID, err)
+		}
+		handles[index] = handle
+	}
+	outputs := make([]string, len(handles))
+	for index, handle := range handles {
+		output, err := handle.GetResult()
+		if err != nil {
+			return nil, fmt.Errorf("await session tool call %q: %w", inputs[index].CallID, err)
+		}
+		outputs[index] = output
+	}
+	return outputs, nil
+}
+
+func openAICompatibleLispArguments(call openAICompatibleToolCall) (string, string, error) {
+	var arguments struct {
+		Code   string `json:"code"`
+		Reason string `json:"reason"`
+	}
+	if call.Type != "function" || call.Function.Name != "lisp" || call.ID == "" || json.Unmarshal([]byte(call.Function.Arguments), &arguments) != nil || strings.TrimSpace(arguments.Code) == "" || strings.TrimSpace(arguments.Reason) == "" {
+		return "", "", fmt.Errorf("OpenAI-compatible completion requested an unsupported tool call")
+	}
+	return arguments.Code, arguments.Reason, nil
 }
 
 const openAISystemPrompt = "You have one tool, lisp. The Lisp environment contains all other tools available to you. Write Lisp programs to use them. This is a custom Lisp environment, not Common Lisp or Scheme. Do not assume language features or builtin names. A tool failure is intermediate feedback: correct the Lisp and try again when the request remains answerable. Do not make a failed exploration your final answer when you can retry it. Do not mention the underlying tool, programming language, or implementation details to users; describe capabilities and results instead.\n\nExample programs:\n\n- (help/env) ; List all bindings.\n- (help/env \"prefix\") ; List bindings matching a prefix.\n- (help/search \"term\") ; Search documented capabilities.\n- (help 'binding) ; Inspect a binding.\n- (let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.\n- (list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9)."
 
-func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, tools []lisp.TurnTool, resources []lisp.TurnResource, apiKey, reasoningEffort string) (error, string) {
+func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef, reasoningEffort string) (error, string) {
 	input := openAIResponsesInput(messages)
 	var reasoning *openAIResponsesReasoning
 	if reasoningEffort != "" {
 		reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
 	}
-	for index := 0; index < 16; index++ {
-		err, reply := OpenAIResponsesComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, apiKey, openAIResponsesRequest{
-			Model: selected.Model, Instructions: openAISystemPrompt, Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: false, Reasoning: reasoning,
-		})
+	callCount := 0
+	for round := 0; round < 16; round++ {
+		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
+				Model: selected.Model, Instructions: openAISystemPrompt, Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
+			})
 		if err != nil {
 			return err, ""
 		}
 		input = append(input, reply.Output...)
-		calls := make([]openAIResponsesOutput, 0, 1)
+		calls := make([]openAICompatibleToolCall, 0, 1)
 		text := ""
 		for _, raw := range reply.Output {
 			var output openAIResponsesOutput
@@ -284,7 +417,10 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx context.Contex
 			}
 			switch output.Type {
 			case "function_call":
-				calls = append(calls, output)
+				call := openAICompatibleToolCall{ID: output.CallID, Type: "function"}
+				call.Function.Name = output.Name
+				call.Function.Arguments = output.Arguments
+				calls = append(calls, call)
 			case "message":
 				for _, content := range output.Content {
 					if content.Type == "output_text" {
@@ -299,15 +435,17 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx context.Contex
 			}
 			return nil, text
 		}
-		if len(calls) != 1 || calls[0].Name != "lisp" || calls[0].CallID == "" {
-			return fmt.Errorf("OpenAI Responses requested an unsupported tool call"), ""
+		if callCount+len(calls) > 16 {
+			return fmt.Errorf("OpenAI Responses exceeded Lisp tool-call limit"), ""
 		}
-		call := calls[0]
-		output, err := runtime.runLispCall(ctx, parent, selected, index, call.CallID, call.Arguments, tools, resources)
+		outputs, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
 			return err, ""
 		}
-		input = append(input, openAIResponsesFunctionOutput(call.CallID, output))
+		callCount += len(calls)
+		for index, call := range calls {
+			input = append(input, openAIResponsesFunctionOutput(call.ID, outputs[index]))
+		}
 	}
 	return fmt.Errorf("OpenAI Responses exceeded Lisp tool-call limit"), ""
 }
@@ -382,6 +520,40 @@ func clearResourceValues(values map[model.ResourceRef][]byte) {
 	}
 }
 
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, map[model.ResourceRef][]byte) {
+	err, configuredTools := runtime.store.WorkspaceToolsGet(ctx, workspace, principal)
+	if err != nil {
+		return err, nil, nil, nil
+	}
+	err, configuredResources := runtime.store.WorkspaceResourcesGet(ctx, workspace, principal)
+	if err != nil {
+		return err, nil, nil, nil
+	}
+	resources := make([]config.Resource, 0, len(configuredResources))
+	for _, configured := range configuredResources {
+		resources = append(resources, config.Resource{WorkspaceID: configured.Ref.Workspace.Id, ID: configured.Ref.Id, Source: configured.Source, Secret: configured.Secret, Enabled: configured.Enabled})
+	}
+	err, values := runtime.resolveResources(ctx, resources)
+	if err != nil {
+		return err, nil, nil, nil
+	}
+	tools := make([]lisp.TurnTool, 0, len(configuredTools))
+	for _, configured := range configuredTools {
+		err, source := readToolSource(configured.Source)
+		if err != nil {
+			clearResourceValues(values)
+			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil
+		}
+		tools = append(tools, lisp.TurnTool{ID: configured.Ref.Id, Source: source})
+	}
+	turnResources := make([]lisp.TurnResource, 0, len(resources))
+	for _, configured := range resources {
+		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.WorkspaceID}, Id: configured.ID}
+		turnResources = append(turnResources, lisp.TurnResource{ID: configured.ID, Value: values[ref], Secret: configured.Secret})
+	}
+	return nil, tools, turnResources, values
+}
+
 func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []config.Resource) (error, map[model.ResourceRef][]byte) {
 	values := make(map[model.ResourceRef][]byte, len(resources))
 	type encryptedResource struct {
@@ -450,6 +622,15 @@ func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, r
 func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompatibleMessage) {
 	messages := make([]openAICompatibleMessage, 0, len(events))
 	calls := map[string]openAICompatibleToolCall{}
+	type batch struct {
+		calls []struct {
+			position int
+			call     openAICompatibleToolCall
+		}
+		emitted bool
+	}
+	batches := map[string]*batch{}
+	callBatches := map[string]string{}
 	for _, event := range events {
 		if event.Kind != "tool.call" || event.AuthorAgent == nil {
 			continue
@@ -459,6 +640,19 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			return err, nil
 		}
 		calls[event.Ref.Id] = call
+		batchNumber, batchOK := event.Payload["batch"].(float64)
+		position, positionOK := event.Payload["position"].(float64)
+		if batchOK && positionOK && event.Parent != nil {
+			key := event.Parent.Id + "\x00" + fmt.Sprintf("%.0f", batchNumber)
+			if batches[key] == nil {
+				batches[key] = &batch{}
+			}
+			batches[key].calls = append(batches[key].calls, struct {
+				position int
+				call     openAICompatibleToolCall
+			}{position: int(position), call: call})
+			callBatches[event.Ref.Id] = key
+		}
 	}
 	for _, event := range events {
 		switch event.Kind {
@@ -477,6 +671,22 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 				continue
 			}
 			call := calls[event.Ref.Id]
+			if key, ok := callBatches[event.Ref.Id]; ok {
+				current := batches[key]
+				if current.emitted {
+					continue
+				}
+				sort.Slice(current.calls, func(left, right int) bool {
+					return current.calls[left].position < current.calls[right].position
+				})
+				batchCalls := make([]openAICompatibleToolCall, len(current.calls))
+				for index, entry := range current.calls {
+					batchCalls[index] = entry.call
+				}
+				messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: batchCalls})
+				current.emitted = true
+				continue
+			}
 			messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call}})
 		case "tool.result", "tool.failed":
 			if event.AuthorAgent == nil || event.Parent == nil {
@@ -550,6 +760,10 @@ func openAIResponsesInput(messages []openAICompatibleMessage) []json.RawMessage 
 
 func sessionEventReplyWorkflowID(event model.SessionEventRef) string {
 	return "session-event-reply:" + event.Id
+}
+
+func sessionToolCallWorkflowID(event model.SessionEventRef, position int) string {
+	return "session-tool-call:" + sessionEventReplyChildID(event, "workflow", position)
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {

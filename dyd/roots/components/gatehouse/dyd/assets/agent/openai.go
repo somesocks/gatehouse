@@ -12,10 +12,11 @@ import (
 )
 
 type openAICompatibleRequest struct {
-	Model           string                   `json:"model"`
-	Messages        []openAICompatibleMessage `json:"messages"`
-	Tools           []openAICompatibleTool    `json:"tools,omitempty"`
-	ReasoningEffort string                   `json:"reasoning_effort,omitempty"`
+	Model             string                   `json:"model"`
+	Messages          []openAICompatibleMessage `json:"messages"`
+	Tools             []openAICompatibleTool    `json:"tools,omitempty"`
+	ParallelToolCalls bool                     `json:"parallel_tool_calls"`
+	ReasoningEffort   string                   `json:"reasoning_effort,omitempty"`
 }
 
 type openAICompatibleMessage struct {
