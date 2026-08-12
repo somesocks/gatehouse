@@ -54,6 +54,10 @@ type sessionReplyPreparation struct {
 	Messages []openAICompatibleMessage
 }
 
+type sessionReplyCancelled struct{}
+
+func (sessionReplyCancelled) Error() string { return "reply cancelled" }
+
 type sessionToolCallStoredOutput struct {
 	Found  bool
 	Output string
@@ -101,7 +105,17 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 		return err
 	}
 	for _, task := range tasks {
-		_, err := dbos.RunWorkflow(runtime.dbos, runtime.reply, SessionEventReplyInput{Event: task.Event},
+		err, cancelled := runtime.replyCancellationComplete(runtime.dbos, task.Event)
+		if err != nil {
+			return err
+		}
+		if cancelled {
+			if err := runtime.store.SessionEventReplyTaskDelete(runtime.dbos, task.Event); err != nil {
+				return err
+			}
+			continue
+		}
+		_, err = dbos.RunWorkflow(runtime.dbos, runtime.reply, SessionEventReplyInput{Event: task.Event},
 			dbos.WithRunInstance(runtime),
 			dbos.WithWorkflowID(sessionEventReplyWorkflowID(task.Event)),
 			dbos.WithQueue(runtime.queue),
@@ -148,6 +162,12 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	if preparation.Existing != nil {
 		return *preparation.Existing, nil
 	}
+	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
+		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			return model.SessionEvent{}, nil
+		}
+		return model.SessionEvent{}, err
+	}
 	selected := preparation.Selected
 	if selected == nil {
 		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: no enabled workspace agent", input.Event.Id)
@@ -186,6 +206,15 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
 	}
 	if err != nil {
+		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			return model.SessionEvent{}, nil
+		}
+		return model.SessionEvent{}, err
+	}
+	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
+		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			return model.SessionEvent{}, nil
+		}
 		return model.SessionEvent{}, err
 	}
 	event := model.SessionEvent{
@@ -219,6 +248,9 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	requestMessages := append([]openAICompatibleMessage{{Role: "system", Content: openAISystemPrompt}}, messages...)
 	callCount := 0
 	for round := 0; ; round++ {
+		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
+			return err, ""
+		}
 		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
 		if err != nil {
 			return err, ""
@@ -244,6 +276,9 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
 		}
 		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			return err, ""
+		}
+		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
 			return err, ""
 		}
 		output, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
@@ -423,6 +458,9 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 	}
 	callCount := 0
 	for round := 0; ; round++ {
+		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
+			return err, ""
+		}
 		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
 		if err != nil {
 			return err, ""
@@ -473,6 +511,9 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
 			return err, ""
 		}
+		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
+			return err, ""
+		}
 		outputs, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
 			return err, ""
@@ -511,6 +552,40 @@ func (runtime *SessionEventReplyRuntime) sessionEventGetOrCreate(ctx context.Con
 		return nil, *existing
 	}
 	return runtime.store.SessionEventsCreate(ctx, event)
+}
+
+func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.Context, parent model.SessionEventRef) (error, *model.SessionEvent) {
+	return runtime.store.SessionEventChildGet(ctx, parent, "cancel.request")
+}
+
+func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context, parent model.SessionEventRef) error {
+	cancelled, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+		err, cancelled := runtime.replyCancellationComplete(step, parent)
+		return cancelled, err
+	}, dbos.WithStepName("gatehouse.session-event-reply-cancellation-check"))
+	if err != nil {
+		return err
+	}
+	if !cancelled {
+		return nil
+	}
+	return sessionReplyCancelled{}
+}
+
+func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx context.Context, parent model.SessionEventRef) (error, bool) {
+	err, request := runtime.replyCancellationRequested(ctx, parent)
+	if err != nil {
+		return err, false
+	}
+	if request == nil {
+		return nil, false
+	}
+	event := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, "cancel.success", 0)}, Parent: &request.Ref, Kind: "cancel.success", AuthorPrincipal: request.AuthorPrincipal,
+		Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(request.CreatedAt),
+	}
+	err, _ = runtime.sessionEventGetOrCreate(ctx, event)
+	return err, err == nil
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {

@@ -300,6 +300,21 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
 		t.Fatalf("stored session reply tasks = (%#v, %v)", tasks, err)
 	}
+	cancel := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages/"+event.Ref.Id+"/cancel", "")
+	if cancel.Code != http.StatusAccepted || cancel.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("POST cancel = status %d cache %q", cancel.Code, cancel.Header().Get("Cache-Control"))
+	}
+	var cancellation model.SessionEvent
+	if err := json.Unmarshal(cancel.Body.Bytes(), &cancellation); err != nil {
+		t.Fatal(err)
+	}
+	if cancellation.Ref.Id == "" || cancellation.Parent == nil || *cancellation.Parent != event.Ref || cancellation.Kind != "cancel.request" || cancellation.AuthorPrincipal == nil || cancellation.AuthorPrincipal.Id != "alice" || cancellation.AuthorAgent != nil || cancellation.AuthorGateway != nil || len(cancellation.Payload) != 0 {
+		t.Fatalf("POST cancel response = %#v", cancellation)
+	}
+	err, tasks = store.SessionEventReplyTasksGet(context.Background(), 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
+		t.Fatalf("cancelled session reply tasks = (%#v, %v)", tasks, err)
+	}
 }
 
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {

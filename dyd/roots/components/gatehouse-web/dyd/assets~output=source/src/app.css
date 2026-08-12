@@ -506,6 +506,22 @@ body {
   text-transform: none;
 }
 
+.agent-activity-cancel {
+  background: transparent;
+  border: 0;
+  color: #929a86;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  margin-left: 0.5rem;
+  padding: 0;
+  text-transform: none;
+}
+
+.agent-activity-cancel:hover:not(:disabled) {
+  color: #cfd5c4;
+}
+
 .agent-activity-overflow {
   color: #929a86;
   font-size: 0.72rem;

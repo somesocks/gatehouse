@@ -116,6 +116,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
@@ -412,6 +413,64 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		if dispatcher != nil {
 			_ = dispatcher.Reconcile()
+		}
+		writeJSONStatus(response, http.StatusAccepted, stored)
+	}
+}
+
+func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		messageID := request.PathValue("event")
+		if workspaceID == "" || sessionID == "" || !validUUID(messageID) {
+			http.NotFound(response, request)
+			return
+		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
+		}
+		parent := model.SessionEventRef{Session: session, Id: messageID}
+		err, message := store.SessionEventGet(request.Context(), parent)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if message == nil || message.Parent != nil || message.Kind != "message.text" || message.AuthorPrincipal == nil {
+			http.NotFound(response, request)
+			return
+		}
+		id, err := randomUUID()
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		event := model.SessionEvent{
+			Ref:             model.SessionEventRef{Session: session, Id: id},
+			Parent:          &parent,
+			Kind:            "cancel.request",
+			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
+			Payload:         map[string]interface{}{},
+		}
+		err, stored := store.SessionEventsCreate(request.Context(), event)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
 		}
 		writeJSONStatus(response, http.StatusAccepted, stored)
 	}

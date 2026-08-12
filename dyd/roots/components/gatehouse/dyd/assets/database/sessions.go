@@ -418,6 +418,25 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	return nil, &stored
 }
 
+func (store *Store) SessionEventChildGet(ctx context.Context, parent model.SessionEventRef, kind string) (error, *model.SessionEvent) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT id
+		FROM gatehouse_session_events
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND parent = `+placeholder(3)+` AND kind = `+placeholder(4)+`
+		ORDER BY created_at, id
+		LIMIT 1
+	`, parent.Session.Workspace.Id, parent.Session.Id, parent.Id, kind)
+	var childID string
+	if err := row.Scan(&childID); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get session event child: %w", err), nil
+	}
+	return store.SessionEventGet(ctx, model.SessionEventRef{Session: parent.Session, Id: childID})
+}
+
 type SessionEventReplyTask struct {
 	Event model.SessionEventRef
 }

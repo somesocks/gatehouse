@@ -61,6 +61,7 @@
   let messageError = $state("")
   let sendingMessage = $state(false)
   let awaitingReplyFor = $state<string[]>([])
+  let cancellingReplyFor = $state<Set<string>>(new Set())
   let expandedActivity = $state<Set<string>>(new Set())
   let showJumpToLatest = $state(false)
   let chatEventsElement = $state<HTMLDivElement | undefined>()
@@ -291,7 +292,7 @@
           showJumpToLatest = true
         }
       }
-      const finishedReplies = new Set(loaded.filter((tree) => finalReplies(tree).length > 0 || hasThinkingFailure(tree)).map((tree) => tree.event.ref.id))
+      const finishedReplies = new Set(loaded.filter((tree) => finalReplies(tree).length > 0 || hasThinkingFailure(tree) || hasCancellationSuccess(tree)).map((tree) => tree.event.ref.id))
       if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))) {
         awaitingReplyFor = awaitingReplyFor.filter((eventID) => !finishedReplies.has(eventID))
       }
@@ -406,6 +407,44 @@
 
   function hasThinkingFailure(tree: SessionEventTree) {
     return tree.children.some((child) => child.event.kind === "thinking.started" && thinkingStatus(child) === "failed")
+  }
+
+  function cancellationRequest(tree: SessionEventTree) {
+    return tree.children.find((child) => child.event.kind === "cancel.request")
+  }
+
+  function hasCancellationSuccess(tree: SessionEventTree) {
+    const request = cancellationRequest(tree)
+    return request?.children.some((child) => child.event.kind === "cancel.success") ?? false
+  }
+
+  async function cancelReply(tree: SessionEventTree) {
+    if (activeWorkspace === null || activeSession === null || cancellingReplyFor.has(tree.event.ref.id)) {
+      return
+    }
+    const next = new Set(cancellingReplyFor)
+    next.add(tree.event.ref.id)
+    cancellingReplyFor = next
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions/${encodeURIComponent(activeSession.id)}/messages/${encodeURIComponent(tree.event.ref.id)}/cancel`, {
+        method: "POST",
+        credentials: "same-origin",
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("reply cancellation failed")
+      }
+      await loadSessionEvents(activeSession, false)
+    } catch {
+      messageError = "The reply could not be cancelled. Try again."
+    } finally {
+      const completed = new Set(cancellingReplyFor)
+      completed.delete(tree.event.ref.id)
+      cancellingReplyFor = completed
+    }
   }
 
   async function copyMarkdown(text: string) {
@@ -723,12 +762,15 @@
                     </button>
                     <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                   </article>
-                  {#if activityEvents(tree).length > 0}
+                  {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id)}
                     <section class="agent-activity-section">
                       <p class="agent-activity-heading">
-                        {finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
+                        {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
                         {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
                           <span class="agent-activity-duration">{replyDuration(tree)}</span>
+                        {/if}
+                        {#if awaitingReplyFor.includes(tree.event.ref.id) && cancellationRequest(tree) === undefined}
+                          <button class="agent-activity-cancel" type="button" disabled={cancellingReplyFor.has(tree.event.ref.id)} onclick={() => void cancelReply(tree)}>{cancellingReplyFor.has(tree.event.ref.id) ? "Cancelling..." : "Cancel"}</button>
                         {/if}
                       </p>
                       <div class="agent-activity">
