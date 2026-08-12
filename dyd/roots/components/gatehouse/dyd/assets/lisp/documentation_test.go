@@ -95,6 +95,16 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
+		}{"json/decode", nativeJSONDecodeDocumentation, "(import (json @native:json/v1) (help json/decode))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"json/encode", nativeJSONEncodeDocumentation, "(import (json @native:json/v1) (help json/encode))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
 		}{"random/bytes", nativeRandomBytesDocumentation, "(import (random @native:random/v1) (help random/bytes))"},
 		struct {
 			name          string
