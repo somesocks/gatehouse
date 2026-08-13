@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { CircleCheck, CircleX, Copy, Menu, Send } from "@lucide/svelte"
+  import { Bot, CircleCheck, CircleX, Copy, Menu, Send } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
 
   type Claims = {
@@ -20,6 +20,11 @@
 
   type Session = {
     id: string
+  }
+
+  type WorkspaceAgent = {
+    id: string
+    label?: string
   }
 
   type SessionEvent = {
@@ -53,6 +58,8 @@
   let workspaces = $state<Workspace[]>([])
   let activeWorkspace = $state<Workspace | null>(null)
   let groups = $state<Group[]>([])
+  let agents = $state<WorkspaceAgent[]>([])
+  let selectedAgent = $state("")
   let sessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let events = $state<SessionEventTree[]>([])
@@ -144,6 +151,8 @@
     workspaces = []
     activeWorkspace = null
     groups = []
+    agents = []
+    selectedAgent = ""
     sessions = []
     activeSession = null
     events = []
@@ -213,6 +222,8 @@
     stopPolling()
     activeWorkspace = workspace
     groups = []
+    agents = []
+    selectedAgent = ""
     sessions = []
     activeSession = null
     events = []
@@ -222,19 +233,21 @@
       navigate(`/app/w/${encodeURIComponent(workspace.id)}`, replace)
     }
     try {
-      const [groupsResponse, sessionsResponse] = await Promise.all([
+      const [groupsResponse, sessionsResponse, agentsResponse] = await Promise.all([
         fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/groups`, { credentials: "same-origin" }),
         fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions`, { credentials: "same-origin" }),
+        fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/agents`, { credentials: "same-origin" }),
       ])
-      if (groupsResponse.status === 401 || sessionsResponse.status === 401) {
+      if (groupsResponse.status === 401 || sessionsResponse.status === 401 || agentsResponse.status === 401) {
         signInRequired()
         return
       }
-      if (!groupsResponse.ok || !sessionsResponse.ok) {
+      if (!groupsResponse.ok || !sessionsResponse.ok || !agentsResponse.ok) {
         throw new Error("workspace data could not be loaded")
       }
       groups = (await groupsResponse.json()) as Group[]
       sessions = (await sessionsResponse.json()) as Session[]
+      agents = (await agentsResponse.json()) as WorkspaceAgent[]
       workspaceContentStatus = "ready"
       const sessionID = sessionIDFromPath(currentPath)
       const session = sessions.find((candidate) => candidate.id === sessionID)
@@ -532,7 +545,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: messageText }),
+        body: JSON.stringify({ text: messageText, ...(selectedAgent === "" ? {} : { agent: selectedAgent }) }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -570,6 +583,10 @@
     const maximumHeight = Number.parseFloat(styles.lineHeight) * 6 + Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom)
     input.style.height = `${Math.min(input.scrollHeight, maximumHeight)}px`
     input.style.overflowY = input.scrollHeight > maximumHeight ? "auto" : "hidden"
+  }
+
+  function agentLabel(id: string) {
+    return agents.find((agent) => agent.id === id)?.label ?? id
   }
 
   async function login() {
@@ -667,7 +684,7 @@
       <p class="eyebrow">Gatehouse</p>
       <h1 class="title is-3">No workspace access</h1>
       <p class="subtitle is-6">Ask an administrator to add {claims?.principal} to a workspace group.</p>
-      <button class="button is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
+      <button class="button is-danger is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
     </section>
   </main>
 {:else}
@@ -739,7 +756,7 @@
 
       <div class="sidebar-footer">
         <span>{claims?.principal}</span>
-        <button class="button is-small is-light" type="button" onclick={() => void logout()}>Log out</button>
+        <button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button>
       </div>
     </aside>
 
@@ -847,7 +864,7 @@
                   {/if}
                   {#each finalReplies(tree) as reply (reply.event.ref.id)}
                     <article class="chat-message">
-                      <p class="chat-message-author">Gatehouse</p>
+                      <p class="chat-message-author">{reply.event.author_agent === undefined ? "Gatehouse" : agentLabel(reply.event.author_agent.model.id)}</p>
                       <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
                         <Copy size={16} strokeWidth={2} />
                       </button>
@@ -861,9 +878,18 @@
               <button class="button is-small chat-jump" type="button" onclick={() => void scrollToLatest()}>Jump to latest</button>
             {/if}
           </div>
-          <form class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
+          <form class:sending={sendingMessage} class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
             <label class="is-sr-only" for="message">Message</label>
             <div class="chat-composer-row">
+              <div class:agent-selected={selectedAgent !== ""} class="chat-composer-agent" title="Select agent">
+                <Bot size={20} strokeWidth={2.25} aria-hidden="true" />
+                <select id="agent" aria-label="Agent" bind:value={selectedAgent}>
+                  <option value="">Automatic</option>
+                  {#each agents as agent}
+                    <option value={agent.id}>{agent.label ?? agent.id}</option>
+                  {/each}
+                </select>
+              </div>
               <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} oninput={(event) => resizeMessageInput(event.currentTarget)} onkeydown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault()
@@ -871,7 +897,7 @@
                 }
               }}></textarea>
               <button class="button is-primary chat-composer-send" type="submit" aria-label="Send message" title="Send message" disabled={sendingMessage || messageText.trim() === ""}>
-                <Send size={18} strokeWidth={2.25} aria-hidden="true" />
+                <Send size={20} strokeWidth={2.25} aria-hidden="true" />
               </button>
             </div>
             {#if messageError !== ""}

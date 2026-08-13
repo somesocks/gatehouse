@@ -114,6 +114,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/auth/logout", logout)
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
@@ -203,6 +204,11 @@ type groupResponse struct {
 	Name *string `json:"name,omitempty"`
 }
 
+type workspaceAgentResponse struct {
+	ID    string  `json:"id"`
+	Label *string `json:"label,omitempty"`
+}
+
 type resourceResponse struct {
 	ID     string `json:"id"`
 	Secret bool   `json:"secret"`
@@ -213,7 +219,8 @@ type sessionResponse struct {
 }
 
 type sessionMessageRequest struct {
-	Text string `json:"text"`
+	Text  string `json:"text"`
+	Agent string `json:"agent"`
 }
 
 type sessionEventTreeResponse struct {
@@ -293,6 +300,33 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		result := make([]groupResponse, 0, len(groups))
 		for _, group := range groups {
 			result = append(result, groupResponse{ID: group.Ref.Id, Name: group.Name})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceAgents(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		err, agents := store.WorkspaceAgentsGet(request.Context(), workspace)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]workspaceAgentResponse, len(agents))
+		for index, agent := range agents {
+			result[index] = workspaceAgentResponse{ID: agent.ID, Label: agent.Label}
 		}
 		writeJSON(response, result)
 	}
@@ -395,6 +429,17 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
+		if message.Agent != "" {
+			err, selected := store.WorkspaceAgentModelSelect(request.Context(), session.Workspace, message.Agent)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if selected == nil || selected.Ref.Model.Id != message.Agent {
+				http.Error(response, "invalid agent", http.StatusBadRequest)
+				return
+			}
+		}
 		id, err := randomUUID()
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -404,7 +449,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			Ref:             model.SessionEventRef{Session: session, Id: id},
 			Kind:            "message.text",
 			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
-			Payload:         map[string]interface{}{"text": message.Text},
+			Payload:         messagePayload(message),
 		}
 		err, stored := store.SessionMessagesCreate(request.Context(), event)
 		if err != nil {
@@ -416,6 +461,14 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		writeJSONStatus(response, http.StatusAccepted, stored)
 	}
+}
+
+func messagePayload(message sessionMessageRequest) map[string]interface{} {
+	payload := map[string]interface{}{"text": message.Text}
+	if message.Agent != "" {
+		payload["agent"] = message.Agent
+	}
+	return payload
 }
 
 func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {

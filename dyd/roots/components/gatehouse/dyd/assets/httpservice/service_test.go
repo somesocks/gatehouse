@@ -317,6 +317,61 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	}
 }
 
+func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
+	tokens, store := testBearerTokens(t)
+	label := "Assistant"
+	state := config.State{
+		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{ID: "assistant", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "assistant", Label: &label, Priority: 1, MaxTurns: 1, Enabled: true}},
+	}
+	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
+	if keyringErr != nil {
+		t.Fatal(keyringErr)
+	}
+	defer keyring.Close()
+	buildErr, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, state, keyring)
+	if buildErr != nil {
+		t.Fatal(buildErr)
+	}
+	if err := migrations.Run(context.Background(), store, set); err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	agents := request(http.MethodGet, "/api/v1/workspaces/engineering/agents", "")
+	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"assistant","label":"Assistant"}]`+"\n" {
+		t.Fatalf("GET agents = status %d body %q", agents.Code, agents.Body.String())
+	}
+	session := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	var created sessionResponse
+	if err := json.Unmarshal(session.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
+	var event model.SessionEvent
+	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || event.Payload["agent"] != "assistant" {
+		t.Fatalf("POST message = (%d, %#v, %v)", message.Code, event, err)
+	}
+	invalid := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST message with missing agent = %d", invalid.Code)
+	}
+}
+
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	t.Helper()
 	ctx := context.Background()

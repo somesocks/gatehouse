@@ -28,10 +28,14 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels: []config.AgentModel{{
-			ID: "fallback", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Enabled: true,
-		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "fallback", Priority: 1, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true}},
+		AgentModels: []config.AgentModel{
+			{ID: "automatic", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Automatic reply."}`, Enabled: true},
+			{ID: "requested", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Requested reply."}`, Enabled: true},
+		},
+		WorkspaceAgents: []config.WorkspaceAgent{
+			{WorkspaceID: "engineering", Model: "automatic", Priority: 2, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true},
+			{WorkspaceID: "engineering", Model: "requested", Priority: 1, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true},
+		},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -55,7 +59,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c892"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alice,
-		Payload:         map[string]interface{}{"text": "hello"},
+		Payload:         map[string]interface{}{"text": "hello", "agent": "requested"},
 	}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 		t.Fatal(err)
@@ -90,13 +94,13 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			started := events[1]
 			completed := events[2]
 			reply := events[3]
-			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Model.Id != "fallback" || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
+			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Model.Id != "requested" || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
 				t.Fatalf("thinking start event = %#v", started)
 			}
-			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Model.Id != "fallback" || completed.Ref.Id == "" {
+			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Model.Id != "requested" || completed.Ref.Id == "" {
 				t.Fatalf("thinking completion event = %#v", completed)
 			}
-			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Model.Id != "fallback" || reply.Payload["text"] != "Fallback reply." || reply.Ref.Id == "" {
+			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Model.Id != "requested" || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
 				t.Fatalf("reply event = %#v", reply)
 			}
 			break

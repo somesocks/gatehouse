@@ -496,7 +496,47 @@ type WorkspaceAgentModel struct {
 	SystemPrompt *string
 }
 
-func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
+type WorkspaceAgent struct {
+	ID    string
+	Label *string
+}
+
+func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.WorkspaceRef) (error, []WorkspaceAgent) {
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT bindings.model_id, bindings.label
+		FROM gatehouse_workspace_agents AS bindings
+		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
+		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
+		WHERE bindings.workspace_id = `+placeholder(1)+`
+			AND bindings.enabled = TRUE
+			AND models.enabled = TRUE
+			AND providers.enabled = TRUE
+		ORDER BY bindings.priority DESC, bindings.model_id
+	`, workspace.Id)
+	if err != nil {
+		return fmt.Errorf("get workspace agents: %w", err), nil
+	}
+	defer rows.Close()
+	agents := []WorkspaceAgent{}
+	for rows.Next() {
+		var agent WorkspaceAgent
+		var label sql.NullString
+		if err := rows.Scan(&agent.ID, &label); err != nil {
+			return fmt.Errorf("scan workspace agent: %w", err), nil
+		}
+		if label.Valid {
+			agent.Label = &label.String
+		}
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate workspace agents: %w", err), nil
+	}
+	return nil, agents
+}
+
+func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns, bindings.system_prompt
@@ -507,9 +547,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-		ORDER BY bindings.priority DESC, RANDOM()
+		ORDER BY CASE WHEN `+placeholder(2)+` <> '' AND bindings.model_id = `+placeholder(3)+` THEN 0 ELSE 1 END, bindings.priority DESC, RANDOM()
 		LIMIT 1
-	`, workspace.Id)
+	`, workspace.Id, preferred, preferred)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
 	var baseURL, keychainID, apiKey, systemPrompt sql.NullString

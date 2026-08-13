@@ -276,6 +276,41 @@ workspaces:
 	}
 }
 
+func TestResolveWorkspaceAgentsLabel(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        label: Fallback assistant
+        priority: 1
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err, document := ValidateFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, state := ResolveState(document)
+	if err != nil || len(state.WorkspaceAgents) != 1 || state.WorkspaceAgents[0].Label == nil || *state.WorkspaceAgents[0].Label != "Fallback assistant" {
+		t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+	}
+}
+
 func TestValidateFileRejectsNonPositiveWorkspaceAgentMaxTurns(t *testing.T) {
 	for _, value := range []string{"0", "-1"} {
 		path := filepath.Join(t.TempDir(), "config.yaml")

@@ -138,11 +138,15 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		if err != nil || existing != nil {
 			return sessionReplyPreparation{Existing: existing}, err
 		}
-		err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Event.Session.Workspace)
+		err, message := runtime.store.SessionEventGet(step, input.Event)
 		if err != nil {
 			return sessionReplyPreparation{}, err
 		}
-		err, message := runtime.store.SessionEventGet(step, input.Event)
+		preferred := ""
+		if message != nil && message.Kind == "message.text" && message.AuthorPrincipal != nil {
+			preferred, _ = message.Payload["agent"].(string)
+		}
+		err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Event.Session.Workspace, preferred)
 		if err != nil {
 			return sessionReplyPreparation{}, err
 		}

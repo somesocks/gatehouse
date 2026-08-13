@@ -364,7 +364,7 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 5 {
-		err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"})
+		err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "")
 		if err != nil || selected == nil {
 			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
 		}
@@ -380,6 +380,39 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		if selected.Ref.Model.Id == "second" && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want empty prompt", selected.SystemPrompt)
 		}
+	}
+}
+
+func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{
+			{ID: "automatic", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
+			{ID: "requested", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, Enabled: true},
+		},
+		WorkspaceAgents: []config.WorkspaceAgent{
+			{WorkspaceID: "engineering", Model: "automatic", Priority: 2, MaxTurns: 1, Enabled: true},
+			{WorkspaceID: "engineering", Model: "requested", Priority: 1, MaxTurns: 1, Enabled: true},
+		},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "requested")
+	if err != nil || selected == nil || selected.Ref.Model.Id != "requested" {
+		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want requested agent", selected, err)
+	}
+	err, selected = store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "missing")
+	if err != nil || selected == nil || selected.Ref.Model.Id != "automatic" {
+		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
 	}
 }
 
