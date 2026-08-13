@@ -29,6 +29,8 @@ func TestRunTurnKeepsSecretsTainted(t *testing.T) {
 func TestRunTurnDefaultPreludeImportsNativeModules(t *testing.T) {
 	err, result := RunTurn(`(begin
   (help json/decode)
+	  (help json/string)
+	  (help json/object)
   (help seq/bytes/split)
   (help crypto/digest/sha256/digest)
   (help crypto/cipher/aes/128/encrypt)
@@ -36,7 +38,7 @@ func TestRunTurnDefaultPreludeImportsNativeModules(t *testing.T) {
   (help crypto/cipher/ctr/crypt)
   (help crypto/mac/hmac/sha256/digest)
   (help crypto/padding/pkcs7/pad)
-  (json/encode '(json/string "ok")))`, nil, nil)
+  (json/encode (json/string "ok")))`, nil, nil)
 	if err != nil || result.String() != `"\"ok\""` {
 		t.Fatalf("RunTurn() default prelude = (%s, %v)", result, err)
 	}

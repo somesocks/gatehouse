@@ -128,12 +128,16 @@ func TestDocumentationExamples(t *testing.T) {
 			if test.documentation.signature == "" || test.documentation.description == "" || test.documentation.example == "" || test.documentation.result == "" {
 				t.Fatal("documentation requires a signature, description, example, and result")
 			}
-			err, result := Run(test.documentation.example)
+			example := test.documentation.example
+			if test.name == "json/decode" || test.name == "json/encode" {
+				example = "(import (json @native:json/v1) " + example + ")"
+			}
+			err, result := Run(example)
 			if err != nil {
-				t.Fatalf("example %s: %v", test.documentation.example, err)
+				t.Fatalf("example %s: %v", example, err)
 			}
 			if got := result.String(); got != test.documentation.result {
-				t.Fatalf("example %s = %s, want %s", test.documentation.example, got, test.documentation.result)
+				t.Fatalf("example %s = %s, want %s", example, got, test.documentation.result)
 			}
 
 			err, help := Run(test.helpSource)
