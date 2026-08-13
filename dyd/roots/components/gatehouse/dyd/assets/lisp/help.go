@@ -74,7 +74,7 @@ func (env *environment) matchingBindings(matches func(string, Expr) bool) []stri
 				continue
 			}
 			seen[name] = struct{}{}
-			if value != nil && matches(name, *value) {
+			if value != nil && (current.parent == nil || !isNullValue(*value)) && matches(name, *value) {
 				bindings = append(bindings, name)
 			}
 		}

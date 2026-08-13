@@ -52,8 +52,12 @@ func TestRunTurnPreludeEvaluatesParsedProgramLexically(t *testing.T) {
 }
 
 func TestRunTurnDefaultPreludeHidesImports(t *testing.T) {
-	err, result := RunTurn("(list (= import null) (= import/restrict null) (= import/search null))", nil, nil)
-	if err != nil || result.String() != "(#t #t #t)" {
-		t.Fatalf("RunTurn() imports = (%s, %v)", result, err)
+	err, result := RunTurn(`(begin
+  (list
+    (null? (let ((value null)) value))
+    (help/env "import")
+    (help/search "imports limited")))`, nil, nil)
+	if err != nil || result.String() != "(#t null null)" {
+		t.Fatalf("RunTurn() import visibility = (%s, %v)", result, err)
 	}
 }
