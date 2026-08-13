@@ -245,7 +245,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	if selected.Protocol == "openai-responses" {
 		return runtime.openAIResponsesReply(ctx, parent, selected, messages, principal, reasoningEffort)
 	}
-	requestMessages := append([]openAICompatibleMessage{{Role: "system", Content: openAISystemPrompt}}, messages...)
+	requestMessages := openAIRequestMessages(selected, messages)
 	callCount := 0
 	for round := 0; ; round++ {
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
@@ -470,6 +470,21 @@ Examples:
 
 Treat tool failures as feedback. Correct and retry when the request remains answerable. Return unexecuted code only when the user explicitly asks for code rather than its result.`
 
+func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
+	if selected.SystemPrompt != nil {
+		return *selected.SystemPrompt
+	}
+	return openAISystemPrompt
+}
+
+func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage) []openAICompatibleMessage {
+	prompt := openAISystemPromptFor(selected)
+	if prompt == "" {
+		return messages
+	}
+	return append([]openAICompatibleMessage{{Role: "system", Content: prompt}}, messages...)
+}
+
 func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef, reasoningEffort string) (error, string) {
 	input := openAIResponsesInput(messages)
 	var reasoning *openAIResponsesReasoning
@@ -486,7 +501,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			return err, ""
 		}
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
-				Model: selected.Model, Instructions: openAISystemPrompt, Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
+			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
 			})
 		if err != nil {
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""

@@ -493,12 +493,13 @@ type WorkspaceAgentModel struct {
 	Model      string
 	Parameters string
 	MaxTurns   int
+	SystemPrompt *string
 }
 
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns
+		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns, bindings.system_prompt
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -511,9 +512,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	`, workspace.Id)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	var baseURL, keychainID, apiKey sql.NullString
+	var baseURL, keychainID, apiKey, systemPrompt sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.MaxTurns); err != nil {
+	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.MaxTurns, &systemPrompt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -526,6 +527,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 		selected.BaseURL = &baseURL.String
 		selected.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
 		selected.APIKey = &apiKey.String
+	}
+	if systemPrompt.Valid {
+		selected.SystemPrompt = &systemPrompt.String
 	}
 	return nil, &selected
 }

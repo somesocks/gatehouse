@@ -339,6 +339,8 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	firstPrompt := "First prompt."
+	emptyPrompt := ""
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -353,8 +355,8 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 			{ID: "lower", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Model: "first", Priority: 2, MaxTurns: 3, Enabled: true},
-			{WorkspaceID: "engineering", Model: "second", Priority: 2, MaxTurns: 3, Enabled: true},
+			{WorkspaceID: "engineering", Model: "first", Priority: 2, MaxTurns: 3, SystemPrompt: &firstPrompt, Enabled: true},
+			{WorkspaceID: "engineering", Model: "second", Priority: 2, MaxTurns: 3, SystemPrompt: &emptyPrompt, Enabled: true},
 			{WorkspaceID: "engineering", Model: "lower", Priority: 1, MaxTurns: 2, Enabled: true},
 		},
 	}
@@ -371,6 +373,12 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		}
 		if selected.MaxTurns != 3 {
 			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
+		}
+		if selected.Ref.Model.Id == "first" && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
+			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
+		}
+		if selected.Ref.Model.Id == "second" && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
+			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want empty prompt", selected.SystemPrompt)
 		}
 	}
 }

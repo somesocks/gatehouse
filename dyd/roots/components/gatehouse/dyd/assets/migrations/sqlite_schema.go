@@ -312,6 +312,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			ALTER TABLE gatehouse_workspace_agents
 			ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 127 CHECK (max_turns > 0);
 		`),
+		}, {
+			Index:       11,
+			Description: "add_workspace_agent_system_prompt",
+			Builder: staticMigrationBuilder(`
+			ALTER TABLE gatehouse_workspace_agents
+			ADD COLUMN system_prompt TEXT;
+		`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

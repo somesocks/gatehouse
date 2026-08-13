@@ -43,6 +43,7 @@ type WorkspaceAgent struct {
 	Model       string
 	Priority    int
 	MaxTurns    int
+	SystemPrompt *string
 	Enabled     bool
 }
 
@@ -218,7 +219,7 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Id, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Id, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

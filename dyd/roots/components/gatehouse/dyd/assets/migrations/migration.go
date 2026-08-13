@@ -297,6 +297,13 @@ func renderTemplate(name, source string, values any) (error, string) {
 				return identifier, err
 			},
 			"sqlBool": sqlBool,
+			"sqlOptionalString": func(value *string) (string, error) {
+				if value == nil {
+					return "NULL", nil
+				}
+				err, literal := sqlLiteral(*value)
+				return literal, err
+			},
 		}).
 		Parse(source)
 	if err != nil {

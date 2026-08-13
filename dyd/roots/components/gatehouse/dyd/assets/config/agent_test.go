@@ -182,6 +182,100 @@ workspaces:
 	}
 }
 
+func TestResolveWorkspaceAgentsSystemPrompt(t *testing.T) {
+	for name, contents := range map[string]string{
+		"default": `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+`,
+		"custom": `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+        system_prompt: Custom instructions.
+`,
+		"empty": `
+api_version: v1
+agent_providers:
+  - id: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - id: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - id: engineering
+    agents:
+      - model: fallback
+        priority: 1
+        system_prompt: ""
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err, document := ValidateFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, state := ResolveState(document)
+			if err != nil || len(state.WorkspaceAgents) != 1 {
+				t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+			}
+			prompt := state.WorkspaceAgents[0].SystemPrompt
+			switch name {
+			case "default":
+				if prompt != nil {
+					t.Fatalf("system prompt = %q, want nil", *prompt)
+				}
+			case "custom":
+				if prompt == nil || *prompt != "Custom instructions." {
+					t.Fatalf("system prompt = %#v, want custom prompt", prompt)
+				}
+			case "empty":
+				if prompt == nil || *prompt != "" {
+					t.Fatalf("system prompt = %#v, want empty prompt", prompt)
+				}
+			}
+		})
+	}
+}
+
 func TestValidateFileRejectsNonPositiveWorkspaceAgentMaxTurns(t *testing.T) {
 	for _, value := range []string{"0", "-1"} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
