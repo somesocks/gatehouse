@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { CircleCheck, CircleX, Copy } from "@lucide/svelte"
+  import { CircleCheck, CircleX, Copy, Menu, Send } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
 
   type Claims = {
@@ -63,6 +63,7 @@
   let awaitingReplyFor = $state<string[]>([])
   let cancellingReplyFor = $state<Set<string>>(new Set())
   let expandedActivity = $state<Set<string>>(new Set())
+  let mobileMenuOpen = $state(false)
   let showJumpToLatest = $state(false)
   let chatEventsElement = $state<HTMLDivElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
@@ -208,6 +209,7 @@
   }
 
   async function selectWorkspace(workspace: Workspace, replace = false) {
+    mobileMenuOpen = false
     stopPolling()
     activeWorkspace = workspace
     groups = []
@@ -248,6 +250,7 @@
     if (activeWorkspace === null) {
       return
     }
+    mobileMenuOpen = false
     stopPolling()
     activeSession = session
     events = []
@@ -494,6 +497,7 @@
     if (activeWorkspace === null) {
       return
     }
+    mobileMenuOpen = false
     messageError = ""
     try {
       const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions`, {
@@ -539,6 +543,8 @@
       }
       const event = (await response.json()) as SessionEvent
       messageText = ""
+      await tick()
+      resizeMessageInput()
       if (activeSession?.id !== session.id) {
         return
       }
@@ -553,6 +559,17 @@
       await tick()
       messageInputElement?.focus()
     }
+  }
+
+  function resizeMessageInput(input = messageInputElement) {
+    if (input === undefined) {
+      return
+    }
+    input.style.height = "auto"
+    const styles = window.getComputedStyle(input)
+    const maximumHeight = Number.parseFloat(styles.lineHeight) * 6 + Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom)
+    input.style.height = `${Math.min(input.scrollHeight, maximumHeight)}px`
+    input.style.overflowY = input.scrollHeight > maximumHeight ? "auto" : "hidden"
   }
 
   async function login() {
@@ -655,7 +672,10 @@
   </main>
 {:else}
   <div class="app-shell">
-    <aside class="sidebar">
+    {#if mobileMenuOpen}
+      <button class="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onclick={() => mobileMenuOpen = false}></button>
+    {/if}
+    <aside class:mobile-menu-open={mobileMenuOpen} class="sidebar">
       <a class="brand" href="/app/">Gatehouse</a>
 
       <div class="workspace-switcher">
@@ -725,6 +745,9 @@
 
       <main class="workspace-main">
         <header class="workspace-header">
+          <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}>
+            <Menu size={20} strokeWidth={2} aria-hidden="true" />
+          </button>
           <h1 class="workspace-breadcrumb">
             <span>{activeWorkspace?.name ?? activeWorkspace?.id}</span>
             {#if activeSession !== null}
@@ -773,51 +796,53 @@
                           <button class="agent-activity-cancel" type="button" disabled={cancellingReplyFor.has(tree.event.ref.id)} onclick={() => void cancelReply(tree)}>{cancellingReplyFor.has(tree.event.ref.id) ? "Cancelling..." : "Cancel"}</button>
                         {/if}
                       </p>
-                      <div class="agent-activity">
-                        {#if renderedActivityEvents(tree).length > 5 && !expandedActivity.has(tree.event.ref.id)}
-                          <p class="agent-activity-overflow">
-                            <span>({renderedActivityEvents(tree).length - 5} more)</span>
-                            <button type="button" onclick={() => toggleActivity(tree)}>Show all</button>
-                          </p>
-                        {/if}
-                        {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
-                          {#if activity.event.kind === "tool.request"}
-                            <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
-                              {#if toolStatus(activity) === "working"}
-                                <span class="tool-status tool-status-working" aria-hidden="true"></span>
-                              {:else if toolStatus(activity) === "succeeded"}
-                                <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                              {:else}
-                                <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                              {/if}
-                              Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
-                              {#if toolCallDuration(activity) !== ""}
-                                <span class="tool-call-duration">{toolCallDuration(activity)}</span>
-                              {/if}
-                            </p>
-                          {:else if activity.event.kind === "thinking.started"}
-                            <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
-                              {#if thinkingStatus(activity) === "working"}
-                                <span class="tool-status tool-status-working" aria-hidden="true"></span>
-                              {:else if thinkingStatus(activity) === "succeeded"}
-                                <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                              {:else}
-                                <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                              {/if}
-                              {thinkingStatus(activity) === "working" ? "Thinking" : thinkingStatus(activity) === "succeeded" ? "Thought" : "Thinking failed after"}
-                              {#if thinkingDuration(activity) !== ""}
-                                <span class="tool-call-duration">{thinkingDuration(activity)}</span>
-                              {/if}
+                      {#if renderedActivityEvents(tree).length > 0}
+                        <div class="agent-activity">
+                          {#if renderedActivityEvents(tree).length > 5 && !expandedActivity.has(tree.event.ref.id)}
+                            <p class="agent-activity-overflow">
+                              <span>({renderedActivityEvents(tree).length - 5} more)</span>
+                              <button type="button" onclick={() => toggleActivity(tree)}>Show all</button>
                             </p>
                           {/if}
-                        {/each}
-                        {#if renderedActivityEvents(tree).length > 5 && expandedActivity.has(tree.event.ref.id)}
-                          <p class="agent-activity-overflow">
-                            <span>({renderedActivityEvents(tree).length} steps)</span>
-                            <button type="button" onclick={() => toggleActivity(tree)}>Show less</button>
-                          </p>
-                        {/if}
-                      </div>
+                          {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
+                            {#if activity.event.kind === "tool.request"}
+                              <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
+                                {#if toolStatus(activity) === "working"}
+                                  <span class="tool-status tool-status-working" aria-hidden="true"></span>
+                                {:else if toolStatus(activity) === "succeeded"}
+                                  <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                                {:else}
+                                  <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                                {/if}
+                                Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                                {#if toolCallDuration(activity) !== ""}
+                                  <span class="tool-call-duration">{toolCallDuration(activity)}</span>
+                                {/if}
+                              </p>
+                            {:else if activity.event.kind === "thinking.started"}
+                              <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
+                                {#if thinkingStatus(activity) === "working"}
+                                  <span class="tool-status tool-status-working" aria-hidden="true"></span>
+                                {:else if thinkingStatus(activity) === "succeeded"}
+                                  <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                                {:else}
+                                  <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
+                                {/if}
+                                {thinkingStatus(activity) === "working" ? "Thinking" : thinkingStatus(activity) === "succeeded" ? "Thought" : "Thinking failed after"}
+                                {#if thinkingDuration(activity) !== ""}
+                                  <span class="tool-call-duration">{thinkingDuration(activity)}</span>
+                                {/if}
+                              </p>
+                            {/if}
+                          {/each}
+                          {#if renderedActivityEvents(tree).length > 5 && expandedActivity.has(tree.event.ref.id)}
+                            <p class="agent-activity-overflow">
+                              <span>({renderedActivityEvents(tree).length} steps)</span>
+                              <button type="button" onclick={() => toggleActivity(tree)}>Show less</button>
+                            </p>
+                          {/if}
+                        </div>
+                      {/if}
                     </section>
                   {/if}
                   {#each finalReplies(tree) as reply (reply.event.ref.id)}
@@ -839,14 +864,14 @@
           <form class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
             <label class="is-sr-only" for="message">Message</label>
             <div class="chat-composer-row">
-              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} onkeydown={(event) => {
-                if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} oninput={(event) => resizeMessageInput(event.currentTarget)} onkeydown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault()
                   void sendMessage()
                 }
               }}></textarea>
-              <button class="button is-primary" type="submit" disabled={sendingMessage || messageText.trim() === ""}>
-                {sendingMessage ? "Sending..." : "Send"}
+              <button class="button is-primary chat-composer-send" type="submit" aria-label="Send message" title="Send message" disabled={sendingMessage || messageText.trim() === ""}>
+                <Send size={18} strokeWidth={2.25} aria-hidden="true" />
               </button>
             </div>
             {#if messageError !== ""}
