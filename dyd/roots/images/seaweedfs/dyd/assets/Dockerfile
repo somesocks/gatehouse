@@ -1,0 +1,3 @@
+FROM chrislusf/seaweedfs:4.41@sha256:43b768cd62b00d132439cda881b93fd1adebf1b315e996e794087743821d771d
+
+EXPOSE 8333
