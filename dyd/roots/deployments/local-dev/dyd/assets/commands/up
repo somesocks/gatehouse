@@ -4,11 +4,11 @@ set -eu
 
 ASSETS_DIR="$DYD_STEM/dyd/assets"
 IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-gatehouse/dyd/assets"
+SEAWEEDFS_IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-seaweedfs/dyd/assets"
 SECRETS_DIR="$DYD_STEM/dyd/secrets"
 
 image-local-load "$(cat "$IMAGE_DIR/image-name")" "$(cat "$IMAGE_DIR/image-tag")" "$IMAGE_DIR/oci"
 export GATEHOUSE_IMAGE="localhost/$(cat "$IMAGE_DIR/image")"
-export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse.yaml")"
 if [ -f "$SECRETS_DIR/local-dev.env" ]; then
   # The optional file is packaged as a Dryad secret, not read from the worktree.
   set -a
@@ -16,4 +16,24 @@ if [ -f "$SECRETS_DIR/local-dev.env" ]; then
   set +a
 fi
 
-docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" up -d --remove-orphans
+case "${LOCAL_DEV_USE_S3:-false}" in
+  false)
+    unset COMPOSE_PROFILES SEAWEEDFS_IMAGE
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse.yaml")"
+    ;;
+  true)
+    image-local-load "$(cat "$SEAWEEDFS_IMAGE_DIR/image-name")" "$(cat "$SEAWEEDFS_IMAGE_DIR/image-tag")" "$SEAWEEDFS_IMAGE_DIR/oci"
+    export SEAWEEDFS_IMAGE="localhost/$(cat "$SEAWEEDFS_IMAGE_DIR/image")"
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse-s3.yaml")"
+    ;;
+  *)
+    printf '%s\n' "LOCAL_DEV_USE_S3 must be true or false" >&2
+    exit 2
+    ;;
+esac
+
+if [ "${LOCAL_DEV_USE_S3:-false}" = true ]; then
+  docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" --file "$ASSETS_DIR/docker-compose.s3.yml" up -d --remove-orphans
+else
+  docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" up -d --remove-orphans
+fi

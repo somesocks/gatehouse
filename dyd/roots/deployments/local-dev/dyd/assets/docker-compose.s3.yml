@@ -1,0 +1,9 @@
+services:
+  seaweedfs:
+    image: ${SEAWEEDFS_IMAGE}
+    ports:
+      - "8333:8333"
+    environment:
+      AWS_ACCESS_KEY_ID: local-development-s3
+      AWS_SECRET_ACCESS_KEY: local-development-s3-secret
+      S3_BUCKET: gatehouse

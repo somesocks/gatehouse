@@ -1,0 +1,63 @@
+api_version: v1
+database:
+  kind: ephemeral
+agent_providers:
+  - id: openai
+    revision: 1
+    protocol: openai-responses
+    base_url: https://api.openai.com/v1
+    api_key:
+      sources:
+        - env:OPENAI_API_KEY
+agent_models:
+  - id: openai-luna-low
+    revision: 1
+    provider: openai
+    model: gpt-5.6-luna
+    parameters:
+      reasoning_effort: low
+  - id: openai-luna-medium
+    revision: 1
+    provider: openai
+    model: gpt-5.6-luna
+    parameters:
+      reasoning_effort: medium
+storage_providers:
+  - id: local-s3
+    revision: 1
+    protocol: s3
+    endpoint: http://seaweedfs:8333
+    region: us-east-1
+    bucket: gatehouse
+    credentials:
+      access_key_id: local-development-s3
+      secret_access_key:
+        sources:
+          - env:LOCAL_DEV_S3_SECRET_ACCESS_KEY
+workspaces:
+  - id: development
+    name: Development
+    agents:
+      - model: openai-luna-low
+        label: GPT 5.6 Luna Low
+        priority: 1
+        max_turns: 127
+      - model: openai-luna-medium
+        label: GPT 5.6 Luna Med
+        priority: 1
+        max_turns: 127
+    storage_providers:
+      - provider: local-s3
+        priority: 1
+    groups:
+      - id: members
+        name: Members
+        members:
+          - principal: root
+services:
+  http:
+    listen: 0.0.0.0:4283
+    web:
+      enabled: true
+    api:
+      enabled: true

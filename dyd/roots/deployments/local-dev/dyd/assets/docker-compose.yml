@@ -10,3 +10,4 @@ services:
       - GATEHOUSE_KEYCHAIN=local-development-keychain
       - GATEHOUSE_ROOT_PASSWORD=password-root
       - OPENAI_API_KEY
+      - LOCAL_DEV_S3_SECRET_ACCESS_KEY=local-development-s3-secret

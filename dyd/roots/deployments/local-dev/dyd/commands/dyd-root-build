@@ -9,4 +9,5 @@ if [ -f "$DYD_STEM/dyd/dependencies/local-dev-env/dyd/secrets/local-dev.env" ]; 
 	cp "$DYD_STEM/dyd/dependencies/local-dev-env/dyd/secrets/local-dev.env" "$DYD_BUILD/dyd/secrets/local-dev.env"
 fi
 ln -s "$DYD_STEM/dyd/dependencies/image-gatehouse" "$DYD_BUILD/dyd/dependencies/image-gatehouse"
+ln -s "$DYD_STEM/dyd/dependencies/image-seaweedfs" "$DYD_BUILD/dyd/dependencies/image-seaweedfs"
 ln -s "$DYD_STEM/dyd/dependencies/image-local-load" "$DYD_BUILD/dyd/dependencies/image-local-load"
