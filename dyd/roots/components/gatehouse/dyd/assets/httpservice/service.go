@@ -122,7 +122,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
-		mux.HandleFunc("/api/v1/storage", storageProxy(store, tokens[0]))
+		mux.HandleFunc("/api/v1/storage", storageProxy(tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
@@ -523,13 +523,8 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		embeddedObjectID, err := randomUUID()
-		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
 		created := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: input.Name, MediaType: input.MediaType}
-		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID, embeddedObjectID)
+		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID)
 		if err != nil {
 			if strings.Contains(err.Error(), "no available storage provider") {
 				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)
@@ -561,7 +556,7 @@ func workspaceSessionFileFinish(store *database.Store, tokens *auth.BearerTokens
 		if !ok || file == nil || object == nil {
 			return
 		}
-		if err := store.StorageObjectFinish(request.Context(), object.ID); err != nil {
+		if err := tokens.StorageClient().Finish(request.Context(), object.ID); err != nil {
 			http.Error(response, "storage object is not ready", http.StatusConflict)
 			return
 		}
@@ -597,7 +592,8 @@ func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerToke
 	}
 }
 
-func storageProxy(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
+	objects := tokens.StorageClient()
 	return func(response http.ResponseWriter, request *http.Request) {
 		encoded := request.URL.Query().Get("token")
 		if encoded == "" {
@@ -611,14 +607,14 @@ func storageProxy(store *database.Store, tokens *auth.BearerTokens) http.Handler
 		}
 		switch {
 		case request.Method == http.MethodPut && token.Action == "put":
-			if err := store.StorageObjectPutEmbedded(request.Context(), token.ID, request.Body); err != nil {
+			if err := objects.Put(request.Context(), token.ID, request.Body, request.ContentLength); err != nil {
 				http.Error(response, "storage upload failed", http.StatusConflict)
 				return
 			}
 			noStore(response)
 			response.WriteHeader(http.StatusNoContent)
 		case request.Method == http.MethodGet && token.Action == "get":
-			err, content := store.StorageObjectGetEmbedded(request.Context(), token.ID)
+			err, content := objects.Get(request.Context(), token.ID)
 			if err != nil || content == nil {
 				http.NotFound(response, request)
 				return

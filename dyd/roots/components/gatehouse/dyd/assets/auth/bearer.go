@@ -12,6 +12,7 @@ import (
 	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/model"
+	"gatehouse/storage"
 )
 
 var bearerAssociatedData = []byte("gatehouse bearer token v1")
@@ -43,6 +44,10 @@ func Prepare(ctx context.Context, store *database.Store, keyring *keychain.Keyri
 		return fmt.Errorf("create dummy password verifier: %w", err), nil
 	}
 	return nil, &BearerTokens{store: store, keyring: keyring, keychainID: keychainID, dummyVerifier: dummyVerifier}
+}
+
+func (tokens *BearerTokens) StorageClient() *storage.Client {
+	return storage.NewClient(tokens.store, tokens.keyring)
 }
 
 func (tokens *BearerTokens) Login(ctx context.Context, identityID string, password []byte) (error, string) {

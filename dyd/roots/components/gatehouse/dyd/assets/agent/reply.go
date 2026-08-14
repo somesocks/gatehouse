@@ -20,6 +20,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/model"
+	"gatehouse/storage"
 )
 
 const (
@@ -66,6 +67,7 @@ type sessionToolCallStoredOutput struct {
 type SessionEventReplyRuntime struct {
 	store *database.Store
 	keyring *keychain.Keyring
+	storage *storage.Client
 	dbos  dbos.Context
 	queue dbos.Queue
 	toolQueue dbos.Queue
@@ -83,7 +85,7 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, dbos: ctx, queue: queue, toolQueue: toolQueue}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, queue: queue, toolQueue: toolQueue}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
@@ -382,7 +384,14 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		}
 		defer clearResourceValues(values)
 		evalErr, result := lisp.RunTurnWithFiles(input.Code, tools, resources, files, func(id string, offset, length int64) (error, []byte) {
-			return runtime.store.SessionFileRead(step, input.Parent.Session, id, offset, length)
+			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Parent.Session, Id: id}, input.Principal)
+			if err != nil || file == nil {
+				if err != nil {
+					return err, nil
+				}
+				return fmt.Errorf("read session file: unavailable"), nil
+			}
+			return runtime.storage.Read(step, file.StorageObject.Id, offset, length)
 		})
 		if evalErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil

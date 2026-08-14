@@ -27,6 +27,17 @@ type StorageObject struct {
 	Size     int64
 }
 
+type StorageObjectProvider struct {
+	Object          StorageObject
+	Protocol        string
+	Endpoint        string
+	Region          string
+	Bucket          string
+	AccessKeyID     string
+	Keychain        *model.KeychainRef
+	SecretAccessKey string
+}
+
 type SessionFileSummary struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -108,48 +119,8 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 	return nil, files
 }
 
-func (store *Store) SessionFileRead(ctx context.Context, session model.SessionRef, id string, offset, length int64) (error, []byte) {
-	if offset < 0 || length < 1 || length > 64*1024 {
-		return fmt.Errorf("read session file: invalid range"), nil
-	}
-	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
-		SELECT objects.id, objects.size
-		FROM gatehouse_session_files AS files
-		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
-		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND objects.state = 'success'
-	`, session.Workspace.Id, session.Id, id)
-	var objectID string
-	var size int64
-	if err := row.Scan(&objectID, &size); err != nil {
-		if err == sql.ErrNoRows {
-			return fmt.Errorf("read session file: unavailable"), nil
-		}
-		return fmt.Errorf("get session file to read: %w", err), nil
-	}
-	if offset >= size {
-		return nil, []byte{}
-	}
-	err, content := store.StorageObjectGetEmbedded(ctx, objectID)
-	if err != nil || content == nil {
-		if err != nil {
-			return err, nil
-		}
-		return fmt.Errorf("read session file: unavailable"), nil
-	}
-	defer content.Close()
-	if _, err := io.CopyN(io.Discard, content, offset); err != nil {
-		return fmt.Errorf("skip session file bytes: %w", err), nil
-	}
-	data, err := io.ReadAll(io.LimitReader(content, length))
-	if err != nil {
-		return fmt.Errorf("read session file bytes: %w", err), nil
-	}
-	return nil, data
-}
-
-func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID, embeddedObjectID string) (error, model.SessionFile, string) {
-	if strings.TrimSpace(file.Ref.Id) == "" || strings.TrimSpace(file.Name) == "" || strings.TrimSpace(storageObjectID) == "" || strings.TrimSpace(embeddedObjectID) == "" {
+func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string) (error, model.SessionFile, string) {
+	if strings.TrimSpace(file.Ref.Id) == "" || strings.TrimSpace(file.Name) == "" || strings.TrimSpace(storageObjectID) == "" {
 		return fmt.Errorf("create session file: IDs and name must not be blank"), model.SessionFile{}, ""
 	}
 	transaction, err := store.BeginTx(ctx, nil)
@@ -159,18 +130,17 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	row := transaction.QueryRowContext(ctx, `
-		SELECT bindings.provider
+		SELECT bindings.provider, providers.protocol
 		FROM gatehouse_workspace_storage_providers AS bindings
 		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
 		WHERE bindings.workspace = `+placeholder(1)+`
 			AND bindings.enabled = TRUE
 			AND providers.enabled = TRUE
-			AND providers.protocol = 'embedded'
 		ORDER BY bindings.priority DESC, bindings.provider
 		LIMIT 1
 	`, file.Ref.Session.Workspace.Id)
-	var provider string
-	if err := row.Scan(&provider); err != nil {
+	var provider, protocol string
+	if err := row.Scan(&provider, &protocol); err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("create session file: no available storage provider"), model.SessionFile{}, ""
 		}
@@ -180,13 +150,15 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_storage_objects (id, provider, object, state, created_at)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, 'pending', `+placeholder(4)+`)
-	`, storageObjectID, provider, embeddedObjectID, file.CreatedAt); err != nil {
+	`, storageObjectID, provider, storageObjectID, file.CreatedAt); err != nil {
 		return fmt.Errorf("insert storage object: %w", err), model.SessionFile{}, ""
 	}
-	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_embedded_storage_objects (id) VALUES (`+placeholder(1)+`)
-	`, embeddedObjectID); err != nil {
-		return fmt.Errorf("insert embedded storage object: %w", err), model.SessionFile{}, ""
+	if protocol == "embedded" {
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO gatehouse_embedded_storage_objects (id) VALUES (`+placeholder(1)+`)
+		`, storageObjectID); err != nil {
+			return fmt.Errorf("insert embedded storage object: %w", err), model.SessionFile{}, ""
+		}
 	}
 	var mediaType any
 	if file.MediaType != nil {
@@ -203,6 +175,91 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	}
 	file.StorageObject = model.StorageObjectRef{Id: storageObjectID}
 	return nil, file, storageObjectID
+}
+
+func (store *Store) StorageObjectPendingGet(ctx context.Context, id string) (error, *StorageObjectProvider) {
+	return store.storageObjectGet(ctx, id, "pending")
+}
+
+func (store *Store) StorageObjectSuccessGet(ctx context.Context, id string) (error, *StorageObjectProvider) {
+	return store.storageObjectGet(ctx, id, "success")
+}
+
+func (store *Store) storageObjectGet(ctx context.Context, id, state string) (error, *StorageObjectProvider) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT objects.id, objects.provider, objects.object, objects.state, objects.sha256, objects.size,
+			providers.protocol, providers.endpoint, providers.region, providers.bucket, providers.access_key_id,
+			providers.keychain_id, providers.keychain_version, providers.secret_access_key
+		FROM gatehouse_storage_objects AS objects
+		JOIN gatehouse_storage_providers AS providers ON providers.id = objects.provider
+		WHERE objects.id = `+placeholder(1)+` AND objects.state = `+placeholder(2), id, state)
+	var stored StorageObjectProvider
+	var digest []byte
+	var size sql.NullInt64
+	var endpoint, region, bucket, accessKeyID, keychainID, secretAccessKey sql.NullString
+	var keychainVersion sql.NullInt64
+	if err := row.Scan(&stored.Object.ID, &stored.Object.Provider, &stored.Object.Object, &stored.Object.State, &digest, &size,
+		&stored.Protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secretAccessKey); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get storage object: %w", err), nil
+	}
+	if size.Valid {
+		stored.Object.SHA256 = digest
+		stored.Object.Size = size.Int64
+	}
+	if endpoint.Valid {
+		stored.Endpoint = endpoint.String
+		stored.Region = region.String
+		stored.Bucket = bucket.String
+		stored.AccessKeyID = accessKeyID.String
+		stored.SecretAccessKey = secretAccessKey.String
+		stored.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
+	}
+	return nil, &stored
+}
+
+func (store *Store) StorageObjectStoreIntegrity(ctx context.Context, id string, digest []byte, size int64) error {
+	if len(digest) != sha256.Size || size < 0 {
+		return fmt.Errorf("store storage object integrity: invalid digest or size")
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := store.ExecContext(ctx, `
+		UPDATE gatehouse_storage_objects SET sha256 = `+placeholder(1)+`, size = `+placeholder(2)+`
+		WHERE id = `+placeholder(3)+` AND state = 'pending' AND sha256 IS NULL AND size IS NULL
+	`, digest, size, id)
+	if err != nil {
+		return fmt.Errorf("store storage object integrity: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("store storage object integrity: %w", err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("store storage object integrity: unavailable")
+	}
+	return nil
+}
+
+func (store *Store) StorageObjectMarkSuccess(ctx context.Context, id string) error {
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := store.ExecContext(ctx, `
+		UPDATE gatehouse_storage_objects SET state = 'success'
+		WHERE id = `+placeholder(1)+` AND state = 'pending' AND sha256 IS NOT NULL AND size IS NOT NULL
+	`, id)
+	if err != nil {
+		return fmt.Errorf("finish storage object: %w", err)
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("finish storage object: %w", err)
+	}
+	if changed != 1 {
+		return fmt.Errorf("finish storage object: unavailable")
+	}
+	return nil
 }
 
 func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRef, principal model.PrincipalRef) (error, *model.SessionFile, *StorageObject) {
@@ -309,7 +366,7 @@ func (store *Store) StorageObjectPutEmbedded(ctx context.Context, id string, sou
 	return nil
 }
 
-func (store *Store) StorageObjectFinish(ctx context.Context, id string) error {
+func (store *Store) StorageObjectFinishEmbedded(ctx context.Context, id string) error {
 	placeholder := keychainPlaceholder(store.kind)
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
