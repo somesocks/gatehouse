@@ -248,6 +248,22 @@ let WorkspaceAgents =
       s.list.from s.list.props::{ values = WorkspaceAgent }
         s.list.meta::{ description = Some "configured workspace agents" }
 
+let WorkspaceStorageProvider =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider identity" }
+            , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "new-object placement priority" }
+            }
+        , optional = toMap
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace may place new objects with this provider" } }
+        }
+        s.record.meta::{ name = Some "WorkspaceStorageProvider" }
+
+let WorkspaceStorageProviders =
+      s.list.from s.list.props::{ values = WorkspaceStorageProvider }
+        s.list.meta::{ description = Some "storage providers available for new workspace objects" }
+
 let Workspace =
       s.record.from
         s.record.props::{
@@ -271,7 +287,8 @@ let Workspace =
                , groups = Groups
                , tools = Tools
                 , resources = Resources
-                , agents = WorkspaceAgents
+                 , agents = WorkspaceAgents
+                 , storage_providers = WorkspaceStorageProviders
                 }
         }
         s.record.meta::{ name = Some "Workspace" }
@@ -434,6 +451,52 @@ let AgentModels =
       s.list.from s.list.props::{ values = AgentModel }
         s.list.meta::{ description = Some "configured agent models" }
 
+let StorageProviderSecretAccessKey =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { sources = s.list.from
+                s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "secret access key source" } }
+                s.list.meta::{ description = Some "ordered secret access key sources" }
+            }
+        , optional = toMap
+            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to seal the secret access key" } }
+        }
+        s.record.meta::{ name = Some "StorageProviderSecretAccessKey" }
+
+let StorageProviderS3Credentials =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { access_key_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3 access key ID" }
+            , secret_access_key = StorageProviderSecretAccessKey
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "StorageProviderS3Credentials" }
+
+let StorageProvider =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable storage provider identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic provider configuration revision" }
+            , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider protocol" }
+            }
+        , optional = toMap
+            { endpoint = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3-compatible endpoint URL" }
+            , region = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3 region" }
+            , bucket = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3 bucket" }
+            , credentials = StorageProviderS3Credentials
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }
+            }
+        }
+        s.record.meta::{ name = Some "StorageProvider" }
+
+let StorageProviders =
+      s.list.from s.list.props::{ values = StorageProvider }
+        s.list.meta::{ description = Some "configured storage providers" }
+
 let HTTPComponent =
       s.record.from
         s.record.props::{
@@ -494,9 +557,10 @@ let GatehouseConfig =
              , workspaces = Workspaces
              , principals = Principals
               , keychains = Keychains
-              , agent_providers = AgentProviders
-              , agent_models = AgentModels
-              , services = Services
+               , agent_providers = AgentProviders
+               , agent_models = AgentModels
+               , storage_providers = StorageProviders
+               , services = Services
              }
         }
         s.record.meta::{ description = Some "Gatehouse configuration" }

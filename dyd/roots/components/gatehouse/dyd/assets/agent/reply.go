@@ -376,12 +376,14 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return storedOutput.Output, nil
 	}
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
-		err, tools, resources, values := runtime.turnEnvironment(step, input.Parent.Session.Workspace, input.Principal)
+		err, tools, resources, files, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
 		if err != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
 		defer clearResourceValues(values)
-		evalErr, result := lisp.RunTurn(input.Code, tools, resources)
+		evalErr, result := lisp.RunTurnWithFiles(input.Code, tools, resources, files, func(id string, offset, length int64) (error, []byte) {
+			return runtime.store.SessionFileRead(step, input.Parent.Session, id, offset, length)
+		})
 		if evalErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
 		}
@@ -459,6 +461,8 @@ You are an agent that completes user requests using authorized workspace capabil
 # Tools
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
+
+Session file attachments are available through ` + "`file/list`" + ` and ` + "`file/read`" + `. Inspect file metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
@@ -698,14 +702,15 @@ func clearResourceValues(values map[model.ResourceRef][]byte) {
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, map[model.ResourceRef][]byte) {
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, []lisp.TurnFile, map[model.ResourceRef][]byte) {
+	workspace := session.Workspace
 	err, configuredTools := runtime.store.WorkspaceToolsGet(ctx, workspace, principal)
 	if err != nil {
-		return err, nil, nil, nil
+		return err, nil, nil, nil, nil
 	}
 	err, configuredResources := runtime.store.WorkspaceResourcesGet(ctx, workspace, principal)
 	if err != nil {
-		return err, nil, nil, nil
+		return err, nil, nil, nil, nil
 	}
 	resources := make([]config.Resource, 0, len(configuredResources))
 	for _, configured := range configuredResources {
@@ -713,14 +718,14 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, wo
 	}
 	err, values := runtime.resolveResources(ctx, resources)
 	if err != nil {
-		return err, nil, nil, nil
+		return err, nil, nil, nil, nil
 	}
 	tools := make([]lisp.TurnTool, 0, len(configuredTools))
 	for _, configured := range configuredTools {
 		err, source := readToolSource(configured.Source)
 		if err != nil {
 			clearResourceValues(values)
-			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil
+			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil, nil
 		}
 		tools = append(tools, lisp.TurnTool{ID: configured.Ref.Id, Source: source})
 	}
@@ -729,7 +734,16 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, wo
 		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.WorkspaceID}, Id: configured.ID}
 		turnResources = append(turnResources, lisp.TurnResource{ID: configured.ID, Value: values[ref], Secret: configured.Secret})
 	}
-	return nil, tools, turnResources, values
+	err, summaries := runtime.store.SessionFilesGet(ctx, session)
+	if err != nil {
+		clearResourceValues(values)
+		return err, nil, nil, nil, nil
+	}
+	files := make([]lisp.TurnFile, 0, len(summaries))
+	for _, file := range summaries {
+		files = append(files, lisp.TurnFile{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
+	}
+	return nil, tools, turnResources, files, values
 }
 
 func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []config.Resource) (error, map[model.ResourceRef][]byte) {
@@ -836,8 +850,15 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 		switch event.Kind {
 		case "message.text":
 			text, ok := event.Payload["text"].(string)
-			if !ok || strings.TrimSpace(text) == "" {
+			attachments := openAICompatibleMessageAttachments(event.Payload["files"])
+			if (!ok || strings.TrimSpace(text) == "") && attachments == "" {
 				continue
+			}
+			if attachments != "" {
+				if strings.TrimSpace(text) != "" {
+					text += "\n\n"
+				}
+				text += attachments
 			}
 			if event.AuthorPrincipal != nil {
 				messages = append(messages, openAICompatibleMessage{Role: "user", Content: text})
@@ -882,6 +903,37 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 		}
 	}
 	return nil, messages
+}
+
+func openAICompatibleMessageAttachments(value any) string {
+	files, ok := value.([]interface{})
+	if !ok || len(files) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(files)+1)
+	lines = append(lines, "Attached session files:")
+	for _, value := range files {
+		file, ok := value.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, idOK := file["id"].(string)
+		name, nameOK := file["name"].(string)
+		size, sizeOK := file["size"].(float64)
+		fingerprint, fingerprintOK := file["fingerprint"].(string)
+		if !idOK || !nameOK || !sizeOK || !fingerprintOK {
+			continue
+		}
+		line := fmt.Sprintf("- %s (id: %s, size: %.0f bytes, fingerprint: %s", name, id, size, fingerprint)
+		if mediaType, ok := file["media_type"].(string); ok && mediaType != "" {
+			line += ", media type: " + mediaType
+		}
+		lines = append(lines, line+")")
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func openAICompatibleStoredToolCall(event model.SessionEvent) (openAICompatibleToolCall, error) {

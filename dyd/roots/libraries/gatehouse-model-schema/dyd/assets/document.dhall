@@ -390,6 +390,52 @@ let Session =
         , description = Some "A durable workspace session."
         }
 
+let StorageObjectRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "storage object identity" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "StorageObjectRef", description = Some "The stable identity of a stored object." }
+
+let StorageObject =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "storage object identity" }
+            , state = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage object lifecycle state" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage object creation timestamp" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "StorageObject", description = Some "An immutable object stored by a configured provider." }
+
+let SessionFileRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { session = s.reference.from s.reference.props::{ to = "SessionRef" } s.reference.meta::{ description = Some "owning session identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "session-local file identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionFileRef", description = Some "The stable identity of a session-private file." }
+
+let SessionFile =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "session file identity" }
+            , storage_object = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "backing immutable storage object" }
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file creation timestamp" }
+            }
+        , optional = toMap
+            { media_type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "declared media type" } }
+        }
+        s.record.meta::{ name = Some "SessionFile", description = Some "A private file attached to a session." }
+
 let GatewayRef =
       s.record.from
         s.record.props::{
@@ -684,6 +730,10 @@ in  Document::{
          , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
            , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
            , s.root.from Session s.root.meta::{ name = "Session" }
+           , s.root.from StorageObjectRef s.root.meta::{ name = "StorageObjectRef" }
+           , s.root.from StorageObject s.root.meta::{ name = "StorageObject" }
+           , s.root.from SessionFileRef s.root.meta::{ name = "SessionFileRef" }
+           , s.root.from SessionFile s.root.meta::{ name = "SessionFile" }
            , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
            , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
            , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }

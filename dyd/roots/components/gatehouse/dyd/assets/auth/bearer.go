@@ -15,12 +15,19 @@ import (
 )
 
 var bearerAssociatedData = []byte("gatehouse bearer token v1")
+var storageTokenAssociatedData = []byte("gatehouse storage token v1")
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUnauthenticated = errors.New("unauthenticated")
 
 type Claims struct {
 	Principal string `json:"principal"`
 	Identity  string `json:"identity"`
+}
+
+type StorageToken struct {
+	ID        string `json:"id"`
+	Action    string `json:"action"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 type BearerTokens struct {
@@ -137,6 +144,76 @@ func (tokens *BearerTokens) Authenticate(ctx context.Context, authorization stri
 		return fmt.Errorf("%w: bearer token identity is no longer active", ErrUnauthenticated), Claims{}
 	}
 	return nil, claims
+}
+
+func (tokens *BearerTokens) MintStorageToken(ctx context.Context, token StorageToken) (error, string) {
+	if token.ID == "" || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+		return fmt.Errorf("storage token is invalid"), ""
+	}
+	return tokens.seal(ctx, storageTokenAssociatedData, token)
+}
+
+func (tokens *BearerTokens) AuthenticateStorageToken(ctx context.Context, encoded string) (error, StorageToken) {
+	err, encrypted := keychain.ParseResource(encoded)
+	if err != nil {
+		return fmt.Errorf("parse storage token: %w", err), StorageToken{}
+	}
+	if encrypted.Key.Id != tokens.keychainID {
+		return fmt.Errorf("storage token uses another keychain"), StorageToken{}
+	}
+	err, stored := tokens.store.KeychainsGet(ctx, []model.KeychainRef{*encrypted.Key})
+	if err != nil {
+		return err, StorageToken{}
+	}
+	if len(stored) != 1 || !stored[0].Enabled {
+		return fmt.Errorf("storage token uses an unavailable keychain version"), StorageToken{}
+	}
+	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
+	if err != nil {
+		return err, StorageToken{}
+	}
+	key := keys[*encrypted.Key]
+	decryptedErr, payload := keychain.Open(key, storageTokenAssociatedData, encrypted)
+	clear(key)
+	clear(keys)
+	if decryptedErr != nil {
+		return fmt.Errorf("open storage token: %w", decryptedErr), StorageToken{}
+	}
+	var token StorageToken
+	if err := json.Unmarshal(payload, &token); err != nil || token.ID == "" || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+		return fmt.Errorf("decode storage token: invalid payload"), StorageToken{}
+	}
+	return nil, token
+}
+
+func (tokens *BearerTokens) seal(ctx context.Context, associatedData []byte, value any) (error, string) {
+	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
+	if err != nil {
+		return err, ""
+	}
+	if len(current) != 1 {
+		return fmt.Errorf("get current keychain %q: not found", tokens.keychainID), ""
+	}
+	keyReference := current[0].Ref
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Errorf("encode sealed payload: %w", err), ""
+	}
+	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{keyReference})
+	if err != nil {
+		return err, ""
+	}
+	key, ok := keys[keyReference]
+	if !ok {
+		return fmt.Errorf("get current keychain %q: unavailable", tokens.keychainID), ""
+	}
+	defer clear(key)
+	err, encrypted := keychain.Seal(rand.Reader, key, associatedData, payload)
+	if err != nil {
+		return fmt.Errorf("seal payload: %w", err), ""
+	}
+	encrypted.Key = &keyReference
+	return nil, encrypted.String()
 }
 
 func verifyPassword(verifiers []interface{}, password []byte) (bool, bool) {

@@ -61,3 +61,25 @@ func TestRunTurnDefaultPreludeHidesImports(t *testing.T) {
 		t.Fatalf("RunTurn() import visibility = (%s, %v)", result, err)
 	}
 }
+
+func TestRunTurnExposesSessionFiles(t *testing.T) {
+	mediaType := "text/plain"
+	err, result := RunTurnWithFiles(`(list
+  (file/list)
+  (bytes/utf8/decode (file/read "report" 6 5)))`, nil, nil, []TurnFile{{
+		ID: "report", Name: "report.txt", MediaType: &mediaType, Size: 11, Fingerprint: "sha256:abc",
+	}}, func(id string, offset, length int64) (error, []byte) {
+		if id != "report" || offset != 6 || length != 5 {
+			t.Fatalf("file reader = (%q, %d, %d)", id, offset, length)
+		}
+		return nil, []byte("world")
+	})
+	if err != nil || result.String() != `((((id . "report") (name . "report.txt") (media_type . "text/plain") (size . 11) (fingerprint . "sha256:abc"))) "world")` {
+		t.Fatalf("RunTurnWithFiles() = (%s, %v)", result, err)
+	}
+
+	err, _ = RunTurnWithFiles(`(file/read "report" 0 65537)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
+	if err == nil {
+		t.Fatal("RunTurnWithFiles() accepted an oversized file read")
+	}
+}

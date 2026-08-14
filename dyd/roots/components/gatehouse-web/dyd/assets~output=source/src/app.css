@@ -505,6 +505,57 @@ body {
   text-decoration: underline;
 }
 
+.message-files,
+.composer-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.7rem;
+}
+
+.message-file,
+.composer-file {
+  align-items: center;
+  border: 1px solid currentcolor;
+  border-radius: 0.4rem;
+  display: inline-flex;
+  font-size: 0.75rem;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.22rem 0.4rem;
+}
+
+.message-file small,
+.composer-file small {
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+
+.composer-files {
+  margin: 0.1rem 0 0.55rem;
+}
+
+.composer-file {
+  border-color: #596051;
+  color: #d4d6cc;
+}
+
+.composer-file.failed {
+  border-color: #d77969;
+  color: #ffc0b0;
+}
+
+.composer-file button,
+.chat-composer-attach {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0.1rem;
+}
+
 .chat-message.message-own .chat-message-text a {
   color: #305010;
 }
@@ -670,6 +721,24 @@ body {
   justify-content: center;
   position: relative;
   width: 2.75rem;
+}
+
+.chat-composer-attach {
+  border: 1px solid #596051;
+  border-radius: 0.6rem;
+  background: #30352a;
+  color: #d4d6cc;
+  flex: 0 0 auto;
+  height: 2.75rem;
+  justify-content: center;
+  width: 2.75rem;
+}
+
+.chat-composer-attach:hover:not(:disabled),
+.chat-composer-attach:focus-visible {
+  border-color: #77806d;
+  background: #3b4233;
+  outline: 0;
 }
 
 .chat-composer-agent svg {

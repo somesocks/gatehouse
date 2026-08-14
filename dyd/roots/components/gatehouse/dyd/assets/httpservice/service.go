@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -117,6 +119,10 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
+		mux.HandleFunc("/api/v1/storage", storageProxy(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
@@ -221,6 +227,17 @@ type sessionResponse struct {
 type sessionMessageRequest struct {
 	Text  string `json:"text"`
 	Agent string `json:"agent"`
+	Files []string `json:"files"`
+}
+
+type sessionFileCreateRequest struct {
+	Name      string  `json:"name"`
+	MediaType *string `json:"media_type"`
+}
+
+type sessionFileCreateResponse struct {
+	File      model.SessionFile `json:"file"`
+	UploadURL string            `json:"upload_url"`
 }
 
 type sessionEventTreeResponse struct {
@@ -425,7 +442,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		var message sessionMessageRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&message); err != nil || strings.TrimSpace(message.Text) == "" {
+		if err := decoder.Decode(&message); err != nil || (strings.TrimSpace(message.Text) == "" && len(message.Files) == 0) {
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
@@ -463,10 +480,168 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 	}
 }
 
+func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		if workspaceID == "" || sessionID == "" {
+			http.NotFound(response, request)
+			return
+		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
+		}
+		var input sessionFileCreateRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.Name) == "" || (input.MediaType != nil && strings.TrimSpace(*input.MediaType) == "") {
+			http.Error(response, "invalid session file", http.StatusBadRequest)
+			return
+		}
+		fileID, err := randomUUID()
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		storageObjectID, err := randomUUID()
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		embeddedObjectID, err := randomUUID()
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		created := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: input.Name, MediaType: input.MediaType}
+		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID, embeddedObjectID)
+		if err != nil {
+			if strings.Contains(err.Error(), "no available storage provider") {
+				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)
+				return
+			}
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSONStatus(response, http.StatusCreated, sessionFileCreateResponse{File: stored, UploadURL: storageURL(request, token)})
+	}
+}
+
+func workspaceSessionFileFinish(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		file, object, ok := authorizedSessionFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil || object == nil {
+			return
+		}
+		if err := store.StorageObjectFinish(request.Context(), object.ID); err != nil {
+			http.Error(response, "storage object is not ready", http.StatusConflict)
+			return
+		}
+		writeJSON(response, file)
+	}
+}
+
+func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		file, object, ok := authorizedSessionFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil || object == nil {
+			return
+		}
+		if object.State != "success" {
+			http.Error(response, "storage object is not ready", http.StatusConflict)
+			return
+		}
+		err, token := storageToken(request.Context(), tokens, object.ID, "get", 5*time.Minute)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		noStore(response)
+		http.Redirect(response, request, storageURL(request, token), http.StatusTemporaryRedirect)
+	}
+}
+
+func storageProxy(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		encoded := request.URL.Query().Get("token")
+		if encoded == "" {
+			http.NotFound(response, request)
+			return
+		}
+		err, token := tokens.AuthenticateStorageToken(request.Context(), encoded)
+		if err != nil || !validStorageToken(token) {
+			http.NotFound(response, request)
+			return
+		}
+		switch {
+		case request.Method == http.MethodPut && token.Action == "put":
+			if err := store.StorageObjectPutEmbedded(request.Context(), token.ID, request.Body); err != nil {
+				http.Error(response, "storage upload failed", http.StatusConflict)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		case request.Method == http.MethodGet && token.Action == "get":
+			err, content := store.StorageObjectGetEmbedded(request.Context(), token.ID)
+			if err != nil || content == nil {
+				http.NotFound(response, request)
+				return
+			}
+			defer content.Close()
+			noStore(response)
+			_, _ = io.Copy(response, content)
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
 func messagePayload(message sessionMessageRequest) map[string]interface{} {
-	payload := map[string]interface{}{"text": message.Text}
+	payload := map[string]interface{}{}
+	if strings.TrimSpace(message.Text) != "" {
+		payload["text"] = message.Text
+	}
 	if message.Agent != "" {
 		payload["agent"] = message.Agent
+	}
+	if len(message.Files) > 0 {
+		payload["files"] = message.Files
 	}
 	return payload
 }
@@ -661,6 +836,40 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 		return model.WorkspaceRef{}, false
 	}
 	return workspace, true
+}
+
+func authorizedSessionFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.SessionFile, *database.StorageObject, bool) {
+	workspaceID := request.PathValue("workspace")
+	sessionID := request.PathValue("session")
+	if workspaceID == "" || sessionID == "" || !validUUID(fileID) {
+		http.NotFound(response, request)
+		return nil, nil, false
+	}
+	file := model.SessionFileRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: fileID}
+	err, stored, object := store.SessionFileGet(request.Context(), file, model.PrincipalRef{Id: claims.Principal})
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, nil, false
+	}
+	if stored == nil {
+		http.NotFound(response, request)
+		return nil, nil, false
+	}
+	return stored, object, true
+}
+
+func storageToken(ctx context.Context, tokens *auth.BearerTokens, id, action string, lifetime time.Duration) (error, string) {
+	expiresAt := time.Now().UTC().Add(lifetime).Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	return tokens.MintStorageToken(ctx, auth.StorageToken{ID: id, Action: action, ExpiresAt: expiresAt})
+}
+
+func validStorageToken(token auth.StorageToken) bool {
+	expiresAt, err := time.Parse("2006-01-02T15:04:05.000Z", token.ExpiresAt)
+	return err == nil && expiresAt.After(time.Now().UTC())
+}
+
+func storageURL(_ *http.Request, token string) string {
+	return "/api/v1/storage?token=" + url.QueryEscape(token)
 }
 
 func writeJSON(response http.ResponseWriter, value any) {

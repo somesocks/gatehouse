@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Bot, CircleCheck, CircleX, Copy, Menu, Send } from "@lucide/svelte"
+  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Send, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
 
   type Claims = {
@@ -30,11 +30,26 @@
   type SessionEvent = {
     created_at: string
     kind: string
-    payload: { text?: string; name?: string; reason?: string; code?: string; output?: string }
+    payload: { text?: string; name?: string; reason?: string; code?: string; output?: string; files?: MessageFile[] }
     ref: { id: string }
     parent?: { id: string }
     author_principal?: { id: string }
     author_agent?: { model: { id: string } }
+  }
+
+  type MessageFile = {
+    id: string
+    name: string
+    media_type?: string
+    size: number
+    fingerprint: string
+  }
+
+  type ComposerFile = {
+    file: File
+    id?: string
+    status: "pending" | "uploading" | "failed"
+    error?: string
   }
 
   type SessionEventTree = {
@@ -65,6 +80,7 @@
   let events = $state<SessionEventTree[]>([])
   let eventStatus = $state<WorkspaceContentStatus>("checking")
   let messageText = $state("")
+  let composerFiles = $state<ComposerFile[]>([])
   let messageError = $state("")
   let sendingMessage = $state(false)
   let awaitingReplyFor = $state<string[]>([])
@@ -74,6 +90,7 @@
   let showJumpToLatest = $state(false)
   let chatEventsElement = $state<HTMLDivElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
+  let fileInputElement = $state<HTMLInputElement | undefined>()
   let pollTimer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
@@ -533,7 +550,7 @@
   }
 
   async function sendMessage() {
-    if (activeWorkspace === null || activeSession === null || messageText.trim() === "") {
+    if (activeWorkspace === null || activeSession === null || (messageText.trim() === "" && composerFiles.length === 0)) {
       return
     }
     const workspace = activeWorkspace
@@ -541,11 +558,12 @@
     messageError = ""
     sendingMessage = true
     try {
+      const fileIDs = await Promise.all(composerFiles.map((entry) => uploadComposerFile(workspace, session, entry)))
       const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/messages`, {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: messageText, ...(selectedAgent === "" ? {} : { agent: selectedAgent }) }),
+        body: JSON.stringify({ ...(messageText.trim() === "" ? {} : { text: messageText }), ...(selectedAgent === "" ? {} : { agent: selectedAgent }), ...(fileIDs.length === 0 ? {} : { files: fileIDs }) }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -556,6 +574,7 @@
       }
       const event = (await response.json()) as SessionEvent
       messageText = ""
+      composerFiles = []
       await tick()
       resizeMessageInput()
       if (activeSession?.id !== session.id) {
@@ -566,12 +585,61 @@
       awaitingReplyFor = [...awaitingReplyFor, event.ref.id]
       pollForReply(session)
     } catch {
-      messageError = "Your message could not be sent. Try again."
+      messageError = "Your message or file upload could not be sent. Try again."
     } finally {
       sendingMessage = false
       await tick()
       messageInputElement?.focus()
     }
+  }
+
+  async function uploadComposerFile(workspace: Workspace, session: Session, entry: ComposerFile) {
+    if (entry.id !== undefined) {
+      return entry.id
+    }
+    updateComposerFile(entry.file, { status: "uploading", error: undefined })
+    try {
+      const created = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: entry.file.name, ...(entry.file.type === "" ? {} : { media_type: entry.file.type }) }),
+      })
+      if (!created.ok) {
+        throw new Error("create file failed")
+      }
+      const upload = (await created.json()) as { file: { ref: { id: string } }; upload_url: string }
+      const put = await fetch(upload.upload_url, { method: "PUT", body: entry.file, ...(entry.file.type === "" ? {} : { headers: { "Content-Type": entry.file.type } }) })
+      if (!put.ok) {
+        throw new Error("upload file failed")
+      }
+      const finished = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files/${encodeURIComponent(upload.file.ref.id)}/finish`, {
+        method: "POST",
+        credentials: "same-origin",
+      })
+      if (!finished.ok) {
+        throw new Error("finish file failed")
+      }
+      updateComposerFile(entry.file, { id: upload.file.ref.id, status: "pending", error: undefined })
+      return upload.file.ref.id
+    } catch {
+      updateComposerFile(entry.file, { status: "failed", error: "Upload failed" })
+      throw new Error("upload failed")
+    }
+  }
+
+  function updateComposerFile(file: File, update: Partial<ComposerFile>) {
+    composerFiles = composerFiles.map((entry) => entry.file === file ? { ...entry, ...update } : entry)
+  }
+
+  function selectComposerFiles(input: HTMLInputElement) {
+    const selected = Array.from(input.files ?? [])
+    composerFiles = [...composerFiles, ...selected.map((file) => ({ file, status: "pending" as const }))]
+    input.value = ""
+  }
+
+  function removeComposerFile(file: File) {
+    composerFiles = composerFiles.filter((entry) => entry.file !== file)
   }
 
   function resizeMessageInput(input = messageInputElement) {
@@ -794,13 +862,26 @@
               <p class="chat-status">Send the first message to begin.</p>
             {:else}
               {#each events as tree (tree.event.ref.id)}
-                {#if tree.event.kind === "message.text" && tree.event.payload.text !== undefined}
+                {#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.files !== undefined && tree.event.payload.files.length > 0))}
                   <article class="chat-message message-own">
                     <p class="chat-message-author">{tree.event.author_principal?.id ?? "You"}</p>
-                    <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
-                      <Copy size={16} strokeWidth={2} />
-                    </button>
-                    <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
+                    {#if tree.event.payload.text !== undefined}
+                      <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
+                        <Copy size={16} strokeWidth={2} />
+                      </button>
+                      <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
+                    {/if}
+                    {#if tree.event.payload.files !== undefined && tree.event.payload.files.length > 0}
+                      <div class="message-files" aria-label="Attached files">
+                        {#each tree.event.payload.files as file (file.id)}
+                          <span class="message-file" title={file.fingerprint}>
+                            <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+                            <span>{file.name}</span>
+                            <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
                   </article>
                   {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id)}
                     <section class="agent-activity-section">
@@ -880,7 +961,23 @@
           </div>
           <form class:sending={sendingMessage} class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
             <label class="is-sr-only" for="message">Message</label>
+            <input class="is-sr-only" id="files" type="file" multiple bind:this={fileInputElement} onchange={(event) => selectComposerFiles(event.currentTarget)} />
+            {#if composerFiles.length > 0}
+              <div class="composer-files" aria-label="Selected files">
+                {#each composerFiles as entry (entry.file)}
+                  <span class:failed={entry.status === "failed"} class="composer-file">
+                    <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+                    <span>{entry.file.name}</span>
+                    <small>{entry.status === "uploading" ? "Uploading" : entry.status === "failed" ? entry.error : entry.id === undefined ? `${entry.file.size} bytes` : "Ready"}</small>
+                    <button type="button" aria-label={`Remove ${entry.file.name}`} disabled={sendingMessage} onclick={() => removeComposerFile(entry.file)}><X size={14} strokeWidth={2} /></button>
+                  </span>
+                {/each}
+              </div>
+            {/if}
             <div class="chat-composer-row">
+              <button class="chat-composer-attach" type="button" aria-label="Attach files" title="Attach files" disabled={sendingMessage} onclick={() => fileInputElement?.click()}>
+                <Paperclip size={20} strokeWidth={2.25} aria-hidden="true" />
+              </button>
               <div class:agent-selected={selectedAgent !== ""} class="chat-composer-agent" title="Select agent">
                 <Bot size={20} strokeWidth={2.25} aria-hidden="true" />
                 <select id="agent" aria-label="Agent" bind:value={selectedAgent}>
@@ -890,13 +987,13 @@
                   {/each}
                 </select>
               </div>
-              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" required bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} oninput={(event) => resizeMessageInput(event.currentTarget)} onkeydown={(event) => {
+              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} oninput={(event) => resizeMessageInput(event.currentTarget)} onkeydown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault()
                   void sendMessage()
                 }
               }}></textarea>
-              <button class="button is-primary chat-composer-send" type="submit" aria-label="Send message" title="Send message" disabled={sendingMessage || messageText.trim() === ""}>
+              <button class="button is-primary chat-composer-send" type="submit" aria-label="Send message" title="Send message" disabled={sendingMessage || (messageText.trim() === "" && composerFiles.length === 0)}>
                 <Send size={20} strokeWidth={2.25} aria-hidden="true" />
               </button>
             </div>

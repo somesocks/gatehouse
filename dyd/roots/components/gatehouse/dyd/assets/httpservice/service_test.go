@@ -317,6 +317,85 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	}
 }
 
+func TestSessionFileUploadFinishAndDownload(t *testing.T) {
+	tokens, store := testBearerTokens(t)
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || session.ID == "" {
+		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	createdFile := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files", `{"name":"report.txt","media_type":"text/plain"}`)
+	if createdFile.Code != http.StatusCreated {
+		t.Fatalf("POST session file = status %d body %q", createdFile.Code, createdFile.Body.String())
+	}
+	var uploaded sessionFileCreateResponse
+	if err := json.Unmarshal(createdFile.Body.Bytes(), &uploaded); err != nil {
+		t.Fatal(err)
+	}
+	if uploaded.File.Ref.Id == "" || uploaded.File.Name != "report.txt" || uploaded.File.MediaType == nil || *uploaded.File.MediaType != "text/plain" || uploaded.UploadURL == "" {
+		t.Fatalf("POST session file response = %#v", uploaded)
+	}
+	put := httptest.NewRecorder()
+	handler.ServeHTTP(put, httptest.NewRequest(http.MethodPut, uploaded.UploadURL, strings.NewReader("hello storage")))
+	if put.Code != http.StatusNoContent {
+		t.Fatalf("PUT storage = status %d body %q", put.Code, put.Body.String())
+	}
+	finished := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/finish", "")
+	if finished.Code != http.StatusOK {
+		t.Fatalf("POST finish = status %d body %q", finished.Code, finished.Body.String())
+	}
+	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages", `{"files":["`+uploaded.File.Ref.Id+`"]}`)
+	if message.Code != http.StatusAccepted {
+		t.Fatalf("POST attachment message = status %d body %q", message.Code, message.Body.String())
+	}
+	var attachmentMessage model.SessionEvent
+	if err := json.Unmarshal(message.Body.Bytes(), &attachmentMessage); err != nil {
+		t.Fatal(err)
+	}
+	files, ok := attachmentMessage.Payload["files"].([]interface{})
+	if !ok || len(files) != 1 {
+		t.Fatalf("attachment message files = %#v", attachmentMessage.Payload["files"])
+	}
+	snapshot, ok := files[0].(map[string]interface{})
+	if !ok || snapshot["id"] != uploaded.File.Ref.Id || snapshot["name"] != "report.txt" || snapshot["media_type"] != "text/plain" || snapshot["size"] != float64(len("hello storage")) || snapshot["fingerprint"] == "" {
+		t.Fatalf("attachment message snapshot = %#v", files[0])
+	}
+	download := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
+	if download.Code != http.StatusTemporaryRedirect || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Location") == "" {
+		t.Fatalf("GET download = status %d cache %q location %q", download.Code, download.Header().Get("Cache-Control"), download.Header().Get("Location"))
+	}
+	get := httptest.NewRecorder()
+	handler.ServeHTTP(get, httptest.NewRequest(http.MethodGet, download.Header().Get("Location"), nil))
+	if get.Code != http.StatusOK || get.Body.String() != "hello storage" {
+		t.Fatalf("GET storage = status %d body %q", get.Code, get.Body.String())
+	}
+	secondPut := httptest.NewRecorder()
+	handler.ServeHTTP(secondPut, httptest.NewRequest(http.MethodPut, uploaded.UploadURL, strings.NewReader("replacement")))
+	if secondPut.Code != http.StatusConflict {
+		t.Fatalf("second PUT storage = status %d", secondPut.Code)
+	}
+	wrongMethod := httptest.NewRecorder()
+	handler.ServeHTTP(wrongMethod, httptest.NewRequest(http.MethodGet, uploaded.UploadURL, nil))
+	if wrongMethod.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET upload URL = status %d", wrongMethod.Code)
+	}
+}
+
 func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	tokens, store := testBearerTokens(t)
 	label := "Assistant"
@@ -420,6 +499,12 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 		Resources: []config.Resource{
 			{WorkspaceID: "engineering", ID: "docs", Source: "file:./docs", Secret: false, Enabled: true},
 			{WorkspaceID: "engineering", ID: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
+		},
+		StorageProviders: []config.StorageProvider{{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
+			{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "operations", Provider: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "private", Provider: "embedded", Priority: 1, Enabled: true},
 		},
 	}
 	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())

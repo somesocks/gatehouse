@@ -319,6 +319,77 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			ALTER TABLE gatehouse_workspace_agents
 			ADD COLUMN label TEXT;
 		`),
+		}, {
+			Index:       13,
+			Description: "create_storage_providers",
+			Builder: staticMigrationBuilder(`
+			CREATE TABLE gatehouse_storage_providers (
+				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				revision BIGINT NOT NULL CHECK (revision > 0),
+				protocol TEXT NOT NULL CHECK (protocol IN ('embedded', 's3')),
+				endpoint TEXT,
+				region TEXT,
+				bucket TEXT,
+				access_key_id TEXT,
+				keychain_id TEXT,
+				keychain_version BIGINT,
+				secret_access_key TEXT,
+				enabled BOOLEAN NOT NULL,
+				FOREIGN KEY (keychain_id, keychain_version) REFERENCES gatehouse_keychains (id, version),
+				CHECK (
+					(protocol = 'embedded' AND endpoint IS NULL AND region IS NULL AND bucket IS NULL AND access_key_id IS NULL AND keychain_id IS NULL AND keychain_version IS NULL AND secret_access_key IS NULL)
+					OR (protocol = 's3' AND endpoint IS NOT NULL AND length(trim(endpoint)) > 0 AND region IS NOT NULL AND length(trim(region)) > 0 AND bucket IS NOT NULL AND length(trim(bucket)) > 0 AND access_key_id IS NOT NULL AND length(trim(access_key_id)) > 0 AND keychain_id IS NOT NULL AND keychain_version IS NOT NULL AND keychain_version > 0 AND secret_access_key IS NOT NULL AND length(trim(secret_access_key)) > 0)
+				)
+			);
+
+			CREATE TABLE gatehouse_workspace_storage_providers (
+				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
+				priority BIGINT NOT NULL CHECK (priority > 0),
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace, provider)
+			);
+		`),
+		}, {
+			Index:       14,
+			Description: "create_storage_objects_and_session_files",
+			Builder: staticMigrationBuilder(`
+			CREATE TABLE gatehouse_storage_objects (
+				id TEXT PRIMARY KEY,
+				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
+				object TEXT NOT NULL CHECK (length(trim(object)) > 0),
+				state TEXT NOT NULL CHECK (state IN ('pending', 'success', 'failure')),
+				sha256 BYTEA CHECK (sha256 IS NULL OR octet_length(sha256) = 32),
+				size BIGINT CHECK (size IS NULL OR size >= 0),
+				created_at TIMESTAMPTZ NOT NULL,
+				CHECK ((sha256 IS NULL AND size IS NULL) OR (sha256 IS NOT NULL AND size IS NOT NULL))
+			);
+
+			CREATE TABLE gatehouse_embedded_storage_objects (
+				id TEXT PRIMARY KEY
+			);
+
+			CREATE TABLE gatehouse_embedded_storage_object_chunks (
+				embedded_storage_object TEXT NOT NULL REFERENCES gatehouse_embedded_storage_objects (id),
+				ordinal BIGINT NOT NULL CHECK (ordinal >= 0),
+				sha256 BYTEA NOT NULL CHECK (octet_length(sha256) = 32),
+				size BIGINT NOT NULL CHECK (size > 0 AND size <= 262144),
+				bytes BYTEA NOT NULL CHECK (octet_length(bytes) = size),
+				PRIMARY KEY (embedded_storage_object, ordinal)
+			);
+
+			CREATE TABLE gatehouse_session_files (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				id TEXT NOT NULL,
+				storage_object TEXT NOT NULL UNIQUE REFERENCES gatehouse_storage_objects (id),
+				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),
+				created_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (workspace, session, id),
+				FOREIGN KEY (workspace, session) REFERENCES gatehouse_sessions (workspace, id)
+			);
+		`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{
@@ -440,6 +511,14 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				Index:       11,
 				Description: "reconcile_workspace_agents",
 				Builder:     workspaceAgentMigrationBuilder(state.WorkspaceAgents),
+			}, {
+				Index:       12,
+				Description: "reconcile_storage_providers",
+				Builder:     storageProviderMigrationBuilder(state.StorageProviders, keyring),
+			}, {
+				Index:       13,
+				Description: "reconcile_workspace_storage_providers",
+				Builder:     workspaceStorageProviderMigrationBuilder(state.WorkspaceStorageProviders),
 			}},
 	}
 	return nil, registry

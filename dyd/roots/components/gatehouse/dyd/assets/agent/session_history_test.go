@@ -133,6 +133,20 @@ func TestOpenAICompatibleMessagesRejectsInvalidToolHistory(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleMessagesIncludesAttachmentSnapshots(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	principal := model.PrincipalRef{Id: "user"}
+	message := event(session, "user", "message.text", &principal, nil, map[string]interface{}{
+		"files": []interface{}{map[string]interface{}{
+			"id": "report", "name": "report.txt", "media_type": "text/plain", "size": float64(12), "fingerprint": "sha256:abcd",
+		}},
+	})
+	err, messages := openAICompatibleMessages([]model.SessionEvent{message})
+	if err != nil || len(messages) != 1 || messages[0].Role != "user" || messages[0].Content != "Attached session files:\n- report.txt (id: report, size: 12 bytes, fingerprint: sha256:abcd, media type: text/plain)" {
+		t.Fatalf("attachment history = (%#v, %v)", messages, err)
+	}
+}
+
 func event(session model.SessionRef, id, kind string, principal *model.PrincipalRef, agent *model.WorkspaceAgentRef, payload map[string]interface{}) model.SessionEvent {
 	return model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Kind: kind, AuthorPrincipal: principal, AuthorAgent: agent, Payload: payload}
 }

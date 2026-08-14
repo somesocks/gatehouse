@@ -39,10 +39,86 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 		"gatehouse_agent_models",
 		"gatehouse_workspace_agents",
 		"gatehouse_agent_tasks__session_event_reply",
+		"gatehouse_storage_providers",
+		"gatehouse_workspace_storage_providers",
 	} {
 		if _, err := database.Exec(`SELECT * FROM ` + table + ` LIMIT 0`); err != nil {
 			t.Fatalf("agent table %q is unavailable: %v", table, err)
 		}
+	}
+}
+
+func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	t.Setenv("DOCUMENTS_SECRET", "secret-1")
+	state := config.State{
+		Keychains: []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		StorageProviders: []config.StorageProvider{
+			{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
+			{
+				ID: "documents", Revision: 1, Protocol: "s3", Enabled: true,
+				Endpoint: stringPointer("https://s3.example.test"), Region: stringPointer("us-east-1"), Bucket: stringPointer("documents"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:DOCUMENTS_SECRET"},
+			},
+		},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
+			{WorkspaceID: "engineering", Provider: "documents", Priority: 10, Enabled: true},
+			{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true},
+		},
+	}
+	t.Setenv("DOCUMENTS_KEYCHAIN", "storage passphrase")
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+
+	var (
+		protocol, endpoint, region, bucket, accessKeyID, keychainID, secret string
+		keychainVersion, revision, priority                            int
+		enabled                                                       bool
+	)
+	if err := store.QueryRowContext(ctx, `
+		SELECT protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, revision, enabled
+		FROM gatehouse_storage_providers WHERE id = 'documents'
+	`).Scan(&protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secret, &revision, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if protocol != "s3" || endpoint != "https://s3.example.test" || region != "us-east-1" || bucket != "documents" || accessKeyID != "access-key" || keychainID != "storage" || keychainVersion != 1 || secret == "secret-1" || revision != 1 || !enabled {
+		t.Fatalf("documents storage provider = (%q, %q, %q, %q, %q, %q, %d, %q, %d, %t)", protocol, endpoint, region, bucket, accessKeyID, keychainID, keychainVersion, secret, revision, enabled)
+	}
+	if err := store.QueryRowContext(ctx, `
+		SELECT priority, enabled
+		FROM gatehouse_workspace_storage_providers
+		WHERE workspace = 'engineering' AND provider = 'documents'
+	`).Scan(&priority, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if priority != 10 || !enabled {
+		t.Fatalf("documents workspace binding = (%d, %t)", priority, enabled)
+	}
+
+	state.StorageProviders[1].Revision = 2
+	state.StorageProviders[1].Endpoint = stringPointer("https://s3-next.example.test")
+	state.WorkspaceStorageProviders[0].Priority = 20
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT endpoint, revision FROM gatehouse_storage_providers WHERE id = 'documents'`).Scan(&endpoint, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if endpoint != "https://s3-next.example.test" || revision != 2 {
+		t.Fatalf("updated documents storage provider = (%q, %d)", endpoint, revision)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = 'engineering' AND provider = 'documents'`).Scan(&priority); err != nil {
+		t.Fatal(err)
+	}
+	if priority != 20 {
+		t.Fatalf("updated documents workspace priority = %d", priority)
 	}
 }
 

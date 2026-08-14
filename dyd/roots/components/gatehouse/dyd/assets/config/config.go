@@ -35,6 +35,8 @@ type State struct {
 	AgentProviders []AgentProvider
 	AgentModels []AgentModel
 	WorkspaceAgents []WorkspaceAgent
+	StorageProviders []StorageProvider
+	WorkspaceStorageProviders []WorkspaceStorageProvider
 }
 
 func ValidateFile(path string) (error, configschema.GatehouseConfig) {
@@ -105,7 +107,11 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil { return err, State{} }
 	err, agents := ResolveWorkspaceAgents(document, models)
 	if err != nil { return err, State{} }
-	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Tools: tools, Resources: resources, Groups: groups, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents}
+	err, storageProviders := ResolveStorageProviders(document)
+	if err != nil { return err, State{} }
+	err, workspaceStorageProviders := ResolveWorkspaceStorageProviders(document, storageProviders)
+	if err != nil { return err, State{} }
+	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Tools: tools, Resources: resources, Groups: groups, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {
