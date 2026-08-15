@@ -545,6 +545,22 @@ body {
   color: #ffc0b0;
 }
 
+.composer-file-spinner,
+.chat-composer-spinner {
+  border: 0.12rem solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  height: 0.875rem;
+  width: 0.875rem;
+  animation: spin 0.85s linear infinite;
+}
+
+.chat-composer-spinner {
+  height: 1.25rem;
+  width: 1.25rem;
+}
+
 .composer-file button,
 .chat-composer-attach {
   align-items: center;

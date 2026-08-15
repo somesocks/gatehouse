@@ -1057,7 +1057,11 @@
               <div class="composer-files" aria-label="Selected files">
                 {#each composerFiles as entry (entry.file)}
                   <span class:failed={entry.status === "failed"} class="composer-file">
-                    <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+                    {#if entry.status === "uploading"}
+                      <span class="composer-file-spinner" aria-hidden="true"></span>
+                    {:else}
+                      <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+                    {/if}
                     <span>{entry.file.name}</span>
                     <small>{entry.status === "uploading" ? "Uploading" : entry.status === "failed" ? entry.error : entry.id === undefined ? `${entry.file.size} bytes` : "Ready"}</small>
                     <button type="button" aria-label={`Remove ${entry.file.name}`} disabled={sendingMessage} onclick={() => removeComposerFile(entry.file)}><X size={14} strokeWidth={2} /></button>
@@ -1067,7 +1071,11 @@
             {/if}
             <div class="chat-composer-row">
               <button class="chat-composer-attach" type="button" aria-label="Attach files" title="Attach files" disabled={sendingMessage} onclick={() => fileInputElement?.click()}>
-                <Paperclip size={20} strokeWidth={2.25} aria-hidden="true" />
+                {#if composerFiles.some((entry) => entry.status === "uploading")}
+                  <span class="chat-composer-spinner" aria-hidden="true"></span>
+                {:else}
+                  <Paperclip size={20} strokeWidth={2.25} aria-hidden="true" />
+                {/if}
               </button>
               <div class:agent-selected={selectedAgent !== ""} class="chat-composer-agent" title="Select agent">
                 <Bot size={20} strokeWidth={2.25} aria-hidden="true" />
