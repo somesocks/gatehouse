@@ -45,7 +45,7 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 		Ref:          model.ActivityEventRef{Workspace: session.Ref.Workspace},
-		Event:        "session.created",
+		Event:        "session.create",
 		ResourceKind: ActivityResourceKindSession,
 		Session:      &session.Ref,
 		CreatedAt:    session.CreatedAt,
@@ -244,7 +244,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		session := insert.event.Ref.Session
 		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 			Ref:          model.ActivityEventRef{Workspace: session.Workspace},
-			Event:        "session_event.created",
+			Event:        "session_event.create",
 			ResourceKind: ActivityResourceKindSessionEvent,
 			Session:      &session,
 			SessionEvent: &insert.event.Ref,
