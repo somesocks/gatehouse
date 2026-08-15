@@ -1,6 +1,7 @@
 api_version: v1
 database:
-  kind: ephemeral
+  kind: sqlite
+  path: /var/lib/gatehouse/gatehouse.db
 agent_providers:
   - id: openai
     revision: 1

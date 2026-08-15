@@ -724,7 +724,7 @@
         <div class="field">
           <label class="label" for="identity">Username</label>
           <div class="control">
-            <input class="input" id="identity" name="identity" autocomplete="off" placeholder="root" required bind:value={identity} />
+            <input class="input" id="identity" name="identity" autocomplete="username" required bind:value={identity} />
           </div>
         </div>
         <div class="field">
