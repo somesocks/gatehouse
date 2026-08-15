@@ -172,6 +172,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL,
+				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
 				author_gateway TEXT,
@@ -303,6 +304,15 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				PRIMARY KEY (workspace, session, event),
 				FOREIGN KEY (workspace, session, event)
 					REFERENCES gatehouse_session_events (workspace, session, id)
+			) STRICT;
+
+			CREATE TABLE gatehouse_agent_tasks__session_name (
+				workspace TEXT NOT NULL,
+				session TEXT NOT NULL,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, session),
+				FOREIGN KEY (workspace, session)
+					REFERENCES gatehouse_sessions (workspace, id)
 			) STRICT;
 		`),
 		}, {

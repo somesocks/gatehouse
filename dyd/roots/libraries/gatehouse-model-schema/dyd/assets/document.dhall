@@ -371,7 +371,11 @@ let Session =
               }
         , optional =
             toMap
-              { author_principal =
+              { name =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "AI-generated session title" }
+              , author_principal =
                   s.reference.from
                     s.reference.props::{ to = "PrincipalRef" }
                     s.reference.meta::{ description = Some "principal session author" }

@@ -31,10 +31,16 @@ func init() {
 const (
 	sessionEventReplyQueue = "gatehouse.session-event-replies"
 	sessionToolCallQueue   = "gatehouse.session-tool-calls"
+	sessionNameQueue       = "gatehouse.session-names"
+	sessionNamePrompt      = "Generate a concise title for this conversation. Return only the title, using a few words."
 )
 
 type SessionEventReplyInput struct {
 	Event model.SessionEventRef
+}
+
+type SessionNameInput struct {
+	Session model.SessionRef
 }
 
 type SessionToolCallInput struct {
@@ -60,6 +66,12 @@ type sessionReplyPreparation struct {
 	Messages []openAICompatibleMessage
 }
 
+type sessionNamePreparation struct {
+	Existing *string
+	Selected *database.WorkspaceAgentModel
+	Text     string
+}
+
 type sessionReplyCancelled struct{}
 
 func (sessionReplyCancelled) Error() string { return "reply cancelled" }
@@ -76,6 +88,7 @@ type SessionEventReplyRuntime struct {
 	dbos  dbos.Context
 	queue dbos.Queue
 	toolQueue dbos.Queue
+	nameQueue dbos.Queue
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
@@ -90,7 +103,11 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, queue: queue, toolQueue: toolQueue}
+	nameQueue, err := dbos.RegisterQueue(ctx, sessionNameQueue, dbos.WithPartitionQueue(), dbos.WithGlobalConcurrency(1))
+	if err != nil {
+		return fmt.Errorf("register session name queue: %w", err), nil
+	}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, queue: queue, toolQueue: toolQueue, nameQueue: nameQueue}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
@@ -98,6 +115,10 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	dbos.RegisterWorkflow(ctx, runtime.toolCall,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-tool-call"),
+	)
+	dbos.RegisterWorkflow(ctx, runtime.nameSession,
+		dbos.WithInstance(runtime),
+		dbos.WithWorkflowName("gatehouse.session-name"),
 	)
 	return nil, runtime
 }
@@ -135,7 +156,133 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 			return err
 		}
 	}
+	err, nameTasks := runtime.store.SessionNameTasksGet(runtime.dbos, 100)
+	if err != nil {
+		return err
+	}
+	for _, task := range nameTasks {
+		_, err = dbos.RunWorkflow(runtime.dbos, runtime.nameSession, SessionNameInput{Session: task.Session},
+			dbos.WithRunInstance(runtime),
+			dbos.WithWorkflowID(sessionNameWorkflowID(task.Session)),
+			dbos.WithQueue(runtime.nameQueue),
+			dbos.WithQueuePartitionKey(sessionEventReplyPartition(task.Session)),
+		)
+		if err != nil {
+			return fmt.Errorf("enqueue session name %q: %w", task.Session.Id, err)
+		}
+		if err := runtime.store.SessionNameTaskDelete(runtime.dbos, task.Session); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input SessionNameInput) (string, error) {
+	preparation, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionNamePreparation, error) {
+		err, existing := runtime.store.SessionNameGet(step, input.Session)
+		if err != nil || existing != nil {
+			return sessionNamePreparation{Existing: existing}, err
+		}
+		err, events := runtime.store.SessionEventsGet(step, input.Session)
+		if err != nil {
+			return sessionNamePreparation{}, err
+		}
+		for _, event := range events {
+			if event.Parent != nil || event.Kind != "message.text" || event.AuthorPrincipal == nil {
+				continue
+			}
+			text, ok := event.Payload["text"].(string)
+			if !ok || strings.TrimSpace(text) == "" {
+				continue
+			}
+			preferred, _ := event.Payload["agent"].(string)
+			err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Session.Workspace, preferred)
+			if err != nil {
+				return sessionNamePreparation{}, err
+			}
+			if selected == nil {
+				return sessionNamePreparation{}, fmt.Errorf("name session %q: no enabled workspace agent", input.Session.Id)
+			}
+			return sessionNamePreparation{Selected: selected, Text: text}, nil
+		}
+		return sessionNamePreparation{}, nil
+	}, dbos.WithStepName("gatehouse.session-name-generate"))
+	if err != nil {
+		return "", err
+	}
+	if preparation.Existing != nil {
+		return *preparation.Existing, nil
+	}
+	if preparation.Selected == nil {
+		return "", nil
+	}
+	err, name := runtime.sessionNameCompletion(ctx, preparation.Selected, preparation.Text)
+	if err != nil {
+		return "", err
+	}
+	_, err = dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+		err, updated := runtime.store.SessionNameSet(step, input.Session, name)
+		return updated, err
+	}, dbos.WithStepName("gatehouse.session-name-persist"))
+	if err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context, selected *database.WorkspaceAgentModel, text string) (error, string) {
+	switch selected.Protocol {
+	case "builtin":
+		return BuiltinReply(selected.Model, selected.Parameters)
+	case "openai-chat-completions":
+		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
+		}
+		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+			Model: selected.Model,
+			Messages: []openAICompatibleMessage{{Role: "system", Content: sessionNamePrompt}, {Role: "user", Content: text}},
+		})
+		if err != nil || len(reply.ToolCalls) != 0 || strings.TrimSpace(reply.Content) == "" {
+			if err == nil {
+				err = fmt.Errorf("session name completion returned no title")
+			}
+			return err, ""
+		}
+		return nil, reply.Content
+	case "openai-responses":
+		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
+		}
+		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
+			Model: selected.Model, Instructions: sessionNamePrompt, Input: []json.RawMessage{openAIResponsesMessage("user", text)},
+		})
+		if err != nil {
+			return err, ""
+		}
+		name := ""
+		for _, raw := range reply.Output {
+			var output openAIResponsesOutput
+			if err := json.Unmarshal(raw, &output); err != nil {
+				return fmt.Errorf("decode session name response: %w", err), ""
+			}
+			if output.Type == "function_call" {
+				return fmt.Errorf("session name completion attempted a tool call"), ""
+			}
+			if output.Type == "message" {
+				for _, content := range output.Content {
+					if content.Type == "output_text" {
+						name += content.Text
+					}
+				}
+			}
+		}
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("session name completion returned no title"), ""
+		}
+		return nil, name
+	default:
+		return fmt.Errorf("unsupported provider protocol %q", selected.Protocol), ""
+	}
 }
 
 func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEvent, error) {
@@ -1013,6 +1160,10 @@ func openAIResponsesInput(messages []openAICompatibleMessage) []json.RawMessage 
 
 func sessionEventReplyWorkflowID(event model.SessionEventRef) string {
 	return "session-event-reply:" + event.Id
+}
+
+func sessionNameWorkflowID(session model.SessionRef) string {
+	return "session-name:" + sessionEventReplyPartition(session)
 }
 
 func sessionToolCallWorkflowID(event model.SessionEventRef, position int) string {

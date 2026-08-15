@@ -21,6 +21,7 @@
 
   type Session = {
     id: string
+    name?: string
   }
 
   type ActivityCursor = NonNullable<ActivityTopicCheckpoint["cursor"]>
@@ -375,6 +376,9 @@
       return false
     }
     sessions = loaded
+    if (activeSession !== null) {
+      activeSession = loaded.find((session) => session.id === activeSession?.id) ?? activeSession
+    }
     return true
   }
 
@@ -881,7 +885,7 @@
                 <li><a class:active={activeSession?.id === session.id} href={`/app/w/${encodeURIComponent(activeWorkspace?.id ?? "")}/s/${encodeURIComponent(session.id)}`} onclick={(event) => {
                   event.preventDefault()
                   void selectSession(session)
-                }}>{session.id}</a></li>
+                }}>{session.name ?? "New Chat"}</a></li>
               {/each}
             </ul>
           {/if}
@@ -920,7 +924,7 @@
             <span>{activeWorkspace?.name ?? activeWorkspace?.id}</span>
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>{activeSession.id}</span>
+              <span>{activeSession.name ?? "New Chat"}</span>
             {/if}
           </h1>
       </header>

@@ -29,10 +29,10 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 
 	placeholder := keychainPlaceholder(store.kind)
 	row := transaction.QueryRowContext(ctx, `
-		INSERT INTO gatehouse_sessions (workspace, id, author_principal, author_agent, author_gateway, enabled, created_at)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
+		INSERT INTO gatehouse_sessions (workspace, id, name, author_principal, author_agent, author_gateway, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
 		RETURNING created_at
-	`, session.Ref.Workspace.Id, session.Ref.Id, authorPrincipal, authorAgent, authorGateway, session.Enabled, session.CreatedAt)
+	`, session.Ref.Workspace.Id, session.Ref.Id, session.Name, authorPrincipal, authorAgent, authorGateway, session.Enabled, session.CreatedAt)
 	if err := row.Scan(&session.CreatedAt); err != nil {
 		return fmt.Errorf("insert session: %w", err), model.Session{}
 	}
@@ -260,6 +260,20 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.event.CreatedAt)
 			if err != nil {
 				return fmt.Errorf("insert session event reply task: %w", err), nil
+			}
+			if text, _ := insert.event.Payload["text"].(string); strings.TrimSpace(text) != "" {
+				_, err = transaction.ExecContext(ctx, `
+					INSERT INTO gatehouse_agent_tasks__session_name (workspace, session, created_at)
+					SELECT `+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`
+					WHERE EXISTS (
+						SELECT 1 FROM gatehouse_sessions
+						WHERE workspace = `+placeholder(4)+` AND id = `+placeholder(5)+` AND name IS NULL
+					)
+					ON CONFLICT (workspace, session) DO NOTHING
+				`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.CreatedAt, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id)
+				if err != nil {
+					return fmt.Errorf("insert session name task: %w", err), nil
+				}
 			}
 		}
 	}
@@ -533,6 +547,114 @@ func (store *Store) SessionEventReplyTaskDelete(ctx context.Context, event model
 	return nil
 }
 
+type SessionNameTask struct {
+	Session model.SessionRef
+}
+
+func (store *Store) SessionNameTasksGet(ctx context.Context, limit int) (error, []SessionNameTask) {
+	if limit <= 0 {
+		return fmt.Errorf("get session name tasks: limit must be positive"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT workspace, session
+		FROM gatehouse_agent_tasks__session_name
+		ORDER BY created_at, session
+		LIMIT `+placeholder(1)+`
+	`, limit)
+	if err != nil {
+		return fmt.Errorf("get session name tasks: %w", err), nil
+	}
+	defer rows.Close()
+
+	tasks := []SessionNameTask{}
+	for rows.Next() {
+		var task SessionNameTask
+		if err := rows.Scan(&task.Session.Workspace.Id, &task.Session.Id); err != nil {
+			return fmt.Errorf("scan session name task: %w", err), nil
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate session name tasks: %w", err), nil
+	}
+	return nil, tasks
+}
+
+func (store *Store) SessionNameTaskDelete(ctx context.Context, session model.SessionRef) error {
+	placeholder := keychainPlaceholder(store.kind)
+	_, err := store.ExecContext(ctx, `
+		DELETE FROM gatehouse_agent_tasks__session_name
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
+	`, session.Workspace.Id, session.Id)
+	if err != nil {
+		return fmt.Errorf("delete session name task: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) SessionNameGet(ctx context.Context, session model.SessionRef) (error, *string) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT name FROM gatehouse_sessions
+		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
+	`, session.Workspace.Id, session.Id)
+	var name sql.NullString
+	if err := row.Scan(&name); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get session name: %w", err), nil
+	}
+	if !name.Valid {
+		return nil, nil
+	}
+	return nil, &name.String
+}
+
+func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef, name string) (error, bool) {
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		return fmt.Errorf("set session name: name must not be blank"), false
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session name update: %w", err), false
+	}
+	defer transaction.Rollback()
+
+	placeholder := keychainPlaceholder(store.kind)
+	row := transaction.QueryRowContext(ctx, `
+		UPDATE gatehouse_sessions
+		SET name = `+placeholder(1)+`
+		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+` AND name IS NULL
+		RETURNING id
+	`, name, session.Workspace.Id, session.Id)
+	var updated string
+	if err := row.Scan(&updated); err != nil {
+		if err == sql.ErrNoRows {
+			if err := transaction.Commit(); err != nil {
+				return fmt.Errorf("commit unchanged session name: %w", err), false
+			}
+			return nil, false
+		}
+		return fmt.Errorf("update session name: %w", err), false
+	}
+	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Event:        "session.update",
+		ResourceKind: ActivityResourceKindSession,
+		Session:      &session,
+	}, []string{ActivityTopicSessions, ActivityTopicSession(session)})
+	if err != nil {
+		return fmt.Errorf("append session name activity: %w", err), false
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session name update: %w", err), false
+	}
+	return nil, true
+}
+
 type WorkspaceAgentModel struct {
 	Ref        model.WorkspaceAgentRef
 	ProviderID string
@@ -692,6 +814,7 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 		SELECT
 			sessions.workspace,
 			sessions.id,
+			sessions.name,
 			sessions.author_principal,
 			sessions.author_agent,
 			sessions.author_gateway,
@@ -744,10 +867,11 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 	sessions := []model.Session{}
 	for rows.Next() {
 		var session model.Session
-		var authorPrincipal, authorAgent, authorGateway sql.NullString
+		var name, authorPrincipal, authorAgent, authorGateway sql.NullString
 		if err := rows.Scan(
 			&session.Ref.Workspace.Id,
 			&session.Ref.Id,
+			&name,
 			&authorPrincipal,
 			&authorAgent,
 			&authorGateway,
@@ -755,6 +879,9 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 			&session.CreatedAt,
 		); err != nil {
 			return fmt.Errorf("scan session: %w", err), nil
+		}
+		if name.Valid {
+			session.Name = &name.String
 		}
 		authorPrincipalRef, authorAgentRef, authorGatewayRef, err := sessionAuthorsFromValues(session.Ref.Workspace, authorPrincipal, authorAgent, authorGateway)
 		if err != nil {

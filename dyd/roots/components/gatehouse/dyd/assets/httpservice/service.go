@@ -222,7 +222,8 @@ type resourceResponse struct {
 }
 
 type sessionResponse struct {
-	ID string `json:"id"`
+	ID   string  `json:"id"`
+	Name *string `json:"name,omitempty"`
 }
 
 type sessionMessageRequest struct {
@@ -384,7 +385,7 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 	}
 	result := make([]sessionResponse, 0, len(sessions))
 	for _, session := range sessions {
-		result = append(result, sessionResponse{ID: session.Ref.Id})
+		result = append(result, sessionResponse{ID: session.Ref.Id, Name: session.Name})
 	}
 	writeJSON(response, result)
 }
@@ -410,7 +411,7 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id})
+	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id, Name: stored.Name})
 }
 
 func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {

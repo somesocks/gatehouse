@@ -114,6 +114,26 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
 	}
+	for {
+		err, name := store.SessionNameGet(ctx, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != nil {
+			if *name != "Requested reply." {
+				t.Fatalf("session name = %q, want selected agent title", *name)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("session name was not generated")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	err, nameTasks := store.SessionNameTasksGet(ctx, 10)
+	if err != nil || len(nameTasks) != 0 {
+		t.Fatalf("SessionNameTasksGet() = (%#v, %v)", nameTasks, err)
+	}
 }
 
 func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
