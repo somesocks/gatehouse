@@ -18,6 +18,13 @@ in  renderer.render renderer.options::{ package = Some "model" } ./document.dhal
 EOF
 
 dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/models.go"
+cat > "$WORK_DIR/render-typescript.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-typescript/package.dhall
+
+in  renderer.render renderer.options.default ./document.dhall
+EOF
+
+dhall text --file "$WORK_DIR/render-typescript.dhall" --output "$DEST_DIR/dyd/assets/models.ts"
 rm -rf "$WORK_DIR"
 
 printf '%s' gatehouse-model-schema > "$DEST_DIR/dyd/traits/name"

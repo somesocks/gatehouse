@@ -2,6 +2,7 @@
   import { onMount, tick } from "svelte"
   import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Send, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
+  import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
 
   type Claims = {
     principal: string
@@ -21,6 +22,8 @@
   type Session = {
     id: string
   }
+
+  type ActivityCursor = NonNullable<ActivityTopicCheckpoint["cursor"]>
 
   type WorkspaceAgent = {
     id: string
@@ -91,7 +94,10 @@
   let chatEventsElement = $state<HTMLDivElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
-  let pollTimer: ReturnType<typeof setTimeout> | undefined
+  let activityPollTimer: ReturnType<typeof setTimeout> | undefined
+  let activityPollGeneration = 0
+  let sessionsCursor: ActivityCursor | null = null
+  let activeSessionCursor: ActivityCursor | null = null
 
   onMount(() => {
     currentPath = window.location.pathname
@@ -103,7 +109,7 @@
     void checkSession()
     return () => {
       window.removeEventListener("popstate", handlePopState)
-      stopPolling()
+      stopActivityPolling()
     }
   })
 
@@ -163,7 +169,7 @@
   }
 
   function signInRequired() {
-    stopPolling()
+    stopActivityPolling()
     claims = null
     workspaces = []
     activeWorkspace = null
@@ -236,7 +242,7 @@
 
   async function selectWorkspace(workspace: Workspace, replace = false) {
     mobileMenuOpen = false
-    stopPolling()
+    stopActivityPolling(true)
     activeWorkspace = workspace
     groups = []
     agents = []
@@ -270,6 +276,8 @@
       const session = sessions.find((candidate) => candidate.id === sessionID)
       if (session !== undefined) {
         await selectSession(session, true)
+      } else {
+        startActivityPolling()
       }
     } catch {
       workspaceContentStatus = "unavailable"
@@ -281,7 +289,8 @@
       return
     }
     mobileMenuOpen = false
-    stopPolling()
+    stopActivityPolling(false)
+    activeSessionCursor = null
     activeSession = session
     events = []
     showJumpToLatest = false
@@ -291,11 +300,12 @@
       navigate(`/app/w/${encodeURIComponent(activeWorkspace.id)}/s/${encodeURIComponent(session.id)}`, replace)
     }
     await loadSessionEvents(session)
+    startActivityPolling()
   }
 
   async function loadSessionEvents(session: Session, showLoading = true) {
     if (activeWorkspace === null) {
-      return
+      return false
     }
     if (showLoading) {
       eventStatus = "checking"
@@ -304,14 +314,14 @@
       const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions/${encodeURIComponent(session.id)}/events?limit=100`, { credentials: "same-origin" })
       if (response.status === 401) {
         signInRequired()
-        return
+        return false
       }
       if (!response.ok) {
         throw new Error("session events could not be loaded")
       }
       const loaded = (await response.json()) as SessionEventTree[]
       if (activeSession?.id !== session.id) {
-        return
+        return false
       }
       const knownEvents = new Set(events.flatMap(eventTreeIDs))
       const hasNewEvents = loaded.some((tree) => eventTreeIDs(tree).some((id) => !knownEvents.has(id)))
@@ -329,22 +339,113 @@
       if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))) {
         awaitingReplyFor = awaitingReplyFor.filter((eventID) => !finishedReplies.has(eventID))
       }
-      if (awaitingReplyFor.length === 0) {
-        stopPolling()
-      }
+      return true
     } catch {
       if (activeSession?.id === session.id) {
         eventStatus = "unavailable"
       }
+      return false
     }
   }
 
-  function stopPolling() {
-    if (pollTimer !== undefined) {
-      clearTimeout(pollTimer)
-      pollTimer = undefined
+  function stopActivityPolling(clearCursors = true) {
+    activityPollGeneration += 1
+    if (activityPollTimer !== undefined) {
+      clearTimeout(activityPollTimer)
+      activityPollTimer = undefined
+    }
+    if (clearCursors) {
+      sessionsCursor = null
+      activeSessionCursor = null
     }
     awaitingReplyFor = []
+  }
+
+  async function refreshWorkspaceSessions(workspace: Workspace, generation: number) {
+    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions`, { credentials: "same-origin" })
+    if (response.status === 401) {
+      signInRequired()
+      return false
+    }
+    if (!response.ok) {
+      throw new Error("sessions could not be refreshed")
+    }
+    const loaded = (await response.json()) as Session[]
+    if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
+      return false
+    }
+    sessions = loaded
+    return true
+  }
+
+  function sameActivityCursor(left: ActivityCursor | null, right: ActivityCursor | null) {
+    return left?.created_at === right?.created_at && left?.id === right?.id
+  }
+
+  function startActivityPolling() {
+    if (activeWorkspace === null || activityPollTimer !== undefined) {
+      return
+    }
+    const workspace = activeWorkspace
+    const generation = activityPollGeneration
+    const poll = async () => {
+      if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
+        return
+      }
+      try {
+        const session = activeSession
+        const sessionTopic = session === null ? undefined : `session/${session.id}`
+        const topics = [{ topic: "sessions", cursor: sessionsCursor }, ...(sessionTopic === undefined ? [] : [{ topic: sessionTopic, cursor: activeSessionCursor }])]
+        const input: ActivityTopicCheckpoints = {
+          topics,
+        }
+        const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/activity`, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(input),
+        })
+        if (response.status === 401) {
+          signInRequired()
+          return
+        }
+        if (!response.ok) {
+          throw new Error("activity checkpoints could not be loaded")
+        }
+        const output = (await response.json()) as ActivityTopicCheckpoints
+        if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
+          return
+        }
+        const returned = new Map(output.topics.map((checkpoint) => [checkpoint.topic, checkpoint.cursor ?? null]))
+        const nextSessionsCursor = returned.get("sessions") ?? null
+        const sessionsChanged = !sameActivityCursor(sessionsCursor, nextSessionsCursor)
+        const nextSessionCursor = sessionTopic === undefined ? null : returned.get(sessionTopic) ?? null
+        const sessionChanged = sessionTopic !== undefined && !sameActivityCursor(activeSessionCursor, nextSessionCursor)
+        const sessionsRefreshed = !sessionsChanged || await refreshWorkspaceSessions(workspace, generation)
+        let sessionRefreshed = !sessionChanged
+        if (session !== null && sessionTopic !== undefined && sessionChanged) {
+          if (activeSession?.id === session.id && await loadSessionEvents(session, false)) {
+            sessionRefreshed = true
+          }
+        }
+        if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
+          return
+        }
+        if (sessionsChanged && sessionsRefreshed) {
+          sessionsCursor = nextSessionsCursor
+        }
+        if (sessionChanged && sessionRefreshed) {
+          activeSessionCursor = nextSessionCursor
+        }
+      } catch {
+        // Keep checkpoints unchanged so a transient failure retries the same invalidation.
+      } finally {
+        if (generation === activityPollGeneration && activeWorkspace?.id === workspace.id) {
+          activityPollTimer = setTimeout(poll, 1000)
+        }
+      }
+    }
+    activityPollTimer = setTimeout(poll, 1000)
   }
 
   function eventTreeIDs(tree: SessionEventTree): string[] {
@@ -506,23 +607,6 @@
     }
   }
 
-  function pollForReply(session: Session) {
-    if (pollTimer !== undefined) {
-      return
-    }
-    const poll = async () => {
-      if (activeSession?.id !== session.id || awaitingReplyFor.length === 0) {
-        return
-      }
-      await loadSessionEvents(session, false)
-      if (awaitingReplyFor.length === 0) {
-        return
-      }
-      pollTimer = setTimeout(poll, 1000)
-    }
-    pollTimer = setTimeout(poll, 1000)
-  }
-
   async function createSession() {
     if (activeWorkspace === null) {
       return
@@ -583,7 +667,6 @@
       events = [...events, { event, children: [] }]
       void scrollToLatest()
       awaitingReplyFor = [...awaitingReplyFor, event.ref.id]
-      pollForReply(session)
     } catch {
       messageError = "Your message or file upload could not be sent. Try again."
     } finally {

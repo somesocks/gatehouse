@@ -43,6 +43,16 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	if err != nil {
 		return fmt.Errorf("grant session principal: %w", err), model.Session{}
 	}
+	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: session.Ref.Workspace},
+		Event:        "session.created",
+		ResourceKind: ActivityResourceKindSession,
+		Session:      &session.Ref,
+		CreatedAt:    session.CreatedAt,
+	}, []string{ActivityTopicSessions, ActivityTopicSession(session.Ref)})
+	if err != nil {
+		return fmt.Errorf("append session creation activity: %w", err), model.Session{}
+	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit session creation: %w", err), model.Session{}
 	}
@@ -230,6 +240,18 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.parent, insert.event.Kind, insert.principal, insert.agent, insert.gateway, insert.payload, insert.event.CreatedAt)
 		if err := row.Scan(&insert.event.CreatedAt); err != nil {
 			return fmt.Errorf("insert session event: %w", err), nil
+		}
+		session := insert.event.Ref.Session
+		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+			Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+			Event:        "session_event.created",
+			ResourceKind: ActivityResourceKindSessionEvent,
+			Session:      &session,
+			SessionEvent: &insert.event.Ref,
+			CreatedAt:    insert.event.CreatedAt,
+		}, []string{ActivityTopicSession(session)})
+		if err != nil {
+			return fmt.Errorf("append session event activity: %w", err), nil
 		}
 		if createReplyTasks {
 			_, err := transaction.ExecContext(ctx, `

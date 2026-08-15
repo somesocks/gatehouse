@@ -118,6 +118,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
@@ -410,6 +411,68 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 		return
 	}
 	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id})
+}
+
+func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		var input model.ActivityTopicCheckpoints
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || len(input.Topics) == 0 || len(input.Topics) > 32 {
+			http.Error(response, "invalid activity topics", http.StatusBadRequest)
+			return
+		}
+		seenTopics := make(map[string]struct{}, len(input.Topics))
+		checkpoints := make([]database.ActivityTopicCheckpoint, 0, len(input.Topics))
+		for _, topic := range input.Topics {
+			if strings.TrimSpace(topic.Topic) == "" {
+				http.Error(response, "invalid activity topic", http.StatusBadRequest)
+				return
+			}
+			if _, exists := seenTopics[topic.Topic]; exists {
+				http.Error(response, "duplicate activity topic", http.StatusBadRequest)
+				return
+			}
+			seenTopics[topic.Topic] = struct{}{}
+			checkpoint := database.ActivityTopicCheckpoint{Topic: topic.Topic}
+			if topic.Cursor != nil {
+				parsed, err := time.Parse("2006-01-02T15:04:05.000Z", topic.Cursor.CreatedAt)
+				if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != topic.Cursor.CreatedAt || strings.TrimSpace(topic.Cursor.Id) == "" {
+					http.Error(response, "invalid activity cursor", http.StatusBadRequest)
+					return
+				}
+				checkpoint.CreatedAt = topic.Cursor.CreatedAt
+				checkpoint.ID = topic.Cursor.Id
+			}
+			checkpoints = append(checkpoints, checkpoint)
+		}
+		err, advanced := store.ActivityTopicCheckpointsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal}, checkpoints)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]model.ActivityTopicCheckpoint, 0, len(advanced))
+		for _, checkpoint := range advanced {
+			entry := model.ActivityTopicCheckpoint{Topic: checkpoint.Topic}
+			if checkpoint.CreatedAt != "" {
+				entry.Cursor = &model.ActivityCursor{CreatedAt: checkpoint.CreatedAt, Id: checkpoint.ID}
+			}
+			result = append(result, entry)
+		}
+		writeJSON(response, model.ActivityTopicCheckpoints{Topics: result})
+	}
 }
 
 func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, dispatcher ReplyDispatcher) http.HandlerFunc {

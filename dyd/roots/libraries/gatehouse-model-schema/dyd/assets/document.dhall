@@ -511,6 +511,117 @@ let SessionEvent =
         }
         s.record.meta::{ name = Some "SessionEvent", description = Some "An immutable event in a durable workspace session." }
 
+let ActivityEventRef =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { workspace =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
+              , id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local activity identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ActivityEventRef", description = Some "The stable identity of an activity event." }
+
+let ActivityEvent =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref =
+                  s.reference.from
+                    s.reference.props::{ to = "ActivityEventRef" }
+                    s.reference.meta::{ description = Some "activity event identity" }
+              , event =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "activity event type" }
+              , resource_kind =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "subject resource kind" }
+              , created_at =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "activity creation timestamp" }
+              }
+        , optional =
+            toMap
+              { session =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionRef" }
+                    s.reference.meta::{ description = Some "session activity subject" }
+              , session_event =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionEventRef" }
+                    s.reference.meta::{ description = Some "session event activity subject" }
+              }
+        }
+        s.record.meta::{ name = Some "ActivityEvent", description = Some "A durable workspace activity event with a typed resource subject." }
+
+let ActivityCursor =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { created_at =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "activity checkpoint timestamp" }
+              , id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "activity checkpoint identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ActivityCursor", description = Some "An activity topic checkpoint." }
+
+let ActivityTopicCheckpoint =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { topic =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "opaque activity topic" }
+              }
+        , optional =
+            toMap
+              { cursor =
+                  s.reference.from
+                    s.reference.props::{ to = "ActivityCursor" }
+                    s.reference.meta::{ description = Some "latest observed activity checkpoint" }
+              }
+        }
+        s.record.meta::{ name = Some "ActivityTopicCheckpoint", description = Some "A topic and its latest observed activity checkpoint." }
+
+let ActivityTopicCheckpoints =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { topics =
+                  s.list.from
+                    s.list.props::{
+                    , values =
+                        s.reference.from
+                          s.reference.props::{ to = "ActivityTopicCheckpoint" }
+                          s.reference.meta::{ description = Some "requested or observed topic checkpoints" }
+                    }
+                    s.list.meta::{ description = Some "activity topic checkpoints" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ActivityTopicCheckpoints", description = Some "A collection of activity topic checkpoints." }
+
 let SessionPrincipalGrant =
       s.record.from
         s.record.props::{
@@ -734,10 +845,15 @@ in  Document::{
            , s.root.from StorageObject s.root.meta::{ name = "StorageObject" }
            , s.root.from SessionFileRef s.root.meta::{ name = "SessionFileRef" }
            , s.root.from SessionFile s.root.meta::{ name = "SessionFile" }
-           , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
-           , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
-           , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
-         , s.root.from SessionPrincipalGrant s.root.meta::{ name = "SessionPrincipalGrant" }
+            , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
+            , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
+            , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
+          , s.root.from ActivityEventRef s.root.meta::{ name = "ActivityEventRef" }
+          , s.root.from ActivityEvent s.root.meta::{ name = "ActivityEvent" }
+          , s.root.from ActivityCursor s.root.meta::{ name = "ActivityCursor" }
+          , s.root.from ActivityTopicCheckpoint s.root.meta::{ name = "ActivityTopicCheckpoint" }
+          , s.root.from ActivityTopicCheckpoints s.root.meta::{ name = "ActivityTopicCheckpoints" }
+          , s.root.from SessionPrincipalGrant s.root.meta::{ name = "SessionPrincipalGrant" }
          , s.root.from SessionGroupGrant s.root.meta::{ name = "SessionGroupGrant" }
          , s.root.from Tool s.root.meta::{ name = "Tool" }
         , s.root.from Resource s.root.meta::{ name = "Resource" }

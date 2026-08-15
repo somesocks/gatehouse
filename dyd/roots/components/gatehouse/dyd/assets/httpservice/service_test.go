@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -448,6 +449,71 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	invalid := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("POST message with missing agent = %d", invalid.Code)
+	}
+}
+
+func TestActivityAPI(t *testing.T) {
+	tokens, store := testBearerTokens(t)
+	ctx := context.Background()
+	workspace := model.WorkspaceRef{Id: "engineering"}
+	alice := model.PrincipalRef{Id: "alice"}
+	session := model.SessionRef{Workspace: workspace, Id: "activity"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{
+		Ref:             model.SessionEventRef{Session: session, Id: "00000000-0000-4000-8000-000000000001"},
+		Kind:            "message.text",
+		AuthorPrincipal: &alice,
+		Payload:         map[string]interface{}{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: "alice", Identity: "gatehouse:alice"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(value any) *httptest.ResponseRecorder {
+		body, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/engineering/activity", bytes.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	if response := request(model.ActivityTopicCheckpoints{}); response.Code != http.StatusBadRequest {
+		t.Fatalf("POST activity without topics = %d", response.Code)
+	}
+	empty := request(map[string]any{"topics": []map[string]any{{"topic": "session/private", "cursor": nil}}})
+	var emptyCheckpoints model.ActivityTopicCheckpoints
+	if err := json.Unmarshal(empty.Body.Bytes(), &emptyCheckpoints); err != nil || empty.Code != http.StatusOK || len(emptyCheckpoints.Topics) != 1 || emptyCheckpoints.Topics[0].Cursor != nil {
+		t.Fatalf("POST activity with null cursor = (%d, %#v, %v)", empty.Code, emptyCheckpoints, err)
+	}
+	response := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
+		{Topic: "sessions"},
+		{Topic: "session/activity"},
+	}})
+	if response.Code != http.StatusOK {
+		t.Fatalf("POST activity = %d body %q", response.Code, response.Body.String())
+	}
+	var checkpoints model.ActivityTopicCheckpoints
+	if err := json.Unmarshal(response.Body.Bytes(), &checkpoints); err != nil {
+		t.Fatal(err)
+	}
+	if len(checkpoints.Topics) != 2 || checkpoints.Topics[0].Cursor == nil || checkpoints.Topics[1].Cursor == nil {
+		t.Fatalf("POST activity = %#v, want two advanced topic checkpoints", checkpoints)
+	}
+	repeated := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
+		{Topic: checkpoints.Topics[0].Topic, Cursor: checkpoints.Topics[0].Cursor},
+		{Topic: checkpoints.Topics[1].Topic, Cursor: checkpoints.Topics[1].Cursor},
+	}})
+	var repeatedCheckpoints model.ActivityTopicCheckpoints
+	if err := json.Unmarshal(repeated.Body.Bytes(), &repeatedCheckpoints); err != nil || repeated.Code != http.StatusOK || !reflect.DeepEqual(repeatedCheckpoints, checkpoints) {
+		t.Fatalf("POST activity with current checkpoints = (%d, %#v, %v), want %#v", repeated.Code, repeatedCheckpoints, err, checkpoints)
 	}
 }
 

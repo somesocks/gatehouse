@@ -398,6 +398,43 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				FOREIGN KEY (workspace, session) REFERENCES gatehouse_sessions (workspace, id)
 			) STRICT;
 		`),
+		}, {
+			Index:       15,
+			Description: "create_activity_events",
+			Builder: staticMigrationBuilder(`
+			CREATE TABLE gatehouse_activity_events (
+				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
+				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
+				session TEXT,
+				session_event TEXT,
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, id),
+				UNIQUE (workspace, id, created_at),
+				FOREIGN KEY (workspace, session)
+					REFERENCES gatehouse_sessions (workspace, id),
+				FOREIGN KEY (workspace, session, session_event)
+					REFERENCES gatehouse_session_events (workspace, session, id),
+				CHECK (
+					(resource_kind = 'session' AND session IS NOT NULL AND session_event IS NULL)
+					OR (resource_kind = 'session_event' AND session IS NOT NULL AND session_event IS NOT NULL)
+				)
+			) STRICT;
+
+			CREATE TABLE gatehouse_activity_event_topics (
+				workspace TEXT NOT NULL,
+				activity TEXT NOT NULL,
+				topic TEXT NOT NULL CHECK (length(trim(topic)) > 0),
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, activity, topic),
+				FOREIGN KEY (workspace, activity, created_at)
+					REFERENCES gatehouse_activity_events (workspace, id, created_at)
+			) STRICT;
+
+			CREATE INDEX gatehouse_activity_event_topics_by_topic_cursor
+			ON gatehouse_activity_event_topics (workspace, topic, created_at, activity);
+		`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

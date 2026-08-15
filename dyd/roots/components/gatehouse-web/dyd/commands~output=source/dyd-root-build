@@ -2,5 +2,9 @@
 
 set -eu
 
+MODEL_DIR="$DYD_STEM/dyd/dependencies/model-schema/dyd/assets"
+
 mkdir -p "$DYD_BUILD/dyd/assets"
 cp -R "$DYD_STEM/dyd/assets/." "$DYD_BUILD/dyd/assets"
+chmod -R u+w "$DYD_BUILD/dyd/assets"
+cp "$MODEL_DIR/models.ts" "$DYD_BUILD/dyd/assets/src/model.ts"

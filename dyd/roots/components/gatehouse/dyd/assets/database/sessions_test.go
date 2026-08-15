@@ -284,6 +284,110 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 }
 
+func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Principals: []config.Principal{
+			{ID: "alice", Enabled: true},
+			{ID: "bob", Enabled: true},
+			{ID: "carol", Enabled: true},
+		},
+		Groups: []config.Group{{
+			WorkspaceID: "engineering",
+			ID:          "developers",
+			Enabled:     true,
+			Members:     []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
+		}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := model.WorkspaceRef{Id: "engineering"}
+	alice := model.PrincipalRef{Id: "alice"}
+	shared := model.SessionRef{Workspace: workspace, Id: "shared"}
+	private := model.SessionRef{Workspace: workspace, Id: "private"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: shared, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
+		VALUES ('engineering', 'shared', 'developers', TRUE)
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: private, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	sharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "00000000-0000-4000-8000-000000000001"}, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, sharedEvent); err != nil {
+		t.Fatal(err)
+	}
+	privateEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: private, Id: "00000000-0000-4000-8000-000000000002"}, Kind: "message.text", AuthorPrincipal: &alice, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, privateEvent); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(principal string, checkpoints []database.ActivityTopicCheckpoint) []database.ActivityTopicCheckpoint {
+		err, advanced := store.ActivityTopicCheckpointsGet(ctx, workspace, model.PrincipalRef{Id: principal}, checkpoints)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return advanced
+	}
+	initial := check("bob", []database.ActivityTopicCheckpoint{
+		{Topic: database.ActivityTopicSessions},
+		{Topic: database.ActivityTopicSession(shared)},
+	})
+	if len(initial) != 2 || initial[0].CreatedAt == "" || initial[0].ID == "" || initial[1].CreatedAt == "" || initial[1].ID == "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, want advanced checkpoints", initial)
+	}
+	if initial[0] == initial[1] {
+		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, topics should advance independently", initial)
+	}
+	if repeated := check("bob", initial); !reflect.DeepEqual(repeated, initial) {
+		t.Fatalf("ActivityTopicCheckpointsGet() with current checkpoints = %#v, want %#v", repeated, initial)
+	}
+	if checkpoints := check("bob", []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private)}}); checkpoints[0].CreatedAt != "" || checkpoints[0].ID != "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() for private session = %#v, want no cursor", checkpoints)
+	}
+	if checkpoints := check("carol", []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSessions}, {Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].CreatedAt != "" || checkpoints[1].CreatedAt != "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
+	}
+	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "00000000-0000-4000-8000-000000000003"}, Kind: "tool.success", AuthorPrincipal: &alice, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, newSharedEvent); err != nil {
+		t.Fatal(err)
+	}
+	advanced := check("bob", initial)
+	if advanced[0] != initial[0] || advanced[1].CreatedAt == initial[1].CreatedAt && advanced[1].ID == initial[1].ID {
+		t.Fatalf("ActivityTopicCheckpointsGet() after session event = %#v, want only session topic to advance from %#v", advanced, initial)
+	}
+
+	var activityID, createdAt string
+	if err := store.QueryRowContext(ctx, `
+		SELECT id, created_at FROM gatehouse_activity_events
+		WHERE workspace = 'engineering' AND resource_kind = 'session'
+		LIMIT 1
+	`).Scan(&activityID, &createdAt); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
+		VALUES ('engineering', ?, 'invalid-timestamp', '2000-01-01T00:00:00.000Z')
+	`, activityID); err == nil {
+		t.Fatal("activity topic accepted a timestamp that does not match its parent event")
+	}
+	if createdAt == "" {
+		t.Fatal("activity event did not retain its creation timestamp")
+	}
+}
+
 func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
