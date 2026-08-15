@@ -17,6 +17,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/configschema"
 	"gatehouse/database"
+	"gatehouse/diagnostics"
 	"gatehouse/httpservice"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
@@ -62,6 +63,24 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		diagnosticSignals := diagnostics.Signals()
+		if len(diagnosticSignals) > 0 {
+			diagnosticEvents := make(chan os.Signal, len(diagnosticSignals))
+			signal.Notify(diagnosticEvents, diagnosticSignals...)
+			defer signal.Stop(diagnosticEvents)
+			go func() {
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case received := <-diagnosticEvents:
+						if err := diagnostics.EmitSignal(received, os.Stdout, os.Stderr); err != nil {
+							fmt.Fprintf(os.Stderr, "emit diagnostics metrics: %v\n", err)
+						}
+					}
+				}
+			}()
+		}
 
 		err, store := database.Open(ctx, databaseConfig)
 		if err != nil {

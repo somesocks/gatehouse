@@ -17,11 +17,16 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/diagnostics"
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/model"
 	"gatehouse/storage"
 )
+
+func init() {
+	diagnostics.Register("agent.tool_call.evaluate")
+}
 
 const (
 	sessionEventReplyQueue = "gatehouse.session-event-replies"
@@ -383,6 +388,10 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
 		defer clearResourceValues(values)
+		call, diagnosticErr := diagnostics.Begin("agent.tool_call.evaluate", "")
+		if diagnosticErr != nil {
+			return sessionToolCallExecution{Kind: "tool.failure", Output: diagnosticErr.Error()}, nil
+		}
 		evalErr, result := lisp.RunTurnWithFiles(input.Code, tools, resources, files, func(id string, offset, length int64) (error, []byte) {
 			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Parent.Session, Id: id}, input.Principal)
 			if err != nil || file == nil {
@@ -393,6 +402,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 			}
 			return runtime.storage.Read(step, file.StorageObject.Id, offset, length)
 		})
+		evalErr = call.End(evalErr)
 		if evalErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
 		}

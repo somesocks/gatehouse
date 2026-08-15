@@ -2,7 +2,14 @@ package lisp
 
 import (
 	"fmt"
+
+	"gatehouse/diagnostics"
 )
+
+func init() {
+	diagnostics.Register("lisp.turn")
+	diagnostics.Register("lisp.file_read")
+}
 
 // TurnTool is an authorized module made available for one evaluation.
 type TurnTool struct {
@@ -80,6 +87,15 @@ func RunTurnWithFiles(source string, tools []TurnTool, resources []TurnResource,
 }
 
 func RunTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
+	call, err := diagnostics.Begin("lisp.turn", "")
+	if err != nil {
+		return err, nil
+	}
+	err, result := runTurnWithPreludeAndFiles(source, prelude, tools, resources, files, read)
+	return call.End(err), result
+}
+
+func runTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
 	err, program := Read(source)
 	if err != nil {
 		return err, nil
@@ -186,7 +202,12 @@ func turnFileRead(read TurnFileRead) pureBuiltinCall {
 		if id == "" || offset < 0 || length < 1 || length > 64*1024 {
 			return expressionError("file/read requires a non-empty id, non-negative offset, and length from 1 through 65536"), nil
 		}
+		call, diagnosticErr := diagnostics.Begin("lisp.file_read", id)
+		if diagnosticErr != nil {
+			return expressionError("file/read failed"), nil
+		}
 		err, value := read(id, offset, length)
+		err = call.End(err)
 		if err != nil {
 			return expressionError("file/read failed"), nil
 		}

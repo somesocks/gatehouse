@@ -16,6 +16,22 @@ if [ -f "$SECRETS_DIR/local-dev.env" ]; then
   set +a
 fi
 
+case "${LOCAL_DEV_DIAGNOSTICS_PROFILE:-none}" in
+  none)
+    ;;
+  metrics-full)
+    if [ -n "${GATEHOUSE_DIAG:-}" ]; then
+      printf '%s\n' "GATEHOUSE_DIAG cannot be set with LOCAL_DEV_DIAGNOSTICS_PROFILE=${LOCAL_DEV_DIAGNOSTICS_PROFILE}" >&2
+      exit 2
+    fi
+    export GATEHOUSE_DIAG="json:$(cat "$ASSETS_DIR/diagnostics/${LOCAL_DEV_DIAGNOSTICS_PROFILE}.json")"
+    ;;
+  *)
+    printf '%s\n' "LOCAL_DEV_DIAGNOSTICS_PROFILE must be none or metrics-full" >&2
+    exit 2
+    ;;
+esac
+
 case "${LOCAL_DEV_USE_S3:-false}" in
   false)
     unset COMPOSE_PROFILES SEAWEEDFS_IMAGE

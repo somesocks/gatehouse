@@ -1,0 +1,97 @@
+{
+  "version": 2,
+  "outputs": {
+    "stderr": { "type": "stderr" },
+    "profiles": {
+      "type": "directory",
+      "path": "/tmp/gatehouse-diagnostics"
+    }
+  },
+  "rules": [
+    {
+      "id": "storage-read",
+      "op": "storage.read",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    },
+    {
+      "id": "storage-s3-read",
+      "op": "storage.s3.read",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    },
+    {
+      "id": "storage-s3-credentials",
+      "op": "storage.s3.credentials",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    },
+    {
+      "id": "lisp-turn",
+      "op": "lisp.turn",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    },
+    {
+      "id": "lisp-file-read",
+      "op": "lisp.file_read",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    },
+    {
+      "id": "agent-tool-call-evaluate",
+      "op": "agent.tool_call.evaluate",
+      "key": "*",
+      "when": { "mode": "every_x", "x": 1 },
+      "action": {
+        "type": "metrics",
+        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
+      }
+    }
+  ],
+  "triggers": [
+    {
+      "id": "snapshot",
+      "source": { "type": "signal", "signal": "USR1" },
+      "actions": [
+        { "type": "emit_metrics", "output": "stderr" },
+        { "type": "emit_runtime", "output": "stderr" }
+      ]
+    },
+    {
+      "id": "heap",
+      "source": { "type": "signal", "signal": "USR2" },
+      "actions": [
+        { "type": "write_heap_profile", "output": "profiles", "gc": "force" }
+      ]
+    },
+    {
+      "id": "exit",
+      "source": { "type": "process_exit" },
+      "actions": [
+        { "type": "emit_metrics", "output": "stderr" },
+        { "type": "emit_runtime", "output": "stderr" }
+      ]
+    }
+  ]
+}
