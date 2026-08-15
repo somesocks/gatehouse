@@ -556,6 +556,10 @@
     return request?.children.some((child) => child.event.kind === "cancel.success") ?? false
   }
 
+  function replyCanBeCancelled(tree: SessionEventTree) {
+    return finalReplies(tree).length === 0 && !hasThinkingFailure(tree) && cancellationRequest(tree) === undefined
+  }
+
   async function cancelReply(tree: SessionEventTree) {
     if (activeWorkspace === null || activeSession === null || cancellingReplyFor.has(tree.event.ref.id)) {
       return
@@ -970,14 +974,14 @@
                       </div>
                     {/if}
                   </article>
-                  {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id)}
+                  {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id) || replyCanBeCancelled(tree)}
                     <section class="agent-activity-section">
                       <p class="agent-activity-heading">
                         {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
                         {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
                           <span class="agent-activity-duration">{replyDuration(tree)}</span>
                         {/if}
-                        {#if awaitingReplyFor.includes(tree.event.ref.id) && cancellationRequest(tree) === undefined}
+                        {#if replyCanBeCancelled(tree)}
                           <button class="agent-activity-cancel" type="button" disabled={cancellingReplyFor.has(tree.event.ref.id)} onclick={() => void cancelReply(tree)}>{cancellingReplyFor.has(tree.event.ref.id) ? "Cancelling..." : "Cancel"}</button>
                         {/if}
                       </p>
