@@ -36,7 +36,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_workspaces",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_workspaces (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'wsp_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'wsp_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias GLOB '[a-z]*')
 					CHECK (alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -49,7 +49,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_principals_and_identities",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_principals (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'prn_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'prn_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -58,7 +58,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			) STRICT;
 
 			CREATE TABLE gatehouse_identities (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'idt_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'idt_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -80,7 +80,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_groups (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'grp_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'grp_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -109,7 +109,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_tools (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'tol_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'tol_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -121,7 +121,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 
 			CREATE TABLE gatehouse_resources (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'res_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'res_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -184,11 +184,11 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'ses_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'ses_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
-				author_gateway TEXT CHECK (author_gateway IS NULL OR (length(author_gateway) = 30 AND substr(author_gateway, 1, 4) = 'gwy_')),
+				author_gateway TEXT CHECK (author_gateway IS NULL OR (length(author_gateway) = 30 AND substr(author_gateway, 1, 4) = 'gwy_' AND substr(author_gateway, 5, 1) GLOB '[0-7]' AND substr(author_gateway, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*')),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
 				created_at TEXT NOT NULL,
 				PRIMARY KEY (workspace, id),
@@ -235,12 +235,12 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_session_events (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sev_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sev_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				parent TEXT,
 				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
-				author_gateway TEXT CHECK (author_gateway IS NULL OR (length(author_gateway) = 30 AND substr(author_gateway, 1, 4) = 'gwy_')),
+				author_gateway TEXT CHECK (author_gateway IS NULL OR (length(author_gateway) = 30 AND substr(author_gateway, 1, 4) = 'gwy_' AND substr(author_gateway, 5, 1) GLOB '[0-7]' AND substr(author_gateway, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*')),
 				payload TEXT NOT NULL CHECK (json_valid(payload)) CHECK (json_type(payload) = 'object'),
 				created_at TEXT NOT NULL,
 				PRIMARY KEY (workspace, session, id),
@@ -273,7 +273,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_agents",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'apr_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'apr_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -292,7 +292,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			) STRICT;
 
 			CREATE TABLE gatehouse_agent_models (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'amd_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'amd_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -360,7 +360,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_storage_providers",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_providers (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'stp_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'stp_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				alias TEXT UNIQUE
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
@@ -394,7 +394,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_storage_objects_and_session_files",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_objects (
-				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'obj_'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'obj_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
 				object TEXT NOT NULL CHECK (length(trim(object)) > 0),
 				state TEXT NOT NULL CHECK (state IN ('pending', 'success', 'failure')),
@@ -420,7 +420,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_session_files (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sfi_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sfi_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				storage_object TEXT NOT NULL REFERENCES gatehouse_storage_objects (id),
 				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
 				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),
@@ -436,7 +436,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_activity_events (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'act_'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'act_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
 				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
 				session TEXT,

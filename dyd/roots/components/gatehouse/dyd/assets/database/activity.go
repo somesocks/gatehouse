@@ -41,15 +41,15 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
 		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
 	}
+	if activity.CreatedAt == "" {
+		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	}
 	if activity.Ref.Id == "" {
-		id, err := activityEventID()
+		id, err := activityEventID(activity.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("generate activity event ID: %w", err), model.ActivityEvent{}
 		}
 		activity.Ref.Id = id
-	}
-	if activity.CreatedAt == "" {
-		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 	}
 
 	placeholder := keychainPlaceholder(store.kind)
@@ -94,15 +94,15 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
 		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
 	}
+	if activity.CreatedAt == "" {
+		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	}
 	if activity.Ref.Id == "" {
-		id, err := activityEventID()
+		id, err := activityEventID(activity.CreatedAt)
 		if err != nil {
 			return fmt.Errorf("generate activity event ID: %w", err), model.ActivityEvent{}
 		}
 		activity.Ref.Id = id
-	}
-	if activity.CreatedAt == "" {
-		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
 	}
 
 	placeholder := keychainPlaceholder(store.kind)
@@ -174,8 +174,12 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 	return nil
 }
 
-func activityEventID() (string, error) {
-	return typed_id.New(typed_id.ActivityEvent)
+func activityEventID(createdAt string) (string, error) {
+	at, err := time.Parse("2006-01-02T15:04:05.000Z", createdAt)
+	if err != nil {
+		return "", fmt.Errorf("parse activity creation timestamp: %w", err)
+	}
+	return typed_id.NewAt(typed_id.ActivityEvent, at)
 }
 
 func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, checkpoints []ActivityTopicCheckpoint) (error, []ActivityTopicCheckpoint) {

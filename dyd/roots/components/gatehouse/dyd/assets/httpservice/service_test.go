@@ -54,7 +54,7 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 		t.Fatalf("GET /app/ = status %d content type %q body %q", app.Code, app.Header().Get("Content-Type"), app.Body.String())
 	}
 	route := httptest.NewRecorder()
-	handler.ServeHTTP(route, httptest.NewRequest(http.MethodGet, "/app/w/engineering/s/ses_aaaaaaaaaaaaaaaaaaaaaaaaaa", nil))
+	handler.ServeHTTP(route, httptest.NewRequest(http.MethodGet, "/app/w/engineering/s/ses_00000000000000000000000000", nil))
 	if route.Code != http.StatusOK || route.Body.String() != app.Body.String() {
 		t.Fatalf("GET client route = status %d body %q", route.Code, route.Body.String())
 	}
@@ -198,7 +198,7 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
 	sessions := request("/api/v1/workspaces/" + engineering.Id + "/sessions")
-	if sessions.Code != http.StatusOK || sessions.Body.String() != "[{\"id\":\"ses_bbbbbbbbbbbbbbbbbbbbbbbbbb\"},{\"id\":\"ses_aaaaaaaaaaaaaaaaaaaaaaaaaa\"}]\n" {
+	if sessions.Code != http.StatusOK || sessions.Body.String() != "[{\"id\":\"ses_00000000000000000000000001\"},{\"id\":\"ses_00000000000000000000000000\"}]\n" {
 		t.Fatalf("GET sessions = status %d body %q", sessions.Code, sessions.Body.String())
 	}
 	resources := request("/api/v1/workspaces/" + engineering.Id + "/resources")
@@ -282,7 +282,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 		t.Fatalf("GET events response = %#v", polled)
 	}
 	child := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
+		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: "sev_00000000000000000000000000"}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
 	}
 	if err, _ := store.SessionEventsCreate(context.Background(), child); err != nil {
 		t.Fatal(err)
@@ -483,12 +483,12 @@ func TestActivityAPI(t *testing.T) {
 	alice, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
 	aliceName := "Alice"
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
-	session := model.SessionRef{Workspace: workspace, Id: "ses_cccccccccccccccccccccccccc"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000002"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
@@ -515,7 +515,7 @@ func TestActivityAPI(t *testing.T) {
 	if response := request(model.ActivityTopicCheckpoints{}); response.Code != http.StatusBadRequest {
 		t.Fatalf("POST activity without topics = %d", response.Code)
 	}
-	empty := request(map[string]any{"topics": []map[string]any{{"topic": "session/ses_bbbbbbbbbbbbbbbbbbbbbbbbbb", "cursor": nil}}})
+	empty := request(map[string]any{"topics": []map[string]any{{"topic": "session/ses_00000000000000000000000001", "cursor": nil}}})
 	var emptyCheckpoints model.ActivityTopicCheckpoints
 	if err := json.Unmarshal(empty.Body.Bytes(), &emptyCheckpoints); err != nil || empty.Code != http.StatusOK || len(emptyCheckpoints.Topics) != 1 || emptyCheckpoints.Topics[0].Cursor != nil {
 		t.Fatalf("POST activity with null cursor = (%d, %#v, %v)", empty.Code, emptyCheckpoints, err)
@@ -628,20 +628,20 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	developersID := groupID(t, ctx, store, "engineering", "developers")
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE, '2026-01-01 00:00:01'),
-			(?, 'ses_bbbbbbbbbbbbbbbbbbbbbbbbbb', ?, TRUE, '2026-01-01 00:00:02')
+			(?, 'ses_00000000000000000000000000', ?, TRUE, '2026-01-01 00:00:01'),
+			(?, 'ses_00000000000000000000000001', ?, TRUE, '2026-01-01 00:00:02')
 	`, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE)
+		VALUES (?, 'ses_00000000000000000000000000', ?, TRUE)
 	`, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-		VALUES (?, 'ses_bbbbbbbbbbbbbbbbbbbbbbbbbb', ?, TRUE)
+		VALUES (?, 'ses_00000000000000000000000001', ?, TRUE)
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}

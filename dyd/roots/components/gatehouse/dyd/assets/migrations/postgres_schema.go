@@ -36,7 +36,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_workspaces",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_workspaces (
-				id TEXT PRIMARY KEY CHECK (id ~ '^wsp_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^wsp_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL
@@ -47,14 +47,14 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_principals_and_identities",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_principals (
-				id TEXT PRIMARY KEY CHECK (id ~ '^prn_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^prn_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL
 			);
 
 			CREATE TABLE gatehouse_identities (
-				id TEXT PRIMARY KEY CHECK (id ~ '^idt_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^idt_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				key TEXT NOT NULL UNIQUE CHECK (position(':' IN key) > 1),
 				principal_id TEXT NOT NULL REFERENCES gatehouse_principals (id),
@@ -73,7 +73,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_groups (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^grp_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^grp_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL,
@@ -100,7 +100,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_tools (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^tol_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^tol_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				enabled BOOLEAN NOT NULL,
@@ -110,7 +110,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 
 			CREATE TABLE gatehouse_resources (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^res_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^res_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				secret BOOLEAN NOT NULL,
@@ -170,11 +170,11 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^ses_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^ses_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
-				author_gateway TEXT CHECK (author_gateway ~ '^gwy_[a-z2-7]{26}$'),
+				author_gateway TEXT CHECK (author_gateway ~ '^gwy_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				enabled BOOLEAN NOT NULL,
 				created_at TIMESTAMPTZ NOT NULL,
 				PRIMARY KEY (workspace, id),
@@ -221,12 +221,12 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE TABLE gatehouse_session_events (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (id ~ '^sev_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^sev_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				parent TEXT,
 				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
-				author_gateway TEXT CHECK (author_gateway ~ '^gwy_[a-z2-7]{26}$'),
+				author_gateway TEXT CHECK (author_gateway ~ '^gwy_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				payload JSONB NOT NULL CHECK (jsonb_typeof(payload) = 'object'),
 				created_at TIMESTAMPTZ NOT NULL,
 				PRIMARY KEY (workspace, session, id),
@@ -259,7 +259,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_agents",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (
-				id TEXT PRIMARY KEY CHECK (id ~ '^apr_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^apr_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-chat-completions', 'openai-responses')),
@@ -276,7 +276,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			);
 
 			CREATE TABLE gatehouse_agent_models (
-				id TEXT PRIMARY KEY CHECK (id ~ '^amd_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^amd_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				provider_id TEXT NOT NULL REFERENCES gatehouse_agent_providers (id),
@@ -342,7 +342,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_storage_providers",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_providers (
-				id TEXT PRIMARY KEY CHECK (id ~ '^stp_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^stp_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('embedded', 's3')),
@@ -374,7 +374,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_storage_objects_and_session_files",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_objects (
-				id TEXT PRIMARY KEY CHECK (id ~ '^obj_[a-z2-7]{26}$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^obj_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
 				object TEXT NOT NULL CHECK (length(trim(object)) > 0),
 				state TEXT NOT NULL CHECK (state IN ('pending', 'success', 'failure')),
@@ -400,7 +400,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE TABLE gatehouse_session_files (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (id ~ '^sfi_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^sfi_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				storage_object TEXT NOT NULL UNIQUE REFERENCES gatehouse_storage_objects (id),
 				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
 				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),
@@ -415,7 +415,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_activity_events (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^act_[a-z2-7]{26}$'),
+				id TEXT NOT NULL CHECK (id ~ '^act_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
 				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
 				session TEXT,

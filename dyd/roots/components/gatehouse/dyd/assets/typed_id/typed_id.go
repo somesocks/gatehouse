@@ -3,9 +3,11 @@ package typed_id
 
 import (
 	"crypto/rand"
-	"encoding/base32"
 	"fmt"
 	"strings"
+	"time"
+
+	"github.com/oklog/ulid/v2"
 )
 
 const (
@@ -23,21 +25,23 @@ const (
 	Gateway         = "gwy"
 	Session         = "ses"
 	SessionEvent    = "sev"
-	ActivityEvent   = "act"
-	encodedLength   = 26
+	ActivityEvent = "act"
 )
 
-var encoding = base32.StdEncoding.WithPadding(base32.NoPadding)
-
 func New(kind string) (string, error) {
+	return NewAt(kind, time.Now().UTC())
+}
+
+// NewAt creates a typed ULID with the given timestamp.
+func NewAt(kind string, at time.Time) (string, error) {
 	if !validKind(kind) {
 		return "", fmt.Errorf("invalid typed ID kind %q", kind)
 	}
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
+	id, err := ulid.New(ulid.Timestamp(at), rand.Reader)
+	if err != nil {
 		return "", fmt.Errorf("generate typed ID: %w", err)
 	}
-	return kind + "_" + strings.ToLower(encoding.EncodeToString(bytes)), nil
+	return kind + "_" + strings.ToLower(id.String()), nil
 }
 
 func Valid(kind, value string) bool {
@@ -45,11 +49,11 @@ func Valid(kind, value string) bool {
 		return false
 	}
 	encoded := strings.TrimPrefix(value, kind+"_")
-	if len(encoded) != encodedLength || encoded != strings.ToLower(encoded) {
+	if encoded != strings.ToLower(encoded) {
 		return false
 	}
-	decoded, err := encoding.DecodeString(strings.ToUpper(encoded))
-	return err == nil && len(decoded) == 16 && strings.ToLower(encoding.EncodeToString(decoded)) == encoded
+	id, err := ulid.ParseStrict(strings.ToUpper(encoded))
+	return err == nil && strings.ToLower(id.String()) == encoded
 }
 
 func validKind(kind string) bool {

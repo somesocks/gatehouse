@@ -1,6 +1,12 @@
 package typed_id
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/oklog/ulid/v2"
+)
 
 func TestNew(t *testing.T) {
 	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel, StorageProvider, StorageObject, SessionFile, Gateway, Session, SessionEvent, ActivityEvent} {
@@ -11,16 +17,28 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNewAt(t *testing.T) {
+	at := time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC)
+	value, err := NewAt(SessionEvent, at)
+	if err != nil || !Valid(SessionEvent, value) {
+		t.Fatalf("NewAt() = (%q, %v)", value, err)
+	}
+	id, err := ulid.ParseStrict(strings.ToUpper(strings.TrimPrefix(value, SessionEvent+"_")))
+	if err != nil || !id.Timestamp().Equal(at) {
+		t.Fatalf("NewAt() timestamp = (%v, %v), want %v", id.Timestamp(), err, at)
+	}
+}
+
 func TestValid(t *testing.T) {
 	for _, test := range []struct {
 		kind, value string
 		valid       bool
 	}{
-		{Workspace, "wsp_aaisem2ekvthpcezvk54zxpo74", true},
-		{Workspace, "wsp_AAISEM2EKVTHPCEZVK54ZXPO74", false},
-		{Workspace, "grp_aaisem2ekvthpcezvk54zxpo74", false},
-		{Workspace, "wsp_aaisem2ekvthpcezvk54zxpo7", false},
-		{Workspace, "wsp_aaisem2ekvthpcezvk54zxpo70", false},
+		{Workspace, "wsp_01arz3ndektsv4rrffq69g5fav", true},
+		{Workspace, "wsp_01ARZ3NDEKTSV4RRFFQ69G5FAV", false},
+		{Workspace, "grp_01arz3ndektsv4rrffq69g5fav", false},
+		{Workspace, "wsp_01arz3ndektsv4rrffq69g5fa", false},
+		{Workspace, "wsp_01arz3ndektsv4rrffq69g5fai", false},
 	} {
 		if got := Valid(test.kind, test.value); got != test.valid {
 			t.Errorf("Valid(%q, %q) = %t, want %t", test.kind, test.value, got, test.valid)

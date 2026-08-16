@@ -3,12 +3,16 @@ package database_test
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
+	"gatehouse/typed_id"
+
+	"github.com/oklog/ulid/v2"
 )
 
 func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
@@ -46,26 +50,26 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	carol := principalRef(t, ctx, store, "carol")
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE, '2026-01-01 00:00:02'),
-			(?, 'ses_bbbbbbbbbbbbbbbbbbbbbbbbbb', ?, TRUE, '2026-01-01 00:00:03'),
-			(?, 'ses_cccccccccccccccccccccccccc', ?, TRUE, '2026-01-01 00:00:01'),
-			(?, 'ses_dddddddddddddddddddddddddd', ?, TRUE, '2026-01-01 00:00:04'),
-			(?, 'ses_eeeeeeeeeeeeeeeeeeeeeeeeee', ?, FALSE, '2026-01-01 00:00:05')
+			(?, 'ses_00000000000000000000000000', ?, TRUE, '2026-01-01 00:00:02'),
+			(?, 'ses_00000000000000000000000001', ?, TRUE, '2026-01-01 00:00:03'),
+			(?, 'ses_00000000000000000000000002', ?, TRUE, '2026-01-01 00:00:01'),
+			(?, 'ses_00000000000000000000000003', ?, TRUE, '2026-01-01 00:00:04'),
+			(?, 'ses_00000000000000000000000004', ?, FALSE, '2026-01-01 00:00:05')
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled) VALUES
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE),
-			(?, 'ses_cccccccccccccccccccccccccc', ?, TRUE),
-			(?, 'ses_dddddddddddddddddddddddddd', ?, FALSE),
-			(?, 'ses_eeeeeeeeeeeeeeeeeeeeeeeeee', ?, TRUE)
+			(?, 'ses_00000000000000000000000000', ?, TRUE),
+			(?, 'ses_00000000000000000000000002', ?, TRUE),
+			(?, 'ses_00000000000000000000000003', ?, FALSE),
+			(?, 'ses_00000000000000000000000004', ?, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, carol.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-			VALUES (?, 'ses_bbbbbbbbbbbbbbbbbbbbbbbbbb', ?, TRUE)
+			VALUES (?, 'ses_00000000000000000000000001', ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
@@ -78,20 +82,20 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 		return sessions
 	}
 	wantAlice := []model.Session{
-		{Ref: model.SessionRef{Workspace: workspace, Id: "ses_bbbbbbbbbbbbbbbbbbbbbbbbbb"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:03"},
-		{Ref: model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:02"},
+		{Ref: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000001"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:03"},
+		{Ref: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:02"},
 	}
 	if got := sessionsFor(alice); !reflect.DeepEqual(got, wantAlice) {
 		t.Fatalf("SessionsGet() for alice = %#v, want %#v", got, wantAlice)
 	}
 	wantBob := []model.Session{{
-		Ref: model.SessionRef{Workspace: workspace, Id: "ses_bbbbbbbbbbbbbbbbbbbbbbbbbb"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:03",
+		Ref: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000001"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:03",
 	}}
 	if got := sessionsFor(bob); !reflect.DeepEqual(got, wantBob) {
 		t.Fatalf("SessionsGet() for bob = %#v, want %#v", got, wantBob)
 	}
 	wantCarol := []model.Session{{
-		Ref: model.SessionRef{Workspace: workspace, Id: "ses_cccccccccccccccccccccccccc"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:01",
+		Ref: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000002"}, AuthorPrincipal: &alice, Enabled: true, CreatedAt: "2026-01-01 00:00:01",
 	}}
 	if got := sessionsFor(carol); !reflect.DeepEqual(got, wantCarol) {
 		t.Fatalf("SessionsGet() for carol = %#v, want %#v", got, wantCarol)
@@ -129,7 +133,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
 	err, stored := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice)
@@ -152,7 +156,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 
 	event := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "sev_bbbbbbbbbbbbbbbbbbbbbbbbbb"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello"},
@@ -168,7 +172,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("SessionEventsCreate() timestamp = %q: %v", storedEvent.CreatedAt, err)
 	}
 	preciselyTimedEvent := event
-	preciselyTimedEvent.Ref.Id = "sev_cccccccccccccccccccccccccc"
+	preciselyTimedEvent.Ref.Id = "sev_00000000000000000000000002"
 	preciselyTimedEvent.CreatedAt = "2026-01-01T00:00:00.001Z"
 	err, preciselyTimedEvent = store.SessionEventsCreate(ctx, preciselyTimedEvent)
 	if err != nil || preciselyTimedEvent.CreatedAt != "2026-01-01T00:00:00.001Z" {
@@ -183,25 +187,25 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_bbbbbbbbbbbbbbbbbbbbbbbbbb', '2026-01-01T00:00:00.000Z')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id); err != nil {
 		t.Fatalf("create session event reply task: %v", err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_bbbbbbbbbbbbbbbbbbbbbbbbbb', '2026-01-01T00:00:00.000Z')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a duplicate event")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_zzzzzzzzzzzzzzzzzzzzzzzzzz', '2026-01-01T00:00:00.000Z')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000007', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a missing event")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_bbbbbbbbbbbbbbbbbbbbbbbbbb')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001')
 	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a missing timestamp")
 	}
@@ -209,16 +213,16 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
 		INSERT INTO gatehouse_agent_providers (id, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-		VALUES ('apr_aaisem2ekvthpcezvk54zxpo74', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
+		VALUES ('apr_01arz3ndektsv4rrffq69g5fav', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
-		VALUES ('amd_aaisem2ekvthpcezvk54zxpo74', 1, 'apr_aaisem2ekvthpcezvk54zxpo74', 'example', '{}', TRUE);
+		VALUES ('amd_01arz3ndektsv4rrffq69g5fav', 1, 'apr_01arz3ndektsv4rrffq69g5fav', 'example', '{}', TRUE);
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)
-		VALUES (?, 'amd_aaisem2ekvthpcezvk54zxpo74', 1, TRUE)
+		VALUES (?, 'amd_01arz3ndektsv4rrffq69g5fav', 1, TRUE)
 	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "amd_aaisem2ekvthpcezvk54zxpo74"}}
-	agentSession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_bbbbbbbbbbbbbbbbbbbbbbbbbb"}, AuthorAgent: &agent, Enabled: true}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "amd_01arz3ndektsv4rrffq69g5fav"}}
+	agentSession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_00000000000000000000000001"}, AuthorAgent: &agent, Enabled: true}
 	err, _ = store.SessionsCreate(ctx, agentSession, alice)
 	if err != nil {
 		t.Fatal(err)
@@ -228,7 +232,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("agent-authored session = (%#v, %v)", storedSession, err)
 	}
 	gateway := model.GatewayRef{Id: newTypedID(t, "gwy")}
-	gatewaySession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_cccccccccccccccccccccccccc"}, AuthorGateway: &gateway, Enabled: true}
+	gatewaySession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_00000000000000000000000002"}, AuthorGateway: &gateway, Enabled: true}
 	err, _ = store.SessionsCreate(ctx, gatewaySession, alice)
 	if err != nil {
 		t.Fatal(err)
@@ -238,11 +242,11 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("gateway-authored session = (%#v, %v)", storedSession, err)
 	}
 	agentEvent := model.SessionEvent{
-		Ref:  model.SessionEventRef{Session: session, Id: "sev_dddddddddddddddddddddddddd"},
+		Ref:  model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"},
 		Kind: "message.text",
 		AuthorAgent: &model.WorkspaceAgentRef{
 			Workspace: session.Workspace,
-			Model:     model.AgentModelRef{Id: "amd_aaisem2ekvthpcezvk54zxpo74"},
+			Model:     model.AgentModelRef{Id: "amd_01arz3ndektsv4rrffq69g5fav"},
 		},
 		Payload: map[string]interface{}{"text": "hello from the agent"},
 	}
@@ -251,7 +255,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	gatewayEvent := model.SessionEvent{
-		Ref:           model.SessionEventRef{Session: session, Id: "sev_eeeeeeeeeeeeeeeeeeeeeeeeee"},
+		Ref:           model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"},
 		Kind:          "gateway.notice",
 		AuthorGateway: &gateway,
 		Payload:       map[string]interface{}{"text": "gateway notice"},
@@ -275,7 +279,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("gateway session event = %#v", gateway)
 	}
 
-	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_dddddddddddddddddddddddddd"}, Kind: "message.text", Payload: map[string]interface{}{}})
+	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Kind: "message.text", Payload: map[string]interface{}{}})
 	if err == nil {
 		t.Fatal("SessionEventsCreate() accepted an event without an author")
 	}
@@ -290,19 +294,19 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_ffffffffffffffffffffffffff', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000005', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id, newTypedID(t, "prn")); err == nil {
 		t.Fatal("session events accepted an unknown principal author")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled)
-		VALUES (?, 'ses_ffffffffffffffffffffffffff', ?, TRUE)
+		VALUES (?, 'ses_00000000000000000000000005', ?, TRUE)
 	`, workspace.Id, alice.Id); err == nil {
 		t.Fatal("sessions accepted a missing timestamp")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_gggggggggggggggggggggggggg', 'message.text', ?, '{}')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000006', 'message.text', ?, '{}')
 	`, workspace.Id, alice.Id); err == nil {
 		t.Fatal("session events accepted a missing timestamp")
 	}
@@ -339,25 +343,25 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	bob := principalRef(t, ctx, store, "bob")
 	carol := principalRef(t, ctx, store, "carol")
-	shared := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	private := model.SessionRef{Workspace: workspace, Id: "ses_bbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	shared := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	private := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000001"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: shared, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE)
+		VALUES (?, 'ses_00000000000000000000000000', ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: private, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	sharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	sharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
 	if err, _ := store.SessionEventsCreate(ctx, sharedEvent); err != nil {
 		t.Fatal(err)
 	}
-	privateEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: private, Id: "sev_bbbbbbbbbbbbbbbbbbbbbbbbbb"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	privateEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: private, Id: "sev_00000000000000000000000001"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
 	if err, _ := store.SessionEventsCreate(ctx, privateEvent); err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +392,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSessions}, {Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].CreatedAt != "" || checkpoints[1].CreatedAt != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
 	}
-	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_cccccccccccccccccccccccccc"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
 	if err, _ := store.SessionEventsCreate(ctx, newSharedEvent); err != nil {
 		t.Fatal(err)
 	}
@@ -414,6 +418,17 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	if createdAt == "" {
 		t.Fatal("activity event did not retain its creation timestamp")
 	}
+	if !typed_id.Valid(typed_id.ActivityEvent, activityID) {
+		t.Fatalf("activity event ID %q is invalid", activityID)
+	}
+	id, err := ulid.ParseStrict(strings.ToUpper(strings.TrimPrefix(activityID, typed_id.ActivityEvent+"_")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at, err := time.Parse("2006-01-02T15:04:05.000Z", createdAt)
+	if err != nil || !id.Timestamp().Equal(at) {
+		t.Fatalf("activity event ID timestamp = (%v, %v), want %v", id.Timestamp(), err, at)
+	}
 }
 
 func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T) {
@@ -433,14 +448,14 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	message := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello"},
@@ -455,17 +470,17 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at) VALUES
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_bbbbbbbbbbbbbbbbbbbbbbbbbb', 'message.text', ?, '{"text":"first"}', '2026-01-01T00:00:00.000Z'),
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_cccccccccccccccccccccccccc', 'message.text', ?, '{"text":"second"}', '2026-01-01T00:00:00.000Z'),
-			(?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_dddddddddddddddddddddddddd', 'message.text', ?, '{"text":"third"}', '2026-01-01T00:00:01.000Z')
+			(?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001', 'message.text', ?, '{"text":"first"}', '2026-01-01T00:00:00.000Z'),
+			(?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000002', 'message.text', ?, '{"text":"second"}', '2026-01-01T00:00:00.000Z'),
+			(?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000003', 'message.text', ?, '{"text":"third"}', '2026-01-01T00:00:01.000Z')
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
-	err, events := store.SessionEventsPageGet(ctx, session, "2026-01-01T00:00:00.000Z", "sev_bbbbbbbbbbbbbbbbbbbbbbbbbb", 2)
+	err, events := store.SessionEventsPageGet(ctx, session, "2026-01-01T00:00:00.000Z", "sev_00000000000000000000000001", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Ref.Id != "sev_cccccccccccccccccccccccccc" || events[1].Ref.Id != "sev_dddddddddddddddddddddddddd" {
+	if len(events) != 2 || events[0].Ref.Id != "sev_00000000000000000000000002" || events[1].Ref.Id != "sev_00000000000000000000000003" {
 		t.Fatalf("SessionEventsPageGet() = %#v", events)
 	}
 }
@@ -584,7 +599,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
@@ -601,11 +616,11 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		}
 		return event
 	}
-	root := create("sev_aaaaaaaaaaaaaaaaaaaaaaaaaa", "message.text", nil)
-	reasoning := create("sev_bbbbbbbbbbbbbbbbbbbbbbbbbb", "message.reasoning", &root.Ref)
-	call := create("sev_cccccccccccccccccccccccccc", "tool.request", &root.Ref)
-	result := create("sev_dddddddddddddddddddddddddd", "tool.success", &call.Ref)
-	text := create("sev_eeeeeeeeeeeeeeeeeeeeeeeeee", "message.text", &root.Ref)
+	root := create("sev_00000000000000000000000000", "message.text", nil)
+	reasoning := create("sev_00000000000000000000000001", "message.reasoning", &root.Ref)
+	call := create("sev_00000000000000000000000002", "tool.request", &root.Ref)
+	result := create("sev_00000000000000000000000003", "tool.success", &call.Ref)
+	text := create("sev_00000000000000000000000004", "message.text", &root.Ref)
 
 	err, events := store.SessionEventsGet(ctx, session)
 	if err != nil {
@@ -652,12 +667,12 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		}
 	}
 
-	otherSession := model.SessionRef{Workspace: session.Workspace, Id: "ses_bbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	otherSession := model.SessionRef{Workspace: session.Workspace, Id: "ses_00000000000000000000000001"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: otherSession, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: otherSession, Id: "sev_ffffffffffffffffffffffffff"},
+		Ref:             model.SessionEventRef{Session: otherSession, Id: "sev_00000000000000000000000005"},
 		Parent:          &root.Ref,
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
@@ -699,16 +714,16 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	root := model.SessionEventRef{Session: session, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
-	call := model.SessionEventRef{Session: session, Id: "sev_bbbbbbbbbbbbbbbbbbbbbbbbbb"}
+	root := model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}
+	call := model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}
 	events := []model.SessionEvent{
 		{Ref: root, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}},
 		{Ref: call, Parent: &root, Kind: "tool.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
-		{Ref: model.SessionEventRef{Session: session, Id: "sev_cccccccccccccccccccccccccc"}, Parent: &call, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &call, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
 	}
 	err, stored := store.SessionEventsCreateBatch(ctx, events)
 	if err != nil || len(stored) != len(events) {
@@ -720,9 +735,9 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 		}
 	}
 
-	forward := model.SessionEventRef{Session: session, Id: "sev_dddddddddddddddddddddddddd"}
+	forward := model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}
 	err, _ = store.SessionEventsCreateBatch(ctx, []model.SessionEvent{
-		{Ref: model.SessionEventRef{Session: session, Id: "sev_eeeeeeeeeeeeeeeeeeeeeeeeee"}, Parent: &forward, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Parent: &forward, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
 		{Ref: forward, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
 	})
 	if err == nil {
@@ -735,7 +750,7 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, parent, kind, author_principal, payload, created_at)
-		VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', 'sev_ffffffffffffffffffffffffff', 'sev_ffffffffffffffffffffffffff', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
+		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000005', 'sev_00000000000000000000000005', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id, alice.Id); err == nil {
 		t.Fatal("session events accepted a self parent")
 	}

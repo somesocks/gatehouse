@@ -4,6 +4,7 @@ go 1.25.12
 
 require (
 	github.com/dbos-inc/dbos-transact-golang v1.0.0
+	github.com/oklog/ulid/v2 v2.1.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	golang.org/x/term v0.37.0
 	modernc.org/sqlite v1.54.0
