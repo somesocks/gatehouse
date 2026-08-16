@@ -24,10 +24,10 @@ workspaces:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := state.StorageProviders, []StorageProvider{{ID: "embedded", Revision: 1, Protocol: storageProviderProtocolEmbedded, Enabled: true}}; !reflect.DeepEqual(got, want) {
+	if got, want := state.StorageProviders, []StorageProvider{{Alias: "embedded", Revision: 1, Protocol: storageProviderProtocolEmbedded, Enabled: true}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("storage providers = %#v, want %#v", got, want)
 	}
-	if got, want := state.WorkspaceStorageProviders, []WorkspaceStorageProvider{{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true}}; !reflect.DeepEqual(got, want) {
+	if got, want := state.WorkspaceStorageProviders, []WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("workspace storage providers = %#v, want %#v", got, want)
 	}
 }
@@ -37,10 +37,10 @@ func TestResolveStorageProvidersS3AndWorkspaceBindings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
 storage_providers:
-  - id: embedded
+  - alias: embedded
     revision: 1
     protocol: embedded
-  - id: documents
+  - alias: documents
     revision: 2
     protocol: s3
     endpoint: https://s3.example.test
@@ -71,12 +71,12 @@ workspaces:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.StorageProviders) != 2 || state.StorageProviders[1].ID != "embedded" || state.StorageProviders[0].ID != "documents" || state.StorageProviders[0].Keychain == nil || *state.StorageProviders[0].Keychain != "storage" || len(state.StorageProviders[0].SecretKeySources) != 1 || state.StorageProviders[0].SecretKeySources[0] != "env:DOCUMENTS_SECRET" {
+	if len(state.StorageProviders) != 2 || state.StorageProviders[1].Alias != "embedded" || state.StorageProviders[0].Alias != "documents" || state.StorageProviders[0].Keychain == nil || *state.StorageProviders[0].Keychain != "storage" || len(state.StorageProviders[0].SecretKeySources) != 1 || state.StorageProviders[0].SecretKeySources[0] != "env:DOCUMENTS_SECRET" {
 		t.Fatalf("storage providers = %#v", state.StorageProviders)
 	}
 	want := []WorkspaceStorageProvider{
-		{WorkspaceID: "engineering", Provider: "documents", Priority: 10, Enabled: true},
-		{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true},
+		{WorkspaceID: "engineering", ProviderAlias: "documents", Priority: 10, Enabled: true},
+		{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},
 	}
 	if !reflect.DeepEqual(state.WorkspaceStorageProviders, want) {
 		t.Fatalf("workspace storage providers = %#v, want %#v", state.WorkspaceStorageProviders, want)
@@ -88,7 +88,7 @@ func TestValidateFileRejectsInvalidStorageProviders(t *testing.T) {
 		"embedded S3 configuration": `
 api_version: v1
 storage_providers:
-  - id: embedded
+  - alias: embedded
     revision: 1
     protocol: embedded
     bucket: invalid
@@ -96,7 +96,7 @@ storage_providers:
 		"incomplete S3 configuration": `
 api_version: v1
 storage_providers:
-  - id: documents
+  - alias: documents
     revision: 1
     protocol: s3
     endpoint: https://s3.example.test

@@ -17,6 +17,7 @@ const (
 	Resource      = "res"
 	AgentProvider = "apr"
 	AgentModel    = "amd"
+	StorageProvider = "stp"
 	encodedLength = 26
 )
 

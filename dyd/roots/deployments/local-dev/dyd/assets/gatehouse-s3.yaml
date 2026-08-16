@@ -24,7 +24,7 @@ agent_models:
     parameters:
       reasoning_effort: medium
 storage_providers:
-  - id: local-s3
+  - alias: local-s3
     revision: 1
     protocol: s3
     endpoint: http://seaweedfs:8333

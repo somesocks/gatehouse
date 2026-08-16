@@ -360,7 +360,10 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_storage_providers",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_providers (
-				id TEXT PRIMARY KEY CHECK (id GLOB '[a-z]*') CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'stp_'),
+				alias TEXT UNIQUE
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				revision INTEGER NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('embedded', 's3')),
 				endpoint TEXT,

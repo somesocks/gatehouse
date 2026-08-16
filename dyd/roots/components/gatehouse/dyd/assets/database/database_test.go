@@ -62,15 +62,15 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 		Keychains: []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{
-			{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
+			{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
 			{
-				ID: "documents", Revision: 1, Protocol: "s3", Enabled: true,
+				Alias: "documents", Revision: 1, Protocol: "s3", Enabled: true,
 				Endpoint: stringPointer("https://s3.example.test"), Region: stringPointer("us-east-1"), Bucket: stringPointer("documents"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:DOCUMENTS_SECRET"},
 			},
 		},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
-			{WorkspaceID: "engineering", Provider: "documents", Priority: 10, Enabled: true},
-			{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", ProviderAlias: "documents", Priority: 10, Enabled: true},
+			{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},
 		},
 	}
 	t.Setenv("DOCUMENTS_KEYCHAIN", "storage passphrase")
@@ -86,17 +86,24 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	)
 	if err := store.QueryRowContext(ctx, `
 		SELECT protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, revision, enabled
-		FROM gatehouse_storage_providers WHERE id = 'documents'
+		FROM gatehouse_storage_providers WHERE alias = 'documents'
 	`).Scan(&protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secret, &revision, &enabled); err != nil {
 		t.Fatal(err)
 	}
 	if protocol != "s3" || endpoint != "https://s3.example.test" || region != "us-east-1" || bucket != "documents" || accessKeyID != "access-key" || keychainID != "storage" || keychainVersion != 1 || secret == "secret-1" || revision != 1 || !enabled {
 		t.Fatalf("documents storage provider = (%q, %q, %q, %q, %q, %q, %d, %q, %d, %t)", protocol, endpoint, region, bucket, accessKeyID, keychainID, keychainVersion, secret, revision, enabled)
 	}
+	var documentsID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents'`).Scan(&documentsID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.StorageProvider, documentsID) {
+		t.Fatalf("documents storage provider ID = %q, want typed ID", documentsID)
+	}
 	if err := store.QueryRowContext(ctx, `
 		SELECT priority, enabled
 		FROM gatehouse_workspace_storage_providers
-		WHERE workspace = ? AND provider = 'documents'
+		WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')
 	`, workspace.Id).Scan(&priority, &enabled); err != nil {
 		t.Fatal(err)
 	}
@@ -110,17 +117,30 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueryRowContext(ctx, `SELECT endpoint, revision FROM gatehouse_storage_providers WHERE id = 'documents'`).Scan(&endpoint, &revision); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT endpoint, revision FROM gatehouse_storage_providers WHERE alias = 'documents'`).Scan(&endpoint, &revision); err != nil {
 		t.Fatal(err)
 	}
 	if endpoint != "https://s3-next.example.test" || revision != 2 {
 		t.Fatalf("updated documents storage provider = (%q, %d)", endpoint, revision)
 	}
-	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = 'documents'`, workspace.Id).Scan(&priority); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')`, workspace.Id).Scan(&priority); err != nil {
 		t.Fatal(err)
 	}
 	if priority != 20 {
 		t.Fatalf("updated documents workspace priority = %d", priority)
+	}
+
+	state.StorageProviders[1].Alias = "documents-v2"
+	state.WorkspaceStorageProviders[0].ProviderAlias = "documents-v2"
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	var renamedDocumentsID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents-v2'`).Scan(&renamedDocumentsID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.StorageProvider, renamedDocumentsID) || renamedDocumentsID == documentsID {
+		t.Fatalf("renamed storage provider ID = %q, want new typed ID distinct from %q", renamedDocumentsID, documentsID)
 	}
 }
 

@@ -594,11 +594,11 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{WorkspaceID: "engineering", Alias: "docs", Source: "file:./docs", Secret: false, Enabled: true},
 			{WorkspaceID: "engineering", Alias: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
 		},
-		StorageProviders: []config.StorageProvider{{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
-			{WorkspaceID: "engineering", Provider: "embedded", Priority: 1, Enabled: true},
-			{WorkspaceID: "operations", Provider: "embedded", Priority: 1, Enabled: true},
-			{WorkspaceID: "private", Provider: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "operations", ProviderAlias: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "private", ProviderAlias: "embedded", Priority: 1, Enabled: true},
 		},
 	}
 	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())

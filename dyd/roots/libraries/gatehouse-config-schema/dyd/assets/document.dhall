@@ -252,7 +252,7 @@ let WorkspaceStorageProvider =
       s.record.from
         s.record.props::{
         , required = toMap
-            { provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider identity" }
+            { provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider reconciliation alias" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "new-object placement priority" }
             }
         , optional = toMap
@@ -483,7 +483,7 @@ let StorageProvider =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable storage provider identity" }
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider reconciliation alias" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic provider configuration revision" }
             , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider protocol" }
             }

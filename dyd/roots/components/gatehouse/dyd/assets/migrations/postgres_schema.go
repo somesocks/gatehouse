@@ -342,7 +342,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_storage_providers",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_providers (
-				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^stp_[a-z2-7]{26}$'),
+				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('embedded', 's3')),
 				endpoint TEXT,
