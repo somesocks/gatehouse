@@ -366,7 +366,7 @@ let SessionRef =
               , id =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local session identity" }
+                    s.text.meta::{ description = Some "durable typed session identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -484,8 +484,8 @@ let SessionEventRef =
                     s.reference.meta::{ description = Some "owning session identity" }
               , id =
                   s.text.from
-                    s.text.props::{ variant = s.text.variants.uuid }
-                    s.text.meta::{ description = Some "session-local event identity" }
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "durable typed session event identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -551,7 +551,7 @@ let ActivityEventRef =
               , id =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local activity identity" }
+                    s.text.meta::{ description = Some "durable typed activity identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }

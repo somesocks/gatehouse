@@ -58,12 +58,12 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
-	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	message := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c892"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_aaaaaaaaaaaaaaaaaaaaaaaaaa"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello", "agent": requestedID},
@@ -177,12 +177,12 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
-	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
 	message := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c893"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_bbbbbbbbbbbbbbbbbbbbbbbbbb"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello"},
@@ -191,7 +191,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	cancellation := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c894"},
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_cccccccccccccccccccccccccc"},
 		Parent:          &message.Ref,
 		Kind:            "cancel.request",
 		AuthorPrincipal: &alicePrincipal,

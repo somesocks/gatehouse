@@ -2,9 +2,7 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -21,6 +19,7 @@ import (
 	"gatehouse/lisp"
 	"gatehouse/model"
 	"gatehouse/storage"
+	"gatehouse/typed_id"
 )
 
 func init() {
@@ -1176,10 +1175,9 @@ func sessionEventReplyChildID(event model.SessionEventRef, kind string, index in
 }
 
 func sessionEventID(event model.SessionEventRef, suffix string) string {
-	sum := sha256.Sum256([]byte(event.Session.Workspace.Id + "\x00" + event.Session.Id + "\x00" + event.Id + "\x00" + suffix))
-	value := sum[:16]
-	value[6] = value[6]&0x0f | 0x50
-	value[8] = value[8]&0x3f | 0x80
-	encoded := hex.EncodeToString(value)
-	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:]
+	id, err := typed_id.Derive(typed_id.SessionEvent, event.Session.Workspace.Id+"\x00"+event.Session.Id+"\x00"+event.Id+"\x00"+suffix)
+	if err != nil {
+		panic(err)
+	}
+	return id
 }

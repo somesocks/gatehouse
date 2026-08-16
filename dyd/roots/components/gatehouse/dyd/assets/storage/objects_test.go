@@ -101,10 +101,10 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES (?, TRUE)`, principalID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'session', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
 		t.Fatal(err)
 	}
-	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "session"}, Id: "file"}, Name: "report.txt"}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, Id: "file"}, Name: "report.txt"}
 	err, _, objectID := store.SessionFileCreate(ctx, file, "object")
 	if err != nil {
 		t.Fatal(err)

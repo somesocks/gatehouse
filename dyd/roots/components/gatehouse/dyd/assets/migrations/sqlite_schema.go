@@ -184,7 +184,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'ses_'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
@@ -235,7 +235,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_session_events (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sev_'),
 				parent TEXT,
 				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
@@ -436,7 +436,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_activity_events (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'act_'),
 				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
 				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
 				session TEXT,

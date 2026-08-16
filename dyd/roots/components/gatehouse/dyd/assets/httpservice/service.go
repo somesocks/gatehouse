@@ -21,6 +21,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 //go:embed web
@@ -400,7 +401,7 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 	if !ok {
 		return
 	}
-	id, err := randomUUID()
+	id, err := typed_id.New(typed_id.Session)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
@@ -451,7 +452,7 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			checkpoint := database.ActivityTopicCheckpoint{Topic: topic.Topic}
 			if topic.Cursor != nil {
 				parsed, err := time.Parse("2006-01-02T15:04:05.000Z", topic.Cursor.CreatedAt)
-				if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != topic.Cursor.CreatedAt || strings.TrimSpace(topic.Cursor.Id) == "" {
+				if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != topic.Cursor.CreatedAt || !typed_id.Valid(typed_id.ActivityEvent, topic.Cursor.Id) {
 					http.Error(response, "invalid activity cursor", http.StatusBadRequest)
 					return
 				}
@@ -489,7 +490,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		workspaceID := request.PathValue("workspace")
 		sessionID := request.PathValue("session")
-		if workspaceID == "" || sessionID == "" {
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
 			http.NotFound(response, request)
 			return
 		}
@@ -522,7 +523,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 				return
 			}
 		}
-		id, err := randomUUID()
+		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -557,7 +558,7 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		workspaceID := request.PathValue("workspace")
 		sessionID := request.PathValue("session")
-		if workspaceID == "" || sessionID == "" {
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
 			http.NotFound(response, request)
 			return
 		}
@@ -720,7 +721,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 		workspaceID := request.PathValue("workspace")
 		sessionID := request.PathValue("session")
 		messageID := request.PathValue("event")
-		if workspaceID == "" || sessionID == "" || !validUUID(messageID) {
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionEvent, messageID) {
 			http.NotFound(response, request)
 			return
 		}
@@ -744,7 +745,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			http.NotFound(response, request)
 			return
 		}
-		id, err := randomUUID()
+		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -777,7 +778,7 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		}
 		workspaceID := request.PathValue("workspace")
 		sessionID := request.PathValue("session")
-		if workspaceID == "" || sessionID == "" {
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
 			http.NotFound(response, request)
 			return
 		}
@@ -799,7 +800,7 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		}
 		if afterCreatedAt != "" {
 			parsed, err := time.Parse("2006-01-02T15:04:05.000Z", afterCreatedAt)
-			if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != afterCreatedAt || !validUUID(afterID) {
+			if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != afterCreatedAt || !typed_id.Valid(typed_id.SessionEvent, afterID) {
 				http.Error(response, "invalid event cursor", http.StatusBadRequest)
 				return
 			}
@@ -902,7 +903,7 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 func authorizedSessionFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.SessionFile, *database.StorageObject, bool) {
 	workspaceID := request.PathValue("workspace")
 	sessionID := request.PathValue("session")
-	if workspaceID == "" || sessionID == "" || !validUUID(fileID) {
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !validUUID(fileID) {
 		http.NotFound(response, request)
 		return nil, nil, false
 	}

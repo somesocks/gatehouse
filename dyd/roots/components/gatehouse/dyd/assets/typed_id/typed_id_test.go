@@ -3,11 +3,22 @@ package typed_id
 import "testing"
 
 func TestNew(t *testing.T) {
-	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel, StorageProvider} {
+	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel, StorageProvider, Session, SessionEvent, ActivityEvent} {
 		id, err := New(kind)
 		if err != nil || !Valid(kind, id) {
 			t.Fatalf("New(%q) = (%q, %v)", kind, id, err)
 		}
+	}
+}
+
+func TestDerive(t *testing.T) {
+	first, err := Derive(SessionEvent, "stable input")
+	if err != nil || !Valid(SessionEvent, first) {
+		t.Fatalf("Derive() = (%q, %v)", first, err)
+	}
+	second, err := Derive(SessionEvent, "stable input")
+	if err != nil || first != second {
+		t.Fatalf("Derive() = (%q, %v), want %q", second, err, first)
 	}
 }
 

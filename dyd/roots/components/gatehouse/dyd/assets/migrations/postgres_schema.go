@@ -170,7 +170,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (id ~ '^ses_[a-z2-7]{26}$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
 				author_agent TEXT,
@@ -221,7 +221,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE TABLE gatehouse_session_events (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				id TEXT NOT NULL CHECK (id ~ '^sev_[a-z2-7]{26}$'),
 				parent TEXT,
 				kind TEXT NOT NULL CHECK (length(trim(kind)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
@@ -415,7 +415,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_activity_events (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (length(trim(id)) > 0),
+				id TEXT NOT NULL CHECK (id ~ '^act_[a-z2-7]{26}$'),
 				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
 				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
 				session TEXT,

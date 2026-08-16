@@ -2,14 +2,13 @@ package database
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
-	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 const (
@@ -37,8 +36,8 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 	if err := validateActivityEvent(&activity, topics); err != nil {
 		return err, model.ActivityEvent{}
 	}
-	if activity.Ref.Id != "" && strings.TrimSpace(activity.Ref.Id) == "" {
-		return fmt.Errorf("append activity event: ID must not be blank"), model.ActivityEvent{}
+	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
+		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
 	}
 	if activity.Ref.Id == "" {
 		id, err := activityEventID()
@@ -122,14 +121,7 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 }
 
 func activityEventID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6] = value[6]&0x0f | 0x40
-	value[8] = value[8]&0x3f | 0x80
-	encoded := hex.EncodeToString(value[:])
-	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
+	return typed_id.New(typed_id.ActivityEvent)
 }
 
 func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, checkpoints []ActivityTopicCheckpoint) (error, []ActivityTopicCheckpoint) {
