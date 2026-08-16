@@ -1077,11 +1077,7 @@
             {/if}
             <div class="chat-composer-row">
               <button class="chat-composer-attach" type="button" aria-label="Attach files" title="Attach files" disabled={sendingMessage} onclick={() => fileInputElement?.click()}>
-                {#if composerFiles.some((entry) => entry.status === "uploading")}
-                  <span class="chat-composer-spinner" aria-hidden="true"></span>
-                {:else}
                   <Paperclip size={20} strokeWidth={2.25} aria-hidden="true" />
-                {/if}
               </button>
               <div class:agent-selected={selectedAgent !== ""} class="chat-composer-agent" title="Select agent">
                 <Bot size={20} strokeWidth={2.25} aria-hidden="true" />
