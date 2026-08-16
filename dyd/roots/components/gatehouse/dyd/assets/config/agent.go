@@ -220,7 +220,7 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Key, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

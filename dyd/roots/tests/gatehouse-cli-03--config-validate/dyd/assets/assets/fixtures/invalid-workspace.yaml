@@ -1,4 +1,4 @@
 api_version: v1
 workspaces:
-  - key: gatehouse
+  - alias: gatehouse
     name: Gatehouse

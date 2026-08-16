@@ -3,7 +3,7 @@ principals:
   - id: alice
   - id: bob
 workspaces:
-  - key: engineering
+  - alias: engineering
     groups:
       - id: deployers
         name: Deployers

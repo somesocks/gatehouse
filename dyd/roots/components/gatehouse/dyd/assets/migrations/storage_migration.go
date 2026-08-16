@@ -77,7 +77,7 @@ func workspaceStorageProviderMigrationBuilder(bindings []config.WorkspaceStorage
 		SELECT 1;
 		{{ range . }}
 		INSERT INTO gatehouse_workspace_storage_providers (workspace, provider, priority, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Provider }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Provider }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }})
 		ON CONFLICT (workspace, provider) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled;
 		{{ end }}
 	`, bindings)

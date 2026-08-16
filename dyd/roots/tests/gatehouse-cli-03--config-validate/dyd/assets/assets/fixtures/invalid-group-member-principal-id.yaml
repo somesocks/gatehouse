@@ -1,6 +1,6 @@
 api_version: v1
 workspaces:
-  - key: engineering
+  - alias: engineering
     groups:
       - id: deployers
         members:

@@ -18,7 +18,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: false},

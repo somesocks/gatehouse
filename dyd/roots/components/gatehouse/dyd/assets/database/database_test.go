@@ -59,7 +59,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	t.Setenv("DOCUMENTS_SECRET", "secret-1")
 	state := config.State{
 		Keychains: []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{
 			{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
 			{
@@ -181,7 +181,7 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	}
 
 	var gatehouseName string
-	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE key = 'gatehouse'`).Scan(&gatehouseName); err != nil {
+	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE alias = 'gatehouse'`).Scan(&gatehouseName); err != nil {
 		t.Fatal(err)
 	}
 	if gatehouseName != "Gatehouse" {
@@ -253,7 +253,7 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{Key: "engineering", Name: stringPointer("Engineering"), Enabled: true}}, nil)
+	}, []config.Workspace{{Alias: "engineering", Name: stringPointer("Engineering"), Enabled: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +266,7 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, second := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{Key: "engineering", Name: stringPointer("Platform Engineering"), Enabled: false}}, nil)
+	}, []config.Workspace{{Alias: "engineering", Name: stringPointer("Platform Engineering"), Enabled: false}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 
 func TestOpenSQLiteReconcilesUnnamedWorkspace(t *testing.T) {
 	err, database := openConfigured(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, []config.Workspace{{
-		Key:     "engineering",
+		Alias:   "engineering",
 		Enabled: true,
 	}}, nil)
 	if err != nil {
@@ -475,7 +475,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	defer database.Close()
 
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
@@ -547,7 +547,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	defer database.Close()
 
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Tools: []config.Tool{{
 			WorkspaceID: "engineering",
 			ID:          "github",
@@ -825,14 +825,14 @@ func stringPointer(value string) *string {
 	return &value
 }
 
-func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, alias string) model.WorkspaceRef {
 	t.Helper()
-	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	err, workspace := store.WorkspaceRefGetByAlias(ctx, alias)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workspace == nil {
-		t.Fatalf("workspace key %q was not found", key)
+		t.Fatalf("workspace alias %q was not found", alias)
 	}
 	return *workspace
 }

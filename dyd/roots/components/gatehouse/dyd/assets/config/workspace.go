@@ -10,33 +10,33 @@ import (
 )
 
 type Workspace struct {
-	Key     string
+	Alias   string
 	Name    *string
 	Enabled bool
 }
 
 var workspaceID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-var workspaceKey = workspaceID
+var workspaceAlias = workspaceID
 
-const gatehouseWorkspaceKey = "gatehouse"
-const defaultWorkspaceKey = "admin"
+const gatehouseWorkspaceAlias = "gatehouse"
+const defaultWorkspaceAlias = "admin"
 
 func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspace) {
 	if document.Workspaces == nil {
-		return nil, []Workspace{{Key: defaultWorkspaceKey, Enabled: true}}
+		return nil, []Workspace{{Alias: defaultWorkspaceAlias, Enabled: true}}
 	}
 
 	workspaces := make([]Workspace, 0, len(*document.Workspaces))
-	keys := make(map[string]struct{}, len(*document.Workspaces))
+	aliases := make(map[string]struct{}, len(*document.Workspaces))
 	for index, configured := range *document.Workspaces {
-		if !workspaceKey.MatchString(configured.Key) {
-			return fmt.Errorf("workspaces[%d].key must match %q", index, workspaceKey.String()), nil
+		if !workspaceAlias.MatchString(configured.Alias) {
+			return fmt.Errorf("workspaces[%d].alias must match %q", index, workspaceAlias.String()), nil
 		}
-		if configured.Key == gatehouseWorkspaceKey {
-			return fmt.Errorf("workspaces[%d].key %q is reserved", index, configured.Key), nil
+		if configured.Alias == gatehouseWorkspaceAlias {
+			return fmt.Errorf("workspaces[%d].alias %q is reserved", index, configured.Alias), nil
 		}
-		if _, exists := keys[configured.Key]; exists {
-			return fmt.Errorf("workspaces[%d].key %q is duplicated", index, configured.Key), nil
+		if _, exists := aliases[configured.Alias]; exists {
+			return fmt.Errorf("workspaces[%d].alias %q is duplicated", index, configured.Alias), nil
 		}
 		if configured.Name != nil && strings.TrimSpace(*configured.Name) == "" {
 			return fmt.Errorf("workspaces[%d].name must not be blank", index), nil
@@ -46,16 +46,16 @@ func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspac
 		if configured.Enabled != nil {
 			enabled = *configured.Enabled
 		}
-		keys[configured.Key] = struct{}{}
+		aliases[configured.Alias] = struct{}{}
 		workspaces = append(workspaces, Workspace{
-			Key:     configured.Key,
+			Alias:   configured.Alias,
 			Name:    configured.Name,
 			Enabled: enabled,
 		})
 	}
 
 	sort.Slice(workspaces, func(left, right int) bool {
-		return workspaces[left].Key < workspaces[right].Key
+		return workspaces[left].Alias < workspaces[right].Alias
 	})
 	return nil, workspaces
 }

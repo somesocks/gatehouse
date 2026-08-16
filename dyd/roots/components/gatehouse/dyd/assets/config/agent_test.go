@@ -132,7 +132,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         priority: 1
@@ -151,7 +151,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         priority: 1
@@ -198,7 +198,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         priority: 1
@@ -217,7 +217,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         priority: 1
@@ -237,7 +237,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         priority: 1
@@ -292,7 +292,7 @@ agent_models:
     parameters:
       text: Fallback reply.
 workspaces:
-  - key: engineering
+  - alias: engineering
     agents:
       - model: fallback
         label: Fallback assistant

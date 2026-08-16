@@ -180,7 +180,7 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	}
 
 	workspaces := request("/api/v1/workspaces")
-	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\""+engineering.Id+"\",\"key\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\""+operations.Id+"\",\"key\":\"operations\"}]\n" {
+	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\""+engineering.Id+"\",\"alias\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\""+operations.Id+"\",\"alias\":\"operations\"}]\n" {
 		t.Fatalf("GET workspaces = status %d body %q", workspaces.Code, workspaces.Body.String())
 	}
 	tools := request("/api/v1/workspaces/" + engineering.Id + "/tools")
@@ -405,7 +405,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	label := "Assistant"
 	state := config.State{
-		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{ID: "assistant", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "assistant", Label: &label, Priority: 1, MaxTurns: 1, Enabled: true}},
@@ -543,9 +543,9 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	state := config.State{
 		Keychains: configured,
 		Workspaces: []config.Workspace{
-			{Key: "engineering", Name: &engineering, Enabled: true},
-			{Key: "operations", Enabled: true},
-			{Key: "private", Name: &private, Enabled: true},
+			{Alias: "engineering", Name: &engineering, Enabled: true},
+			{Alias: "operations", Enabled: true},
+			{Alias: "private", Name: &private, Enabled: true},
 		},
 		Principals: []config.Principal{{
 			ID: "alice", Enabled: true, Identities: []config.Identity{{
@@ -591,15 +591,15 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		t.Fatal(err)
 	}
 	workspaces := map[string]model.WorkspaceRef{}
-	for _, key := range []string{"engineering", "operations", "private"} {
-		err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	for _, alias := range []string{"engineering", "operations", "private"} {
+		err, workspace := store.WorkspaceRefGetByAlias(ctx, alias)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if workspace == nil {
-			t.Fatalf("workspace key %q was not found", key)
+			t.Fatalf("workspace alias %q was not found", alias)
 		}
-		workspaces[key] = *workspace
+		workspaces[alias] = *workspace
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES

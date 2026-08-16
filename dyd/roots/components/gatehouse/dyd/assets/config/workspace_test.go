@@ -8,13 +8,13 @@ import (
 	"gatehouse/configschema"
 )
 
-func TestResolveWorkspacesDefaultsEnabledAndSortsByKey(t *testing.T) {
+func TestResolveWorkspacesDefaultsEnabledAndSortsByAlias(t *testing.T) {
 	disabled := false
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{
-			{Key: "zebra"},
-			{Key: "alpha-2", Name: stringPointer("Alpha"), Enabled: &disabled},
+			{Alias: "zebra"},
+			{Alias: "alpha-2", Name: stringPointer("Alpha"), Enabled: &disabled},
 		},
 	}
 
@@ -23,8 +23,8 @@ func TestResolveWorkspacesDefaultsEnabledAndSortsByKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Workspace{
-		{Key: "alpha-2", Name: stringPointer("Alpha"), Enabled: false},
-		{Key: "zebra", Name: nil, Enabled: true},
+		{Alias: "alpha-2", Name: stringPointer("Alpha"), Enabled: false},
+		{Alias: "zebra", Name: nil, Enabled: true},
 	}
 	if !reflect.DeepEqual(workspaces, want) {
 		t.Fatalf("ResolveWorkspaces() = %#v, want %#v", workspaces, want)
@@ -38,26 +38,26 @@ func TestResolveWorkspacesRejectsInvalidValues(t *testing.T) {
 		contains   string
 	}{
 		{
-			name:       "invalid key",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Key: "Engineering", Name: stringPointer("Engineering")}},
-			contains:   ".key must match",
+			name:       "invalid alias",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "Engineering", Name: stringPointer("Engineering")}},
+			contains:   ".alias must match",
 		},
 		{
-			name:       "reserved key",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Key: "gatehouse", Name: stringPointer("Gatehouse")}},
-			contains:   ".key \"gatehouse\" is reserved",
+			name:       "reserved alias",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "gatehouse", Name: stringPointer("Gatehouse")}},
+			contains:   ".alias \"gatehouse\" is reserved",
 		},
 		{
-			name: "duplicate key",
+			name: "duplicate alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{
-				{Key: "engineering", Name: stringPointer("Engineering")},
-				{Key: "engineering", Name: stringPointer("Engineering again")},
+				{Alias: "engineering", Name: stringPointer("Engineering")},
+				{Alias: "engineering", Name: stringPointer("Engineering again")},
 			},
-			contains: ".key \"engineering\" is duplicated",
+			contains: ".alias \"engineering\" is duplicated",
 		},
 		{
 			name:       "blank name",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Key: "engineering", Name: stringPointer(" \t")}},
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Name: stringPointer(" \t")}},
 			contains:   "must not be blank",
 		},
 	}

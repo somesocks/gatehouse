@@ -20,7 +20,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -105,7 +105,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -294,7 +294,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -398,7 +398,7 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -453,7 +453,7 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
 			{ID: "first", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
@@ -499,7 +499,7 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
 			{ID: "automatic", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
@@ -533,7 +533,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -647,7 +647,7 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {

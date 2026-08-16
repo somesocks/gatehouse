@@ -14,7 +14,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 		ApiVersion: "v1",
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{
 			{
-				Key: "zebra",
+				Alias: "zebra",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{
 					{Id: "guests"},
 					{
@@ -85,7 +85,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "invalid group ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id: "Admins",
 				}},
@@ -95,7 +95,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "duplicate group ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{
 					{Id: "admins"},
 					{Id: "admins"},
@@ -106,7 +106,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "blank group name",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id:   "admins",
 					Name: stringPointer(" "),
@@ -117,7 +117,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "invalid member principal ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id: "admins",
 					Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{{
@@ -130,7 +130,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "duplicate member principal ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id: "admins",
 					Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
@@ -144,7 +144,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "duplicate tool grant",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id: "admins",
 					ToolGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesToolGrantsValues{
@@ -158,7 +158,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "invalid resource grant ID",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Key: "engineering",
+				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Id: "admins",
 					ResourceGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesResourceGrantsValues{{

@@ -37,10 +37,10 @@ let Workspace =
               }
         , optional =
             toMap
-              { key =
+              { alias =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace reconciliation key" }
+                    s.text.meta::{ description = Some "workspace reconciliation alias" }
               , name =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }

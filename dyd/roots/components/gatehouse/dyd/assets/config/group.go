@@ -37,7 +37,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 	if document.Workspaces == nil {
 		if document.Principals == nil {
 			return nil, []Group{{
-				WorkspaceID: defaultWorkspaceKey,
+				WorkspaceID: defaultWorkspaceAlias,
 				ID:          "root",
 				Enabled:     true,
 				Members:     []GroupMember{{PrincipalID: defaultPrincipalID, Enabled: true}},
@@ -53,8 +53,8 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 		}
 		groupIDs := make(map[string]struct{}, len(*workspace.Groups))
 		for groupIndex, configured := range *workspace.Groups {
-			if !workspaceKey.MatchString(workspace.Key) || workspace.Key == gatehouseWorkspaceKey {
-				return fmt.Errorf("workspaces[%d].key is not a configurable workspace", workspaceIndex), nil
+			if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
+				return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 			}
 			if !workspaceID.MatchString(configured.Id) {
 				return fmt.Errorf("workspaces[%d].groups[%d].id must match %q", workspaceIndex, groupIndex, workspaceID.String()), nil
@@ -140,7 +140,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 
 			groupIDs[configured.Id] = struct{}{}
 			groups = append(groups, Group{
-				WorkspaceID:    workspace.Key,
+				WorkspaceID:    workspace.Alias,
 				ID:             configured.Id,
 				Name:           configured.Name,
 				Enabled:        enabled,

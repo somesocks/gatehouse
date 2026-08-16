@@ -33,8 +33,8 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 		if workspace.Tools == nil {
 			continue
 		}
-		if !workspaceKey.MatchString(workspace.Key) || workspace.Key == gatehouseWorkspaceKey {
-			return fmt.Errorf("workspaces[%d].key is not a configurable workspace", workspaceIndex), nil
+		if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
+			return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 		}
 		ids := make(map[string]struct{}, len(*workspace.Tools))
 		for toolIndex, configured := range *workspace.Tools {
@@ -53,7 +53,7 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 				enabled = *configured.Enabled
 			}
 			ids[configured.Id] = struct{}{}
-			tools = append(tools, Tool{WorkspaceID: workspace.Key, ID: configured.Id, Source: configured.Source, Enabled: enabled})
+			tools = append(tools, Tool{WorkspaceID: workspace.Alias, ID: configured.Id, Source: configured.Source, Enabled: enabled})
 		}
 	}
 	sort.Slice(tools, func(left, right int) bool {
@@ -75,8 +75,8 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 		if workspace.Resources == nil {
 			continue
 		}
-		if !workspaceKey.MatchString(workspace.Key) || workspace.Key == gatehouseWorkspaceKey {
-			return fmt.Errorf("workspaces[%d].key is not a configurable workspace", workspaceIndex), nil
+		if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
+			return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 		}
 		ids := make(map[string]struct{}, len(*workspace.Resources))
 		for resourceIndex, configured := range *workspace.Resources {
@@ -96,7 +96,7 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 			}
 			ids[configured.Id] = struct{}{}
 			resources = append(resources, Resource{
-				WorkspaceID: workspace.Key,
+				WorkspaceID: workspace.Alias,
 				ID:          configured.Id,
 				Source:      configured.Source,
 				Secret:      configured.Secret,

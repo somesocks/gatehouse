@@ -16,7 +16,7 @@ type WorkspaceResourceSummary struct {
 func (store *Store) WorkspacesGet(ctx context.Context, principal model.PrincipalRef) (error, []model.Workspace) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT workspaces.id, workspaces.key, workspaces.name, workspaces.enabled
+		SELECT workspaces.id, workspaces.alias, workspaces.name, workspaces.enabled
 		FROM gatehouse_workspaces AS workspaces
 		WHERE workspaces.enabled = TRUE
 			AND EXISTS (
@@ -41,15 +41,15 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 	workspaces := []model.Workspace{}
 	for rows.Next() {
 		var workspace model.Workspace
-		var key, name sql.NullString
-		if err := rows.Scan(&workspace.Ref.Id, &key, &name, &workspace.Enabled); err != nil {
+		var alias, name sql.NullString
+		if err := rows.Scan(&workspace.Ref.Id, &alias, &name, &workspace.Enabled); err != nil {
 			return fmt.Errorf("scan workspace: %w", err), nil
 		}
 		if name.Valid {
 			workspace.Name = &name.String
 		}
-		if key.Valid {
-			workspace.Key = &key.String
+		if alias.Valid {
+			workspace.Alias = &alias.String
 		}
 		workspaces = append(workspaces, workspace)
 	}
@@ -72,16 +72,16 @@ func (store *Store) WorkspaceGet(ctx context.Context, workspace model.WorkspaceR
 	return nil, nil
 }
 
-func (store *Store) WorkspaceRefGetByKey(ctx context.Context, key string) (error, *model.WorkspaceRef) {
+func (store *Store) WorkspaceRefGetByAlias(ctx context.Context, alias string) (error, *model.WorkspaceRef) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT id FROM gatehouse_workspaces WHERE key = `+placeholder(1), key)
+		SELECT id FROM gatehouse_workspaces WHERE alias = `+placeholder(1), alias)
 	var workspace model.WorkspaceRef
 	if err := row.Scan(&workspace.Id); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
-		return fmt.Errorf("get workspace by key: %w", err), nil
+		return fmt.Errorf("get workspace by alias: %w", err), nil
 	}
 	return nil, &workspace
 }

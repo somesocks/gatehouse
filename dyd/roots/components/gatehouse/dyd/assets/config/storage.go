@@ -111,19 +111,19 @@ func ResolveWorkspaceStorageProviders(document configschema.GatehouseConfig, pro
 	}
 	if document.Workspaces == nil {
 		if _, exists := configuredProviders[implicitStorageProviderID]; exists {
-			return nil, []WorkspaceStorageProvider{{WorkspaceID: defaultWorkspaceKey, Provider: implicitStorageProviderID, Priority: 1, Enabled: true}}
+			return nil, []WorkspaceStorageProvider{{WorkspaceID: defaultWorkspaceAlias, Provider: implicitStorageProviderID, Priority: 1, Enabled: true}}
 		}
 		return nil, []WorkspaceStorageProvider{}
 	}
 
 	bindings := []WorkspaceStorageProvider{}
 	for workspaceIndex, workspace := range *document.Workspaces {
-		if !workspaceKey.MatchString(workspace.Key) || workspace.Key == gatehouseWorkspaceKey {
-			return fmt.Errorf("workspaces[%d].key is not a configurable workspace", workspaceIndex), nil
+		if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
+			return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 		}
 		if workspace.StorageProviders == nil {
 			if _, exists := configuredProviders[implicitStorageProviderID]; exists {
-				bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Key, Provider: implicitStorageProviderID, Priority: 1, Enabled: true})
+				bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, Provider: implicitStorageProviderID, Priority: 1, Enabled: true})
 			}
 			continue
 		}
@@ -143,7 +143,7 @@ func ResolveWorkspaceStorageProviders(document configschema.GatehouseConfig, pro
 			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			seen[configured.Provider] = struct{}{}
-			bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Key, Provider: configured.Provider, Priority: configured.Priority, Enabled: enabled})
+			bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, Provider: configured.Provider, Priority: configured.Priority, Enabled: enabled})
 		}
 	}
 	sort.Slice(bindings, func(left, right int) bool {

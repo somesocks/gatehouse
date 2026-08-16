@@ -269,10 +269,10 @@ let Workspace =
         s.record.props::{
         , required =
             toMap
-              { key =
+              { alias =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "stable workspace key" }
+                    s.text.meta::{ description = Some "stable workspace reconciliation alias" }
               }
         , optional =
             toMap

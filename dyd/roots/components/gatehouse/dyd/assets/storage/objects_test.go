@@ -79,7 +79,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	defer keyring.Close()
 	state := config.State{
 		Keychains:  keychains,
-		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{{
 			ID: "s3", Revision: 1, Protocol: "s3", Endpoint: &server.URL, Region: stringPointer("us-east-1"), Bucket: stringPointer("gatehouse"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:S3_TEST_SECRET"}, Enabled: true,
 		}},
@@ -128,14 +128,14 @@ func TestClientStoresS3Objects(t *testing.T) {
 
 func stringPointer(value string) *string { return &value }
 
-func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, alias string) model.WorkspaceRef {
 	t.Helper()
-	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	err, workspace := store.WorkspaceRefGetByAlias(ctx, alias)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workspace == nil {
-		t.Fatalf("workspace key %q was not found", key)
+		t.Fatalf("workspace alias %q was not found", alias)
 	}
 	return *workspace
 }

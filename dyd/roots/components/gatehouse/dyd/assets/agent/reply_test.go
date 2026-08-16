@@ -25,7 +25,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
@@ -146,7 +146,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{
@@ -233,14 +233,14 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	}
 }
 
-func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, alias string) model.WorkspaceRef {
 	t.Helper()
-	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	err, workspace := store.WorkspaceRefGetByAlias(ctx, alias)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if workspace == nil {
-		t.Fatalf("workspace key %q was not found", key)
+		t.Fatalf("workspace alias %q was not found", alias)
 	}
 	return *workspace
 }
