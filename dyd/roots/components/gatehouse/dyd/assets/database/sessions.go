@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
@@ -22,7 +21,11 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	if err != nil {
 		return err, model.Session{}
 	}
-	session.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	createdAt, err := typed_id.Timestamp(typed_id.Session, session.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("create session: ID is invalid"), model.Session{}
+	}
+	session.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -165,9 +168,11 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 			return fmt.Errorf("create session event: parent must already exist"), model.SessionEvent{}
 		}
 	}
-	if event.CreatedAt == "" {
-		event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("create session event: ID is invalid"), model.SessionEvent{}
 	}
+	event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 	payload, err := json.Marshal(event.Payload)
 	if err != nil {
 		return fmt.Errorf("encode session event payload: %w", err), model.SessionEvent{}
@@ -279,9 +284,11 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 				}
 			}
 		}
-		if event.CreatedAt == "" {
-			event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+		createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)
+		if err != nil {
+			return fmt.Errorf("create session events: event %d ID is invalid", index), nil
 		}
+		event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 		if createReplyTasks {
 			files, err := sessionMessageFileIDs(event)
 			if err != nil {
@@ -362,10 +369,10 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 }
 
 func (store *Store) SessionEventsGet(ctx context.Context, session model.SessionRef) (error, []model.SessionEvent) {
-	return store.SessionEventsPageGet(ctx, session, "", "", 0)
+	return store.SessionEventsPageGet(ctx, session, "", 0)
 }
 
-func (store *Store) SessionEventsPageGet(ctx context.Context, session model.SessionRef, afterCreatedAt, afterID string, limit int) (error, []model.SessionEvent) {
+func (store *Store) SessionEventsPageGet(ctx context.Context, session model.SessionRef, afterID string, limit int) (error, []model.SessionEvent) {
 	if limit < 0 {
 		return fmt.Errorf("get session events: limit must not be negative"), nil
 	}
@@ -375,12 +382,12 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
 		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
-			AND (events.created_at, events.id) > (` + placeholder(3) + `, ` + placeholder(4) + `)
-		ORDER BY events.created_at, events.id
+			AND events.id > ` + placeholder(3) + `
+		ORDER BY events.id
 	`
-	arguments := []any{session.Workspace.Id, session.Id, afterCreatedAt, afterID}
+	arguments := []any{session.Workspace.Id, session.Id, afterID}
 	if limit > 0 {
-		query += " LIMIT " + placeholder(5)
+		query += " LIMIT " + placeholder(4)
 		arguments = append(arguments, limit)
 	}
 	rows, err := store.QueryContext(ctx, query, arguments...)
@@ -442,7 +449,7 @@ type SessionEventTreeEntry struct {
 	Depth int
 }
 
-func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.SessionRef, afterCreatedAt, afterID string, limit int) (error, []SessionEventTreeEntry) {
+func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.SessionRef, afterID string, limit int) (error, []SessionEventTreeEntry) {
 	if limit <= 0 {
 		return fmt.Errorf("get session event tree: limit must be positive"), nil
 	}
@@ -451,13 +458,13 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 		WITH RECURSIVE
 		roots AS (
 			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at,
-				0 AS depth, created_at || '/' || id AS display_path
+				0 AS depth, id AS display_path
 			FROM gatehouse_session_events
 			WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
 				AND parent IS NULL
-				AND (created_at, id) > (`+placeholder(3)+`, `+placeholder(4)+`)
-			ORDER BY created_at, id
-			LIMIT `+placeholder(5)+`
+				AND id > `+placeholder(3)+`
+			ORDER BY id
+			LIMIT `+placeholder(4)+`
 		),
 		tree AS (
 			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at, depth, display_path
@@ -466,7 +473,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 			UNION ALL
 
 			SELECT child.workspace, child.session, child.id, child.parent, child.kind, child.author_principal, child.author_agent, child.author_gateway, child.payload, child.created_at,
-				tree.depth + 1, tree.display_path || '/' || child.created_at || '/' || child.id
+				tree.depth + 1, tree.display_path || '/' || child.id
 			FROM gatehouse_session_events AS child
 			JOIN tree ON child.workspace = tree.workspace AND child.session = tree.session AND child.parent = tree.id
 		)
@@ -474,7 +481,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 		FROM tree
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = tree.author_principal
 		ORDER BY display_path
-	`, session.Workspace.Id, session.Id, afterCreatedAt, afterID, limit)
+	`, session.Workspace.Id, session.Id, afterID, limit)
 	if err != nil {
 		return fmt.Errorf("get session event tree: %w", err), nil
 	}

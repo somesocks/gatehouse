@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
@@ -21,9 +20,8 @@ const (
 )
 
 type ActivityTopicCheckpoint struct {
-	Topic     string
-	CreatedAt string
-	ID        string
+	Topic string
+	ID    string
 }
 
 func ActivityTopicSession(session model.SessionRef) string {
@@ -38,19 +36,18 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 	if err := validateActivityEvent(&activity, topics); err != nil {
 		return err, model.ActivityEvent{}
 	}
-	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
-		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
-	}
-	if activity.CreatedAt == "" {
-		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
-	}
 	if activity.Ref.Id == "" {
-		id, err := activityEventID(activity.CreatedAt)
+		id, err := typed_id.New(typed_id.ActivityEvent)
 		if err != nil {
 			return fmt.Errorf("generate activity event ID: %w", err), model.ActivityEvent{}
 		}
 		activity.Ref.Id = id
 	}
+	createdAt, err := typed_id.Timestamp(typed_id.ActivityEvent, activity.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
+	}
+	activity.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 
 	placeholder := keychainPlaceholder(store.kind)
 	var session, sessionEvent any
@@ -91,19 +88,18 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 	if err := validateActivityEvent(&activity, topics); err != nil {
 		return err, model.ActivityEvent{}
 	}
-	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
-		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
-	}
-	if activity.CreatedAt == "" {
-		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
-	}
 	if activity.Ref.Id == "" {
-		id, err := activityEventID(activity.CreatedAt)
+		id, err := typed_id.New(typed_id.ActivityEvent)
 		if err != nil {
 			return fmt.Errorf("generate activity event ID: %w", err), model.ActivityEvent{}
 		}
 		activity.Ref.Id = id
 	}
+	createdAt, err := typed_id.Timestamp(typed_id.ActivityEvent, activity.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
+	}
+	activity.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 
 	placeholder := keychainPlaceholder(store.kind)
 	var session, sessionEvent any
@@ -174,14 +170,6 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 	return nil
 }
 
-func activityEventID(createdAt string) (string, error) {
-	at, err := time.Parse("2006-01-02T15:04:05.000Z", createdAt)
-	if err != nil {
-		return "", fmt.Errorf("parse activity creation timestamp: %w", err)
-	}
-	return typed_id.NewAt(typed_id.ActivityEvent, at)
-}
-
 func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, checkpoints []ActivityTopicCheckpoint) (error, []ActivityTopicCheckpoint) {
 	if strings.TrimSpace(workspace.Id) == "" || strings.TrimSpace(principal.Id) == "" {
 		return fmt.Errorf("get activity topic checkpoints: workspace and principal are required"), nil
@@ -194,8 +182,8 @@ func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace m
 		if strings.TrimSpace(checkpoint.Topic) == "" {
 			return fmt.Errorf("get activity topic checkpoints: topic must not be blank"), nil
 		}
-		if (checkpoint.CreatedAt == "") != (checkpoint.ID == "") {
-			return fmt.Errorf("get activity topic checkpoints: cursor timestamp and ID must be provided together"), nil
+		if checkpoint.ID != "" && !typed_id.Valid(typed_id.ActivityEvent, checkpoint.ID) {
+			return fmt.Errorf("get activity topic checkpoints: cursor ID is invalid"), nil
 		}
 		if _, exists := seenTopics[checkpoint.Topic]; exists {
 			return fmt.Errorf("get activity topic checkpoints: duplicate topic %q", checkpoint.Topic), nil
@@ -207,13 +195,13 @@ func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace m
 	advanced := make([]ActivityTopicCheckpoint, 0, len(checkpoints))
 	for _, checkpoint := range checkpoints {
 		row := store.QueryRowContext(ctx, `
-			SELECT activities.created_at, activities.id
+			SELECT activities.id
 			FROM gatehouse_activity_event_topics AS topics
 			JOIN gatehouse_activity_events AS activities
 				ON activities.workspace = topics.workspace AND activities.id = topics.activity
 			WHERE topics.workspace = `+placeholder(1)+`
 				AND topics.topic = `+placeholder(2)+`
-				AND (topics.created_at, topics.activity) > (`+placeholder(3)+`, `+placeholder(4)+`)
+				AND topics.activity > `+placeholder(3)+`
 				AND EXISTS (
 					SELECT 1 FROM gatehouse_workspaces AS workspaces
 					WHERE workspaces.id = activities.workspace AND workspaces.enabled = TRUE
@@ -253,11 +241,11 @@ func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace m
 							)
 						)
 				)
-			ORDER BY topics.created_at DESC, topics.activity DESC
+			ORDER BY topics.activity DESC
 			LIMIT 1
-		`, workspace.Id, checkpoint.Topic, checkpoint.CreatedAt, checkpoint.ID, principal.Id, principal.Id, principal.Id)
+		`, workspace.Id, checkpoint.Topic, checkpoint.ID, principal.Id, principal.Id, principal.Id)
 		next := checkpoint
-		if err := row.Scan(&next.CreatedAt, &next.ID); err != nil {
+		if err := row.Scan(&next.ID); err != nil {
 			if err == sql.ErrNoRows {
 				advanced = append(advanced, next)
 				continue

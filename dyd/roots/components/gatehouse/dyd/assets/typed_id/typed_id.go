@@ -45,15 +45,24 @@ func NewAt(kind string, at time.Time) (string, error) {
 }
 
 func Valid(kind, value string) bool {
+	_, err := Timestamp(kind, value)
+	return err == nil
+}
+
+// Timestamp returns the timestamp encoded in a typed ULID.
+func Timestamp(kind, value string) (time.Time, error) {
 	if !validKind(kind) || !strings.HasPrefix(value, kind+"_") {
-		return false
+		return time.Time{}, fmt.Errorf("invalid typed ID kind %q", kind)
 	}
 	encoded := strings.TrimPrefix(value, kind+"_")
 	if encoded != strings.ToLower(encoded) {
-		return false
+		return time.Time{}, fmt.Errorf("typed ID must be lower-case")
 	}
 	id, err := ulid.ParseStrict(strings.ToUpper(encoded))
-	return err == nil && strings.ToLower(id.String()) == encoded
+	if err != nil || strings.ToLower(id.String()) != encoded {
+		return time.Time{}, fmt.Errorf("invalid typed ID")
+	}
+	return id.Timestamp().UTC(), nil
 }
 
 func validKind(kind string) bool {

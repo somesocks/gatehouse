@@ -281,8 +281,16 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if len(polled) != 1 || polled[0].Event.Ref != event.Ref || len(polled[0].Children) != 0 {
 		t.Fatalf("GET events response = %#v", polled)
 	}
+	parentTimestamp, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID, err := typed_id.NewAt(typed_id.SessionEvent, parentTimestamp.Add(time.Millisecond))
+	if err != nil {
+		t.Fatal(err)
+	}
 	child := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: "sev_00000000000000000000000000"}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
+		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: childID}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
 	}
 	if err, _ := store.SessionEventsCreate(context.Background(), child); err != nil {
 		t.Fatal(err)
@@ -291,17 +299,13 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil || len(polled) != 1 || len(polled[0].Children) != 1 || polled[0].Children[0].Event.Ref != child.Ref {
 		t.Fatalf("GET nested events response = (%#v, %v)", polled, err)
 	}
-	after := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id="+event.Ref.Id, "")
+	after := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
 	if after.Code != http.StatusOK || after.Body.String() != "[]\n" {
 		t.Fatalf("GET events after cursor = status %d body %q", after.Code, after.Body.String())
 	}
-	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
+	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id=invalid", "")
 	if invalidCursor.Code != http.StatusBadRequest {
-		t.Fatalf("GET events with incomplete cursor = status %d", invalidCursor.Code)
-	}
-	invalidID := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id=invalid", "")
-	if invalidID.Code != http.StatusBadRequest {
-		t.Fatalf("GET events with invalid cursor ID = status %d", invalidID.Code)
+		t.Fatalf("GET events with invalid cursor ID = status %d", invalidCursor.Code)
 	}
 
 	err, events := store.SessionEventsGet(context.Background(), model.SessionRef{Workspace: engineering, Id: session.ID})

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"gatehouse/model"
 	"gatehouse/typed_id"
@@ -147,11 +146,19 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 		}
 		return fmt.Errorf("select storage provider: %w", err), model.SessionFile{}, ""
 	}
-	file.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	fileCreatedAt, err := typed_id.Timestamp(typed_id.SessionFile, file.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("create session file: session file ID is invalid"), model.SessionFile{}, ""
+	}
+	storageObjectCreatedAt, err := typed_id.Timestamp(typed_id.StorageObject, storageObjectID)
+	if err != nil {
+		return fmt.Errorf("create session file: storage object ID is invalid"), model.SessionFile{}, ""
+	}
+	file.CreatedAt = fileCreatedAt.Format("2006-01-02T15:04:05.000Z")
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_storage_objects (id, provider, object, state, created_at)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, 'pending', `+placeholder(4)+`)
-	`, storageObjectID, provider, storageObjectID, file.CreatedAt); err != nil {
+	`, storageObjectID, provider, storageObjectID, storageObjectCreatedAt.Format("2006-01-02T15:04:05.000Z")); err != nil {
 		return fmt.Errorf("insert storage object: %w", err), model.SessionFile{}, ""
 	}
 	if protocol == "embedded" {

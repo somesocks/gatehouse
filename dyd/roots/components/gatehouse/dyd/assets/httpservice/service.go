@@ -449,12 +449,10 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			seenTopics[topic.Topic] = struct{}{}
 			checkpoint := database.ActivityTopicCheckpoint{Topic: topic.Topic}
 			if topic.Cursor != nil {
-				parsed, err := time.Parse("2006-01-02T15:04:05.000Z", topic.Cursor.CreatedAt)
-				if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != topic.Cursor.CreatedAt || !typed_id.Valid(typed_id.ActivityEvent, topic.Cursor.Id) {
+				if !typed_id.Valid(typed_id.ActivityEvent, topic.Cursor.Id) {
 					http.Error(response, "invalid activity cursor", http.StatusBadRequest)
 					return
 				}
-				checkpoint.CreatedAt = topic.Cursor.CreatedAt
 				checkpoint.ID = topic.Cursor.Id
 			}
 			checkpoints = append(checkpoints, checkpoint)
@@ -467,8 +465,8 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 		result := make([]model.ActivityTopicCheckpoint, 0, len(advanced))
 		for _, checkpoint := range advanced {
 			entry := model.ActivityTopicCheckpoint{Topic: checkpoint.Topic}
-			if checkpoint.CreatedAt != "" {
-				entry.Cursor = &model.ActivityCursor{CreatedAt: checkpoint.CreatedAt, Id: checkpoint.ID}
+			if checkpoint.ID != "" {
+				entry.Cursor = &model.ActivityCursor{Id: checkpoint.ID}
 			}
 			result = append(result, entry)
 		}
@@ -790,18 +788,10 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			http.NotFound(response, request)
 			return
 		}
-		afterCreatedAt := request.URL.Query().Get("after_created_at")
 		afterID := request.URL.Query().Get("after_id")
-		if (afterCreatedAt == "") != (afterID == "") {
+		if afterID != "" && !typed_id.Valid(typed_id.SessionEvent, afterID) {
 			http.Error(response, "invalid event cursor", http.StatusBadRequest)
 			return
-		}
-		if afterCreatedAt != "" {
-			parsed, err := time.Parse("2006-01-02T15:04:05.000Z", afterCreatedAt)
-			if err != nil || parsed.Format("2006-01-02T15:04:05.000Z") != afterCreatedAt || !typed_id.Valid(typed_id.SessionEvent, afterID) {
-				http.Error(response, "invalid event cursor", http.StatusBadRequest)
-				return
-			}
 		}
 		limit := 100
 		if encodedLimit := request.URL.Query().Get("limit"); encodedLimit != "" {
@@ -812,7 +802,7 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			limit = parsed
 		}
-		err, entries := store.SessionEventsTreePageGet(request.Context(), session, afterCreatedAt, afterID, limit)
+		err, entries := store.SessionEventsTreePageGet(request.Context(), session, afterID, limit)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return

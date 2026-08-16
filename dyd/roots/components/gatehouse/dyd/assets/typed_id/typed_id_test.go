@@ -29,6 +29,21 @@ func TestNewAt(t *testing.T) {
 	}
 }
 
+func TestTimestamp(t *testing.T) {
+	at := time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC)
+	value, err := NewAt(SessionEvent, at)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Timestamp(SessionEvent, value)
+	if err != nil || !got.Equal(at) {
+		t.Fatalf("Timestamp() = (%v, %v), want %v", got, err, at)
+	}
+	if _, err := Timestamp(ActivityEvent, value); err == nil {
+		t.Fatal("Timestamp() accepted an ID with the wrong kind")
+	}
+}
+
 func TestValid(t *testing.T) {
 	for _, test := range []struct {
 		kind, value string

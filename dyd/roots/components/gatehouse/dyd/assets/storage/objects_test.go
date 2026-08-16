@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
@@ -105,18 +106,28 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'ses_00000000000000000000000000', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
 		t.Fatal(err)
 	}
-	fileID, err := typed_id.New(typed_id.SessionFile)
+	fileID, err := typed_id.NewAt(typed_id.SessionFile, time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
-	objectID, err = typed_id.New(typed_id.StorageObject)
+	objectID, err = typed_id.NewAt(typed_id.StorageObject, time.Date(2026, 1, 2, 3, 4, 5, 679_000_000, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}, Id: fileID}, Name: "report.txt"}
-	err, _, objectID = store.SessionFileCreate(ctx, file, objectID)
+	err, storedFile, objectID := store.SessionFileCreate(ctx, file, objectID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if storedFile.CreatedAt != "2026-01-02T03:04:05.678Z" {
+		t.Fatalf("SessionFileCreate() file timestamp = %q, want ID timestamp", storedFile.CreatedAt)
+	}
+	var objectCreatedAt string
+	if err := store.QueryRowContext(ctx, `SELECT created_at FROM gatehouse_storage_objects WHERE id = ?`, objectID).Scan(&objectCreatedAt); err != nil {
+		t.Fatal(err)
+	}
+	if objectCreatedAt != "2026-01-02T03:04:05.679Z" {
+		t.Fatalf("SessionFileCreate() storage object timestamp = %q, want ID timestamp", objectCreatedAt)
 	}
 	client := storage.NewClient(store, keyring)
 	if err := client.Put(ctx, objectID, &chunkReader{data: []byte("hello, S3 world"), limit: 3}, int64(len("hello, S3 world"))); err != nil {

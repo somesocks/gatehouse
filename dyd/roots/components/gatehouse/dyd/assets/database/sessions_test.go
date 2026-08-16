@@ -140,11 +140,8 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if stored.CreatedAt == "" {
-		t.Fatalf("SessionsCreate() = %#v", stored)
-	}
-	if _, err := time.Parse("2006-01-02T15:04:05.000Z", stored.CreatedAt); err != nil {
-		t.Fatalf("SessionsCreate() timestamp = %q: %v", stored.CreatedAt, err)
+	if stored.CreatedAt != "1970-01-01T00:00:00.000Z" {
+		t.Fatalf("SessionsCreate() timestamp = %q, want ID timestamp", stored.CreatedAt)
 	}
 	err, storedSession := store.SessionGet(ctx, session, alice)
 	if err != nil || storedSession == nil || storedSession.AuthorPrincipal == nil || *storedSession.AuthorPrincipal != alice || storedSession.AuthorAgent != nil || storedSession.AuthorGateway != nil || !storedSession.Enabled || storedSession.CreatedAt == "" {
@@ -165,24 +162,21 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if storedEvent.CreatedAt == "" {
-		t.Fatalf("SessionEventsCreate() = %#v", storedEvent)
-	}
-	if _, err := time.Parse("2006-01-02T15:04:05.000Z", storedEvent.CreatedAt); err != nil {
-		t.Fatalf("SessionEventsCreate() timestamp = %q: %v", storedEvent.CreatedAt, err)
+	if storedEvent.CreatedAt != "1970-01-01T00:00:00.000Z" {
+		t.Fatalf("SessionEventsCreate() timestamp = %q, want ID timestamp", storedEvent.CreatedAt)
 	}
 	preciselyTimedEvent := event
 	preciselyTimedEvent.Ref.Id = "sev_00000000000000000000000002"
 	preciselyTimedEvent.CreatedAt = "2026-01-01T00:00:00.001Z"
 	err, preciselyTimedEvent = store.SessionEventsCreate(ctx, preciselyTimedEvent)
-	if err != nil || preciselyTimedEvent.CreatedAt != "2026-01-01T00:00:00.001Z" {
-		t.Fatalf("SessionEventsCreate() explicit timestamp = (%#v, %v)", preciselyTimedEvent, err)
+	if err != nil || preciselyTimedEvent.CreatedAt != "1970-01-01T00:00:00.000Z" {
+		t.Fatalf("SessionEventsCreate() timestamp = (%#v, %v), want ID timestamp", preciselyTimedEvent, err)
 	}
 	err, events := store.SessionEventsGet(ctx, session)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Ref != preciselyTimedEvent.Ref || events[0].CreatedAt != preciselyTimedEvent.CreatedAt || events[1].Ref != event.Ref || events[1].Kind != event.Kind || events[1].AuthorPrincipal == nil || events[1].AuthorPrincipal.Ref != alice || events[1].AuthorPrincipal.Name == nil || *events[1].AuthorPrincipal.Name != aliceName || events[1].AuthorAgent != nil || events[1].AuthorGateway != nil || !reflect.DeepEqual(events[1].Payload, event.Payload) || events[1].CreatedAt == "" {
+	if len(events) != 2 || events[0].Ref != event.Ref || events[0].Kind != event.Kind || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != alice || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != aliceName || events[0].AuthorAgent != nil || events[0].AuthorGateway != nil || !reflect.DeepEqual(events[0].Payload, event.Payload) || events[0].CreatedAt == "" || events[1].Ref != preciselyTimedEvent.Ref || events[1].CreatedAt != preciselyTimedEvent.CreatedAt {
 		t.Fatalf("SessionEventsGet() = %#v", events)
 	}
 	if _, err := store.ExecContext(ctx, `
@@ -377,7 +371,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		{Topic: database.ActivityTopicSessions},
 		{Topic: database.ActivityTopicSession(shared)},
 	})
-	if len(initial) != 2 || initial[0].CreatedAt == "" || initial[0].ID == "" || initial[1].CreatedAt == "" || initial[1].ID == "" {
+	if len(initial) != 2 || initial[0].ID == "" || initial[1].ID == "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, want advanced checkpoints", initial)
 	}
 	if initial[0] == initial[1] {
@@ -386,10 +380,10 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	if repeated := check(bob, initial); !reflect.DeepEqual(repeated, initial) {
 		t.Fatalf("ActivityTopicCheckpointsGet() with current checkpoints = %#v, want %#v", repeated, initial)
 	}
-	if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private)}}); checkpoints[0].CreatedAt != "" || checkpoints[0].ID != "" {
+	if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private)}}); checkpoints[0].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for private session = %#v, want no cursor", checkpoints)
 	}
-	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSessions}, {Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].CreatedAt != "" || checkpoints[1].CreatedAt != "" {
+	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSessions}, {Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].ID != "" || checkpoints[1].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
 	}
 	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
@@ -397,7 +391,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		t.Fatal(err)
 	}
 	advanced := check(bob, initial)
-	if advanced[0] != initial[0] || advanced[1].CreatedAt == initial[1].CreatedAt && advanced[1].ID == initial[1].ID {
+	if advanced[0] != initial[0] || advanced[1].ID == initial[1].ID {
 		t.Fatalf("ActivityTopicCheckpointsGet() after session event = %#v, want only session topic to advance from %#v", advanced, initial)
 	}
 
@@ -476,7 +470,7 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
-	err, events := store.SessionEventsPageGet(ctx, session, "2026-01-01T00:00:00.000Z", "sev_00000000000000000000000001", 2)
+	err, events := store.SessionEventsPageGet(ctx, session, "sev_00000000000000000000000001", 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,7 +639,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		}
 	}
 
-	err, entries := store.SessionEventsTreePageGet(ctx, session, "", "", 10)
+	err, entries := store.SessionEventsTreePageGet(ctx, session, "", 10)
 	if err != nil {
 		t.Fatal(err)
 	}

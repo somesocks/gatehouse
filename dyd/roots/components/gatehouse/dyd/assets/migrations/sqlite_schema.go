@@ -259,14 +259,14 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			) STRICT;
 
 			CREATE INDEX gatehouse_session_events_by_session_order
-			ON gatehouse_session_events (workspace, session, created_at, id);
+			ON gatehouse_session_events (workspace, session, id);
 
 			CREATE INDEX gatehouse_session_events_roots
-			ON gatehouse_session_events (workspace, session, created_at, id)
+			ON gatehouse_session_events (workspace, session, id)
 			WHERE parent IS NULL;
 
 			CREATE INDEX gatehouse_session_events_children
-			ON gatehouse_session_events (workspace, session, parent, created_at, id);
+			ON gatehouse_session_events (workspace, session, parent, id);
 		`),
 		}, {
 			Index:       7,
@@ -465,7 +465,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			) STRICT;
 
 			CREATE INDEX gatehouse_activity_event_topics_by_topic_cursor
-			ON gatehouse_activity_event_topics (workspace, topic, created_at, activity);
+			ON gatehouse_activity_event_topics (workspace, topic, activity);
 		`),
 		}},
 		Repeatable: []RepeatableMigration{

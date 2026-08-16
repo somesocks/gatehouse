@@ -598,14 +598,10 @@ let ActivityCursor =
         s.record.props::{
         , required =
             toMap
-              { created_at =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "activity checkpoint timestamp" }
-              , id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "activity checkpoint identity" }
+               { id =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "activity checkpoint identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
