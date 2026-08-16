@@ -18,7 +18,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: false},
@@ -72,7 +72,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	workspace := model.WorkspaceRef{Id: "engineering"}
+	workspace := workspaceRef(t, context.Background(), store, "engineering")
 	alice := model.PrincipalRef{Id: "alice"}
 	err, tools := store.WorkspaceToolsGet(context.Background(), workspace, alice)
 	if err != nil {
@@ -106,7 +106,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	if len(tools) != 0 {
 		t.Fatalf("WorkspaceToolsGet() for disabled principal = %#v, want no tools", tools)
 	}
-	if _, err := store.Exec(`UPDATE gatehouse_workspaces SET enabled = FALSE WHERE id = 'engineering'`); err != nil {
+	if _, err := store.Exec(`UPDATE gatehouse_workspaces SET enabled = FALSE WHERE id = ?`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	err, resources = store.WorkspaceResourcesGet(context.Background(), workspace, alice)

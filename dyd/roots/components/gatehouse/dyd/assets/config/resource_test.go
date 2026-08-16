@@ -15,7 +15,7 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
-			Id: "engineering",
+			Key: "engineering",
 			Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
 				{Id: "zulu", Source: "file:./tools/zulu.lisp"},
 				{Id: "alpha", Source: "file:./tools/alpha.lisp", Enabled: &disabled},
@@ -62,7 +62,7 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 		{
 			name: "duplicate tool ID",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
-				Id: "engineering",
+				Key: "engineering",
 				Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
 					{Id: "github", Source: "file:./github.lisp"},
 					{Id: "github", Source: "file:./other.lisp"},
@@ -77,7 +77,7 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 		{
 			name: "blank resource source",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
-				Id: "engineering",
+				Key: "engineering",
 				Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{{
 					Id: "token", Source: " ", Secret: true,
 				}},
@@ -105,7 +105,7 @@ func TestValidateFileRequiresResourceSecret(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
 workspaces:
-  - id: engineering
+  - key: engineering
     resources:
       - id: github-token
         source: env:GITHUB_TOKEN

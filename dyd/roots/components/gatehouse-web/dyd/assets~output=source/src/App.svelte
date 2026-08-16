@@ -919,13 +919,13 @@
       </div>
     </aside>
 
-      <main class="workspace-main">
-        <header class="workspace-header">
+    <main class="workspace-main">
+      <header class="workspace-header">
           <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}>
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
           </button>
           <h1 class="workspace-breadcrumb">
-            <span>{activeWorkspace?.name ?? activeWorkspace?.id}</span>
+            <span>{activeWorkspace?.name ?? "New Workspace"}</span>
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeSession.name ?? "New Chat"}</span>

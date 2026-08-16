@@ -25,7 +25,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
@@ -50,8 +50,9 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := model.PrincipalRef{Id: "alice"}
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{
@@ -166,8 +167,9 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := model.PrincipalRef{Id: "alice"}
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
@@ -229,4 +231,16 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
 	}
+}
+
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+	t.Helper()
+	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace == nil {
+		t.Fatalf("workspace key %q was not found", key)
+	}
+	return *workspace
 }

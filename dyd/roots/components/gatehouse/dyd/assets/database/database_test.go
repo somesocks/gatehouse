@@ -59,7 +59,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	t.Setenv("DOCUMENTS_SECRET", "secret-1")
 	state := config.State{
 		Keychains: []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{
 			{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
 			{
@@ -76,6 +76,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
 
 	var (
 		protocol, endpoint, region, bucket, accessKeyID, keychainID, secret string
@@ -94,8 +95,8 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT priority, enabled
 		FROM gatehouse_workspace_storage_providers
-		WHERE workspace = 'engineering' AND provider = 'documents'
-	`).Scan(&priority, &enabled); err != nil {
+		WHERE workspace = ? AND provider = 'documents'
+	`, workspace.Id).Scan(&priority, &enabled); err != nil {
 		t.Fatal(err)
 	}
 	if priority != 10 || !enabled {
@@ -114,7 +115,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if endpoint != "https://s3-next.example.test" || revision != 2 {
 		t.Fatalf("updated documents storage provider = (%q, %d)", endpoint, revision)
 	}
-	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = 'engineering' AND provider = 'documents'`).Scan(&priority); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = 'documents'`, workspace.Id).Scan(&priority); err != nil {
 		t.Fatal(err)
 	}
 	if priority != 20 {
@@ -180,7 +181,7 @@ func TestMigrateWithConfiguredRepeatablesAppliesStrictMigrations(t *testing.T) {
 	}
 
 	var gatehouseName string
-	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'gatehouse'`).Scan(&gatehouseName); err != nil {
+	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE key = 'gatehouse'`).Scan(&gatehouseName); err != nil {
 		t.Fatal(err)
 	}
 	if gatehouseName != "Gatehouse" {
@@ -252,15 +253,12 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{ID: "engineering", Name: stringPointer("Engineering"), Enabled: true}}, nil)
+	}, []config.Workspace{{Key: "engineering", Name: stringPointer("Engineering"), Enabled: true}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var firstID string
-	if err := first.QueryRow(`SELECT id FROM gatehouse_workspaces WHERE id = 'engineering'`).Scan(&firstID); err != nil {
-		t.Fatal(err)
-	}
+	firstWorkspace := workspaceRef(t, context.Background(), first, "engineering")
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +266,7 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	err, second := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
 		Path: path,
-	}, []config.Workspace{{ID: "engineering", Name: stringPointer("Platform Engineering"), Enabled: false}}, nil)
+	}, []config.Workspace{{Key: "engineering", Name: stringPointer("Platform Engineering"), Enabled: false}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,15 +276,16 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 		name     string
 		enabled  bool
 	)
+	secondWorkspace := workspaceRef(t, context.Background(), second, "engineering")
 	if err := second.QueryRow(`
 		SELECT id, name, enabled
 		FROM gatehouse_workspaces
-		WHERE id = 'engineering'
-	`).Scan(&secondID, &name, &enabled); err != nil {
+		WHERE id = ?
+	`, secondWorkspace.Id).Scan(&secondID, &name, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if secondID != firstID {
-		t.Fatalf("workspace id = %q, want %q", secondID, firstID)
+	if secondID != firstWorkspace.Id {
+		t.Fatalf("workspace id = %q, want %q", secondID, firstWorkspace.Id)
 	}
 	if name != "Platform Engineering" || enabled {
 		t.Fatalf("workspace = (%q, %t), want (%q, %t)", name, enabled, "Platform Engineering", false)
@@ -303,21 +302,22 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer third.Close()
+	thirdWorkspace := workspaceRef(t, context.Background(), third, "engineering")
 	if err := third.QueryRow(`
 		SELECT id, name, enabled
 		FROM gatehouse_workspaces
-		WHERE id = 'engineering'
-	`).Scan(&secondID, &name, &enabled); err != nil {
+		WHERE id = ?
+	`, thirdWorkspace.Id).Scan(&secondID, &name, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if secondID != firstID || name != "Platform Engineering" || enabled {
-		t.Fatalf("omitted workspace = (%q, %q, %t), want (%q, %q, %t)", secondID, name, enabled, firstID, "Platform Engineering", false)
+	if secondID != firstWorkspace.Id || name != "Platform Engineering" || enabled {
+		t.Fatalf("omitted workspace = (%q, %q, %t), want (%q, %q, %t)", secondID, name, enabled, firstWorkspace.Id, "Platform Engineering", false)
 	}
 }
 
 func TestOpenSQLiteReconcilesUnnamedWorkspace(t *testing.T) {
 	err, database := openConfigured(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, []config.Workspace{{
-		ID:      "engineering",
+		Key:     "engineering",
 		Enabled: true,
 	}}, nil)
 	if err != nil {
@@ -325,8 +325,9 @@ func TestOpenSQLiteReconcilesUnnamedWorkspace(t *testing.T) {
 	}
 	defer database.Close()
 
+	workspace := workspaceRef(t, context.Background(), database, "engineering")
 	var name sql.NullString
-	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = 'engineering'`).Scan(&name); err != nil {
+	if err := database.QueryRow(`SELECT name FROM gatehouse_workspaces WHERE id = ?`, workspace.Id).Scan(&name); err != nil {
 		t.Fatal(err)
 	}
 	if name.Valid {
@@ -474,12 +475,13 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	defer database.Close()
 
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	workspace := workspaceRef(t, context.Background(), database, "engineering")
 	if _, err := database.Exec(`INSERT INTO gatehouse_principals (id, name, enabled) VALUES ('bob', 'Bob', TRUE)`); err != nil {
 		t.Fatal(err)
 	}
@@ -508,9 +510,9 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		FROM gatehouse_groups AS g
 		LEFT JOIN gatehouse_group_members AS m
 			ON m.workspace_id = g.workspace_id AND m.group_id = g.id
-		WHERE g.workspace_id = 'engineering' AND g.id = 'admins'
+		WHERE g.workspace_id = ? AND g.id = 'admins'
 		GROUP BY g.workspace_id, g.id
-	`).Scan(&name, &enabled, &memberRows); err != nil {
+	`, workspace.Id).Scan(&name, &enabled, &memberRows); err != nil {
 		t.Fatal(err)
 	}
 	if name != "Administrators" || !enabled || memberRows != 2 {
@@ -521,8 +523,8 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	if err := database.QueryRow(`
 		SELECT enabled
 		FROM gatehouse_group_members
-		WHERE workspace_id = 'engineering' AND group_id = 'admins' AND principal_id = 'bob'
-	`).Scan(&bobEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = 'admins' AND principal_id = 'bob'
+	`, workspace.Id).Scan(&bobEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if bobEnabled {
@@ -530,8 +532,8 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-		VALUES ('engineering', 'admins', 'unknown', TRUE)
-	`); err == nil {
+		VALUES (?, 'admins', 'unknown', TRUE)
+	`, workspace.Id); err == nil {
 		t.Fatal("membership without a principal was accepted")
 	}
 }
@@ -545,7 +547,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	defer database.Close()
 
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Tools: []config.Tool{{
 			WorkspaceID: "engineering",
 			ID:          "github",
@@ -572,6 +574,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	workspace := workspaceRef(t, context.Background(), database, "engineering")
 
 	var (
 		toolRef         string
@@ -584,8 +587,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	)
 	if err := database.QueryRow(`
 		SELECT source, enabled FROM gatehouse_tools
-		WHERE workspace_id = 'engineering' AND id = 'github'
-	`).Scan(&toolRef, &toolEnabled); err != nil {
+		WHERE workspace_id = ? AND id = 'github'
+	`, workspace.Id).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if toolRef != "file:./tools/github.lisp" || !toolEnabled {
@@ -593,8 +596,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT source, secret, enabled FROM gatehouse_resources
-		WHERE workspace_id = 'engineering' AND id = 'github-token'
-	`).Scan(&resourceRef, &resourceSecret, &resourceEnabled); err != nil {
+		WHERE workspace_id = ? AND id = 'github-token'
+	`, workspace.Id).Scan(&resourceRef, &resourceSecret, &resourceEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if resourceRef != "env:GITHUB_TOKEN" || !resourceSecret || !resourceEnabled {
@@ -602,8 +605,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND tool_id = 'github'
-	`).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = 'developers' AND tool_id = 'github'
+	`, workspace.Id).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if !grantEnabled {
@@ -611,8 +614,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND resource_id = 'github-token'
-	`).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = 'developers' AND resource_id = 'github-token'
+	`, workspace.Id).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if resourceGrantOn {
@@ -621,23 +624,23 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-		VALUES ('engineering', 'developers', 'unknown', TRUE)
-	`); err == nil {
+		VALUES (?, 'developers', 'unknown', TRUE)
+	`, workspace.Id); err == nil {
 		t.Fatal("tool grant without a tool was accepted")
 	}
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-		VALUES ('engineering', 'developers', 'unknown', TRUE)
-	`); err == nil {
+		VALUES (?, 'developers', 'unknown', TRUE)
+	`, workspace.Id); err == nil {
 		t.Fatal("resource grant without a resource was accepted")
 	}
 
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
-		VALUES ('engineering', 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
+		VALUES (?, 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
 		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
-		VALUES ('engineering', 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
-	`); err != nil {
+		VALUES (?, 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
+	`, workspace.Id, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	state.Tools[0].Source = "file:./tools/github-v2.lisp"
@@ -651,8 +654,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 
 	if err := database.QueryRow(`
 		SELECT source, enabled FROM gatehouse_tools
-		WHERE workspace_id = 'engineering' AND id = 'github'
-	`).Scan(&toolRef, &toolEnabled); err != nil {
+		WHERE workspace_id = ? AND id = 'github'
+	`, workspace.Id).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if toolRef != "file:./tools/github-v2.lisp" || toolEnabled {
@@ -660,8 +663,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND tool_id = 'github'
-	`).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = 'developers' AND tool_id = 'github'
+	`, workspace.Id).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if grantEnabled {
@@ -669,8 +672,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND resource_id = 'github-token'
-	`).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = 'developers' AND resource_id = 'github-token'
+	`, workspace.Id).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if !resourceGrantOn {
@@ -679,8 +682,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	var runtimeCount int
 	if err := database.QueryRow(`
 		SELECT COUNT(*) FROM gatehouse_tools
-		WHERE workspace_id = 'engineering' AND id = 'runtime-tool'
-	`).Scan(&runtimeCount); err != nil {
+		WHERE workspace_id = ? AND id = 'runtime-tool'
+	`, workspace.Id).Scan(&runtimeCount); err != nil {
 		t.Fatal(err)
 	}
 	if runtimeCount != 1 {
@@ -820,6 +823,18 @@ func TestKeychainsGetCurrent(t *testing.T) {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+	t.Helper()
+	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace == nil {
+		t.Fatalf("workspace key %q was not found", key)
+	}
+	return *workspace
 }
 
 func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *database.Store) {

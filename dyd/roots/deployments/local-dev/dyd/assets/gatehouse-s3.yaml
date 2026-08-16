@@ -36,7 +36,7 @@ storage_providers:
         sources:
           - env:LOCAL_DEV_S3_SECRET_ACCESS_KEY
 workspaces:
-  - id: development
+  - key: development
     name: Development
     agents:
       - model: openai-luna-low

@@ -199,6 +199,7 @@ func me(tokens *auth.BearerTokens) http.HandlerFunc {
 
 type workspaceResponse struct {
 	ID   string  `json:"id"`
+	Key  *string `json:"key,omitempty"`
 	Name *string `json:"name,omitempty"`
 }
 
@@ -264,7 +265,7 @@ func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFu
 		}
 		result := make([]workspaceResponse, 0, len(configured))
 		for _, workspace := range configured {
-			result = append(result, workspaceResponse{ID: workspace.Ref.Id, Name: workspace.Name})
+			result = append(result, workspaceResponse{ID: workspace.Ref.Id, Key: workspace.Key, Name: workspace.Name})
 		}
 		writeJSON(response, result)
 	}

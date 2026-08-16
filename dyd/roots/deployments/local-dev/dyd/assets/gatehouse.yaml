@@ -24,7 +24,7 @@ agent_models:
     parameters:
       reasoning_effort: medium
 workspaces:
-  - id: development
+  - key: development
     name: Development
     agents:
       - model: openai-luna-low

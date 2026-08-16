@@ -26,18 +26,22 @@ let Workspace =
         s.record.props::{
         , required =
             toMap
-              { ref =
-                  s.reference.from
-                    s.reference.props::{ to = "WorkspaceRef" }
-                    s.reference.meta::{ description = Some "workspace identity" }
-              , enabled =
-                  s.boolean.from
+               { ref =
+                   s.reference.from
+                     s.reference.props::{ to = "WorkspaceRef" }
+                     s.reference.meta::{ description = Some "workspace identity" }
+               , enabled =
+                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the workspace is enabled" }
               }
         , optional =
             toMap
-              { name =
+              { key =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace reconciliation key" }
+              , name =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace display name" }

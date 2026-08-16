@@ -12,7 +12,7 @@ func TestResolveStorageProvidersDefaultsToEmbedded(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
 workspaces:
-  - id: engineering
+  - key: engineering
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -52,13 +52,13 @@ storage_providers:
         keychain: storage
         sources: [env:DOCUMENTS_SECRET]
 workspaces:
-  - id: engineering
+  - key: engineering
     storage_providers:
       - provider: documents
         priority: 10
       - provider: embedded
         priority: 1
-  - id: archive
+  - key: archive
     storage_providers: []
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ storage_providers:
 api_version: v1
 storage_providers: []
 workspaces:
-  - id: engineering
+  - key: engineering
     storage_providers:
       - provider: missing
         priority: 1
@@ -113,7 +113,7 @@ workspaces:
 		"nonpositive priority": `
 api_version: v1
 workspaces:
-  - id: engineering
+  - key: engineering
     storage_providers:
       - provider: embedded
         priority: 0

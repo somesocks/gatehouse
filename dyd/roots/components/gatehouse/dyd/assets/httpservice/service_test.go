@@ -105,7 +105,7 @@ func TestHandlerDisablesWebRouteGroup(t *testing.T) {
 }
 
 func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, _ := testBearerTokens(t)
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	unauthenticated := httptest.NewRecorder()
 	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
@@ -153,7 +153,7 @@ func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidLogin(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, _ := testBearerTokens(t)
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", bytes.NewBufferString(`{"identity":"gatehouse:alice","password":"wrong password"}`)))
@@ -163,7 +163,9 @@ func TestHandlerRejectsInvalidLogin(t *testing.T) {
 }
 
 func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	operations := refs["operations"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: "alice", Identity: "gatehouse:alice"})
 	if err != nil {
@@ -178,31 +180,31 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	}
 
 	workspaces := request("/api/v1/workspaces")
-	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\"operations\"}]\n" {
+	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\""+engineering.Id+"\",\"key\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\""+operations.Id+"\",\"key\":\"operations\"}]\n" {
 		t.Fatalf("GET workspaces = status %d body %q", workspaces.Code, workspaces.Body.String())
 	}
-	tools := request("/api/v1/workspaces/engineering/tools")
+	tools := request("/api/v1/workspaces/" + engineering.Id + "/tools")
 	if tools.Code != http.StatusOK || tools.Body.String() != "[{\"id\":\"git\"}]\n" {
 		t.Fatalf("GET tools = status %d body %q", tools.Code, tools.Body.String())
 	}
-	groups := request("/api/v1/workspaces/engineering/groups")
+	groups := request("/api/v1/workspaces/" + engineering.Id + "/groups")
 	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\"developers\",\"name\":\"Developers\"}]\n" {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
-	sessions := request("/api/v1/workspaces/engineering/sessions")
+	sessions := request("/api/v1/workspaces/" + engineering.Id + "/sessions")
 	if sessions.Code != http.StatusOK || sessions.Body.String() != "[{\"id\":\"shared\"},{\"id\":\"private\"}]\n" {
 		t.Fatalf("GET sessions = status %d body %q", sessions.Code, sessions.Body.String())
 	}
-	resources := request("/api/v1/workspaces/engineering/resources")
+	resources := request("/api/v1/workspaces/" + engineering.Id + "/resources")
 	if resources.Code != http.StatusOK || resources.Body.String() != "[{\"id\":\"docs\",\"secret\":false},{\"id\":\"token\",\"secret\":true}]\n" {
 		t.Fatalf("GET resources = status %d body %q", resources.Code, resources.Body.String())
 	}
 	if strings.Contains(resources.Body.String(), "file:") || strings.Contains(resources.Body.String(), "env:") || strings.Contains(resources.Body.String(), "TOP_SECRET") {
 		t.Fatalf("GET resources disclosed a resource source: %q", resources.Body.String())
 	}
-	operations := request("/api/v1/workspaces/operations/resources")
-	if operations.Code != http.StatusOK || operations.Body.String() != "[]\n" {
-		t.Fatalf("GET ungranted workspace resources = status %d body %q", operations.Code, operations.Body.String())
+	operationResources := request("/api/v1/workspaces/" + operations.Id + "/resources")
+	if operationResources.Code != http.StatusOK || operationResources.Body.String() != "[]\n" {
+		t.Fatalf("GET ungranted workspace resources = status %d body %q", operationResources.Code, operationResources.Body.String())
 	}
 	private := request("/api/v1/workspaces/private/tools")
 	if private.Code != http.StatusNotFound {
@@ -211,7 +213,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 }
 
 func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
@@ -233,7 +236,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 		return response
 	}
 
-	created := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	created := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
 	if created.Code != http.StatusCreated || created.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("POST session = status %d cache %q", created.Code, created.Header().Get("Cache-Control"))
 	}
@@ -245,7 +248,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 		t.Fatalf("POST session response = %#v", session)
 	}
 
-	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages", `{"text":"hello"}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"text":"hello"}`)
 	if message.Code != http.StatusAccepted || message.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("POST message = status %d cache %q", message.Code, message.Header().Get("Cache-Control"))
 	}
@@ -256,7 +259,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if event.Ref.Id == "" || event.Ref.Session.Id != session.ID || event.Kind != "message.text" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Id != "alice" || event.AuthorAgent != nil || event.AuthorGateway != nil || event.Payload["text"] != "hello" || event.CreatedAt == "" {
 		t.Fatalf("POST message response = %#v", event)
 	}
-	poll := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?limit=1", "")
+	poll := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?limit=1", "")
 	if poll.Code != http.StatusOK || poll.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("GET events = status %d cache %q", poll.Code, poll.Header().Get("Cache-Control"))
 	}
@@ -273,24 +276,24 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err, _ := store.SessionEventsCreate(context.Background(), child); err != nil {
 		t.Fatal(err)
 	}
-	poll = request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?limit=1", "")
+	poll = request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?limit=1", "")
 	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil || len(polled) != 1 || len(polled[0].Children) != 1 || polled[0].Children[0].Event.Ref != child.Ref {
 		t.Fatalf("GET nested events response = (%#v, %v)", polled, err)
 	}
-	after := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id="+event.Ref.Id, "")
+	after := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id="+event.Ref.Id, "")
 	if after.Code != http.StatusOK || after.Body.String() != "[]\n" {
 		t.Fatalf("GET events after cursor = status %d body %q", after.Code, after.Body.String())
 	}
-	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
+	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
 	if invalidCursor.Code != http.StatusBadRequest {
 		t.Fatalf("GET events with incomplete cursor = status %d", invalidCursor.Code)
 	}
-	invalidID := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id=invalid", "")
+	invalidID := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_created_at="+event.CreatedAt+"&after_id=invalid", "")
 	if invalidID.Code != http.StatusBadRequest {
 		t.Fatalf("GET events with invalid cursor ID = status %d", invalidID.Code)
 	}
 
-	err, events := store.SessionEventsGet(context.Background(), model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: session.ID})
+	err, events := store.SessionEventsGet(context.Background(), model.SessionRef{Workspace: engineering, Id: session.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -301,7 +304,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
 		t.Fatalf("stored session reply tasks = (%#v, %v)", tasks, err)
 	}
-	cancel := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages/"+event.Ref.Id+"/cancel", "")
+	cancel := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages/"+event.Ref.Id+"/cancel", "")
 	if cancel.Code != http.StatusAccepted || cancel.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("POST cancel = status %d cache %q", cancel.Code, cancel.Header().Get("Cache-Control"))
 	}
@@ -319,7 +322,8 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 }
 
 func TestSessionFileUploadFinishAndDownload(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
@@ -335,12 +339,12 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 		return response
 	}
 
-	createdSession := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
 	var session sessionResponse
 	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || session.ID == "" {
 		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
 	}
-	createdFile := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files", `{"name":"report.txt","media_type":"text/plain"}`)
+	createdFile := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files", `{"name":"report.txt","media_type":"text/plain"}`)
 	if createdFile.Code != http.StatusCreated {
 		t.Fatalf("POST session file = status %d body %q", createdFile.Code, createdFile.Body.String())
 	}
@@ -356,11 +360,11 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if put.Code != http.StatusNoContent {
 		t.Fatalf("PUT storage = status %d body %q", put.Code, put.Body.String())
 	}
-	finished := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/finish", "")
+	finished := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/finish", "")
 	if finished.Code != http.StatusOK {
 		t.Fatalf("POST finish = status %d body %q", finished.Code, finished.Body.String())
 	}
-	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/messages", `{"files":["`+uploaded.File.Ref.Id+`"]}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"files":["`+uploaded.File.Ref.Id+`"]}`)
 	if message.Code != http.StatusAccepted {
 		t.Fatalf("POST attachment message = status %d body %q", message.Code, message.Body.String())
 	}
@@ -376,7 +380,7 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if !ok || snapshot["id"] != uploaded.File.Ref.Id || snapshot["name"] != "report.txt" || snapshot["media_type"] != "text/plain" || snapshot["size"] != float64(len("hello storage")) || snapshot["fingerprint"] == "" {
 		t.Fatalf("attachment message snapshot = %#v", files[0])
 	}
-	download := request(http.MethodGet, "/api/v1/workspaces/engineering/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
+	download := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
 	if download.Code != http.StatusTemporaryRedirect || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Location") == "" {
 		t.Fatalf("GET download = status %d cache %q location %q", download.Code, download.Header().Get("Cache-Control"), download.Header().Get("Location"))
 	}
@@ -398,10 +402,10 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 }
 
 func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
 	label := "Assistant"
 	state := config.State{
-		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{ID: "assistant", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "assistant", Label: &label, Priority: 1, MaxTurns: 1, Enabled: true}},
@@ -418,6 +422,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	if err := migrations.Run(context.Background(), store, set); err != nil {
 		t.Fatal(err)
 	}
+	engineering := refs["engineering"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
@@ -432,30 +437,30 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		handler.ServeHTTP(response, httpRequest)
 		return response
 	}
-	agents := request(http.MethodGet, "/api/v1/workspaces/engineering/agents", "")
+	agents := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/agents", "")
 	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"assistant","label":"Assistant"}]`+"\n" {
 		t.Fatalf("GET agents = status %d body %q", agents.Code, agents.Body.String())
 	}
-	session := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions", "{}")
+	session := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
 	var created sessionResponse
 	if err := json.Unmarshal(session.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	message := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
 	var event model.SessionEvent
 	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || event.Payload["agent"] != "assistant" {
 		t.Fatalf("POST message = (%d, %#v, %v)", message.Code, event, err)
 	}
-	invalid := request(http.MethodPost, "/api/v1/workspaces/engineering/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
+	invalid := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("POST message with missing agent = %d", invalid.Code)
 	}
 }
 
 func TestActivityAPI(t *testing.T) {
-	tokens, store := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
 	ctx := context.Background()
-	workspace := model.WorkspaceRef{Id: "engineering"}
+	workspace := refs["engineering"]
 	alice := model.PrincipalRef{Id: "alice"}
 	session := model.SessionRef{Workspace: workspace, Id: "activity"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
@@ -480,7 +485,7 @@ func TestActivityAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := httptest.NewRecorder()
-		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/engineering/activity", bytes.NewReader(body))
+		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/"+workspace.Id+"/activity", bytes.NewReader(body))
 		httpRequest.Header.Set("Authorization", "Bearer "+token)
 		handler.ServeHTTP(response, httpRequest)
 		return response
@@ -517,7 +522,7 @@ func TestActivityAPI(t *testing.T) {
 	}
 }
 
-func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
+func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[string]model.WorkspaceRef) {
 	t.Helper()
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
@@ -538,9 +543,9 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	state := config.State{
 		Keychains: configured,
 		Workspaces: []config.Workspace{
-			{ID: "engineering", Name: &engineering, Enabled: true},
-			{ID: "operations", Enabled: true},
-			{ID: "private", Name: &private, Enabled: true},
+			{Key: "engineering", Name: &engineering, Enabled: true},
+			{Key: "operations", Enabled: true},
+			{Key: "private", Name: &private, Enabled: true},
 		},
 		Principals: []config.Principal{{
 			ID: "alice", Enabled: true, Identities: []config.Identity{{
@@ -585,22 +590,33 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store) {
 	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
+	workspaces := map[string]model.WorkspaceRef{}
+	for _, key := range []string{"engineering", "operations", "private"} {
+		err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if workspace == nil {
+			t.Fatalf("workspace key %q was not found", key)
+		}
+		workspaces[key] = *workspace
+	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
-			('engineering', 'private', 'alice', TRUE, '2026-01-01 00:00:01'),
-			('engineering', 'shared', 'alice', TRUE, '2026-01-01 00:00:02');
+			(?, 'private', 'alice', TRUE, '2026-01-01 00:00:01'),
+			(?, 'shared', 'alice', TRUE, '2026-01-01 00:00:02');
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
-			VALUES ('engineering', 'private', 'alice', TRUE);
+			VALUES (?, 'private', 'alice', TRUE);
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-			VALUES ('engineering', 'shared', 'developers', TRUE);
-	`); err != nil {
+			VALUES (?, 'shared', 'developers', TRUE);
+	`, workspaces["engineering"].Id, workspaces["engineering"].Id, workspaces["engineering"].Id, workspaces["engineering"].Id); err != nil {
 		t.Fatal(err)
 	}
 	err, tokens := auth.Prepare(ctx, store, keyring, "test")
 	if err != nil {
 		t.Fatal(err)
 	}
-	return tokens, store
+	return tokens, store, workspaces
 }
 
 func TestServiceStartsServesAndStops(t *testing.T) {

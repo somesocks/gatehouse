@@ -57,6 +57,7 @@ type migrationValues struct {
 
 type workspaceMigrationValue struct {
 	ID      string
+	Key     string
 	Name    any
 	Enabled bool
 }
@@ -120,7 +121,7 @@ func migrationValuesFor(state config.State) migrationValues {
 		if workspace.Name != nil {
 			name = *workspace.Name
 		}
-		values.Workspaces = append(values.Workspaces, workspaceMigrationValue{ID: workspace.ID, Name: name, Enabled: workspace.Enabled})
+		values.Workspaces = append(values.Workspaces, workspaceMigrationValue{Key: workspace.Key, Name: name, Enabled: workspace.Enabled})
 	}
 	for _, principal := range state.Principals {
 		var name any

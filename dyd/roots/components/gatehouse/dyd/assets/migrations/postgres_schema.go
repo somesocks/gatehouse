@@ -7,6 +7,7 @@ import (
 
 func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, Registry) {
 	values := migrationValuesFor(state)
+	gatehouseName := "Gatehouse"
 	registry := Registry{
 		Init: InitMigration{Builder: staticMigrationBuilder(`
 		CREATE TABLE IF NOT EXISTS gatehouse_schema_migrations (
@@ -35,8 +36,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_workspaces",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_workspaces (
-				id TEXT PRIMARY KEY
-					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^wsp_[a-z2-7]{26}$'),
+				key TEXT NOT NULL UNIQUE CHECK (key ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL
 			);
@@ -447,26 +448,11 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			{
 				Index:       2,
 				Description: "seed_gatehouse_workspace",
-				Builder: templateMigrationBuilder(`
-			INSERT INTO gatehouse_workspaces (id, name, enabled)
-			VALUES ('gatehouse', 'Gatehouse', TRUE)
-			ON CONFLICT (id) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-		`, values),
+				Builder: workspaceMigrationBuilder([]config.Workspace{{Key: "gatehouse", Name: &gatehouseName, Enabled: true}}),
 			}, {
 				Index:       3,
 				Description: "reconcile_workspaces",
-				Builder: templateMigrationBuilder(`
-			SELECT 1;
-			{{ range .Workspaces }}
-			INSERT INTO gatehouse_workspaces (id, name, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (id) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-			{{ end }}
-		`, values),
+				Builder: workspaceMigrationBuilder(state.Workspaces),
 			}, {
 				Index:       4,
 				Description: "reconcile_principals",
@@ -492,13 +478,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			{{ range .Groups }}
 			{{ $group := . }}
 			INSERT INTO gatehouse_groups (workspace_id, id, name, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, id) DO UPDATE SET
 				name = excluded.name,
 				enabled = excluded.enabled;
 			{{ range .Members }}
 			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}
@@ -511,14 +497,14 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			SELECT 1;
 			{{ range .Tools }}
 			INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, id) DO UPDATE SET
 				source = excluded.source,
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .Resources }}
 			INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, id) DO UPDATE SET
 				source = excluded.source,
 				secret = excluded.secret,
@@ -534,13 +520,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			{{ $group := . }}
 			{{ range .ToolGrants }}
 			INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, tool_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .ResourceGrants }}
 			INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, resource_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}

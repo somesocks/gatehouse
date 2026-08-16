@@ -20,7 +20,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -39,25 +39,25 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
-			('engineering', 'private', 'alice', TRUE, '2026-01-01 00:00:02'),
-			('engineering', 'shared', 'alice', TRUE, '2026-01-01 00:00:03'),
-			('engineering', 'direct', 'alice', TRUE, '2026-01-01 00:00:01'),
-			('engineering', 'disabled-grant', 'alice', TRUE, '2026-01-01 00:00:04'),
-			('engineering', 'disabled-session', 'alice', FALSE, '2026-01-01 00:00:05');
+			(?, 'private', 'alice', TRUE, '2026-01-01 00:00:02'),
+			(?, 'shared', 'alice', TRUE, '2026-01-01 00:00:03'),
+			(?, 'direct', 'alice', TRUE, '2026-01-01 00:00:01'),
+			(?, 'disabled-grant', 'alice', TRUE, '2026-01-01 00:00:04'),
+			(?, 'disabled-session', 'alice', FALSE, '2026-01-01 00:00:05');
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled) VALUES
-			('engineering', 'private', 'alice', TRUE),
-			('engineering', 'direct', 'carol', TRUE),
-			('engineering', 'disabled-grant', 'alice', FALSE),
-			('engineering', 'disabled-session', 'alice', TRUE);
+			(?, 'private', 'alice', TRUE),
+			(?, 'direct', 'carol', TRUE),
+			(?, 'disabled-grant', 'alice', FALSE),
+			(?, 'disabled-session', 'alice', TRUE);
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-			VALUES ('engineering', 'shared', 'developers', TRUE);
-	`); err != nil {
+			VALUES (?, 'shared', 'developers', TRUE);
+	`, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 
-	workspace := model.WorkspaceRef{Id: "engineering"}
 	sessionsFor := func(principal string) []model.Session {
 		err, sessions := store.SessionsGet(ctx, workspace, model.PrincipalRef{Id: principal})
 		if err != nil {
@@ -87,8 +87,8 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		UPDATE gatehouse_group_members
 		SET enabled = FALSE
-		WHERE workspace_id = 'engineering' AND group_id = 'developers' AND principal_id = 'bob'
-	`); err != nil {
+		WHERE workspace_id = ? AND group_id = 'developers' AND principal_id = 'bob'
+	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	if got := sessionsFor("bob"); len(got) != 0 {
@@ -105,7 +105,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -115,7 +115,8 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	alice := model.PrincipalRef{Id: "alice"}
 	err, stored := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice)
 	if err != nil {
@@ -168,26 +169,26 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
-	`); err != nil {
+		VALUES (?, 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
+	`, workspace.Id); err != nil {
 		t.Fatalf("create session event reply task: %v", err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
-	`); err == nil {
+		VALUES (?, 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892', '2026-01-01T00:00:00.000Z')
+	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a duplicate event")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES ('engineering', 'session-one', 'missing-event', '2026-01-01T00:00:00.000Z')
-	`); err == nil {
+		VALUES (?, 'session-one', 'missing-event', '2026-01-01T00:00:00.000Z')
+	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a missing event")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event)
-		VALUES ('engineering', 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892')
-	`); err == nil {
+		VALUES (?, 'session-one', 'b8607728-3072-4f6c-9bd4-d9f584b7c892')
+	`, workspace.Id); err == nil {
 		t.Fatal("session event reply tasks accepted a missing timestamp")
 	}
 	if _, err := store.ExecContext(ctx, `
@@ -198,8 +199,8 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('assistant', 1, 'provider', 'example', '{}', TRUE);
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)
-		VALUES ('engineering', 'assistant', 1, TRUE)
-	`); err != nil {
+		VALUES (?, 'assistant', 1, TRUE)
+	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "assistant"}}
@@ -266,20 +267,20 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at)
-		VALUES ('engineering', 'session-one', 'unknown-author', 'message.text', 'unknown', '{}', '2026-01-01T00:00:00.000Z')
-	`); err == nil {
+		VALUES (?, 'session-one', 'unknown-author', 'message.text', 'unknown', '{}', '2026-01-01T00:00:00.000Z')
+	`, workspace.Id); err == nil {
 		t.Fatal("session events accepted an unknown principal author")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled)
-		VALUES ('engineering', 'missing-timestamp', 'alice', TRUE)
-	`); err == nil {
+		VALUES (?, 'missing-timestamp', 'alice', TRUE)
+	`, workspace.Id); err == nil {
 		t.Fatal("sessions accepted a missing timestamp")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload)
-		VALUES ('engineering', 'session-one', 'missing-timestamp', 'message.text', 'alice', '{}')
-	`); err == nil {
+		VALUES (?, 'session-one', 'missing-timestamp', 'message.text', 'alice', '{}')
+	`, workspace.Id); err == nil {
 		t.Fatal("session events accepted a missing timestamp")
 	}
 }
@@ -293,7 +294,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{
 			{ID: "alice", Enabled: true},
 			{ID: "bob", Enabled: true},
@@ -309,7 +310,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
-	workspace := model.WorkspaceRef{Id: "engineering"}
+	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := model.PrincipalRef{Id: "alice"}
 	shared := model.SessionRef{Workspace: workspace, Id: "shared"}
 	private := model.SessionRef{Workspace: workspace, Id: "private"}
@@ -318,8 +319,8 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-		VALUES ('engineering', 'shared', 'developers', TRUE)
-	`); err != nil {
+		VALUES (?, 'shared', 'developers', TRUE)
+	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: private, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
@@ -372,15 +373,15 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	var activityID, createdAt string
 	if err := store.QueryRowContext(ctx, `
 		SELECT id, created_at FROM gatehouse_activity_events
-		WHERE workspace = 'engineering' AND resource_kind = 'session'
+		WHERE workspace = ? AND resource_kind = 'session'
 		LIMIT 1
-	`).Scan(&activityID, &createdAt); err != nil {
+	`, workspace.Id).Scan(&activityID, &createdAt); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-		VALUES ('engineering', ?, 'invalid-timestamp', '2000-01-01T00:00:00.000Z')
-	`, activityID); err == nil {
+		VALUES (?, ?, 'invalid-timestamp', '2000-01-01T00:00:00.000Z')
+	`, workspace.Id, activityID); err == nil {
 		t.Fatal("activity topic accepted a timestamp that does not match its parent event")
 	}
 	if createdAt == "" {
@@ -397,14 +398,15 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	alice := model.PrincipalRef{Id: "alice"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
@@ -425,10 +427,10 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at) VALUES
-			('engineering', 'session-one', '00000000-0000-4000-8000-000000000001', 'message.text', 'alice', '{"text":"first"}', '2026-01-01T00:00:00.000Z'),
-			('engineering', 'session-one', '00000000-0000-4000-8000-000000000002', 'message.text', 'alice', '{"text":"second"}', '2026-01-01T00:00:00.000Z'),
-			('engineering', 'session-one', '00000000-0000-4000-8000-000000000003', 'message.text', 'alice', '{"text":"third"}', '2026-01-01T00:00:01.000Z')
-	`); err != nil {
+			(?, 'session-one', '00000000-0000-4000-8000-000000000001', 'message.text', 'alice', '{"text":"first"}', '2026-01-01T00:00:00.000Z'),
+			(?, 'session-one', '00000000-0000-4000-8000-000000000002', 'message.text', 'alice', '{"text":"second"}', '2026-01-01T00:00:00.000Z'),
+			(?, 'session-one', '00000000-0000-4000-8000-000000000003', 'message.text', 'alice', '{"text":"third"}', '2026-01-01T00:00:01.000Z')
+	`, workspace.Id, workspace.Id, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
 	err, events := store.SessionEventsPageGet(ctx, session, "2026-01-01T00:00:00.000Z", "00000000-0000-4000-8000-000000000001", 2)
@@ -451,7 +453,7 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
 			{ID: "first", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
@@ -467,8 +469,9 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
 	for range 5 {
-		err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "")
+		err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "")
 		if err != nil || selected == nil {
 			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
 		}
@@ -496,7 +499,7 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces:     []config.Workspace{{Key: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
 			{ID: "automatic", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
@@ -510,11 +513,12 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
-	err, selected := store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "requested")
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "requested")
 	if err != nil || selected == nil || selected.Ref.Model.Id != "requested" {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want requested agent", selected, err)
 	}
-	err, selected = store.WorkspaceAgentModelSelect(ctx, model.WorkspaceRef{Id: "engineering"}, "missing")
+	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "missing")
 	if err != nil || selected == nil || selected.Ref.Model.Id != "automatic" {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
 	}
@@ -529,14 +533,15 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	alice := model.PrincipalRef{Id: "alice"}
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
@@ -642,14 +647,15 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		Principals: []config.Principal{{ID: "alice", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	alice := model.PrincipalRef{Id: "alice"}
-	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session-one"}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
@@ -685,8 +691,8 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, parent, kind, author_principal, payload, created_at)
-		VALUES ('engineering', 'session-one', '10000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000006', 'message.text', 'alice', '{}', '2026-01-01T00:00:00.000Z')
-	`); err == nil {
+		VALUES (?, 'session-one', '10000000-0000-4000-8000-000000000006', '10000000-0000-4000-8000-000000000006', 'message.text', 'alice', '{}', '2026-01-01T00:00:00.000Z')
+	`, workspace.Id); err == nil {
 		t.Fatal("session events accepted a self parent")
 	}
 }

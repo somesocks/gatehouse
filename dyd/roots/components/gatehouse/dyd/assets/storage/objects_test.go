@@ -79,7 +79,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	defer keyring.Close()
 	state := config.State{
 		Keychains:  keychains,
-		Workspaces: []config.Workspace{{ID: "engineering", Enabled: true}},
+		Workspaces: []config.Workspace{{Key: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{{
 			ID: "s3", Revision: 1, Protocol: "s3", Endpoint: &server.URL, Region: stringPointer("us-east-1"), Bucket: stringPointer("gatehouse"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:S3_TEST_SECRET"}, Enabled: true,
 		}},
@@ -92,10 +92,11 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE); INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES ('engineering', 'session', 'alice', TRUE, '2026-01-01 00:00:00');`); err != nil {
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE); INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'session', 'alice', TRUE, '2026-01-01 00:00:00');`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
-	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: "engineering"}, Id: "session"}, Id: "file"}, Name: "report.txt"}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "session"}, Id: "file"}, Name: "report.txt"}
 	err, _, objectID := store.SessionFileCreate(ctx, file, "object")
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +127,18 @@ func TestClientStoresS3Objects(t *testing.T) {
 }
 
 func stringPointer(value string) *string { return &value }
+
+func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, key string) model.WorkspaceRef {
+	t.Helper()
+	err, workspace := store.WorkspaceRefGetByKey(ctx, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workspace == nil {
+		t.Fatalf("workspace key %q was not found", key)
+	}
+	return *workspace
+}
 
 func readStreamingObject(source io.Reader) ([]byte, error) {
 	reader := bufio.NewReader(source)

@@ -16,7 +16,7 @@ type WorkspaceResourceSummary struct {
 func (store *Store) WorkspacesGet(ctx context.Context, principal model.PrincipalRef) (error, []model.Workspace) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT workspaces.id, workspaces.name, workspaces.enabled
+		SELECT workspaces.id, workspaces.key, workspaces.name, workspaces.enabled
 		FROM gatehouse_workspaces AS workspaces
 		WHERE workspaces.enabled = TRUE
 			AND EXISTS (
@@ -31,7 +31,7 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 					AND members.enabled = TRUE
 					AND groups.enabled = TRUE
 			)
-		ORDER BY workspaces.id
+		ORDER BY workspaces.name IS NULL, workspaces.name, workspaces.id
 	`, principal.Id)
 	if err != nil {
 		return fmt.Errorf("get workspaces: %w", err), nil
@@ -41,12 +41,15 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 	workspaces := []model.Workspace{}
 	for rows.Next() {
 		var workspace model.Workspace
-		var name sql.NullString
-		if err := rows.Scan(&workspace.Ref.Id, &name, &workspace.Enabled); err != nil {
+		var key, name sql.NullString
+		if err := rows.Scan(&workspace.Ref.Id, &key, &name, &workspace.Enabled); err != nil {
 			return fmt.Errorf("scan workspace: %w", err), nil
 		}
 		if name.Valid {
 			workspace.Name = &name.String
+		}
+		if key.Valid {
+			workspace.Key = &key.String
 		}
 		workspaces = append(workspaces, workspace)
 	}
@@ -67,6 +70,20 @@ func (store *Store) WorkspaceGet(ctx context.Context, workspace model.WorkspaceR
 		}
 	}
 	return nil, nil
+}
+
+func (store *Store) WorkspaceRefGetByKey(ctx context.Context, key string) (error, *model.WorkspaceRef) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT id FROM gatehouse_workspaces WHERE key = `+placeholder(1), key)
+	var workspace model.WorkspaceRef
+	if err := row.Scan(&workspace.Id); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get workspace by key: %w", err), nil
+	}
+	return nil, &workspace
 }
 
 func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Group) {

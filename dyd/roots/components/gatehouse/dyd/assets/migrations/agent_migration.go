@@ -89,7 +89,7 @@ func workspaceAgentMigrationBuilder(agents []config.WorkspaceAgent) MigrationBui
 		SELECT 1;
 		{{ range . }}
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, label, system_prompt, enabled)
-		VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE key = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Model }}, {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
 		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
 		{{ end }}
 	`, agents)
