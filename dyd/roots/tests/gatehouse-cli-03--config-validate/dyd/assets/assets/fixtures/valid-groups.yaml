@@ -1,7 +1,7 @@
 api_version: v1
 principals:
-  - id: alice
-  - id: bob
+  - alias: alice
+  - alias: bob
 workspaces:
   - alias: engineering
     groups:

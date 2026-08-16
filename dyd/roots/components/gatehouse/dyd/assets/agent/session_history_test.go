@@ -10,7 +10,7 @@ import (
 
 func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	principal := model.PrincipalRef{Id: "user"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
 	user := event(session, "user", "message.text", &principal, nil, map[string]interface{}{"text": "Find the report."})
 	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/find)", "reason": "Find the requested report."})
@@ -93,7 +93,7 @@ func TestToolOutputCreatedAtFollowsCall(t *testing.T) {
 
 func TestOpenAICompatibleMessagesReplaysToolBatch(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	principal := model.PrincipalRef{Id: "user"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
 	user := event(session, "user", "message.text", &principal, nil, map[string]interface{}{"text": "Check both reports."})
 	first := event(session, "first", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/get 1)", "reason": "Check the first report.", "batch": float64(0), "position": float64(1)})
@@ -135,7 +135,7 @@ func TestOpenAICompatibleMessagesRejectsInvalidToolHistory(t *testing.T) {
 
 func TestOpenAICompatibleMessagesIncludesAttachmentSnapshots(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	principal := model.PrincipalRef{Id: "user"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
 	message := event(session, "user", "message.text", &principal, nil, map[string]interface{}{
 		"files": []interface{}{map[string]interface{}{
 			"id": "report", "name": "report.txt", "media_type": "text/plain", "size": float64(12), "fingerprint": "sha256:abcd",
@@ -147,6 +147,6 @@ func TestOpenAICompatibleMessagesIncludesAttachmentSnapshots(t *testing.T) {
 	}
 }
 
-func event(session model.SessionRef, id, kind string, principal *model.PrincipalRef, agent *model.WorkspaceAgentRef, payload map[string]interface{}) model.SessionEvent {
+func event(session model.SessionRef, id, kind string, principal *model.Principal, agent *model.WorkspaceAgentRef, payload map[string]interface{}) model.SessionEvent {
 	return model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Kind: kind, AuthorPrincipal: principal, AuthorAgent: agent, Payload: payload}
 }

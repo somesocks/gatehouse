@@ -1,12 +1,14 @@
 api_version: v1
 principals:
-  - id: alice
+  - alias: alice
     name: Alice
     identities:
-      - id: "matrix:@alice:example.org"
+      - alias: alice-matrix
+        key: "matrix:@alice:example.org"
         verifiers:
           - kind: matrix
-      - id: gatehouse:alice
+      - alias: alice-gatehouse
+        key: gatehouse:alice
         verifiers:
           - kind: argon2id
             password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER

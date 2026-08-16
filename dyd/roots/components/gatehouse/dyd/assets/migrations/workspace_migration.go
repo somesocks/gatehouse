@@ -43,7 +43,7 @@ func workspaceMigrationBuilder(workspaces []config.Workspace) MigrationBuilder {
 }
 
 func workspaceIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
-	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_workspaces`)
+	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_workspaces WHERE alias IS NOT NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("get workspace IDs by alias: %w", err)
 	}

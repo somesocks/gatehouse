@@ -7,6 +7,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/keychain"
+	"gatehouse/typed_id"
 )
 
 type Set struct {
@@ -49,7 +50,6 @@ func Run(ctx context.Context, store *database.Store, migrations Set) error {
 
 type migrationValues struct {
 	Workspaces []workspaceMigrationValue
-	Principals []principalMigrationValue
 	Tools      []toolMigrationValue
 	Resources  []resourceMigrationValue
 	Groups     []groupMigrationValue
@@ -64,6 +64,7 @@ type workspaceMigrationValue struct {
 
 type principalMigrationValue struct {
 	ID      string
+	Alias   string
 	Name    any
 	Enabled bool
 }
@@ -111,7 +112,6 @@ type groupResourceGrantMigrationValue struct {
 func migrationValuesFor(state config.State) migrationValues {
 	values := migrationValues{
 		Workspaces: make([]workspaceMigrationValue, 0, len(state.Workspaces)),
-		Principals: make([]principalMigrationValue, 0, len(state.Principals)),
 		Tools:      make([]toolMigrationValue, 0, len(state.Tools)),
 		Resources:  make([]resourceMigrationValue, 0, len(state.Resources)),
 		Groups:     make([]groupMigrationValue, 0, len(state.Groups)),
@@ -122,13 +122,6 @@ func migrationValuesFor(state config.State) migrationValues {
 			name = *workspace.Name
 		}
 		values.Workspaces = append(values.Workspaces, workspaceMigrationValue{Alias: workspace.Alias, Name: name, Enabled: workspace.Enabled})
-	}
-	for _, principal := range state.Principals {
-		var name any
-		if principal.Name != nil {
-			name = *principal.Name
-		}
-		values.Principals = append(values.Principals, principalMigrationValue{ID: principal.ID, Name: name, Enabled: principal.Enabled})
 	}
 	for _, tool := range state.Tools {
 		values.Tools = append(values.Tools, toolMigrationValue{WorkspaceID: tool.WorkspaceID, ID: tool.ID, Source: tool.Source, Enabled: tool.Enabled})
@@ -159,4 +152,59 @@ func migrationValuesFor(state config.State) migrationValues {
 		})
 	}
 	return values
+}
+
+func principalMigrationBuilder(principals []config.Principal) MigrationBuilder {
+	return func(ctx context.Context, session *MigrationSession) (error, string) {
+		existing, err := principalIDsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		values := make([]principalMigrationValue, 0, len(principals))
+		for _, principal := range principals {
+			id := existing[principal.Alias]
+			if id == "" {
+				id, err = typed_id.New(typed_id.Principal)
+				if err != nil {
+					return err, ""
+				}
+			}
+			var name any
+			if principal.Name != nil {
+				name = *principal.Name
+			}
+			values = append(values, principalMigrationValue{ID: id, Alias: principal.Alias, Name: name, Enabled: principal.Enabled})
+		}
+		return session.RenderTemplate(`
+			SELECT 1;
+			{{ range . }}
+			INSERT INTO gatehouse_principals (id, alias, name, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (alias) DO UPDATE SET
+				name = excluded.name,
+				enabled = excluded.enabled;
+			{{ end }}
+		`, values)
+	}
+}
+
+func principalIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
+	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_principals WHERE alias IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("get principal IDs by alias: %w", err)
+	}
+	defer rows.Close()
+
+	ids := map[string]string{}
+	for rows.Next() {
+		var alias, id string
+		if err := rows.Scan(&alias, &id); err != nil {
+			return nil, fmt.Errorf("scan principal ID: %w", err)
+		}
+		ids[alias] = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate principal IDs: %w", err)
+	}
+	return ids, nil
 }

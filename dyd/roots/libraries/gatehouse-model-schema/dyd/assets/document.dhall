@@ -60,13 +60,13 @@ let PrincipalRef =
               { id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
-                     s.text.meta::{ description = Some "stable principal identity" }
+                      s.text.meta::{ description = Some "durable typed principal identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{
         , name = Some "PrincipalRef"
-        , description = Some "The stable identity of a principal."
+        , description = Some "The durable identity of a principal."
         }
 
 let Principal =
@@ -85,7 +85,11 @@ let Principal =
               }
         , optional =
             toMap
-              { name =
+              { alias =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "principal reconciliation alias" }
+              , name =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "principal display name" }
@@ -114,7 +118,11 @@ let Identity =
               { id =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "globally namespaced identity" }
+                    s.text.meta::{ description = Some "durable typed identity" }
+              , key =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "globally namespaced login identity" }
               , principal =
                   s.reference.from
                     s.reference.props::{ to = "PrincipalRef" }
@@ -129,7 +137,13 @@ let Identity =
                      s.number.props::{ variant = s.number.variants.integer }
                      s.number.meta::{ description = Some "monotonic identity configuration revision" }
                }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { alias =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "identity reconciliation alias" }
+              }
         }
         s.record.meta::{
         , name = Some "Identity"
@@ -505,7 +519,7 @@ let SessionEvent =
                     s.reference.meta::{ description = Some "parent session event" }
               , author_principal =
                   s.reference.from
-                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.props::{ to = "Principal" }
                     s.reference.meta::{ description = Some "principal event author" }
               , author_agent =
                   s.reference.from

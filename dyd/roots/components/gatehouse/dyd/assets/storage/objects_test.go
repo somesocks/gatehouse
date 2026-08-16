@@ -18,6 +18,7 @@ import (
 	"gatehouse/migrations"
 	"gatehouse/model"
 	"gatehouse/storage"
+	"gatehouse/typed_id"
 )
 
 func TestClientStoresS3Objects(t *testing.T) {
@@ -93,7 +94,14 @@ func TestClientStoresS3Objects(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE); INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'session', 'alice', TRUE, '2026-01-01 00:00:00');`, workspace.Id); err != nil {
+	principalID, err := typed_id.New(typed_id.Principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES (?, TRUE)`, principalID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'session', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
 		t.Fatal(err)
 	}
 	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "session"}, Id: "file"}, Name: "report.txt"}

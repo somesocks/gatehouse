@@ -155,11 +155,11 @@ func login(tokens *auth.BearerTokens) http.HandlerFunc {
 			invalidCredentials(response)
 			return
 		}
-		identityID := strings.TrimSpace(credentials.Identity)
-		if !strings.Contains(identityID, ":") {
-			identityID = "gatehouse:" + identityID
+		identityKey := strings.TrimSpace(credentials.Identity)
+		if !strings.Contains(identityKey, ":") {
+			identityKey = "gatehouse:" + identityKey
 		}
-		err, token := tokens.Login(request.Context(), identityID, []byte(credentials.Password))
+		err, token := tokens.Login(request.Context(), identityKey, []byte(credentials.Password))
 		if err != nil {
 			if errors.Is(err, auth.ErrInvalidCredentials) {
 				invalidCredentials(response)
@@ -258,7 +258,7 @@ func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFu
 		if !ok {
 			return
 		}
-		err, configured := store.WorkspacesGet(request.Context(), model.PrincipalRef{Id: claims.Principal})
+		err, configured := store.WorkspacesGet(request.Context(), claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -285,7 +285,7 @@ func workspaceTools(store *database.Store, tokens *auth.BearerTokens) http.Handl
 		if !ok {
 			return
 		}
-		err, ids := store.WorkspaceToolIDsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		err, ids := store.WorkspaceToolIDsGet(request.Context(), workspace, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -312,7 +312,7 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		if !ok {
 			return
 		}
-		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -378,7 +378,7 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 	err, sessions := store.SessionsGet(
 		request.Context(),
 		model.WorkspaceRef{Id: workspaceID},
-		model.PrincipalRef{Id: claims.Principal},
+		claims.Principal.Ref,
 	)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -405,7 +405,7 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	principal := model.PrincipalRef{Id: claims.Principal}
+	principal := claims.Principal.Ref
 	session := model.Session{Ref: model.SessionRef{Workspace: workspace, Id: id}, AuthorPrincipal: &principal, Enabled: true}
 	err, stored := store.SessionsCreate(request.Context(), session, principal)
 	if err != nil {
@@ -460,7 +460,7 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			}
 			checkpoints = append(checkpoints, checkpoint)
 		}
-		err, advanced := store.ActivityTopicCheckpointsGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal}, checkpoints)
+		err, advanced := store.ActivityTopicCheckpointsGet(request.Context(), workspace, claims.Principal.Ref, checkpoints)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -494,7 +494,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			return
 		}
 		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
-		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -530,7 +530,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		event := model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: session, Id: id},
 			Kind:            "message.text",
-			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
+			AuthorPrincipal: &claims.Principal,
 			Payload:         messagePayload(message),
 		}
 		err, stored := store.SessionMessagesCreate(request.Context(), event)
@@ -562,7 +562,7 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			return
 		}
 		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
-		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -725,7 +725,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			return
 		}
 		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
-		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -753,7 +753,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			Ref:             model.SessionEventRef{Session: session, Id: id},
 			Parent:          &parent,
 			Kind:            "cancel.request",
-			AuthorPrincipal: &model.PrincipalRef{Id: claims.Principal},
+			AuthorPrincipal: &claims.Principal,
 			Payload:         map[string]interface{}{},
 		}
 		err, stored := store.SessionEventsCreate(request.Context(), event)
@@ -782,7 +782,7 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			return
 		}
 		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
-		err, authorized := store.SessionGet(request.Context(), session, model.PrincipalRef{Id: claims.Principal})
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -853,7 +853,7 @@ func workspaceResources(store *database.Store, tokens *auth.BearerTokens) http.H
 		if !ok {
 			return
 		}
-		err, resources := store.WorkspaceResourceSummariesGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+		err, resources := store.WorkspaceResourceSummariesGet(request.Context(), workspace, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -887,7 +887,7 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 		return model.WorkspaceRef{}, false
 	}
 	workspace := model.WorkspaceRef{Id: workspaceID}
-	err, configured := store.WorkspaceGet(request.Context(), workspace, model.PrincipalRef{Id: claims.Principal})
+	err, configured := store.WorkspaceGet(request.Context(), workspace, claims.Principal.Ref)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return model.WorkspaceRef{}, false
@@ -907,7 +907,7 @@ func authorizedSessionFile(response http.ResponseWriter, request *http.Request, 
 		return nil, nil, false
 	}
 	file := model.SessionFileRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: fileID}
-	err, stored, object := store.SessionFileGet(request.Context(), file, model.PrincipalRef{Id: claims.Principal})
+	err, stored, object := store.SessionFileGet(request.Context(), file, claims.Principal.Ref)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return nil, nil, false

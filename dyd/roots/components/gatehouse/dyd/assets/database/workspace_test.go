@@ -20,8 +20,8 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	state := config.State{
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{
-			{ID: "alice", Enabled: true},
-			{ID: "bob", Enabled: false},
+			{Alias: "alice", Enabled: true},
+			{Alias: "bob", Enabled: false},
 		},
 		Tools: []config.Tool{
 			{WorkspaceID: "engineering", ID: "git", Source: "file:./git.lisp", Enabled: true},
@@ -73,7 +73,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, context.Background(), store, "engineering")
-	alice := model.PrincipalRef{Id: "alice"}
+	alice := principalRef(t, context.Background(), store, "alice")
 	err, tools := store.WorkspaceToolsGet(context.Background(), workspace, alice)
 	if err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 		t.Fatalf("WorkspaceResourcesGet() = %#v, want %#v", resources, wantResources)
 	}
 
-	bob := model.PrincipalRef{Id: "bob"}
+	bob := principalRef(t, context.Background(), store, "bob")
 	err, tools = store.WorkspaceToolsGet(context.Background(), workspace, bob)
 	if err != nil {
 		t.Fatal(err)

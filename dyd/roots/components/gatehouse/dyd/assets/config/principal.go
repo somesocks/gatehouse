@@ -10,14 +10,15 @@ import (
 )
 
 type Principal struct {
-	ID         string
+	Alias      string
 	Name       *string
 	Enabled    bool
 	Identities []Identity
 }
 
 type Identity struct {
-	ID        string
+	Alias     string
+	Key       string
 	Revision  int
 	Verifiers []Verifier
 	Enabled   bool
@@ -33,11 +34,13 @@ type Verifier struct {
 type PasswordSource string
 
 var principalID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
-var identityID = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:.+$`)
+var principalAlias = principalID
+var identityAlias = principalID
+var identityKey = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:.+$`)
 var verifierKind = regexp.MustCompile(`^[a-z][a-z0-9+.-]*$`)
 
 const (
-	defaultPrincipalID      = "root"
+	defaultPrincipalAlias   = "root"
 	defaultIdentityRevision = 1
 	passwordAlgorithm       = "pbkdf2-hmac-sha256-v1"
 )
@@ -45,10 +48,11 @@ const (
 func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principal) {
 	if document.Principals == nil {
 		return nil, []Principal{{
-			ID:      defaultPrincipalID,
+			Alias:   defaultPrincipalAlias,
 			Enabled: true,
 			Identities: []Identity{{
-				ID:       "gatehouse:root",
+				Alias:    "root",
+				Key:      "gatehouse:root",
 				Revision: defaultIdentityRevision,
 				Verifiers: []Verifier{{
 					Algorithm: stringValue(passwordAlgorithm),
@@ -60,14 +64,14 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 	}
 
 	principals := make([]Principal, 0, len(*document.Principals))
-	principalIDs := make(map[string]struct{}, len(*document.Principals))
-	identityIDs := make(map[string]struct{})
+	principalAliases := make(map[string]struct{}, len(*document.Principals))
+	identityAliases := make(map[string]struct{})
 	for principalIndex, configured := range *document.Principals {
-		if !principalID.MatchString(configured.Id) {
-			return fmt.Errorf("principals[%d].id must match %q", principalIndex, principalID.String()), nil
+		if !principalAlias.MatchString(configured.Alias) {
+			return fmt.Errorf("principals[%d].alias must match %q", principalIndex, principalAlias.String()), nil
 		}
-		if _, exists := principalIDs[configured.Id]; exists {
-			return fmt.Errorf("principals[%d].id %q is duplicated", principalIndex, configured.Id), nil
+		if _, exists := principalAliases[configured.Alias]; exists {
+			return fmt.Errorf("principals[%d].alias %q is duplicated", principalIndex, configured.Alias), nil
 		}
 		if configured.Name != nil && strings.TrimSpace(*configured.Name) == "" {
 			return fmt.Errorf("principals[%d].name must not be blank", principalIndex), nil
@@ -81,17 +85,20 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 		if configured.Identities != nil {
 			identities = make([]Identity, 0, len(*configured.Identities))
 			for identityIndex, configuredIdentity := range *configured.Identities {
-				if !identityID.MatchString(configuredIdentity.Id) {
-					return fmt.Errorf("principals[%d].identities[%d].id must be a namespaced identity", principalIndex, identityIndex), nil
+				if !identityAlias.MatchString(configuredIdentity.Alias) {
+					return fmt.Errorf("principals[%d].identities[%d].alias must match %q", principalIndex, identityIndex, identityAlias.String()), nil
 				}
-				if _, exists := identityIDs[configuredIdentity.Id]; exists {
-					return fmt.Errorf("principals[%d].identities[%d].id %q is duplicated", principalIndex, identityIndex, configuredIdentity.Id), nil
+				if _, exists := identityAliases[configuredIdentity.Alias]; exists {
+					return fmt.Errorf("principals[%d].identities[%d].alias %q is duplicated", principalIndex, identityIndex, configuredIdentity.Alias), nil
+				}
+				if !identityKey.MatchString(configuredIdentity.Key) {
+					return fmt.Errorf("principals[%d].identities[%d].key must be a namespaced identity", principalIndex, identityIndex), nil
 				}
 				if len(configuredIdentity.Verifiers) == 0 {
 					return fmt.Errorf("principals[%d].identities[%d].verifiers must not be empty", principalIndex, identityIndex), nil
 				}
 
-				namespace := configuredIdentity.Id[:strings.IndexByte(configuredIdentity.Id, ':')]
+				namespace := configuredIdentity.Key[:strings.IndexByte(configuredIdentity.Key, ':')]
 				verifiers := make([]Verifier, 0, len(configuredIdentity.Verifiers))
 				for verifierIndex, value := range configuredIdentity.Verifiers {
 					verifier, err := resolveVerifier(namespace, value)
@@ -112,9 +119,10 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 				if revision <= 0 {
 					return fmt.Errorf("principals[%d].identities[%d].revision must be positive", principalIndex, identityIndex), nil
 				}
-				identityIDs[configuredIdentity.Id] = struct{}{}
+				identityAliases[configuredIdentity.Alias] = struct{}{}
 				identities = append(identities, Identity{
-					ID:        configuredIdentity.Id,
+					Alias:     configuredIdentity.Alias,
+					Key:       configuredIdentity.Key,
 					Revision:  revision,
 					Verifiers: verifiers,
 					Enabled:   identityEnabled,
@@ -122,19 +130,19 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 			}
 		}
 		sort.Slice(identities, func(left, right int) bool {
-			return identities[left].ID < identities[right].ID
+			return identities[left].Alias < identities[right].Alias
 		})
 
-		principalIDs[configured.Id] = struct{}{}
+		principalAliases[configured.Alias] = struct{}{}
 		principals = append(principals, Principal{
-			ID:         configured.Id,
+			Alias:      configured.Alias,
 			Name:       configured.Name,
 			Enabled:    enabled,
 			Identities: identities,
 		})
 	}
 	sort.Slice(principals, func(left, right int) bool {
-		return principals[left].ID < principals[right].ID
+		return principals[left].Alias < principals[right].Alias
 	})
 	return nil, principals
 }

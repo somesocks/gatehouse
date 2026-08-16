@@ -313,10 +313,14 @@ let Identity =
         s.record.props::{
         , required =
             toMap
-              { id =
+              { alias =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "globally namespaced identity" }
+                    s.text.meta::{ description = Some "stable identity reconciliation alias" }
+              , key =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "globally namespaced login identity" }
               , verifiers = Verifiers
               }
         , optional =
@@ -343,10 +347,10 @@ let Principal =
         s.record.props::{
         , required =
             toMap
-              { id =
+              { alias =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "stable principal identity" }
+                    s.text.meta::{ description = Some "stable principal reconciliation alias" }
               }
         , optional =
             toMap

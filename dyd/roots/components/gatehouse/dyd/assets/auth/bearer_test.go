@@ -10,6 +10,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
@@ -36,11 +37,20 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err := migrations.Run(ctx, store, set); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err != nil {
+	principalID, err := typed_id.New(typed_id.Principal)
+	if err != nil {
 		t.Fatal(err)
 	}
+	identityID, err := typed_id.New(typed_id.Identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES (?, TRUE)`, principalID); err != nil {
+		t.Fatal(err)
+	}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: principalID}, Enabled: true}
 	if err := store.IdentitiesUpsertRevisions(ctx, []model.Identity{{
-		Id: "gatehouse:alice", Principal: model.PrincipalRef{Id: "alice"}, Revision: 1, Verifiers: []interface{}{"gh-ver:invalid"}, Enabled: true,
+		Id: identityID, Key: "gatehouse:alice", Principal: model.PrincipalRef{Id: principalID}, Revision: 1, Verifiers: []interface{}{"gh-ver:invalid"}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +58,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, token := tokens.Mint(ctx, Claims{Principal: "alice", Identity: "gatehouse:alice"})
+	err, token := tokens.Mint(ctx, Claims{Principal: principal, Identity: identityID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +71,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if claims != (Claims{Principal: "alice", Identity: "gatehouse:alice"}) {
+	if claims.Principal.Ref != principal.Ref || claims.Identity != identityID {
 		t.Fatalf("Authenticate() = %#v", claims)
 	}
 	err, unavailableKeyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())

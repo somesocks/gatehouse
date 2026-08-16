@@ -40,7 +40,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 				WorkspaceID: defaultWorkspaceAlias,
 				ID:          "root",
 				Enabled:     true,
-				Members:     []GroupMember{{PrincipalID: defaultPrincipalID, Enabled: true}},
+				Members:     []GroupMember{{PrincipalID: defaultPrincipalAlias, Enabled: true}},
 			}}
 		}
 		return nil, nil
@@ -75,8 +75,8 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 				members = make([]GroupMember, 0, len(*configured.Members))
 				memberIDs := make(map[string]struct{}, len(*configured.Members))
 				for memberIndex, configuredMember := range *configured.Members {
-					if !principalID.MatchString(configuredMember.Principal) {
-						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].principal must match %q", workspaceIndex, groupIndex, memberIndex, principalID.String()), nil
+					if !principalAlias.MatchString(configuredMember.Principal) {
+						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].principal must match %q", workspaceIndex, groupIndex, memberIndex, principalAlias.String()), nil
 					}
 					if _, exists := memberIDs[configuredMember.Principal]; exists {
 						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].principal %q is duplicated", workspaceIndex, groupIndex, memberIndex, configuredMember.Principal), nil

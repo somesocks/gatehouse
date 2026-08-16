@@ -19,6 +19,7 @@ import (
 func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	aliceName := "Alice"
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +27,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	defer store.Close()
 	state := config.State{
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
 			{ID: "automatic", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Automatic reply."}`, Enabled: true},
@@ -51,7 +52,8 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	alice := model.PrincipalRef{Id: "alice"}
+	alice := principalRef(t, ctx, store, "alice")
+	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
 	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
@@ -59,7 +61,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	message := model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c892"},
 		Kind:            "message.text",
-		AuthorPrincipal: &alice,
+		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello", "agent": "requested"},
 	}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
@@ -140,6 +142,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	aliceName := "Alice"
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +150,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	defer store.Close()
 	state := config.State{
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{ID: "alice", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
 		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{
 			ID: "fallback", Revision: 1, Provider: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Enabled: true,
@@ -168,7 +171,8 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	alice := model.PrincipalRef{Id: "alice"}
+	alice := principalRef(t, ctx, store, "alice")
+	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
 	session := model.SessionRef{Workspace: workspace, Id: "session-one"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
@@ -176,7 +180,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	message := model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c893"},
 		Kind:            "message.text",
-		AuthorPrincipal: &alice,
+		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello"},
 	}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
@@ -186,7 +190,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		Ref:             model.SessionEventRef{Session: session, Id: "a8607728-3072-4f6c-9bd4-d9f584b7c894"},
 		Parent:          &message.Ref,
 		Kind:            "cancel.request",
-		AuthorPrincipal: &alice,
+		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
 	}
 	if err, _ := store.SessionEventsCreate(ctx, cancellation); err != nil {
@@ -217,7 +221,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		}
 		if len(events) == 3 {
 			success := events[2]
-			if success.Kind != "cancel.success" || success.Parent == nil || *success.Parent != cancellation.Ref || success.AuthorPrincipal == nil || *success.AuthorPrincipal != alice {
+			if success.Kind != "cancel.success" || success.Parent == nil || *success.Parent != cancellation.Ref || success.AuthorPrincipal == nil || success.AuthorPrincipal.Ref != alice || success.AuthorPrincipal.Name == nil || *success.AuthorPrincipal.Name != aliceName {
 				t.Fatalf("cancellation success = %#v", success)
 			}
 			break
@@ -243,4 +247,13 @@ func workspaceRef(t *testing.T, ctx context.Context, store *database.Store, alia
 		t.Fatalf("workspace alias %q was not found", alias)
 	}
 	return *workspace
+}
+
+func principalRef(t *testing.T, ctx context.Context, store *database.Store, alias string) model.PrincipalRef {
+	t.Helper()
+	var id string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = ?`, alias).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return model.PrincipalRef{Id: id}
 }

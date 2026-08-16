@@ -115,7 +115,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			contains: "must not be blank",
 		},
 		{
-			name: "invalid member principal ID",
+			name: "invalid member principal alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
@@ -128,7 +128,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			contains: "must match",
 		},
 		{
-			name: "duplicate member principal ID",
+			name: "duplicate member principal alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{

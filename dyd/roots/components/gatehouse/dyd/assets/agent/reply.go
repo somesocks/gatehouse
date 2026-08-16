@@ -359,7 +359,7 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		if message.AuthorPrincipal == nil {
 			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
 		}
-		err, text = runtime.openAIReply(ctx, input.Event, selected, messages, *message.AuthorPrincipal)
+		err, text = runtime.openAIReply(ctx, input.Event, selected, messages, message.AuthorPrincipal.Ref)
 	default:
 		err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
 	}

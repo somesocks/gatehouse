@@ -297,11 +297,12 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	query := `
-		SELECT id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at
-		FROM gatehouse_session_events
-		WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + `
-			AND (created_at, id) > (` + placeholder(3) + `, ` + placeholder(4) + `)
-		ORDER BY created_at, id
+		SELECT events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.created_at
+		FROM gatehouse_session_events AS events
+		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
+		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
+			AND (events.created_at, events.id) > (` + placeholder(3) + `, ` + placeholder(4) + `)
+		ORDER BY events.created_at, events.id
 	`
 	arguments := []any{session.Workspace.Id, session.Id, afterCreatedAt, afterID}
 	if limit > 0 {
@@ -317,12 +318,16 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	events := []model.SessionEvent{}
 	for rows.Next() {
 		var id, kind, payload, createdAt string
-		var parent, principal, agent, gateway sql.NullString
+		var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
+		var principalEnabled sql.NullBool
 		if err := rows.Scan(
 			&id,
 			&parent,
 			&kind,
 			&principal,
+			&principalAlias,
+			&principalName,
+			&principalEnabled,
 			&agent,
 			&gateway,
 			&payload,
@@ -334,7 +339,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 			return fmt.Errorf("decode session event payload: %w", err), nil
 		}
-		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, agent, gateway)
+		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 		if err != nil {
 			return err, nil
 		}
@@ -391,8 +396,9 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 			FROM gatehouse_session_events AS child
 			JOIN tree ON child.workspace = tree.workspace AND child.session = tree.session AND child.parent = tree.id
 		)
-		SELECT id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at, depth
+		SELECT tree.id, tree.parent, tree.kind, tree.author_principal, principals.alias, principals.name, principals.enabled, tree.author_agent, tree.author_gateway, tree.payload, tree.created_at, tree.depth
 		FROM tree
+		LEFT JOIN gatehouse_principals AS principals ON principals.id = tree.author_principal
 		ORDER BY display_path
 	`, session.Workspace.Id, session.Id, afterCreatedAt, afterID, limit)
 	if err != nil {
@@ -404,12 +410,16 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 	for rows.Next() {
 		var entry SessionEventTreeEntry
 		var id, kind, payload, createdAt string
-		var parent, principal, agent, gateway sql.NullString
+		var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
+		var principalEnabled sql.NullBool
 		if err := rows.Scan(
 			&id,
 			&parent,
 			&kind,
 			&principal,
+			&principalAlias,
+			&principalName,
+			&principalEnabled,
 			&agent,
 			&gateway,
 			&payload,
@@ -422,7 +432,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 			return fmt.Errorf("decode session event payload: %w", err), nil
 		}
-		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, agent, gateway)
+		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 		if err != nil {
 			return err, nil
 		}
@@ -449,15 +459,17 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEventRef) (error, *model.SessionEvent) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT parent, kind, author_principal, author_agent, author_gateway, payload, created_at
-		FROM gatehouse_session_events
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+`
+		SELECT events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.created_at
+		FROM gatehouse_session_events AS events
+		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
+		WHERE events.workspace = `+placeholder(1)+` AND events.session = `+placeholder(2)+` AND events.id = `+placeholder(3)+`
 	`, event.Session.Workspace.Id, event.Session.Id, event.Id)
 	var stored model.SessionEvent
 	stored.Ref = event
 	var payload, createdAt string
-	var parent, principal, agent, gateway sql.NullString
-	if err := row.Scan(&parent, &stored.Kind, &principal, &agent, &gateway, &payload, &createdAt); err != nil {
+	var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
+	var principalEnabled sql.NullBool
+	if err := row.Scan(&parent, &stored.Kind, &principal, &principalAlias, &principalName, &principalEnabled, &agent, &gateway, &payload, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -467,7 +479,7 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		return fmt.Errorf("decode session event payload: %w", err), nil
 	}
-	authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(event.Session.Workspace, principal, agent, gateway)
+	authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(event.Session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 	if err != nil {
 		return err, nil
 	}
@@ -775,7 +787,7 @@ func sessionEventAuthorValues(event model.SessionEvent) (any, any, any, error) {
 		return nil, nil, nil, fmt.Errorf("create session event: exactly one author is required")
 	}
 	if event.AuthorPrincipal != nil {
-		principal = event.AuthorPrincipal.Id
+		principal = event.AuthorPrincipal.Ref.Id
 	}
 	if event.AuthorAgent != nil {
 		if event.AuthorAgent.Workspace != event.Ref.Session.Workspace {
@@ -789,9 +801,9 @@ func sessionEventAuthorValues(event model.SessionEvent) (any, any, any, error) {
 	return principal, agent, gateway, nil
 }
 
-func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, gateway sql.NullString) (*model.PrincipalRef, *model.WorkspaceAgentRef, *model.GatewayRef, error) {
+func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principalID, principalAlias, principalName sql.NullString, principalEnabled sql.NullBool, agent, gateway sql.NullString) (*model.Principal, *model.WorkspaceAgentRef, *model.GatewayRef, error) {
 	authors := 0
-	for _, author := range []sql.NullString{principal, agent, gateway} {
+	for _, author := range []sql.NullString{principalID, agent, gateway} {
 		if author.Valid {
 			authors++
 		}
@@ -799,8 +811,18 @@ func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principal, agen
 	if authors != 1 {
 		return nil, nil, nil, fmt.Errorf("read session event: expected exactly one author")
 	}
-	if principal.Valid {
-		return &model.PrincipalRef{Id: principal.String}, nil, nil, nil
+	if principalID.Valid {
+		if !principalEnabled.Valid {
+			return nil, nil, nil, fmt.Errorf("read session event: principal author was not found")
+		}
+		principal := model.Principal{Ref: model.PrincipalRef{Id: principalID.String}, Enabled: principalEnabled.Bool}
+		if principalAlias.Valid {
+			principal.Alias = &principalAlias.String
+		}
+		if principalName.Valid {
+			principal.Name = &principalName.String
+		}
+		return &principal, nil, nil, nil
 	}
 	if agent.Valid {
 		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}, nil, nil

@@ -71,6 +71,11 @@ _test() {
         return 1
     fi
 
+    if gatehouse config validate "$TEMP_DIR/invalid-principal-id.yaml" >"$TEMP_DIR/invalid-principal-id.stdout" 2>"$TEMP_DIR/invalid-principal-id.stderr"; then
+        printf '%s\n' "[ERROR] Fail: configuration with retired principal and identity IDs unexpectedly succeeded" >&2
+        return 1
+    fi
+
     if gatehouse config validate "$TEMP_DIR/invalid-group-member-principal-id.yaml" >"$TEMP_DIR/invalid-group-member-principal-id.stdout" 2>"$TEMP_DIR/invalid-group-member-principal-id.stderr"; then
         printf '%s\n' "[ERROR] Fail: group member with principal_id unexpectedly succeeded" >&2
         return 1

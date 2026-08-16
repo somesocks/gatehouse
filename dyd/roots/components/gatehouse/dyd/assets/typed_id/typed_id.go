@@ -10,6 +10,8 @@ import (
 
 const (
 	Workspace = "wsp"
+	Principal = "prn"
+	Identity  = "idt"
 	encodedLength = 26
 )
 

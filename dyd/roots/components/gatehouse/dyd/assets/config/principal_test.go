@@ -8,26 +8,28 @@ import (
 	"gatehouse/configschema"
 )
 
-func TestResolvePrincipalsDefaultsEnabledAndSortsByID(t *testing.T) {
+func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 	disabled := false
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Principals: &[]configschema.GatehouseConfigPrincipalsValues{
 			{
-				Id: "zebra",
+				Alias: "zebra",
 				Identities: &[]configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-					Id:        "matrix:@zebra:example.org",
+					Alias:     "zebra-matrix",
+					Key:       "matrix:@zebra:example.org",
 					Verifiers: []interface{}{map[string]any{"kind": "matrix"}},
 				}},
 			},
 			{
-				Id:      "alpha-2",
+				Alias:   "alpha-2",
 				Name:    stringPointer("Alpha"),
 				Enabled: &disabled,
 				Identities: &[]configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id: "gatehouse:alpha",
-				Verifiers: []interface{}{map[string]any{
-					"value": "gh-ver:AAAA",
+					Alias: "alpha-gatehouse",
+					Key:   "gatehouse:alpha",
+					Verifiers: []interface{}{map[string]any{
+						"value": "gh-ver:AAAA",
 					}},
 				}},
 			},
@@ -40,21 +42,23 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByID(t *testing.T) {
 	}
 	want := []Principal{
 		{
-			ID:      "alpha-2",
+			Alias:   "alpha-2",
 			Name:    stringPointer("Alpha"),
 			Enabled: false,
 			Identities: []Identity{{
-				ID:       "gatehouse:alpha",
+				Alias:    "alpha-gatehouse",
+				Key:      "gatehouse:alpha",
 				Revision: 1,
 				Verifiers: []Verifier{{Value: stringPointer("gh-ver:AAAA"), Stored: "gh-ver:AAAA"}},
 				Enabled:  true,
 			}},
 		},
 		{
-			ID:      "zebra",
+			Alias:   "zebra",
 			Enabled: true,
 			Identities: []Identity{{
-				ID:       "matrix:@zebra:example.org",
+				Alias:    "zebra-matrix",
+				Key:      "matrix:@zebra:example.org",
 				Revision: 1,
 				Verifiers: []Verifier{{Stored: map[string]any{"kind": "matrix"}}},
 				Enabled:  true,
@@ -76,24 +80,25 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		contains string
 	}{
 		{
-			name: "invalid principal ID",
+			name: "invalid principal alias",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
-				Id: "Alice",
+				Alias: "Alice",
 			}}},
 			contains: "must match",
 		},
 		{
-			name: "duplicate principal ID",
+			name: "duplicate principal alias",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{
-				{Id: "alice"},
-				{Id: "alice"},
+				{Alias: "alice"},
+				{Alias: "alice"},
 			}},
 			contains: "duplicated",
 		},
 		{
-			name: "identity without namespace",
+			name: "identity key without namespace",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "alice",
+				Alias:     "alice-gatehouse",
+				Key:       "alice",
 				Verifiers: validGatehouseVerifier,
 			}}),
 			contains: "namespaced identity",
@@ -101,14 +106,16 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "empty verifiers",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id: "matrix:@alice:example.org",
+				Alias: "alice-matrix",
+				Key:   "matrix:@alice:example.org",
 			}}),
 			contains: "must not be empty",
 		},
 		{
 			name: "verifier is not an object",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "matrix:@alice:example.org",
+				Alias:     "alice-matrix",
+				Key:       "matrix:@alice:example.org",
 				Verifiers: []interface{}{"matrix"},
 			}}),
 			contains: "must be an object",
@@ -116,7 +123,8 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "verifier without kind",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "matrix:@alice:example.org",
+				Alias:     "alice-matrix",
+				Key:       "matrix:@alice:example.org",
 				Verifiers: []interface{}{map[string]any{}},
 			}}),
 			contains: "kind must match",
@@ -124,7 +132,8 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "unsupported gatehouse verifier",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "gatehouse:alice",
+				Alias:     "alice-gatehouse",
+				Key:       "gatehouse:alice",
 				Verifiers: []interface{}{map[string]any{"kind": "matrix"}},
 			}}),
 			contains: "not supported",
@@ -132,7 +141,8 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "unsupported identity namespace",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "unknown:alice",
+				Alias:     "alice-unknown",
+				Key:       "unknown:alice",
 				Verifiers: []interface{}{map[string]any{"kind": "unknown"}},
 			}}),
 			contains: "namespace",
@@ -140,7 +150,8 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		{
 			name: "gatehouse verifier without canonical value",
 			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Id:        "gatehouse:alice",
+				Alias:     "alice-gatehouse",
+				Key:       "gatehouse:alice",
 				Verifiers: []interface{}{map[string]any{"kind": "argon2id"}},
 			}}),
 			contains: "not supported",
@@ -157,11 +168,11 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 	}
 }
 
-func principalDocument(id string, identities []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues) configschema.GatehouseConfig {
+func principalDocument(alias string, identities []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues) configschema.GatehouseConfig {
 	return configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
-			Id:         id,
+			Alias:      alias,
 			Identities: &identities,
 		}},
 	}

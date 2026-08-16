@@ -184,9 +184,10 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	}
 	defer store.Close()
 	algorithm := "pbkdf2-hmac-sha256-v1"
+	identityAlias := "alice-gatehouse"
 	state := config.State{Principals: []config.Principal{{
-		ID: "alice", Enabled: true, Identities: []config.Identity{{
-			ID: "gatehouse:alice", Revision: 1, Enabled: true,
+		Alias: "alice", Enabled: true, Identities: []config.Identity{{
+			Alias: "alice-gatehouse", Key: "gatehouse:alice", Revision: 1, Enabled: true,
 			Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:IDENTITY_PASSWORD"}}},
 		}},
 	}}}
@@ -204,10 +205,10 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	identityID := "gatehouse:alice"
+	identityKey := "gatehouse:alice"
 	t.Setenv("IDENTITY_PASSWORD", "first password")
 	run()
-	err, first := store.ActiveIdentityGet(context.Background(), identityID)
+	err, first := store.ActiveIdentityGetByKey(context.Background(), identityKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +225,7 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 
 	t.Setenv("IDENTITY_PASSWORD", "")
 	run()
-	err, unchanged := store.ActiveIdentityGet(context.Background(), identityID)
+	err, unchanged := store.ActiveIdentityGetByID(context.Background(), first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +236,7 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	state.Principals[0].Identities[0].Revision = 2
 	t.Setenv("IDENTITY_PASSWORD", "second password")
 	run()
-	err, updated := store.ActiveIdentityGet(context.Background(), identityID)
+	err, updated := store.ActiveIdentityGetByID(context.Background(), first.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,14 +252,14 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	}
 
 	if err := store.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
-		Id: identityID, Principal: model.PrincipalRef{Id: "alice"}, Revision: 3, Verifiers: []interface{}{updatedVerifier}, Enabled: true,
+		Id: first.ID, Alias: &identityAlias, Key: identityKey, Principal: first.Principal.Ref, Revision: 3, Verifiers: []interface{}{updatedVerifier}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("IDENTITY_PASSWORD", "")
 	run()
 	var revision int
-	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE id = ?`, identityID).Scan(&revision); err != nil {
+	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE id = ?`, first.ID).Scan(&revision); err != nil {
 		t.Fatal(err)
 	}
 	if revision != 3 {

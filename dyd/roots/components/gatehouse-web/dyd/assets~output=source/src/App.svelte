@@ -5,7 +5,10 @@
   import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
 
   type Claims = {
-    principal: string
+    principal: {
+      ref: { id: string }
+      name?: string
+    }
     identity: string
   }
 
@@ -37,7 +40,10 @@
     payload: { text?: string; name?: string; reason?: string; code?: string; output?: string; files?: MessageFile[] }
     ref: { id: string }
     parent?: { id: string }
-    author_principal?: { id: string }
+    author_principal?: {
+      ref: { id: string }
+      name?: string
+    }
     author_agent?: { model: { id: string } }
   }
 
@@ -842,7 +848,7 @@
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
       <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">Ask an administrator to add {claims?.principal} to a workspace group.</p>
+      <p class="subtitle is-6">Ask an administrator to add {claims?.principal.name ?? "User"} to a workspace group.</p>
       <button class="button is-danger is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
     </section>
   </main>
@@ -914,7 +920,7 @@
       </nav>
 
       <div class="sidebar-footer">
-        <span>{claims?.principal}</span>
+        <span>{claims?.principal.name ?? "User"}</span>
         <button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button>
       </div>
     </aside>
@@ -955,7 +961,7 @@
               {#each events as tree (tree.event.ref.id)}
                 {#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.files !== undefined && tree.event.payload.files.length > 0))}
                   <article class="chat-message message-own">
-                    <p class="chat-message-author">{tree.event.author_principal?.id ?? "You"}</p>
+                    <p class="chat-message-author">{tree.event.author_principal?.name ?? "User"}</p>
                     {#if tree.event.payload.text !== undefined}
                       <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
                         <Copy size={16} strokeWidth={2} />

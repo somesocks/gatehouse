@@ -37,7 +37,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_workspaces (
 				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'wsp_'),
-				alias TEXT NOT NULL UNIQUE
+				alias TEXT UNIQUE
 					CHECK (alias GLOB '[a-z]*')
 					CHECK (alias NOT GLOB '*[^a-z0-9_-]*'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
@@ -49,15 +49,20 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_principals_and_identities",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_principals (
-				id TEXT PRIMARY KEY
-					CHECK (id GLOB '[a-z]*')
-					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'prn_'),
+				alias TEXT UNIQUE
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
 			) STRICT;
 
 			CREATE TABLE gatehouse_identities (
-				id TEXT PRIMARY KEY CHECK (instr(id, ':') > 1),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'idt_'),
+				alias TEXT UNIQUE
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
+				key TEXT NOT NULL UNIQUE CHECK (instr(key, ':') > 1),
 				principal_id TEXT NOT NULL REFERENCES gatehouse_principals (id),
 				verifiers TEXT NOT NULL
 					CHECK (json_valid(verifiers))
@@ -465,16 +470,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			}, {
 				Index:       4,
 				Description: "reconcile_principals",
-				Builder: templateMigrationBuilder(`
-			SELECT 1;
-			{{ range .Principals }}
-			INSERT INTO gatehouse_principals (id, name, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (id) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-			{{ end }}
-		`, values),
+				Builder:     principalMigrationBuilder(state.Principals),
 			}, {
 				Index:       5,
 				Description: "reconcile_identities",
@@ -493,7 +489,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				enabled = excluded.enabled;
 			{{ range .Members }}
 			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}

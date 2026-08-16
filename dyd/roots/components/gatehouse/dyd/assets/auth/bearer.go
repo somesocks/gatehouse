@@ -21,8 +21,8 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrUnauthenticated = errors.New("unauthenticated")
 
 type Claims struct {
-	Principal string `json:"principal"`
-	Identity  string `json:"identity"`
+	Principal model.Principal `json:"principal"`
+	Identity  string          `json:"identity"`
 }
 
 type StorageToken struct {
@@ -50,8 +50,8 @@ func (tokens *BearerTokens) StorageClient() *storage.Client {
 	return storage.NewClient(tokens.store, tokens.keyring)
 }
 
-func (tokens *BearerTokens) Login(ctx context.Context, identityID string, password []byte) (error, string) {
-	err, active := tokens.store.ActiveIdentityGet(ctx, identityID)
+func (tokens *BearerTokens) Login(ctx context.Context, identityKey string, password []byte) (error, string) {
+	err, active := tokens.store.ActiveIdentityGetByKey(ctx, identityKey)
 	if err != nil {
 		return err, ""
 	}
@@ -70,7 +70,7 @@ func (tokens *BearerTokens) Login(ctx context.Context, identityID string, passwo
 }
 
 func (tokens *BearerTokens) Mint(ctx context.Context, claims Claims) (error, string) {
-	if claims.Principal == "" || claims.Identity == "" {
+	if claims.Principal.Ref.Id == "" || claims.Identity == "" {
 		return fmt.Errorf("bearer claims must include principal and identity"), ""
 	}
 	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
@@ -138,14 +138,14 @@ func (tokens *BearerTokens) Authenticate(ctx context.Context, authorization stri
 	if err := json.Unmarshal(payload, &claims); err != nil {
 		return fmt.Errorf("%w: decode bearer claims: %v", ErrUnauthenticated, err), Claims{}
 	}
-	if claims.Principal == "" || claims.Identity == "" {
+	if claims.Principal.Ref.Id == "" || claims.Identity == "" {
 		return fmt.Errorf("%w: bearer claims must include principal and identity", ErrUnauthenticated), Claims{}
 	}
-	err, active := tokens.store.ActiveIdentityGet(ctx, claims.Identity)
+	err, active := tokens.store.ActiveIdentityGetByID(ctx, claims.Identity)
 	if err != nil {
 		return err, Claims{}
 	}
-	if active == nil || active.Principal != claims.Principal {
+	if active == nil || active.Principal.Ref != claims.Principal.Ref {
 		return fmt.Errorf("%w: bearer token identity is no longer active", ErrUnauthenticated), Claims{}
 	}
 	return nil, claims

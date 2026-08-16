@@ -106,6 +106,7 @@ func TestHandlerDisablesWebRouteGroup(t *testing.T) {
 
 func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 	tokens, store, _ := testBearerTokens(t)
+	principal, identityID := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	unauthenticated := httptest.NewRecorder()
 	handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil))
@@ -134,8 +135,9 @@ func TestHandlerAuthenticatesVersionedAPIRoutes(t *testing.T) {
 	meRequest := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
 	meRequest.AddCookie(cookies[0])
 	handler.ServeHTTP(me, meRequest)
-	if me.Code != http.StatusOK || me.Header().Get("Cache-Control") != "no-store" || me.Body.String() != "{\"principal\":\"alice\",\"identity\":\"gatehouse:alice\"}\n" {
-		t.Fatalf("GET me = status %d cache %q body %q", me.Code, me.Header().Get("Cache-Control"), me.Body.String())
+	var claims auth.Claims
+	if err := json.Unmarshal(me.Body.Bytes(), &claims); err != nil || me.Code != http.StatusOK || me.Header().Get("Cache-Control") != "no-store" || claims.Principal.Ref != principal || claims.Principal.Name == nil || *claims.Principal.Name != "Alice" || claims.Identity != identityID {
+		t.Fatalf("GET me = status %d cache %q claims %#v error %v", me.Code, me.Header().Get("Cache-Control"), claims, err)
 	}
 
 	qualified := httptest.NewRecorder()
@@ -167,7 +169,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	engineering := refs["engineering"]
 	operations := refs["operations"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
-	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: "alice", Identity: "gatehouse:alice"})
+	principal, identityID := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: model.Principal{Ref: principal, Enabled: true}, Identity: identityID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,6 +218,7 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
+	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
@@ -256,7 +260,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil {
 		t.Fatal(err)
 	}
-	if event.Ref.Id == "" || event.Ref.Session.Id != session.ID || event.Kind != "message.text" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Id != "alice" || event.AuthorAgent != nil || event.AuthorGateway != nil || event.Payload["text"] != "hello" || event.CreatedAt == "" {
+	if event.Ref.Id == "" || event.Ref.Session.Id != session.ID || event.Kind != "message.text" || event.AuthorPrincipal == nil || event.AuthorPrincipal.Ref != principal || event.AuthorPrincipal.Name == nil || *event.AuthorPrincipal.Name != "Alice" || event.AuthorAgent != nil || event.AuthorGateway != nil || event.Payload["text"] != "hello" || event.CreatedAt == "" {
 		t.Fatalf("POST message response = %#v", event)
 	}
 	poll := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?limit=1", "")
@@ -297,7 +301,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Id != "alice" {
+	if len(events) != 2 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != principal || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != "Alice" {
 		t.Fatalf("stored session events = %#v", events)
 	}
 	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)
@@ -312,7 +316,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err := json.Unmarshal(cancel.Body.Bytes(), &cancellation); err != nil {
 		t.Fatal(err)
 	}
-	if cancellation.Ref.Id == "" || cancellation.Parent == nil || *cancellation.Parent != event.Ref || cancellation.Kind != "cancel.request" || cancellation.AuthorPrincipal == nil || cancellation.AuthorPrincipal.Id != "alice" || cancellation.AuthorAgent != nil || cancellation.AuthorGateway != nil || len(cancellation.Payload) != 0 {
+	if cancellation.Ref.Id == "" || cancellation.Parent == nil || *cancellation.Parent != event.Ref || cancellation.Kind != "cancel.request" || cancellation.AuthorPrincipal == nil || cancellation.AuthorPrincipal.Ref != principal || cancellation.AuthorPrincipal.Name == nil || *cancellation.AuthorPrincipal.Name != "Alice" || cancellation.AuthorAgent != nil || cancellation.AuthorGateway != nil || len(cancellation.Payload) != 0 {
 		t.Fatalf("POST cancel response = %#v", cancellation)
 	}
 	err, tasks = store.SessionEventReplyTasksGet(context.Background(), 10)
@@ -461,7 +465,9 @@ func TestActivityAPI(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	ctx := context.Background()
 	workspace := refs["engineering"]
-	alice := model.PrincipalRef{Id: "alice"}
+	alice, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	aliceName := "Alice"
+	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
 	session := model.SessionRef{Workspace: workspace, Id: "activity"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
@@ -469,12 +475,13 @@ func TestActivityAPI(t *testing.T) {
 	if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: "00000000-0000-4000-8000-000000000001"},
 		Kind:            "message.text",
-		AuthorPrincipal: &alice,
+		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	err, token := tokens.Mint(ctx, auth.Claims{Principal: "alice", Identity: "gatehouse:alice"})
+	principal, identityID := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: principal, Enabled: true}, Identity: identityID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -537,6 +544,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
 	algorithm := "pbkdf2-hmac-sha256-v1"
+	alice := "Alice"
 	engineering := "Engineering"
 	private := "Private"
 	developers := "Developers"
@@ -548,8 +556,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{Alias: "private", Name: &private, Enabled: true},
 		},
 		Principals: []config.Principal{{
-			ID: "alice", Enabled: true, Identities: []config.Identity{{
-				ID: "gatehouse:alice", Revision: 1, Enabled: true,
+			Alias: "alice", Name: &alice, Enabled: true, Identities: []config.Identity{{
+				Alias: "alice-gatehouse", Key: "gatehouse:alice", Revision: 1, Enabled: true,
 				Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
 			}},
 		}},
@@ -601,15 +609,16 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		}
 		workspaces[alias] = *workspace
 	}
+	principal, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
-			(?, 'private', 'alice', TRUE, '2026-01-01 00:00:01'),
-			(?, 'shared', 'alice', TRUE, '2026-01-01 00:00:02');
+			(?, 'private', ?, TRUE, '2026-01-01 00:00:01'),
+			(?, 'shared', ?, TRUE, '2026-01-01 00:00:02');
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
-			VALUES (?, 'private', 'alice', TRUE);
+			VALUES (?, 'private', ?, TRUE);
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
 			VALUES (?, 'shared', 'developers', TRUE);
-	`, workspaces["engineering"].Id, workspaces["engineering"].Id, workspaces["engineering"].Id, workspaces["engineering"].Id); err != nil {
+	`, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id); err != nil {
 		t.Fatal(err)
 	}
 	err, tokens := auth.Prepare(ctx, store, keyring, "test")
@@ -617,6 +626,20 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		t.Fatal(err)
 	}
 	return tokens, store, workspaces
+}
+
+func principalIdentityRefs(t *testing.T, ctx context.Context, store *database.Store, principalAlias, identityKey string) (model.PrincipalRef, string) {
+	t.Helper()
+	var principalID, identityID string
+	if err := store.QueryRowContext(ctx, `
+		SELECT principals.id, identities.id
+		FROM gatehouse_principals AS principals
+		JOIN gatehouse_identities AS identities ON identities.principal_id = principals.id
+		WHERE principals.alias = ? AND identities.key = ?
+	`, principalAlias, identityKey).Scan(&principalID, &identityID); err != nil {
+		t.Fatal(err)
+	}
+	return model.PrincipalRef{Id: principalID}, identityID
 }
 
 func TestServiceStartsServesAndStops(t *testing.T) {

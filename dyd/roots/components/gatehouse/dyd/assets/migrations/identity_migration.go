@@ -7,10 +7,13 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/identity"
+	"gatehouse/typed_id"
 )
 
 type identityMigrationValue struct {
 	ID          string
+	Alias       string
+	Key         string
 	PrincipalID string
 	Revision    int
 	Verifiers   string
@@ -20,35 +23,52 @@ type identityMigrationValue struct {
 func identityMigrationBuilder(principals []config.Principal) MigrationBuilder {
 	resolver := identity.NewPasswordSourceResolver()
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		err, revisions := migrationIdentityRevisions(ctx, session)
+		principalIDs, err := principalIDsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		existing, err := migrationIdentitiesByAlias(ctx, session)
 		if err != nil {
 			return err, ""
 		}
 		identities := make([]identityMigrationValue, 0)
 		for _, principal := range principals {
+			principalID := principalIDs[principal.Alias]
+			if principalID == "" {
+				return fmt.Errorf("principal %q was not reconciled", principal.Alias), ""
+			}
 			for _, configured := range principal.Identities {
-				if revisions[configured.ID] >= configured.Revision {
+				existingIdentity, exists := existing[configured.Alias]
+				if exists && existingIdentity.Revision >= configured.Revision {
 					continue
 				}
-				err, verifiers := identity.ResolveVerifiers(configured.ID, configured.Verifiers, resolver)
+				id := existingIdentity.ID
+				if !exists {
+					id, err = typed_id.New(typed_id.Identity)
+					if err != nil {
+						return err, ""
+					}
+				}
+				err, verifiers := identity.ResolveVerifiers(configured.Key, configured.Verifiers, resolver)
 				if err != nil {
-					return fmt.Errorf("resolve verifiers for identity %q: %w", configured.ID, err), ""
+					return fmt.Errorf("resolve verifiers for identity %q: %w", configured.Key, err), ""
 				}
 				encoded, err := json.Marshal(verifiers)
 				if err != nil {
-					return fmt.Errorf("encode verifiers for identity %q: %w", configured.ID, err), ""
+					return fmt.Errorf("encode verifiers for identity %q: %w", configured.Key, err), ""
 				}
 				identities = append(identities, identityMigrationValue{
-					ID: configured.ID, PrincipalID: principal.ID, Revision: configured.Revision, Verifiers: string(encoded), Enabled: configured.Enabled,
+					ID: id, Alias: configured.Alias, Key: configured.Key, PrincipalID: principalID, Revision: configured.Revision, Verifiers: string(encoded), Enabled: configured.Enabled,
 				})
 			}
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range . }}
-			INSERT INTO gatehouse_identities (id, principal_id, verifiers, enabled, revision)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .PrincipalID }}, {{ sqlLiteral .Verifiers }}, {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
-			ON CONFLICT (id) DO UPDATE SET
+			INSERT INTO gatehouse_identities (id, alias, key, principal_id, verifiers, enabled, revision)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Key }}, {{ sqlLiteral .PrincipalID }}, {{ sqlLiteral .Verifiers }}, {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
+			ON CONFLICT (alias) DO UPDATE SET
+				key = excluded.key,
 				principal_id = excluded.principal_id,
 				verifiers = excluded.verifiers,
 				enabled = excluded.enabled,
@@ -59,24 +79,29 @@ func identityMigrationBuilder(principals []config.Principal) MigrationBuilder {
 	}
 }
 
-func migrationIdentityRevisions(ctx context.Context, session *MigrationSession) (error, map[string]int) {
-	rows, err := session.QueryContext(ctx, `SELECT id, revision FROM gatehouse_identities`)
+type migrationIdentity struct {
+	ID       string
+	Revision int
+}
+
+func migrationIdentitiesByAlias(ctx context.Context, session *MigrationSession) (map[string]migrationIdentity, error) {
+	rows, err := session.QueryContext(ctx, `SELECT alias, id, revision FROM gatehouse_identities WHERE alias IS NOT NULL`)
 	if err != nil {
-		return fmt.Errorf("get identity revisions: %w", err), nil
+		return nil, fmt.Errorf("get identities by alias: %w", err)
 	}
 	defer rows.Close()
 
-	revisions := make(map[string]int)
+	identities := map[string]migrationIdentity{}
 	for rows.Next() {
-		var id string
-		var revision int
-		if err := rows.Scan(&id, &revision); err != nil {
-			return fmt.Errorf("read identity revision: %w", err), nil
+		var alias string
+		var identity migrationIdentity
+		if err := rows.Scan(&alias, &identity.ID, &identity.Revision); err != nil {
+			return nil, fmt.Errorf("scan identity: %w", err)
 		}
-		revisions[id] = revision
+		identities[alias] = identity
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("read identity revisions: %w", err), nil
+		return nil, fmt.Errorf("iterate identities: %w", err)
 	}
-	return nil, revisions
+	return identities, nil
 }
