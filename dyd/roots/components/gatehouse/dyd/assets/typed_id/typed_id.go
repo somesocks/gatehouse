@@ -15,6 +15,8 @@ const (
 	Group         = "grp"
 	Tool          = "tol"
 	Resource      = "res"
+	AgentProvider = "apr"
+	AgentModel    = "amd"
 	encodedLength = 26
 )
 

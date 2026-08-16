@@ -209,15 +209,15 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
 		INSERT INTO gatehouse_agent_providers (id, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-		VALUES ('provider', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
+		VALUES ('apr_aaisem2ekvthpcezvk54zxpo74', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
-		VALUES ('assistant', 1, 'provider', 'example', '{}', TRUE);
+		VALUES ('amd_aaisem2ekvthpcezvk54zxpo74', 1, 'apr_aaisem2ekvthpcezvk54zxpo74', 'example', '{}', TRUE);
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)
-		VALUES (?, 'assistant', 1, TRUE)
+		VALUES (?, 'amd_aaisem2ekvthpcezvk54zxpo74', 1, TRUE)
 	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "assistant"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "amd_aaisem2ekvthpcezvk54zxpo74"}}
 	agentSession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "agent-session"}, AuthorAgent: &agent, Enabled: true}
 	err, _ = store.SessionsCreate(ctx, agentSession, alice)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		Kind: "message.text",
 		AuthorAgent: &model.WorkspaceAgentRef{
 			Workspace: session.Workspace,
-			Model:     model.AgentModelRef{Id: "assistant"},
+			Model:     model.AgentModelRef{Id: "amd_aaisem2ekvthpcezvk54zxpo74"},
 		},
 		Payload: map[string]interface{}{"text": "hello from the agent"},
 	}
@@ -473,37 +473,44 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 	defer store.Close()
 	state := config.State{
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
-			{ID: "first", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
-			{ID: "second", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Second"}`, Enabled: true},
-			{ID: "lower", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
+			{Alias: "first", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
+			{Alias: "second", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Second"}`, Enabled: true},
+			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Model: "first", Priority: 2, MaxTurns: 3, SystemPrompt: &firstPrompt, Enabled: true},
-			{WorkspaceID: "engineering", Model: "second", Priority: 2, MaxTurns: 3, SystemPrompt: &emptyPrompt, Enabled: true},
-			{WorkspaceID: "engineering", Model: "lower", Priority: 1, MaxTurns: 2, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "first", Priority: 2, MaxTurns: 3, SystemPrompt: &firstPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "second", Priority: 2, MaxTurns: 3, SystemPrompt: &emptyPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "lower", Priority: 1, MaxTurns: 2, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	var firstID, secondID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'first'`).Scan(&firstID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'second'`).Scan(&secondID); err != nil {
+		t.Fatal(err)
+	}
 	for range 5 {
 		err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "")
 		if err != nil || selected == nil {
 			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
 		}
-		if selected.Ref.Model.Id != "first" && selected.Ref.Model.Id != "second" {
+		if selected.Ref.Model.Id != firstID && selected.Ref.Model.Id != secondID {
 			t.Fatalf("WorkspaceAgentModelSelect() selected %#v outside the highest priority tier", selected)
 		}
 		if selected.MaxTurns != 3 {
 			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
 		}
-		if selected.Ref.Model.Id == "first" && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
+		if selected.Ref.Model.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
 		}
-		if selected.Ref.Model.Id == "second" && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
+		if selected.Ref.Model.Id == secondID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want empty prompt", selected.SystemPrompt)
 		}
 	}
@@ -519,26 +526,33 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	defer store.Close()
 	state := config.State{
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
-			{ID: "automatic", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
-			{ID: "requested", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, Enabled: true},
+			{Alias: "automatic", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
+			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Model: "automatic", Priority: 2, MaxTurns: 1, Enabled: true},
-			{WorkspaceID: "engineering", Model: "requested", Priority: 1, MaxTurns: 1, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "automatic", Priority: 2, MaxTurns: 1, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "requested", Priority: 1, MaxTurns: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "requested")
-	if err != nil || selected == nil || selected.Ref.Model.Id != "requested" {
+	var requestedID, automaticID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'automatic'`).Scan(&automaticID); err != nil {
+		t.Fatal(err)
+	}
+	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, requestedID)
+	if err != nil || selected == nil || selected.Ref.Model.Id != requestedID {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want requested agent", selected, err)
 	}
 	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "missing")
-	if err != nil || selected == nil || selected.Ref.Model.Id != "automatic" {
+	if err != nil || selected == nil || selected.Ref.Model.Id != automaticID {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
 	}
 }

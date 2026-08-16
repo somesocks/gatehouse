@@ -3,9 +3,11 @@ package typed_id
 import "testing"
 
 func TestNew(t *testing.T) {
-	id, err := New(Workspace)
-	if err != nil || !Valid(Workspace, id) {
-		t.Fatalf("New() = (%q, %v)", id, err)
+	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel} {
+		id, err := New(kind)
+		if err != nil || !Valid(kind, id) {
+			t.Fatalf("New(%q) = (%q, %v)", kind, id, err)
+		}
 	}
 }
 

@@ -232,7 +232,7 @@ let WorkspaceAgent =
       s.record.from
         s.record.props::{
         , required = toMap
-            { model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model identity" }
+            { model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }
         , optional = toMap
@@ -419,7 +419,7 @@ let AgentProvider =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent provider identity" }
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider reconciliation alias" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic provider configuration revision" }
             , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider protocol" }
             }
@@ -440,9 +440,9 @@ let AgentModel =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent model identity" }
-            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic model configuration revision" }
-            , provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider identity" }
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
+	            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic model configuration revision" }
+	            , provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider reconciliation alias" }
             , model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider model identifier" }
             , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
             }

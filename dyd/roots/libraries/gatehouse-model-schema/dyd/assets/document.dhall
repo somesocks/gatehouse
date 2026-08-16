@@ -204,8 +204,9 @@ let AgentProviderRef =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent provider identity" } }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed agent provider identity" } }
+		, optional = toMap
+			{ alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider reconciliation alias" } }
         }
         s.record.meta::{ name = Some "AgentProviderRef", description = Some "The stable identity of an agent provider." }
 
@@ -229,8 +230,9 @@ let AgentModelRef =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable agent model identity" } }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed agent model identity" } }
+		, optional = toMap
+			{ alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" } }
         }
         s.record.meta::{ name = Some "AgentModelRef", description = Some "The stable identity of an agent model." }
 

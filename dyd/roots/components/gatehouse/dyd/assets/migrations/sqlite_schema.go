@@ -273,7 +273,10 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_agents",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (
-				id TEXT PRIMARY KEY CHECK (id GLOB '[a-z]*') CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'apr_'),
+				alias TEXT UNIQUE
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				revision INTEGER NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-chat-completions', 'openai-responses')),
 				base_url TEXT CHECK (base_url IS NULL OR length(trim(base_url)) > 0),
@@ -289,7 +292,10 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			) STRICT;
 
 			CREATE TABLE gatehouse_agent_models (
-				id TEXT PRIMARY KEY CHECK (id GLOB '[a-z]*') CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'amd_'),
+				alias TEXT UNIQUE
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				revision INTEGER NOT NULL CHECK (revision > 0),
 				provider_id TEXT NOT NULL REFERENCES gatehouse_agent_providers (id),
 				model TEXT NOT NULL CHECK (length(trim(model)) > 0),

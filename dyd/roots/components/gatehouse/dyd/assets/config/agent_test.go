@@ -11,11 +11,11 @@ func TestValidateFileAcceptsBuiltinDummyFixedReplyProvider(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -43,7 +43,7 @@ func TestValidateFileRejectsInvalidBuiltinProviderModels(t *testing.T) {
 		"credentials": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
     base_url: https://example.test
@@ -52,11 +52,11 @@ agent_models: []
 		"model": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.echo
@@ -66,11 +66,11 @@ agent_models:
 		"parameters": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -95,14 +95,14 @@ func TestValidateFileRejectsChatCompletionsReasoningWithTools(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
 agent_providers:
-  - id: openai
+  - alias: openai
     revision: 1
     protocol: openai-chat-completions
     base_url: https://example.test/v1
     api_key:
       sources: [env:OPENAI_API_KEY]
 agent_models:
-  - id: chat
+  - alias: chat
     revision: 1
     provider: openai
     model: gpt-5.6-luna
@@ -121,11 +121,11 @@ func TestResolveWorkspaceAgentsMaxTurns(t *testing.T) {
 		"default": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -140,11 +140,11 @@ workspaces:
 		"configured": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -187,11 +187,11 @@ func TestResolveWorkspaceAgentsSystemPrompt(t *testing.T) {
 		"default": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -206,11 +206,11 @@ workspaces:
 		"custom": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -226,11 +226,11 @@ workspaces:
 		"empty": `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -281,11 +281,11 @@ func TestResolveWorkspaceAgentsLabel(t *testing.T) {
 	contents := `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply
@@ -317,11 +317,11 @@ func TestValidateFileRejectsNonPositiveWorkspaceAgentMaxTurns(t *testing.T) {
 		contents := `
 api_version: v1
 agent_providers:
-  - id: builtin
+  - alias: builtin
     revision: 1
     protocol: builtin
 agent_models:
-  - id: fallback
+  - alias: fallback
     revision: 1
     provider: builtin
     model: dummy.fixed-reply

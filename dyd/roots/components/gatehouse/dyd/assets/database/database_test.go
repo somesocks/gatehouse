@@ -134,10 +134,10 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	defer store.Close()
 	state := config.State{
 		AgentProviders: []config.AgentProvider{{
-			ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true,
+			Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true,
 		}},
 		AgentModels: []config.AgentModel{{
-			ID: "fallback", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`, Enabled: true,
+			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`, Enabled: true,
 		}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -150,7 +150,7 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT protocol, base_url, keychain_id, keychain_version, api_key
 		FROM gatehouse_agent_providers
-		WHERE id = 'builtin'
+		WHERE alias = 'builtin'
 	`).Scan(&protocol, &baseURL, &keychainID, &keychainVersion, &apiKey); err != nil {
 		t.Fatal(err)
 	}
@@ -161,12 +161,34 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT model, parameters
 		FROM gatehouse_agent_models
-		WHERE id = 'fallback'
+		WHERE alias = 'fallback'
 	`).Scan(&model, &parameters); err != nil {
 		t.Fatal(err)
 	}
 	if model != "dummy.fixed-reply" || parameters != `{"text":"Fallback reply."}` {
 		t.Fatalf("builtin model = (%q, %q)", model, parameters)
+	}
+	var providerID, modelID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_providers WHERE alias = 'builtin'`).Scan(&providerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'fallback'`).Scan(&modelID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.AgentProvider, providerID) || !typed_id.Valid(typed_id.AgentModel, modelID) {
+		t.Fatalf("agent IDs = (%q, %q), want typed provider and model IDs", providerID, modelID)
+	}
+
+	state.AgentModels[0].Alias = "fallback-v2"
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	var renamedModelID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'fallback-v2'`).Scan(&renamedModelID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.AgentModel, renamedModelID) || renamedModelID == modelID {
+		t.Fatalf("renamed model ID = %q, want new typed ID distinct from %q", renamedModelID, modelID)
 	}
 }
 

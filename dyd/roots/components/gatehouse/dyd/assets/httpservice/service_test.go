@@ -417,9 +417,9 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	label := "Assistant"
 	state := config.State{
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{ID: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels: []config.AgentModel{{ID: "assistant", Revision: 1, Provider: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Model: "assistant", Label: &label, Priority: 1, MaxTurns: 1, Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Label: &label, Priority: 1, MaxTurns: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -434,6 +434,10 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		t.Fatal(err)
 	}
 	engineering := refs["engineering"]
+	var assistantID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&assistantID); err != nil {
+		t.Fatal(err)
+	}
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
@@ -449,7 +453,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		return response
 	}
 	agents := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/agents", "")
-	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"assistant","label":"Assistant"}]`+"\n" {
+	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"`+assistantID+`","label":"Assistant"}]`+"\n" {
 		t.Fatalf("GET agents = status %d body %q", agents.Code, agents.Body.String())
 	}
 	session := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
@@ -457,10 +461,14 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	if err := json.Unmarshal(session.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"`+assistantID+`"}`)
 	var event model.SessionEvent
-	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || event.Payload["agent"] != "assistant" {
+	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || event.Payload["agent"] != assistantID {
 		t.Fatalf("POST message = (%d, %#v, %v)", message.Code, event, err)
+	}
+	alias := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
+	if alias.Code != http.StatusBadRequest {
+		t.Fatalf("POST message with agent alias = %d", alias.Code)
 	}
 	invalid := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
 	if invalid.Code != http.StatusBadRequest {

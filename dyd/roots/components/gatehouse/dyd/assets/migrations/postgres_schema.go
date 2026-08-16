@@ -259,7 +259,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_agents",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (
-				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^apr_[a-z2-7]{26}$'),
+				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				protocol TEXT NOT NULL CHECK (protocol IN ('builtin', 'openai-chat-completions', 'openai-responses')),
 				base_url TEXT CHECK (base_url IS NULL OR length(trim(base_url)) > 0),
@@ -275,7 +276,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			);
 
 			CREATE TABLE gatehouse_agent_models (
-				id TEXT PRIMARY KEY CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				id TEXT PRIMARY KEY CHECK (id ~ '^amd_[a-z2-7]{26}$'),
+				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				revision BIGINT NOT NULL CHECK (revision > 0),
 				provider_id TEXT NOT NULL REFERENCES gatehouse_agent_providers (id),
 				model TEXT NOT NULL CHECK (length(trim(model)) > 0),

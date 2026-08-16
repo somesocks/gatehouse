@@ -18,7 +18,7 @@ const (
 )
 
 type AgentProvider struct {
-	ID       string
+	Alias    string
 	Revision int
 	Protocol string
 	BaseURL  *string
@@ -30,9 +30,9 @@ type AgentProvider struct {
 type AgentProviderAPIKeySource string
 
 type AgentModel struct {
-	ID         string
+	Alias      string
 	Revision   int
-	Provider   string
+	ProviderAlias string
 	Model      string
 	Parameters string
 	Enabled    bool
@@ -40,7 +40,7 @@ type AgentModel struct {
 
 type WorkspaceAgent struct {
 	WorkspaceID string
-	Model       string
+	ModelAlias  string
 	Priority    int
 	MaxTurns    int
 	Label       *string
@@ -55,19 +55,19 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 		return nil, []AgentProvider{}
 	}
 	providers := make([]AgentProvider, 0, len(*document.AgentProviders))
-	ids := make(map[string]struct{}, len(*document.AgentProviders))
+	aliases := make(map[string]struct{}, len(*document.AgentProviders))
 	for index, configured := range *document.AgentProviders {
-		if !keychainID.MatchString(configured.Id) {
-			return fmt.Errorf("agent_providers[%d].id must match %q", index, keychainID.String()), nil
+		if !keychainID.MatchString(configured.Alias) {
+			return fmt.Errorf("agent_providers[%d].alias must match %q", index, keychainID.String()), nil
 		}
-		if _, exists := ids[configured.Id]; exists {
-			return fmt.Errorf("agent_providers[%d].id %q is duplicated", index, configured.Id), nil
+		if _, exists := aliases[configured.Alias]; exists {
+			return fmt.Errorf("agent_providers[%d].alias %q is duplicated", index, configured.Alias), nil
 		}
 		if configured.Revision <= 0 {
 			return fmt.Errorf("agent_providers[%d] has an invalid revision or protocol", index), nil
 		}
 		enabled := configured.Enabled == nil || *configured.Enabled
-		provider := AgentProvider{ID: configured.Id, Revision: configured.Revision, Protocol: configured.Protocol, Enabled: enabled}
+		provider := AgentProvider{Alias: configured.Alias, Revision: configured.Revision, Protocol: configured.Protocol, Enabled: enabled}
 		switch configured.Protocol {
 		case agentProviderProtocolBuiltin:
 			if configured.BaseUrl != nil || configured.ApiKey != nil {
@@ -106,10 +106,10 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 		default:
 			return fmt.Errorf("agent_providers[%d] has an invalid protocol", index), nil
 		}
-		ids[configured.Id] = struct{}{}
+		aliases[configured.Alias] = struct{}{}
 		providers = append(providers, provider)
 	}
-	sort.Slice(providers, func(left, right int) bool { return providers[left].ID < providers[right].ID })
+	sort.Slice(providers, func(left, right int) bool { return providers[left].Alias < providers[right].Alias })
 	return nil, providers
 }
 
@@ -119,16 +119,16 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 	}
 	providerProtocols := make(map[string]string, len(providers))
 	for _, provider := range providers {
-		providerProtocols[provider.ID] = provider.Protocol
+		providerProtocols[provider.Alias] = provider.Protocol
 	}
 	models := make([]AgentModel, 0, len(*document.AgentModels))
-	ids := make(map[string]struct{}, len(*document.AgentModels))
+	aliases := make(map[string]struct{}, len(*document.AgentModels))
 	for index, configured := range *document.AgentModels {
-		if !keychainID.MatchString(configured.Id) || configured.Revision <= 0 || strings.TrimSpace(configured.Model) == "" {
+		if !keychainID.MatchString(configured.Alias) || configured.Revision <= 0 || strings.TrimSpace(configured.Model) == "" {
 			return fmt.Errorf("agent_models[%d] is invalid", index), nil
 		}
-		if _, exists := ids[configured.Id]; exists {
-			return fmt.Errorf("agent_models[%d].id %q is duplicated", index, configured.Id), nil
+		if _, exists := aliases[configured.Alias]; exists {
+			return fmt.Errorf("agent_models[%d].alias %q is duplicated", index, configured.Alias), nil
 		}
 		protocol, exists := providerProtocols[configured.Provider]
 		if !exists {
@@ -152,10 +152,10 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 			return fmt.Errorf("encode agent_models[%d].parameters: %w", index, err), nil
 		}
 		enabled := configured.Enabled == nil || *configured.Enabled
-		ids[configured.Id] = struct{}{}
-		models = append(models, AgentModel{ID: configured.Id, Revision: configured.Revision, Provider: configured.Provider, Model: configured.Model, Parameters: string(encoded), Enabled: enabled})
+		aliases[configured.Alias] = struct{}{}
+		models = append(models, AgentModel{Alias: configured.Alias, Revision: configured.Revision, ProviderAlias: configured.Provider, Model: configured.Model, Parameters: string(encoded), Enabled: enabled})
 	}
-	sort.Slice(models, func(left, right int) bool { return models[left].ID < models[right].ID })
+	sort.Slice(models, func(left, right int) bool { return models[left].Alias < models[right].Alias })
 	return nil, models
 }
 
@@ -192,7 +192,7 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 	}
 	modelEnabled := make(map[string]bool, len(models))
 	for _, model := range models {
-		modelEnabled[model.ID] = model.Enabled
+		modelEnabled[model.Alias] = model.Enabled
 	}
 	agents := []WorkspaceAgent{}
 	for workspaceIndex, workspace := range *document.Workspaces {
@@ -220,12 +220,12 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Model: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {
 		if agents[left].WorkspaceID == agents[right].WorkspaceID {
-			return agents[left].Model < agents[right].Model
+			return agents[left].ModelAlias < agents[right].ModelAlias
 		}
 		return agents[left].WorkspaceID < agents[right].WorkspaceID
 	})
