@@ -10,14 +10,14 @@ import (
 
 type Tool struct {
 	WorkspaceID string
-	ID          string
+	Alias       string
 	Source      string
 	Enabled     bool
 }
 
 type Resource struct {
 	WorkspaceID string
-	ID          string
+	Alias       string
 	Source      string
 	Secret      bool
 	Enabled     bool
@@ -36,13 +36,13 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 		if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
 			return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 		}
-		ids := make(map[string]struct{}, len(*workspace.Tools))
+		aliases := make(map[string]struct{}, len(*workspace.Tools))
 		for toolIndex, configured := range *workspace.Tools {
-			if !workspaceID.MatchString(configured.Id) {
-				return fmt.Errorf("workspaces[%d].tools[%d].id must match %q", workspaceIndex, toolIndex, workspaceID.String()), nil
+			if !workspaceID.MatchString(configured.Alias) {
+				return fmt.Errorf("workspaces[%d].tools[%d].alias must match %q", workspaceIndex, toolIndex, workspaceID.String()), nil
 			}
-			if _, exists := ids[configured.Id]; exists {
-				return fmt.Errorf("workspaces[%d].tools[%d].id %q is duplicated", workspaceIndex, toolIndex, configured.Id), nil
+			if _, exists := aliases[configured.Alias]; exists {
+				return fmt.Errorf("workspaces[%d].tools[%d].alias %q is duplicated", workspaceIndex, toolIndex, configured.Alias), nil
 			}
 			if strings.TrimSpace(configured.Source) == "" {
 				return fmt.Errorf("workspaces[%d].tools[%d].source must not be blank", workspaceIndex, toolIndex), nil
@@ -52,13 +52,13 @@ func ResolveTools(document configschema.GatehouseConfig) (error, []Tool) {
 			if configured.Enabled != nil {
 				enabled = *configured.Enabled
 			}
-			ids[configured.Id] = struct{}{}
-			tools = append(tools, Tool{WorkspaceID: workspace.Alias, ID: configured.Id, Source: configured.Source, Enabled: enabled})
+			aliases[configured.Alias] = struct{}{}
+			tools = append(tools, Tool{WorkspaceID: workspace.Alias, Alias: configured.Alias, Source: configured.Source, Enabled: enabled})
 		}
 	}
 	sort.Slice(tools, func(left, right int) bool {
 		if tools[left].WorkspaceID == tools[right].WorkspaceID {
-			return tools[left].ID < tools[right].ID
+			return tools[left].Alias < tools[right].Alias
 		}
 		return tools[left].WorkspaceID < tools[right].WorkspaceID
 	})
@@ -78,13 +78,13 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 		if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
 			return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 		}
-		ids := make(map[string]struct{}, len(*workspace.Resources))
+		aliases := make(map[string]struct{}, len(*workspace.Resources))
 		for resourceIndex, configured := range *workspace.Resources {
-			if !workspaceID.MatchString(configured.Id) {
-				return fmt.Errorf("workspaces[%d].resources[%d].id must match %q", workspaceIndex, resourceIndex, workspaceID.String()), nil
+			if !workspaceID.MatchString(configured.Alias) {
+				return fmt.Errorf("workspaces[%d].resources[%d].alias must match %q", workspaceIndex, resourceIndex, workspaceID.String()), nil
 			}
-			if _, exists := ids[configured.Id]; exists {
-				return fmt.Errorf("workspaces[%d].resources[%d].id %q is duplicated", workspaceIndex, resourceIndex, configured.Id), nil
+			if _, exists := aliases[configured.Alias]; exists {
+				return fmt.Errorf("workspaces[%d].resources[%d].alias %q is duplicated", workspaceIndex, resourceIndex, configured.Alias), nil
 			}
 			if strings.TrimSpace(configured.Source) == "" {
 				return fmt.Errorf("workspaces[%d].resources[%d].source must not be blank", workspaceIndex, resourceIndex), nil
@@ -94,10 +94,10 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 			if configured.Enabled != nil {
 				enabled = *configured.Enabled
 			}
-			ids[configured.Id] = struct{}{}
+			aliases[configured.Alias] = struct{}{}
 			resources = append(resources, Resource{
 				WorkspaceID: workspace.Alias,
-				ID:          configured.Id,
+				Alias:       configured.Alias,
 				Source:      configured.Source,
 				Secret:      configured.Secret,
 				Enabled:     enabled,
@@ -106,7 +106,7 @@ func ResolveResources(document configschema.GatehouseConfig) (error, []Resource)
 	}
 	sort.Slice(resources, func(left, right int) bool {
 		if resources[left].WorkspaceID == resources[right].WorkspaceID {
-			return resources[left].ID < resources[right].ID
+			return resources[left].Alias < resources[right].Alias
 		}
 		return resources[left].WorkspaceID < resources[right].WorkspaceID
 	})

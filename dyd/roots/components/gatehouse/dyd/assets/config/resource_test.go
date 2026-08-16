@@ -17,12 +17,12 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 			Alias: "engineering",
 			Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
-				{Id: "zulu", Source: "file:./tools/zulu.lisp"},
-				{Id: "alpha", Source: "file:./tools/alpha.lisp", Enabled: &disabled},
+				{Alias: "zulu", Source: "file:./tools/zulu.lisp"},
+				{Alias: "alpha", Source: "file:./tools/alpha.lisp", Enabled: &disabled},
 			},
 			Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{
-				{Id: "token", Source: "env:GITHUB_TOKEN", Secret: true},
-				{Id: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: &disabled},
+				{Alias: "token", Source: "env:GITHUB_TOKEN", Secret: true},
+				{Alias: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: &disabled},
 			},
 		}},
 	}
@@ -32,8 +32,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantTools := []Tool{
-		{WorkspaceID: "engineering", ID: "alpha", Source: "file:./tools/alpha.lisp", Enabled: false},
-		{WorkspaceID: "engineering", ID: "zulu", Source: "file:./tools/zulu.lisp", Enabled: true},
+		{WorkspaceID: "engineering", Alias: "alpha", Source: "file:./tools/alpha.lisp", Enabled: false},
+		{WorkspaceID: "engineering", Alias: "zulu", Source: "file:./tools/zulu.lisp", Enabled: true},
 	}
 	if !reflect.DeepEqual(tools, wantTools) {
 		t.Fatalf("ResolveTools() = %#v, want %#v", tools, wantTools)
@@ -44,8 +44,8 @@ func TestResolveToolsAndResourcesDefaultsEnabledAndSorts(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantResources := []Resource{
-		{WorkspaceID: "engineering", ID: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: false},
-		{WorkspaceID: "engineering", ID: "token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
+		{WorkspaceID: "engineering", Alias: "endpoint", Source: "file:./resources/endpoint", Secret: false, Enabled: false},
+		{WorkspaceID: "engineering", Alias: "token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
 	}
 	if !reflect.DeepEqual(resources, wantResources) {
 		t.Fatalf("ResolveResources() = %#v, want %#v", resources, wantResources)
@@ -60,12 +60,12 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 		contains string
 	}{
 		{
-			name: "duplicate tool ID",
+			name: "duplicate tool alias",
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Tools: &[]configschema.GatehouseConfigWorkspacesValuesToolsValues{
-					{Id: "github", Source: "file:./github.lisp"},
-					{Id: "github", Source: "file:./other.lisp"},
+					{Alias: "github", Source: "file:./github.lisp"},
+					{Alias: "github", Source: "file:./other.lisp"},
 				},
 			}}},
 			resolve: func(document configschema.GatehouseConfig) (error, any) {
@@ -79,7 +79,7 @@ func TestResolveToolsAndResourcesRejectInvalidValues(t *testing.T) {
 			document: configschema.GatehouseConfig{ApiVersion: "v1", Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Resources: &[]configschema.GatehouseConfigWorkspacesValuesResourcesValues{{
-					Id: "token", Source: " ", Secret: true,
+					Alias: "token", Source: " ", Secret: true,
 				}},
 			}}},
 			resolve: func(document configschema.GatehouseConfig) (error, any) {
@@ -107,7 +107,7 @@ api_version: v1
 workspaces:
   - alias: engineering
     resources:
-      - id: github-token
+      - alias: github-token
         source: env:GITHUB_TOKEN
 `), 0o600); err != nil {
 		t.Fatal(err)

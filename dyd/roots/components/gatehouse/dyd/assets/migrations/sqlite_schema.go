@@ -109,23 +109,27 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_tools (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL
-					CHECK (id GLOB '[a-z]*')
-					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'tol_'),
+				alias TEXT
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-				PRIMARY KEY (workspace_id, id)
+				PRIMARY KEY (workspace_id, id),
+				UNIQUE (workspace_id, alias)
 			) STRICT;
 
 			CREATE TABLE gatehouse_resources (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL
-					CHECK (id GLOB '[a-z]*')
-					CHECK (id NOT GLOB '*[^a-z0-9_-]*'),
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'res_'),
+				alias TEXT
+					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
+					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
 				secret INTEGER NOT NULL CHECK (secret IN (0, 1)),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
-				PRIMARY KEY (workspace_id, id)
+				PRIMARY KEY (workspace_id, id),
+				UNIQUE (workspace_id, alias)
 			) STRICT;
 
 			CREATE TABLE gatehouse_group_tool_grants (
@@ -484,24 +488,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			}, {
 				Index:       7,
 				Description: "reconcile_tools_and_resources",
-				Builder: templateMigrationBuilder(`
-			SELECT 1;
-			{{ range .Tools }}
-			INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, id) DO UPDATE SET
-				source = excluded.source,
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ range .Resources }}
-			INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, id) DO UPDATE SET
-				source = excluded.source,
-				secret = excluded.secret,
-				enabled = excluded.enabled;
-			{{ end }}
-		`, values),
+				Builder:     toolsResourcesMigrationBuilder(state.Tools, state.Resources),
 			}, {
 				Index:       8,
 				Description: "reconcile_group_grants",
@@ -511,13 +498,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			{{ $group := . }}
 			{{ range .ToolGrants }}
 			INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), (SELECT tools.id FROM gatehouse_tools AS tools JOIN gatehouse_workspaces AS workspaces ON workspaces.id = tools.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND tools.alias = {{ sqlLiteral .ToolAlias }}), {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, tool_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .ResourceGrants }}
 			INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), (SELECT resources.id FROM gatehouse_resources AS resources JOIN gatehouse_workspaces AS workspaces ON workspaces.id = resources.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND resources.alias = {{ sqlLiteral .ResourceAlias }}), {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, resource_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}

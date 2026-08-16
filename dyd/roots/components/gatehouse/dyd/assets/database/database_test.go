@@ -569,24 +569,24 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Tools: []config.Tool{{
 			WorkspaceID: "engineering",
-			ID:          "github",
+			Alias:       "github",
 			Source:      "file:./tools/github.lisp",
 			Enabled:     true,
 		}},
 		Resources: []config.Resource{
-			{WorkspaceID: "engineering", ID: "github-url", Source: "file:./resources/github-url", Secret: false, Enabled: true},
-			{WorkspaceID: "engineering", ID: "github-token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "github-url", Source: "file:./resources/github-url", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "github-token", Source: "env:GITHUB_TOKEN", Secret: true, Enabled: true},
 		},
 		Groups: []config.Group{{
 			WorkspaceID: "engineering",
 			Alias:       "developers",
 			Enabled:     true,
 			ToolGrants: []config.GroupToolGrant{{
-				ToolID: "github", Enabled: true,
+				ToolAlias: "github", Enabled: true,
 			}},
 			ResourceGrants: []config.GroupResourceGrant{
-				{ResourceID: "github-url", Enabled: true},
-				{ResourceID: "github-token", Enabled: false},
+				{ResourceAlias: "github-url", Enabled: true},
+				{ResourceAlias: "github-token", Enabled: false},
 			},
 		}},
 	}
@@ -607,7 +607,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	)
 	if err := database.QueryRow(`
 		SELECT source, enabled FROM gatehouse_tools
-		WHERE workspace_id = ? AND id = 'github'
+		WHERE workspace_id = ? AND alias = 'github'
 	`, workspace.Id).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)
 	}
@@ -616,17 +616,27 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT source, secret, enabled FROM gatehouse_resources
-		WHERE workspace_id = ? AND id = 'github-token'
+		WHERE workspace_id = ? AND alias = 'github-token'
 	`, workspace.Id).Scan(&resourceRef, &resourceSecret, &resourceEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if resourceRef != "env:GITHUB_TOKEN" || !resourceSecret || !resourceEnabled {
 		t.Fatalf("resource = (%q, %t, %t), want (%q, %t, %t)", resourceRef, resourceSecret, resourceEnabled, "env:GITHUB_TOKEN", true, true)
 	}
+	var githubToolID, githubTokenID string
+	if err := database.QueryRow(`SELECT id FROM gatehouse_tools WHERE workspace_id = ? AND alias = 'github'`, workspace.Id).Scan(&githubToolID); err != nil {
+		t.Fatal(err)
+	}
+	if err := database.QueryRow(`SELECT id FROM gatehouse_resources WHERE workspace_id = ? AND alias = 'github-token'`, workspace.Id).Scan(&githubTokenID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.Tool, githubToolID) || !typed_id.Valid(typed_id.Resource, githubTokenID) {
+		t.Fatalf("configured IDs = (%q, %q), want typed tool and resource IDs", githubToolID, githubTokenID)
+	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = ? AND group_id = ? AND tool_id = 'github'
-	`, workspace.Id, developersID).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND tool_id = ?
+	`, workspace.Id, developersID, githubToolID).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if !grantEnabled {
@@ -634,8 +644,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = ? AND group_id = ? AND resource_id = 'github-token'
-	`, workspace.Id, developersID).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND resource_id = ?
+	`, workspace.Id, developersID, githubTokenID).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if resourceGrantOn {
@@ -655,12 +665,18 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		t.Fatal("resource grant without a resource was accepted")
 	}
 
+	runtimeToolID := newTypedID(t, typed_id.Tool)
+	runtimeResourceID := newTypedID(t, typed_id.Resource)
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_tools (workspace_id, id, source, enabled)
-		VALUES (?, 'runtime-tool', 'file:./tools/runtime.lisp', TRUE);
+		VALUES (?, ?, 'file:./tools/runtime.lisp', TRUE)
+	`, workspace.Id, runtimeToolID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.Exec(`
 		INSERT INTO gatehouse_resources (workspace_id, id, source, secret, enabled)
-		VALUES (?, 'runtime-resource', 'env:RUNTIME_RESOURCE', TRUE, TRUE);
-	`, workspace.Id, workspace.Id); err != nil {
+		VALUES (?, ?, 'env:RUNTIME_RESOURCE', TRUE, TRUE)
+	`, workspace.Id, runtimeResourceID); err != nil {
 		t.Fatal(err)
 	}
 	state.Tools[0].Source = "file:./tools/github-v2.lisp"
@@ -674,8 +690,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 
 	if err := database.QueryRow(`
 		SELECT source, enabled FROM gatehouse_tools
-		WHERE workspace_id = ? AND id = 'github'
-	`, workspace.Id).Scan(&toolRef, &toolEnabled); err != nil {
+		WHERE workspace_id = ? AND id = ?
+	`, workspace.Id, githubToolID).Scan(&toolRef, &toolEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if toolRef != "file:./tools/github-v2.lisp" || toolEnabled {
@@ -683,8 +699,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = ? AND group_id = ? AND tool_id = 'github'
-	`, workspace.Id, developersID).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND tool_id = ?
+	`, workspace.Id, developersID, githubToolID).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if grantEnabled {
@@ -692,8 +708,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = ? AND group_id = ? AND resource_id = 'github-token'
-	`, workspace.Id, developersID).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND resource_id = ?
+	`, workspace.Id, developersID, githubTokenID).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if !resourceGrantOn {
@@ -702,12 +718,31 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	var runtimeCount int
 	if err := database.QueryRow(`
 		SELECT COUNT(*) FROM gatehouse_tools
-		WHERE workspace_id = ? AND id = 'runtime-tool'
-	`, workspace.Id).Scan(&runtimeCount); err != nil {
+		WHERE workspace_id = ? AND id = ?
+	`, workspace.Id, runtimeToolID).Scan(&runtimeCount); err != nil {
 		t.Fatal(err)
 	}
 	if runtimeCount != 1 {
 		t.Fatalf("runtime tool count = %d, want 1", runtimeCount)
+	}
+
+	state.Tools[0].Alias = "github-v3"
+	state.Groups[0].ToolGrants[0].ToolAlias = "github-v3"
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	var renamedToolID string
+	if err := database.QueryRow(`SELECT id FROM gatehouse_tools WHERE workspace_id = ? AND alias = 'github-v3'`, workspace.Id).Scan(&renamedToolID); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.Tool, renamedToolID) || renamedToolID == githubToolID {
+		t.Fatalf("renamed tool ID = %q, want new typed ID distinct from %q", renamedToolID, githubToolID)
+	}
+	if err := database.QueryRow(`SELECT enabled FROM gatehouse_group_tool_grants WHERE workspace_id = ? AND group_id = ? AND tool_id = ?`, workspace.Id, developersID, renamedToolID).Scan(&grantEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if grantEnabled {
+		t.Fatal("renamed tool grant is enabled, want disabled")
 	}
 }
 

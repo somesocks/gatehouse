@@ -87,7 +87,7 @@ let GroupToolGrant =
               { tool =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "granted workspace-local tool identity" }
+                    s.text.meta::{ description = Some "granted workspace-local tool reconciliation alias" }
               }
         , optional =
             toMap
@@ -112,7 +112,7 @@ let GroupResourceGrant =
               { resource =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "granted workspace-local resource identity" }
+                    s.text.meta::{ description = Some "granted workspace-local resource reconciliation alias" }
               }
         , optional =
             toMap
@@ -171,10 +171,10 @@ let Tool =
         s.record.props::{
         , required =
             toMap
-              { id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local tool identity" }
+              { alias =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "workspace-local tool reconciliation alias" }
                , source =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
@@ -200,10 +200,10 @@ let Resource =
         s.record.props::{
         , required =
             toMap
-              { id =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local resource identity" }
+              { alias =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "workspace-local resource reconciliation alias" }
                , source =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }

@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	Workspace = "wsp"
-	Principal = "prn"
-	Identity  = "idt"
-	Group     = "grp"
+	Workspace     = "wsp"
+	Principal     = "prn"
+	Identity      = "idt"
+	Group         = "grp"
+	Tool          = "tol"
+	Resource      = "res"
 	encodedLength = 26
 )
 

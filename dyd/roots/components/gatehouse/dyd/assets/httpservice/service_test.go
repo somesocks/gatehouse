@@ -19,6 +19,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
@@ -187,7 +188,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatalf("GET workspaces = status %d body %q", workspaces.Code, workspaces.Body.String())
 	}
 	tools := request("/api/v1/workspaces/" + engineering.Id + "/tools")
-	if tools.Code != http.StatusOK || tools.Body.String() != "[{\"id\":\"git\"}]\n" {
+	var toolResponse []struct{ ID string }
+	if err := json.Unmarshal(tools.Body.Bytes(), &toolResponse); err != nil || tools.Code != http.StatusOK || len(toolResponse) != 1 || !typed_id.Valid(typed_id.Tool, toolResponse[0].ID) {
 		t.Fatalf("GET tools = status %d body %q", tools.Code, tools.Body.String())
 	}
 	groups := request("/api/v1/workspaces/" + engineering.Id + "/groups")
@@ -200,7 +202,11 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatalf("GET sessions = status %d body %q", sessions.Code, sessions.Body.String())
 	}
 	resources := request("/api/v1/workspaces/" + engineering.Id + "/resources")
-	if resources.Code != http.StatusOK || resources.Body.String() != "[{\"id\":\"docs\",\"secret\":false},{\"id\":\"token\",\"secret\":true}]\n" {
+	var resourceResponse []struct {
+		ID     string
+		Secret bool
+	}
+	if err := json.Unmarshal(resources.Body.Bytes(), &resourceResponse); err != nil || resources.Code != http.StatusOK || len(resourceResponse) != 2 || !typed_id.Valid(typed_id.Resource, resourceResponse[0].ID) || !typed_id.Valid(typed_id.Resource, resourceResponse[1].ID) || resourceResponse[0].Secret == resourceResponse[1].Secret {
 		t.Fatalf("GET resources = status %d body %q", resources.Code, resources.Body.String())
 	}
 	if strings.Contains(resources.Body.String(), "file:") || strings.Contains(resources.Body.String(), "env:") || strings.Contains(resources.Body.String(), "TOP_SECRET") {
@@ -566,8 +572,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{
 				WorkspaceID: "engineering", Alias: "developers", Name: &developers, Enabled: true,
 				Members:        []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
-				ToolGrants:     []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
-				ResourceGrants: []config.GroupResourceGrant{{ResourceID: "docs", Enabled: true}, {ResourceID: "token", Enabled: true}},
+				ToolGrants:     []config.GroupToolGrant{{ToolAlias: "git", Enabled: true}},
+				ResourceGrants: []config.GroupResourceGrant{{ResourceAlias: "docs", Enabled: true}, {ResourceAlias: "token", Enabled: true}},
 			},
 			{
 				WorkspaceID: "operations", Alias: "operators", Enabled: true,
@@ -575,10 +581,10 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			},
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
 		},
-		Tools: []config.Tool{{WorkspaceID: "engineering", ID: "git", Source: "file:./git.lisp", Enabled: true}},
+		Tools: []config.Tool{{WorkspaceID: "engineering", Alias: "git", Source: "file:./git.lisp", Enabled: true}},
 		Resources: []config.Resource{
-			{WorkspaceID: "engineering", ID: "docs", Source: "file:./docs", Secret: false, Enabled: true},
-			{WorkspaceID: "engineering", ID: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "docs", Source: "file:./docs", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
 		},
 		StorageProviders: []config.StorageProvider{{ID: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{

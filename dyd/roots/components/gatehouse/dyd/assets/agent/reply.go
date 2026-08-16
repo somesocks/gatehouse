@@ -15,7 +15,6 @@ import (
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
-	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/diagnostics"
 	"gatehouse/keychain"
@@ -878,11 +877,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	if err != nil {
 		return err, nil, nil, nil, nil
 	}
-	resources := make([]config.Resource, 0, len(configuredResources))
-	for _, configured := range configuredResources {
-		resources = append(resources, config.Resource{WorkspaceID: configured.Ref.Workspace.Id, ID: configured.Ref.Id, Source: configured.Source, Secret: configured.Secret, Enabled: configured.Enabled})
-	}
-	err, values := runtime.resolveResources(ctx, resources)
+	err, values := runtime.resolveResources(ctx, configuredResources)
 	if err != nil {
 		return err, nil, nil, nil, nil
 	}
@@ -895,10 +890,9 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		}
 		tools = append(tools, lisp.TurnTool{ID: configured.Ref.Id, Source: source})
 	}
-	turnResources := make([]lisp.TurnResource, 0, len(resources))
-	for _, configured := range resources {
-		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.WorkspaceID}, Id: configured.ID}
-		turnResources = append(turnResources, lisp.TurnResource{ID: configured.ID, Value: values[ref], Secret: configured.Secret})
+	turnResources := make([]lisp.TurnResource, 0, len(configuredResources))
+	for _, configured := range configuredResources {
+		turnResources = append(turnResources, lisp.TurnResource{ID: configured.Ref.Id, Value: values[configured.Ref], Secret: configured.Secret})
 	}
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
@@ -912,46 +906,46 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	return nil, tools, turnResources, files, values
 }
 
-func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []config.Resource) (error, map[model.ResourceRef][]byte) {
+func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []model.Resource) (error, map[model.ResourceRef][]byte) {
 	values := make(map[model.ResourceRef][]byte, len(resources))
 	type encryptedResource struct {
-		resource  config.Resource
+		resource  model.Resource
 		encrypted keychain.Encrypted
 	}
 	encryptedResources := make([]encryptedResource, 0)
 	references := make([]model.KeychainRef, 0)
 	for _, configured := range resources {
-		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.WorkspaceID}, Id: configured.ID}
+		ref := configured.Ref
 		switch {
 		case strings.HasPrefix(configured.Source, "file:"):
 			path := strings.TrimPrefix(configured.Source, "file:")
 			if path == "" {
-				return fmt.Errorf("resolve resource %q: file source path is empty", configured.ID), nil
+				return fmt.Errorf("resolve resource %q: file source path is empty", configured.Ref.Id), nil
 			}
 			value, err := os.ReadFile(path)
 			if err != nil {
-				return fmt.Errorf("resolve resource %q from file %q: %w", configured.ID, path, err), nil
+				return fmt.Errorf("resolve resource %q from file %q: %w", configured.Ref.Id, path, err), nil
 			}
 			values[ref] = value
 		case strings.HasPrefix(configured.Source, "env:"):
 			name := strings.TrimPrefix(configured.Source, "env:")
 			if name == "" {
-				return fmt.Errorf("resolve resource %q: environment source name is empty", configured.ID), nil
+				return fmt.Errorf("resolve resource %q: environment source name is empty", configured.Ref.Id), nil
 			}
 			value, ok := os.LookupEnv(name)
 			if !ok {
-				return fmt.Errorf("resolve resource %q: environment variable %q is not set", configured.ID, name), nil
+				return fmt.Errorf("resolve resource %q: environment variable %q is not set", configured.Ref.Id, name), nil
 			}
 			values[ref] = []byte(value)
 		case strings.HasPrefix(configured.Source, "gh-enc:"):
 			err, encrypted := keychain.ParseResource(configured.Source)
 			if err != nil {
-				return fmt.Errorf("resolve resource %q: %w", configured.ID, err), nil
+				return fmt.Errorf("resolve resource %q: %w", configured.Ref.Id, err), nil
 			}
 			encryptedResources = append(encryptedResources, encryptedResource{resource: configured, encrypted: encrypted})
 			references = append(references, *encrypted.Key)
 		default:
-			return fmt.Errorf("resolve resource %q: unsupported source %q", configured.ID, configured.Source), nil
+			return fmt.Errorf("resolve resource %q: unsupported source %q", configured.Ref.Id, configured.Source), nil
 		}
 	}
 	if len(references) == 0 {
@@ -965,14 +959,13 @@ func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, r
 	for _, configured := range encryptedResources {
 		key, ok := keys[*configured.encrypted.Key]
 		if !ok {
-			return fmt.Errorf("resolve resource %q: keychain key %q version %d is unavailable", configured.resource.ID, configured.encrypted.Key.Id, configured.encrypted.Key.Version), nil
+			return fmt.Errorf("resolve resource %q: keychain key %q version %d is unavailable", configured.resource.Ref.Id, configured.encrypted.Key.Id, configured.encrypted.Key.Version), nil
 		}
-		valueErr, value := keychain.Open(key, []byte("gh=v1|workspace="+configured.resource.WorkspaceID+"|resource="+configured.resource.ID), configured.encrypted)
+		valueErr, value := keychain.Open(key, []byte("gh=v1|workspace="+configured.resource.Ref.Workspace.Id+"|resource="+configured.resource.Ref.Id), configured.encrypted)
 		if valueErr != nil {
-			return fmt.Errorf("resolve resource %q: %w", configured.resource.ID, valueErr), nil
+			return fmt.Errorf("resolve resource %q: %w", configured.resource.Ref.Id, valueErr), nil
 		}
-		ref := model.ResourceRef{Workspace: model.WorkspaceRef{Id: configured.resource.WorkspaceID}, Id: configured.resource.ID}
-		values[ref] = value
+		values[configured.resource.Ref] = value
 	}
 	return nil, values
 }

@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"gatehouse/config"
 	"gatehouse/keychain"
 	"gatehouse/model"
 )
@@ -25,50 +24,47 @@ func newResolver(keyring *keychain.Keyring, readFile func(string) ([]byte, error
 	return &Resolver{keyring: keyring, readFile: readFile, lookupEnv: lookupEnv}
 }
 
-func (resolver *Resolver) Resolve(ctx context.Context, resources []config.Resource) (error, map[model.ResourceRef][]byte) {
+func (resolver *Resolver) Resolve(ctx context.Context, resources []model.Resource) (error, map[model.ResourceRef][]byte) {
 	values := make(map[model.ResourceRef][]byte, len(resources))
 	type encryptedResource struct {
 		ref       model.ResourceRef
-		resource  config.Resource
+		resource  model.Resource
 		encrypted keychain.Encrypted
 	}
 	encryptedResources := make([]encryptedResource, 0)
 	references := make([]model.KeychainRef, 0)
 	for _, configured := range resources {
-		ref := model.ResourceRef{
-			Workspace: model.WorkspaceRef{Id: configured.WorkspaceID},
-			Id:        configured.ID,
-		}
+		ref := configured.Ref
 		switch {
 		case strings.HasPrefix(configured.Source, "file:"):
 			path := strings.TrimPrefix(configured.Source, "file:")
 			if path == "" {
-				return fmt.Errorf("resolve resource %q in workspace %q: file source path is empty", configured.ID, configured.WorkspaceID), nil
+				return fmt.Errorf("resolve resource %q in workspace %q: file source path is empty", configured.Ref.Id, configured.Ref.Workspace.Id), nil
 			}
 			value, err := resolver.readFile(path)
 			if err != nil {
-				return fmt.Errorf("resolve resource %q in workspace %q from file %q: %w", configured.ID, configured.WorkspaceID, path, err), nil
+				return fmt.Errorf("resolve resource %q in workspace %q from file %q: %w", configured.Ref.Id, configured.Ref.Workspace.Id, path, err), nil
 			}
 			values[ref] = value
 		case strings.HasPrefix(configured.Source, "env:"):
 			name := strings.TrimPrefix(configured.Source, "env:")
 			if name == "" {
-				return fmt.Errorf("resolve resource %q in workspace %q: environment source name is empty", configured.ID, configured.WorkspaceID), nil
+				return fmt.Errorf("resolve resource %q in workspace %q: environment source name is empty", configured.Ref.Id, configured.Ref.Workspace.Id), nil
 			}
 			value, ok := resolver.lookupEnv(name)
 			if !ok {
-				return fmt.Errorf("resolve resource %q in workspace %q: environment variable %q is not set", configured.ID, configured.WorkspaceID, name), nil
+				return fmt.Errorf("resolve resource %q in workspace %q: environment variable %q is not set", configured.Ref.Id, configured.Ref.Workspace.Id, name), nil
 			}
 			values[ref] = []byte(value)
 		case strings.HasPrefix(configured.Source, "gh-enc:"):
 			err, encrypted := keychain.ParseResource(configured.Source)
 			if err != nil {
-				return fmt.Errorf("resolve resource %q in workspace %q: %w", configured.ID, configured.WorkspaceID, err), nil
+				return fmt.Errorf("resolve resource %q in workspace %q: %w", configured.Ref.Id, configured.Ref.Workspace.Id, err), nil
 			}
 			encryptedResources = append(encryptedResources, encryptedResource{ref: ref, resource: configured, encrypted: encrypted})
 			references = append(references, *encrypted.Key)
 		default:
-			return fmt.Errorf("resolve resource %q in workspace %q: unsupported source %q", configured.ID, configured.WorkspaceID, configured.Source), nil
+			return fmt.Errorf("resolve resource %q in workspace %q: unsupported source %q", configured.Ref.Id, configured.Ref.Workspace.Id, configured.Source), nil
 		}
 	}
 
@@ -79,18 +75,18 @@ func (resolver *Resolver) Resolve(ctx context.Context, resources []config.Resour
 	for _, configured := range encryptedResources {
 		key, ok := keys[*configured.encrypted.Key]
 		if !ok {
-			return fmt.Errorf("resolve resource %q in workspace %q: keychain key %q version %d is unavailable", configured.resource.ID, configured.resource.WorkspaceID, configured.encrypted.Key.Id, configured.encrypted.Key.Version), nil
+			return fmt.Errorf("resolve resource %q in workspace %q: keychain key %q version %d is unavailable", configured.resource.Ref.Id, configured.resource.Ref.Workspace.Id, configured.encrypted.Key.Id, configured.encrypted.Key.Version), nil
 		}
 		err, value := keychain.Open(key, resourceAssociatedData(configured.resource), configured.encrypted)
 		clear(key)
 		if err != nil {
-			return fmt.Errorf("resolve resource %q in workspace %q: %w", configured.resource.ID, configured.resource.WorkspaceID, err), nil
+			return fmt.Errorf("resolve resource %q in workspace %q: %w", configured.resource.Ref.Id, configured.resource.Ref.Workspace.Id, err), nil
 		}
 		values[configured.ref] = value
 	}
 	return nil, values
 }
 
-func resourceAssociatedData(resource config.Resource) []byte {
-	return []byte("gh=v1|workspace=" + resource.WorkspaceID + "|resource=" + resource.ID)
+func resourceAssociatedData(resource model.Resource) []byte {
+	return []byte("gh=v1|workspace=" + resource.Ref.Workspace.Id + "|resource=" + resource.Ref.Id)
 }

@@ -24,12 +24,12 @@ type GroupMember struct {
 }
 
 type GroupToolGrant struct {
-	ToolID  string
+	ToolAlias string
 	Enabled bool
 }
 
 type GroupResourceGrant struct {
-	ResourceID string
+	ResourceAlias string
 	Enabled    bool
 }
 
@@ -108,11 +108,11 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						enabled = *configuredGrant.Enabled
 					}
 					toolIDs[configuredGrant.Tool] = struct{}{}
-					toolGrants = append(toolGrants, GroupToolGrant{ToolID: configuredGrant.Tool, Enabled: enabled})
+					toolGrants = append(toolGrants, GroupToolGrant{ToolAlias: configuredGrant.Tool, Enabled: enabled})
 				}
 			}
 			sort.Slice(toolGrants, func(left, right int) bool {
-				return toolGrants[left].ToolID < toolGrants[right].ToolID
+				return toolGrants[left].ToolAlias < toolGrants[right].ToolAlias
 			})
 
 			resourceGrants := make([]GroupResourceGrant, 0)
@@ -131,11 +131,11 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						enabled = *configuredGrant.Enabled
 					}
 					resourceIDs[configuredGrant.Resource] = struct{}{}
-					resourceGrants = append(resourceGrants, GroupResourceGrant{ResourceID: configuredGrant.Resource, Enabled: enabled})
+					resourceGrants = append(resourceGrants, GroupResourceGrant{ResourceAlias: configuredGrant.Resource, Enabled: enabled})
 				}
 			}
 			sort.Slice(resourceGrants, func(left, right int) bool {
-				return resourceGrants[left].ResourceID < resourceGrants[right].ResourceID
+				return resourceGrants[left].ResourceAlias < resourceGrants[right].ResourceAlias
 			})
 
 			groupAliases[configured.Alias] = struct{}{}

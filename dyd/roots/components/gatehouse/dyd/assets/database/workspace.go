@@ -223,7 +223,7 @@ func (store *Store) WorkspaceResourceSummariesGet(ctx context.Context, workspace
 func (store *Store) WorkspaceToolsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Tool) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT tools.workspace_id, tools.id, tools.source, tools.enabled
+		SELECT tools.workspace_id, tools.id, tools.alias, tools.source, tools.enabled
 		FROM gatehouse_tools AS tools
 		WHERE tools.workspace_id = `+placeholder(1)+`
 			AND tools.enabled = TRUE
@@ -259,8 +259,12 @@ func (store *Store) WorkspaceToolsGet(ctx context.Context, workspace model.Works
 	tools := []model.Tool{}
 	for rows.Next() {
 		var tool model.Tool
-		if err := rows.Scan(&tool.Ref.Workspace.Id, &tool.Ref.Id, &tool.Source, &tool.Enabled); err != nil {
+		var alias sql.NullString
+		if err := rows.Scan(&tool.Ref.Workspace.Id, &tool.Ref.Id, &alias, &tool.Source, &tool.Enabled); err != nil {
 			return fmt.Errorf("scan workspace tool: %w", err), nil
+		}
+		if alias.Valid {
+			tool.Ref.Alias = &alias.String
 		}
 		tools = append(tools, tool)
 	}
@@ -273,7 +277,7 @@ func (store *Store) WorkspaceToolsGet(ctx context.Context, workspace model.Works
 func (store *Store) WorkspaceResourcesGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Resource) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT resources.workspace_id, resources.id, resources.source, resources.secret, resources.enabled
+		SELECT resources.workspace_id, resources.id, resources.alias, resources.source, resources.secret, resources.enabled
 		FROM gatehouse_resources AS resources
 		WHERE resources.workspace_id = `+placeholder(1)+`
 			AND resources.enabled = TRUE
@@ -309,8 +313,12 @@ func (store *Store) WorkspaceResourcesGet(ctx context.Context, workspace model.W
 	resources := []model.Resource{}
 	for rows.Next() {
 		var resource model.Resource
-		if err := rows.Scan(&resource.Ref.Workspace.Id, &resource.Ref.Id, &resource.Source, &resource.Secret, &resource.Enabled); err != nil {
+		var alias sql.NullString
+		if err := rows.Scan(&resource.Ref.Workspace.Id, &resource.Ref.Id, &alias, &resource.Source, &resource.Secret, &resource.Enabled); err != nil {
 			return fmt.Errorf("scan workspace resource: %w", err), nil
+		}
+		if alias.Valid {
+			resource.Ref.Alias = &alias.String
 		}
 		resources = append(resources, resource)
 	}

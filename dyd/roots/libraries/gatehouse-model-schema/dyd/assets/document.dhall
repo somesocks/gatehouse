@@ -710,9 +710,15 @@ let ToolRef =
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
-                     s.text.meta::{ description = Some "workspace-local tool identity" }
+                      s.text.meta::{ description = Some "durable typed tool identity" }
               }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { alias =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local tool reconciliation alias" }
+              }
         }
         s.record.meta::{
         , name = Some "ToolRef"
@@ -756,9 +762,15 @@ let ResourceRef =
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
-                     s.text.meta::{ description = Some "workspace-local resource identity" }
+                      s.text.meta::{ description = Some "durable typed resource identity" }
               }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { alias =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local resource reconciliation alias" }
+              }
         }
         s.record.meta::{
         , name = Some "ResourceRef"

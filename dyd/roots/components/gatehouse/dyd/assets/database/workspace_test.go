@@ -24,13 +24,13 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 			{Alias: "bob", Enabled: false},
 		},
 		Tools: []config.Tool{
-			{WorkspaceID: "engineering", ID: "git", Source: "file:./git.lisp", Enabled: true},
-			{WorkspaceID: "engineering", ID: "legacy", Source: "file:./legacy.lisp", Enabled: false},
+			{WorkspaceID: "engineering", Alias: "git", Source: "file:./git.lisp", Enabled: true},
+			{WorkspaceID: "engineering", Alias: "legacy", Source: "file:./legacy.lisp", Enabled: false},
 		},
 		Resources: []config.Resource{
-			{WorkspaceID: "engineering", ID: "docs", Source: "file:./docs", Secret: false, Enabled: true},
-			{WorkspaceID: "engineering", ID: "token", Source: "env:TOKEN", Secret: true, Enabled: true},
-			{WorkspaceID: "engineering", ID: "retired", Source: "env:RETIRED", Secret: true, Enabled: false},
+			{WorkspaceID: "engineering", Alias: "docs", Source: "file:./docs", Secret: false, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "token", Source: "env:TOKEN", Secret: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "retired", Source: "env:RETIRED", Secret: true, Enabled: false},
 		},
 		Groups: []config.Group{
 			{
@@ -41,10 +41,10 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 					{PrincipalID: "alice", Enabled: true},
 					{PrincipalID: "bob", Enabled: true},
 				},
-				ToolGrants: []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
+				ToolGrants: []config.GroupToolGrant{{ToolAlias: "git", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{
-					{ResourceID: "token", Enabled: true},
-					{ResourceID: "retired", Enabled: true},
+					{ResourceAlias: "token", Enabled: true},
+					{ResourceAlias: "retired", Enabled: true},
 				},
 			},
 			{
@@ -52,9 +52,9 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 				Alias:       "reviewers",
 				Enabled:     true,
 				Members:     []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
-				ToolGrants:  []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
+				ToolGrants:  []config.GroupToolGrant{{ToolAlias: "git", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{
-					{ResourceID: "docs", Enabled: true},
+					{ResourceAlias: "docs", Enabled: true},
 				},
 			},
 			{
@@ -63,7 +63,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 				Enabled:     false,
 				Members:     []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{
-					{ResourceID: "docs", Enabled: true},
+					{ResourceAlias: "docs", Enabled: true},
 				},
 			},
 		},
@@ -73,13 +73,26 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, context.Background(), store, "engineering")
+	gitAlias := "git"
+	docsAlias := "docs"
+	tokenAlias := "token"
+	var gitID, docsID, tokenID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_tools WHERE workspace_id = ? AND alias = ?`, workspace.Id, gitAlias).Scan(&gitID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRow(`SELECT id FROM gatehouse_resources WHERE workspace_id = ? AND alias = ?`, workspace.Id, docsAlias).Scan(&docsID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRow(`SELECT id FROM gatehouse_resources WHERE workspace_id = ? AND alias = ?`, workspace.Id, tokenAlias).Scan(&tokenID); err != nil {
+		t.Fatal(err)
+	}
 	alice := principalRef(t, context.Background(), store, "alice")
 	err, tools := store.WorkspaceToolsGet(context.Background(), workspace, alice)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantTools := []model.Tool{{
-		Ref:     model.ToolRef{Workspace: workspace, Id: "git"},
+		Ref:     model.ToolRef{Workspace: workspace, Id: gitID, Alias: &gitAlias},
 		Source:  "file:./git.lisp",
 		Enabled: true,
 	}}
@@ -91,8 +104,11 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantResources := []model.Resource{
-		{Ref: model.ResourceRef{Workspace: workspace, Id: "docs"}, Source: "file:./docs", Secret: false, Enabled: true},
-		{Ref: model.ResourceRef{Workspace: workspace, Id: "token"}, Source: "env:TOKEN", Secret: true, Enabled: true},
+		{Ref: model.ResourceRef{Workspace: workspace, Id: docsID, Alias: &docsAlias}, Source: "file:./docs", Secret: false, Enabled: true},
+		{Ref: model.ResourceRef{Workspace: workspace, Id: tokenID, Alias: &tokenAlias}, Source: "env:TOKEN", Secret: true, Enabled: true},
+	}
+	if tokenID < docsID {
+		wantResources[0], wantResources[1] = wantResources[1], wantResources[0]
 	}
 	if !reflect.DeepEqual(resources, wantResources) {
 		t.Fatalf("WorkspaceResourcesGet() = %#v, want %#v", resources, wantResources)

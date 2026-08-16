@@ -54,12 +54,12 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 				{PrincipalID: "zebra", Enabled: true},
 			},
 			ToolGrants: []GroupToolGrant{
-				{ToolID: "alpha", Enabled: false},
-				{ToolID: "zulu", Enabled: true},
+				{ToolAlias: "alpha", Enabled: false},
+				{ToolAlias: "zulu", Enabled: true},
 			},
 			ResourceGrants: []GroupResourceGrant{
-				{ResourceID: "endpoint", Enabled: false},
-				{ResourceID: "token", Enabled: true},
+				{ResourceAlias: "endpoint", Enabled: false},
+				{ResourceAlias: "token", Enabled: true},
 			},
 		},
 	{
@@ -156,7 +156,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			contains: "duplicated",
 		},
 		{
-			name: "invalid resource grant ID",
+			name: "invalid resource grant alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
