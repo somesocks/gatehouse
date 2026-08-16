@@ -468,7 +468,7 @@ let GatewayRef =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "gateway process identity" } }
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed gateway process identity" } }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "GatewayRef", description = Some "The runtime identity of a gateway process." }

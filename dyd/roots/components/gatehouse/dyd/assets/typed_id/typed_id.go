@@ -21,6 +21,7 @@ const (
 	StorageProvider = "stp"
 	StorageObject   = "obj"
 	SessionFile     = "sfi"
+	Gateway         = "gwy"
 	Session         = "ses"
 	SessionEvent    = "sev"
 	ActivityEvent   = "act"

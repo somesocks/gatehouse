@@ -227,7 +227,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if err != nil || storedSession == nil || storedSession.AuthorAgent == nil || *storedSession.AuthorAgent != agent || storedSession.AuthorPrincipal != nil || storedSession.AuthorGateway != nil {
 		t.Fatalf("agent-authored session = (%#v, %v)", storedSession, err)
 	}
-	gateway := model.GatewayRef{Id: "8d485e76-6138-47e1-a9fa-1f2fb22062bd"}
+	gateway := model.GatewayRef{Id: newTypedID(t, "gwy")}
 	gatewaySession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_cccccccccccccccccccccccccc"}, AuthorGateway: &gateway, Enabled: true}
 	err, _ = store.SessionsCreate(ctx, gatewaySession, alice)
 	if err != nil {
@@ -253,7 +253,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	gatewayEvent := model.SessionEvent{
 		Ref:           model.SessionEventRef{Session: session, Id: "sev_eeeeeeeeeeeeeeeeeeeeeeeeee"},
 		Kind:          "gateway.notice",
-		AuthorGateway: &model.GatewayRef{Id: "8d485e76-6138-47e1-a9fa-1f2fb22062bd"},
+		AuthorGateway: &gateway,
 		Payload:       map[string]interface{}{"text": "gateway notice"},
 	}
 	err, _ = store.SessionEventsCreate(ctx, gatewayEvent)
@@ -278,6 +278,15 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_dddddddddddddddddddddddddd"}, Kind: "message.text", Payload: map[string]interface{}{}})
 	if err == nil {
 		t.Fatal("SessionEventsCreate() accepted an event without an author")
+	}
+	invalidGateway := model.GatewayRef{Id: "invalid"}
+	err, _ = store.SessionsCreate(ctx, model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: newTypedID(t, "ses")}, AuthorGateway: &invalidGateway, Enabled: true}, alice)
+	if err == nil {
+		t.Fatal("SessionsCreate() accepted an invalid gateway author")
+	}
+	err, _ = store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: newTypedID(t, "sev")}, Kind: "gateway.notice", AuthorGateway: &invalidGateway, Payload: map[string]interface{}{}})
+	if err == nil {
+		t.Fatal("SessionEventsCreate() accepted an invalid gateway author")
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_principal, payload, created_at)

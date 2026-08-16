@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 func (store *Store) SessionsCreate(ctx context.Context, session model.Session, grantee model.PrincipalRef) (error, model.Session) {
@@ -95,6 +96,9 @@ func sessionAuthorValues(session model.Session) (any, any, any, error) {
 		}
 		return nil, session.AuthorAgent.Model.Id, nil, nil
 	}
+	if !typed_id.Valid(typed_id.Gateway, session.AuthorGateway.Id) {
+		return nil, nil, nil, fmt.Errorf("create session: gateway author ID is invalid")
+	}
 	return nil, nil, session.AuthorGateway.Id, nil
 }
 
@@ -113,6 +117,9 @@ func sessionAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, ga
 	}
 	if agent.Valid {
 		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}, nil, nil
+	}
+	if !typed_id.Valid(typed_id.Gateway, gateway.String) {
+		return nil, nil, nil, fmt.Errorf("read session: gateway author ID is invalid")
 	}
 	return nil, nil, &model.GatewayRef{Id: gateway.String}, nil
 }
@@ -796,6 +803,9 @@ func sessionEventAuthorValues(event model.SessionEvent) (any, any, any, error) {
 		agent = event.AuthorAgent.Model.Id
 	}
 	if event.AuthorGateway != nil {
+		if !typed_id.Valid(typed_id.Gateway, event.AuthorGateway.Id) {
+			return nil, nil, nil, fmt.Errorf("create session event: gateway author ID is invalid")
+		}
 		gateway = event.AuthorGateway.Id
 	}
 	return principal, agent, gateway, nil
@@ -826,6 +836,9 @@ func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principalID, pr
 	}
 	if agent.Valid {
 		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}, nil, nil
+	}
+	if !typed_id.Valid(typed_id.Gateway, gateway.String) {
+		return nil, nil, nil, fmt.Errorf("read session event: gateway author ID is invalid")
 	}
 	return nil, nil, &model.GatewayRef{Id: gateway.String}, nil
 }
