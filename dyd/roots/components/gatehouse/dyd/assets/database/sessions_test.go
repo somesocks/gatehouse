@@ -28,7 +28,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 		},
 		Groups: []config.Group{{
 			WorkspaceID: "engineering",
-			ID:          "developers",
+			Alias:       "developers",
 			Enabled:     true,
 			Members: []config.GroupMember{
 				{PrincipalID: "alice", Enabled: true},
@@ -40,6 +40,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	developersID := groupID(t, ctx, store, "engineering", "developers")
 	alice := principalRef(t, ctx, store, "alice")
 	bob := principalRef(t, ctx, store, "bob")
 	carol := principalRef(t, ctx, store, "carol")
@@ -64,8 +65,8 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-			VALUES (?, 'shared', 'developers', TRUE)
-	`, workspace.Id); err != nil {
+			VALUES (?, 'shared', ?, TRUE)
+	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
 
@@ -98,8 +99,8 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		UPDATE gatehouse_group_members
 		SET enabled = FALSE
-		WHERE workspace_id = ? AND group_id = 'developers' AND principal_id = ?
-	`, workspace.Id, bob.Id); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND principal_id = ?
+	`, workspace.Id, developersID, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	if got := sessionsFor(bob); len(got) != 0 {
@@ -315,7 +316,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		},
 		Groups: []config.Group{{
 			WorkspaceID: "engineering",
-			ID:          "developers",
+			Alias:       "developers",
 			Enabled:     true,
 			Members:     []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
@@ -324,6 +325,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	developersID := groupID(t, ctx, store, "engineering", "developers")
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	bob := principalRef(t, ctx, store, "bob")
@@ -335,8 +337,8 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-		VALUES (?, 'shared', 'developers', TRUE)
-	`, workspace.Id); err != nil {
+		VALUES (?, 'shared', ?, TRUE)
+	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: private, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {

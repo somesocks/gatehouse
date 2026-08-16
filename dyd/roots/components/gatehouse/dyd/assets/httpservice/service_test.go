@@ -191,7 +191,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatalf("GET tools = status %d body %q", tools.Code, tools.Body.String())
 	}
 	groups := request("/api/v1/workspaces/" + engineering.Id + "/groups")
-	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\"developers\",\"name\":\"Developers\"}]\n" {
+	developersID := groupID(t, context.Background(), store, "engineering", "developers")
+	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\""+developersID+"\",\"name\":\"Developers\"}]\n" {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
 	sessions := request("/api/v1/workspaces/" + engineering.Id + "/sessions")
@@ -563,16 +564,16 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		}},
 		Groups: []config.Group{
 			{
-				WorkspaceID: "engineering", ID: "developers", Name: &developers, Enabled: true,
+				WorkspaceID: "engineering", Alias: "developers", Name: &developers, Enabled: true,
 				Members:        []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 				ToolGrants:     []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{{ResourceID: "docs", Enabled: true}, {ResourceID: "token", Enabled: true}},
 			},
 			{
-				WorkspaceID: "operations", ID: "operators", Enabled: true,
+				WorkspaceID: "operations", Alias: "operators", Enabled: true,
 				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 			},
-			{WorkspaceID: "private", ID: "owners", Enabled: true},
+			{WorkspaceID: "private", Alias: "owners", Enabled: true},
 		},
 		Tools: []config.Tool{{WorkspaceID: "engineering", ID: "git", Source: "file:./git.lisp", Enabled: true}},
 		Resources: []config.Resource{
@@ -610,15 +611,24 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		workspaces[alias] = *workspace
 	}
 	principal, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	developersID := groupID(t, ctx, store, "engineering", "developers")
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES
 			(?, 'private', ?, TRUE, '2026-01-01 00:00:01'),
-			(?, 'shared', ?, TRUE, '2026-01-01 00:00:02');
+			(?, 'shared', ?, TRUE, '2026-01-01 00:00:02')
+	`, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
-			VALUES (?, 'private', ?, TRUE);
+		VALUES (?, 'private', ?, TRUE)
+	`, workspaces["engineering"].Id, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-			VALUES (?, 'shared', 'developers', TRUE);
-	`, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id, principal.Id, workspaces["engineering"].Id); err != nil {
+		VALUES (?, 'shared', ?, TRUE)
+	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}
 	err, tokens := auth.Prepare(ctx, store, keyring, "test")
@@ -640,6 +650,20 @@ func principalIdentityRefs(t *testing.T, ctx context.Context, store *database.St
 		t.Fatal(err)
 	}
 	return model.PrincipalRef{Id: principalID}, identityID
+}
+
+func groupID(t *testing.T, ctx context.Context, store *database.Store, workspaceAlias, alias string) string {
+	t.Helper()
+	var id string
+	if err := store.QueryRowContext(ctx, `
+		SELECT groups.id
+		FROM gatehouse_groups AS groups
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id
+		WHERE workspaces.alias = ? AND groups.alias = ?
+	`, workspaceAlias, alias).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func TestServiceStartsServesAndStops(t *testing.T) {

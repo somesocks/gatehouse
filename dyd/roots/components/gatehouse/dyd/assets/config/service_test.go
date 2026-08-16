@@ -63,7 +63,7 @@ func TestResolveServicesUsesExplicitConfiguration(t *testing.T) {
 }
 
 func TestResolveServicesRejectsInvalidListener(t *testing.T) {
-	for _, listen := range []string{"", "4283", ":4283", "localhost:http", "localhost:0", "localhost:65536"} {
+	for _, listen := range []string{"", "4283", ":4283", "localhost:http", "localhost:65536"} {
 		t.Run(listen, func(t *testing.T) {
 			err, _ := ResolveServices(configschema.GatehouseConfig{
 				ApiVersion: "v1",

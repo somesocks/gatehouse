@@ -10,6 +10,6 @@ principals:
       - alias: alice-gatehouse
         key: gatehouse:alice
         verifiers:
-          - kind: argon2id
+          - kind: password
             password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER
         enabled: false

@@ -287,7 +287,7 @@ let GroupRef =
               , id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
-                     s.text.meta::{ description = Some "workspace-local group identity" }
+                      s.text.meta::{ description = Some "durable typed group identity" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -312,7 +312,11 @@ let Group =
               }
         , optional =
             toMap
-              { name =
+              { alias =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "group reconciliation alias" }
+              , name =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "group display name" }

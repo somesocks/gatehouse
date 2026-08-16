@@ -12,6 +12,7 @@ const (
 	Workspace = "wsp"
 	Principal = "prn"
 	Identity  = "idt"
+	Group     = "grp"
 	encodedLength = 26
 )
 

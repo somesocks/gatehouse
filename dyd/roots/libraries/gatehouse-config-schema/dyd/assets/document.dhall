@@ -139,10 +139,10 @@ let Group =
         s.record.props::{
         , required =
             toMap
-              { id =
+              { alias =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group identity" }
+                    s.text.meta::{ description = Some "workspace-local group reconciliation alias" }
               }
         , optional =
             toMap

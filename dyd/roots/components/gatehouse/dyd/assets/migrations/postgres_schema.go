@@ -73,11 +73,12 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_groups (
 				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL
-					CHECK (id ~ '^[a-z][a-z0-9_-]*$'),
+				id TEXT NOT NULL CHECK (id ~ '^grp_[a-z2-7]{26}$'),
+				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				enabled BOOLEAN NOT NULL,
-				PRIMARY KEY (workspace_id, id)
+				PRIMARY KEY (workspace_id, id),
+				UNIQUE (workspace_id, alias)
 			);
 
 			CREATE TABLE gatehouse_group_members (
@@ -466,23 +467,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			}, {
 				Index:       6,
 				Description: "reconcile_groups_and_memberships",
-				Builder: templateMigrationBuilder(`
-			SELECT 1;
-			{{ range .Groups }}
-			{{ $group := . }}
-			INSERT INTO gatehouse_groups (workspace_id, id, name, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, id) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-			{{ range .Members }}
-			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ end }}
-		`, values),
+				Builder:     groupMigrationBuilder(state.Groups),
 			}, {
 				Index:       7,
 				Description: "reconcile_tools_and_resources",
@@ -513,13 +498,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			{{ $group := . }}
 			{{ range .ToolGrants }}
 			INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), {{ sqlLiteral .ToolID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, tool_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}
 			{{ range .ResourceGrants }}
 			INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), {{ sqlLiteral .ResourceID }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (workspace_id, group_id, resource_id) DO UPDATE SET
 				enabled = excluded.enabled;
 			{{ end }}

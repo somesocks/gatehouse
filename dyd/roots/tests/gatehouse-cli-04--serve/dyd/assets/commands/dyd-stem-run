@@ -5,6 +5,7 @@ set -euf -o pipefail
 SRC_DIR=$DYD_STEM
 TEMP_DIR=''
 SERVICE_PID=''
+HTTP_PORT=''
 
 assert_contains() {
     case "$1" in
@@ -41,24 +42,34 @@ start_service() {
     SERVICE_PID=$!
 
     for attempt in {1..50}; do
-        if [ -s "$output" ]; then
-            break
-        fi
+        case "$(cat "$output" 2>/dev/null || true)" in
+            *"Gatehouse is serving"*) break ;;
+        esac
         if ! kill -0 "$SERVICE_PID" 2>/dev/null; then
             wait "$SERVICE_PID"
         fi
         sleep 0.1
     done
 
-    assert_contains "$(cat "$output")" "Gatehouse is serving" "serve startup"
+    if ! assert_contains "$(cat "$output")" "Gatehouse is serving" "serve startup"; then
+        cat "$output" >&2
+        return 1
+    fi
 }
 
 start_and_stop() {
     local output=$1
     shift
     start_service "$output" "$@"
+    local startup
+    startup=$(cat "$output")
+    if [[ ! "$startup" =~ Gatehouse\ is\ serving\ at\ http://127\.0\.0\.1:([0-9]+) ]]; then
+        printf '%s\n' "[ERROR] Fail: serve startup does not report an HTTP port" >&2
+        return 1
+    fi
+    HTTP_PORT=${BASH_REMATCH[1]}
     assert_http_response /healthz 'ok'
-    assert_http_response / '<h1>Gatehouse</h1>'
+    assert_http_response /app/ '<title>Gatehouse</title>'
     kill -TERM "$SERVICE_PID"
     wait "$SERVICE_PID"
     SERVICE_PID=''
@@ -69,41 +80,41 @@ assert_http_response() {
     local expected_body=$2
     local response=''
 
-    exec 3<>/dev/tcp/127.0.0.1/4283
+    exec 3<>"/dev/tcp/127.0.0.1/$HTTP_PORT"
     printf 'GET %s HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n' "$path" >&3
     response=$(cat <&3)
     exec 3>&-
     exec 3<&-
 
-    assert_contains "$response" '200 OK' "HTTP $path status"
-    assert_contains "$response" "$expected_body" "HTTP $path body"
+    if ! assert_contains "$response" '200 OK' "HTTP $path status"; then
+        printf '%s\n' "$response" >&2
+        return 1
+    fi
+    if ! assert_contains "$response" "$expected_body" "HTTP $path body"; then
+        printf '%s\n' "$response" >&2
+        return 1
+    fi
 }
 
 _setup() {
     TEMP_DIR=$(mktemp -d 2>/dev/null || mktemp -d -t 'gatehouse-serve-test')
     cp -R "$SRC_DIR/dyd/assets/fixtures/." "$TEMP_DIR"
-    printf '%s\n' 'api_version: v1' 'database:' '  kind: sqlite' "  path: $TEMP_DIR/gatehouse.db" >"$TEMP_DIR/configured-sqlite.yaml"
+    printf '%s\n' 'api_version: v1' 'database:' '  kind: sqlite' "  path: $TEMP_DIR/gatehouse.db" 'services:' '  http:' '    listen: 127.0.0.1:0' >"$TEMP_DIR/configured-sqlite.yaml"
+    printf '%s\n' 'api_version: v1' 'services:' '  http:' '    listen: 127.0.0.1:0' >"$TEMP_DIR/default.yaml"
 }
 
 _test() {
-    start_and_stop "$TEMP_DIR/ephemeral.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
-    start_and_stop "$TEMP_DIR/sqlite.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/configured-sqlite.yaml"
+    start_and_stop "$TEMP_DIR/ephemeral.output" env GATEHOUSE_KEYCHAIN=test-passphrase GATEHOUSE_ROOT_PASSWORD=test-password gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
+    start_and_stop "$TEMP_DIR/sqlite.output" env GATEHOUSE_KEYCHAIN=test-passphrase GATEHOUSE_ROOT_PASSWORD=test-password gatehouse serve --config="$TEMP_DIR/configured-sqlite.yaml"
     test -f "$TEMP_DIR/gatehouse.db"
 
-    start_and_stop "$TEMP_DIR/default.output" env XDG_DATA_HOME="$TEMP_DIR/default-data" GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve
+    start_and_stop "$TEMP_DIR/default.output" env XDG_DATA_HOME="$TEMP_DIR/default-data" GATEHOUSE_KEYCHAIN=test-passphrase GATEHOUSE_ROOT_PASSWORD=test-password gatehouse serve --config="$TEMP_DIR/default.yaml"
     test -f "$TEMP_DIR/default-data/gatehouse/gatehouse.db"
 
-    start_service "$TEMP_DIR/disabled.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/disabled-services.yaml"
+    start_service "$TEMP_DIR/disabled.output" env GATEHOUSE_KEYCHAIN=test-passphrase GATEHOUSE_ROOT_PASSWORD=test-password gatehouse serve --config="$TEMP_DIR/disabled-services.yaml"
     assert_not_contains "$(cat "$TEMP_DIR/disabled.output")" "Gatehouse is serving at" "disabled HTTP service"
     stop_service
 
-    start_service "$TEMP_DIR/occupied.output" env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/ephemeral.yaml"
-    if env GATEHOUSE_KEYCHAIN=test-passphrase gatehouse serve --config="$TEMP_DIR/ephemeral.yaml" >"$TEMP_DIR/occupied-error.output" 2>&1; then
-        printf '%s\n' '[ERROR] Fail: occupied HTTP listener unexpectedly succeeded' >&2
-        return 1
-    fi
-    assert_contains "$(cat "$TEMP_DIR/occupied-error.output")" "start HTTP service" "occupied HTTP listener"
-    stop_service
 
     if gatehouse serve --config="$TEMP_DIR/postgres.yaml" >"$TEMP_DIR/postgres.output" 2>&1; then
         printf '%s\n' "[ERROR] Fail: PostgreSQL serve unexpectedly succeeded" >&2

@@ -16,9 +16,9 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 			{
 				Alias: "zebra",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{
-					{Id: "guests"},
+					{Alias: "guests"},
 					{
-						Id:      "admins",
+						Alias:   "admins",
 						Name:    stringPointer("Administrators"),
 						Enabled: &disabled,
 						Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
@@ -46,7 +46,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 	want := []Group{
 		{
 			WorkspaceID: "zebra",
-			ID:          "admins",
+			Alias:       "admins",
 			Name:        stringPointer("Administrators"),
 			Enabled:     false,
 			Members: []GroupMember{
@@ -64,7 +64,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 		},
 	{
 		WorkspaceID:      "zebra",
-		ID:               "guests",
+		Alias:            "guests",
 		Enabled:          true,
 		Members:          []GroupMember{},
 		ToolGrants:       []GroupToolGrant{},
@@ -83,22 +83,22 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		contains   string
 	}{
 		{
-			name: "invalid group ID",
+			name: "invalid group alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id: "Admins",
+					Alias: "Admins",
 				}},
 			}},
 			contains: "must match",
 		},
 		{
-			name: "duplicate group ID",
+			name: "duplicate group alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{
-					{Id: "admins"},
-					{Id: "admins"},
+					{Alias: "admins"},
+					{Alias: "admins"},
 				},
 			}},
 			contains: "duplicated",
@@ -108,7 +108,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id:   "admins",
+					Alias: "admins",
 					Name: stringPointer(" "),
 				}},
 			}},
@@ -119,7 +119,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id: "admins",
+					Alias: "admins",
 					Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{{
 						Principal: "Alice",
 					}},
@@ -132,7 +132,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id: "admins",
+					Alias: "admins",
 					Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
 						{Principal: "alice"},
 						{Principal: "alice"},
@@ -146,7 +146,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id: "admins",
+					Alias: "admins",
 					ToolGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesToolGrantsValues{
 						{Tool: "github"},
 						{Tool: "github"},
@@ -160,7 +160,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Id: "admins",
+					Alias: "admins",
 					ResourceGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesResourceGrantsValues{{
 						Resource: "GitHub",
 					}},

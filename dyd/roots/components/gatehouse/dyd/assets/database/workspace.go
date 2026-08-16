@@ -89,7 +89,7 @@ func (store *Store) WorkspaceRefGetByAlias(ctx context.Context, alias string) (e
 func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Group) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT groups.workspace_id, groups.id, groups.name, groups.enabled
+		SELECT groups.workspace_id, groups.id, groups.alias, groups.name, groups.enabled
 		FROM gatehouse_groups AS groups
 		JOIN gatehouse_group_members AS members
 			ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
@@ -114,12 +114,15 @@ func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.Work
 	groups := []model.Group{}
 	for rows.Next() {
 		var group model.Group
-		var name sql.NullString
-		if err := rows.Scan(&group.Ref.Workspace.Id, &group.Ref.Id, &name, &group.Enabled); err != nil {
+		var alias, name sql.NullString
+		if err := rows.Scan(&group.Ref.Workspace.Id, &group.Ref.Id, &alias, &name, &group.Enabled); err != nil {
 			return fmt.Errorf("scan workspace group: %w", err), nil
 		}
 		if name.Valid {
 			group.Name = &name.String
+		}
+		if alias.Valid {
+			group.Alias = &alias.String
 		}
 		groups = append(groups, group)
 	}

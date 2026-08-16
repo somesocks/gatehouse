@@ -10,7 +10,7 @@ import (
 
 type Group struct {
 	WorkspaceID      string
-	ID               string
+	Alias            string
 	Name             *string
 	Enabled          bool
 	Members          []GroupMember
@@ -38,7 +38,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 		if document.Principals == nil {
 			return nil, []Group{{
 				WorkspaceID: defaultWorkspaceAlias,
-				ID:          "root",
+				Alias:       "root",
 				Enabled:     true,
 				Members:     []GroupMember{{PrincipalID: defaultPrincipalAlias, Enabled: true}},
 			}}
@@ -51,16 +51,16 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 		if workspace.Groups == nil {
 			continue
 		}
-		groupIDs := make(map[string]struct{}, len(*workspace.Groups))
+		groupAliases := make(map[string]struct{}, len(*workspace.Groups))
 		for groupIndex, configured := range *workspace.Groups {
 			if !workspaceAlias.MatchString(workspace.Alias) || workspace.Alias == gatehouseWorkspaceAlias {
 				return fmt.Errorf("workspaces[%d].alias is not a configurable workspace", workspaceIndex), nil
 			}
-			if !workspaceID.MatchString(configured.Id) {
-				return fmt.Errorf("workspaces[%d].groups[%d].id must match %q", workspaceIndex, groupIndex, workspaceID.String()), nil
+			if !workspaceID.MatchString(configured.Alias) {
+				return fmt.Errorf("workspaces[%d].groups[%d].alias must match %q", workspaceIndex, groupIndex, workspaceID.String()), nil
 			}
-			if _, exists := groupIDs[configured.Id]; exists {
-				return fmt.Errorf("workspaces[%d].groups[%d].id %q is duplicated", workspaceIndex, groupIndex, configured.Id), nil
+			if _, exists := groupAliases[configured.Alias]; exists {
+				return fmt.Errorf("workspaces[%d].groups[%d].alias %q is duplicated", workspaceIndex, groupIndex, configured.Alias), nil
 			}
 			if configured.Name != nil && strings.TrimSpace(*configured.Name) == "" {
 				return fmt.Errorf("workspaces[%d].groups[%d].name must not be blank", workspaceIndex, groupIndex), nil
@@ -138,10 +138,10 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 				return resourceGrants[left].ResourceID < resourceGrants[right].ResourceID
 			})
 
-			groupIDs[configured.Id] = struct{}{}
+			groupAliases[configured.Alias] = struct{}{}
 			groups = append(groups, Group{
 				WorkspaceID:    workspace.Alias,
-				ID:             configured.Id,
+				Alias:          configured.Alias,
 				Name:           configured.Name,
 				Enabled:        enabled,
 				Members:        members,
@@ -152,7 +152,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 	}
 	sort.Slice(groups, func(left, right int) bool {
 		if groups[left].WorkspaceID == groups[right].WorkspaceID {
-			return groups[left].ID < groups[right].ID
+			return groups[left].Alias < groups[right].Alias
 		}
 		return groups[left].WorkspaceID < groups[right].WorkspaceID
 	})

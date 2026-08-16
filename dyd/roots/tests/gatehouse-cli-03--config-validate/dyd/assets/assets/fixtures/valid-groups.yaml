@@ -5,7 +5,7 @@ principals:
 workspaces:
   - alias: engineering
     groups:
-      - id: deployers
+      - alias: deployers
         name: Deployers
         members:
           - principal: alice

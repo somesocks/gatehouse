@@ -72,6 +72,7 @@ type principalMigrationValue struct {
 type groupMigrationValue struct {
 	WorkspaceID    string
 	ID             string
+	Alias          string
 	Name           any
 	Enabled        bool
 	Members        []groupMemberMigrationValue
@@ -147,7 +148,7 @@ func migrationValuesFor(state config.State) migrationValues {
 			resourceGrants = append(resourceGrants, groupResourceGrantMigrationValue{ResourceID: grant.ResourceID, Enabled: grant.Enabled})
 		}
 		values.Groups = append(values.Groups, groupMigrationValue{
-			WorkspaceID: group.WorkspaceID, ID: group.ID, Name: name, Enabled: group.Enabled,
+			WorkspaceID: group.WorkspaceID, Alias: group.Alias, Name: name, Enabled: group.Enabled,
 			Members: members, ToolGrants: toolGrants, ResourceGrants: resourceGrants,
 		})
 	}
@@ -205,6 +206,83 @@ func principalIDsByAlias(ctx context.Context, session *MigrationSession) (map[st
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate principal IDs: %w", err)
+	}
+	return ids, nil
+}
+
+func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
+	return func(ctx context.Context, session *MigrationSession) (error, string) {
+		existing, err := groupIDsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		values := make([]groupMigrationValue, 0, len(groups))
+		for _, group := range groups {
+			id := existing[groupAliasKey{Workspace: group.WorkspaceID, Alias: group.Alias}]
+			if id == "" {
+				id, err = typed_id.New(typed_id.Group)
+				if err != nil {
+					return err, ""
+				}
+			}
+			var name any
+			if group.Name != nil {
+				name = *group.Name
+			}
+			members := make([]groupMemberMigrationValue, 0, len(group.Members))
+			for _, member := range group.Members {
+				members = append(members, groupMemberMigrationValue{PrincipalID: member.PrincipalID, Enabled: member.Enabled})
+			}
+			values = append(values, groupMigrationValue{WorkspaceID: group.WorkspaceID, ID: id, Alias: group.Alias, Name: name, Enabled: group.Enabled, Members: members})
+		}
+		return session.RenderTemplate(`
+			SELECT 1;
+			{{ range . }}
+			{{ $group := . }}
+			INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, alias) DO UPDATE SET
+				name = excluded.name,
+				enabled = excluded.enabled;
+			{{ range .Members }}
+			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
+				enabled = excluded.enabled;
+			{{ end }}
+			{{ end }}
+		`, values)
+	}
+}
+
+type groupAliasKey struct {
+	Workspace string
+	Alias     string
+}
+
+func groupIDsByAlias(ctx context.Context, session *MigrationSession) (map[groupAliasKey]string, error) {
+	rows, err := session.QueryContext(ctx, `
+		SELECT workspaces.alias, groups.alias, groups.id
+		FROM gatehouse_groups AS groups
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id
+		WHERE workspaces.alias IS NOT NULL AND groups.alias IS NOT NULL
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("get group IDs by alias: %w", err)
+	}
+	defer rows.Close()
+
+	ids := map[groupAliasKey]string{}
+	for rows.Next() {
+		var key groupAliasKey
+		var id string
+		if err := rows.Scan(&key.Workspace, &key.Alias, &id); err != nil {
+			return nil, fmt.Errorf("scan group ID: %w", err)
+		}
+		ids[key] = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate group IDs: %w", err)
 	}
 	return ids, nil
 }

@@ -506,7 +506,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 
 	state.Groups = []config.Group{{
 		WorkspaceID: "engineering",
-		ID:          "admins",
+		Alias:       "admins",
 		Name:        stringPointer("Administrators"),
 		Enabled:     true,
 		Members: []config.GroupMember{
@@ -517,6 +517,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
+	adminsID := groupID(t, context.Background(), database, "engineering", "admins")
 
 	var (
 		name       string
@@ -528,9 +529,9 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		FROM gatehouse_groups AS g
 		LEFT JOIN gatehouse_group_members AS m
 			ON m.workspace_id = g.workspace_id AND m.group_id = g.id
-		WHERE g.workspace_id = ? AND g.id = 'admins'
+		WHERE g.workspace_id = ? AND g.id = ?
 		GROUP BY g.workspace_id, g.id
-	`, workspace.Id).Scan(&name, &enabled, &memberRows); err != nil {
+	`, workspace.Id, adminsID).Scan(&name, &enabled, &memberRows); err != nil {
 		t.Fatal(err)
 	}
 	if name != "Administrators" || !enabled || memberRows != 2 {
@@ -541,8 +542,8 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	if err := database.QueryRow(`
 		SELECT enabled
 		FROM gatehouse_group_members
-		WHERE workspace_id = ? AND group_id = 'admins' AND principal_id = ?
-	`, workspace.Id, bobID).Scan(&bobEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND principal_id = ?
+	`, workspace.Id, adminsID, bobID).Scan(&bobEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if bobEnabled {
@@ -550,8 +551,8 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-		VALUES (?, 'admins', ?, TRUE)
-	`, workspace.Id, newTypedID(t, typed_id.Principal)); err == nil {
+		VALUES (?, ?, ?, TRUE)
+	`, workspace.Id, adminsID, newTypedID(t, typed_id.Principal)); err == nil {
 		t.Fatal("membership without a principal was accepted")
 	}
 }
@@ -578,7 +579,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		},
 		Groups: []config.Group{{
 			WorkspaceID: "engineering",
-			ID:          "developers",
+			Alias:       "developers",
 			Enabled:     true,
 			ToolGrants: []config.GroupToolGrant{{
 				ToolID: "github", Enabled: true,
@@ -593,6 +594,7 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, context.Background(), database, "engineering")
+	developersID := groupID(t, context.Background(), database, "engineering", "developers")
 
 	var (
 		toolRef         string
@@ -623,8 +625,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = ? AND group_id = 'developers' AND tool_id = 'github'
-	`, workspace.Id).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND tool_id = 'github'
+	`, workspace.Id, developersID).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if !grantEnabled {
@@ -632,8 +634,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = ? AND group_id = 'developers' AND resource_id = 'github-token'
-	`, workspace.Id).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND resource_id = 'github-token'
+	`, workspace.Id, developersID).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if resourceGrantOn {
@@ -642,14 +644,14 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-		VALUES (?, 'developers', 'unknown', TRUE)
-	`, workspace.Id); err == nil {
+		VALUES (?, ?, 'unknown', TRUE)
+	`, workspace.Id, developersID); err == nil {
 		t.Fatal("tool grant without a tool was accepted")
 	}
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-		VALUES (?, 'developers', 'unknown', TRUE)
-	`, workspace.Id); err == nil {
+		VALUES (?, ?, 'unknown', TRUE)
+	`, workspace.Id, developersID); err == nil {
 		t.Fatal("resource grant without a resource was accepted")
 	}
 
@@ -681,8 +683,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_tool_grants
-		WHERE workspace_id = ? AND group_id = 'developers' AND tool_id = 'github'
-	`, workspace.Id).Scan(&grantEnabled); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND tool_id = 'github'
+	`, workspace.Id, developersID).Scan(&grantEnabled); err != nil {
 		t.Fatal(err)
 	}
 	if grantEnabled {
@@ -690,8 +692,8 @@ func TestMigrateSQLiteReconcilesToolsResourcesAndGroupGrants(t *testing.T) {
 	}
 	if err := database.QueryRow(`
 		SELECT enabled FROM gatehouse_group_resource_grants
-		WHERE workspace_id = ? AND group_id = 'developers' AND resource_id = 'github-token'
-	`, workspace.Id).Scan(&resourceGrantOn); err != nil {
+		WHERE workspace_id = ? AND group_id = ? AND resource_id = 'github-token'
+	`, workspace.Id, developersID).Scan(&resourceGrantOn); err != nil {
 		t.Fatal(err)
 	}
 	if !resourceGrantOn {
@@ -862,6 +864,20 @@ func principalRef(t *testing.T, ctx context.Context, store *database.Store, alia
 		t.Fatal(err)
 	}
 	return model.PrincipalRef{Id: id}
+}
+
+func groupID(t *testing.T, ctx context.Context, store *database.Store, workspaceAlias, alias string) string {
+	t.Helper()
+	var id string
+	if err := store.QueryRowContext(ctx, `
+		SELECT groups.id
+		FROM gatehouse_groups AS groups
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id
+		WHERE workspaces.alias = ? AND groups.alias = ?
+	`, workspaceAlias, alias).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	return id
 }
 
 func newTypedID(t *testing.T, kind string) string {

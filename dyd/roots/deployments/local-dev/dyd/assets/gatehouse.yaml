@@ -36,7 +36,7 @@ workspaces:
         priority: 1
         max_turns: 127
     groups:
-      - id: members
+      - alias: members
         name: Members
         members:
           - principal: root

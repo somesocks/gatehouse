@@ -68,9 +68,9 @@ func validateHTTPListen(value string) error {
 	if err != nil || host == "" {
 		return fmt.Errorf("must be a host:port address")
 	}
-	port, err := strconv.ParseUint(portText, 10, 16)
-	if err != nil || port == 0 {
-		return fmt.Errorf("must have a port from 1 through 65535")
+	_, err = strconv.ParseUint(portText, 10, 16)
+	if err != nil {
+		return fmt.Errorf("must have a port from 0 through 65535")
 	}
 	return nil
 }

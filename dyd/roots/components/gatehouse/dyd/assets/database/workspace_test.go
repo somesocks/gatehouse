@@ -35,7 +35,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 		Groups: []config.Group{
 			{
 				WorkspaceID: "engineering",
-				ID:          "developers",
+				Alias:       "developers",
 				Enabled:     true,
 				Members: []config.GroupMember{
 					{PrincipalID: "alice", Enabled: true},
@@ -49,7 +49,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 			},
 			{
 				WorkspaceID: "engineering",
-				ID:          "reviewers",
+				Alias:       "reviewers",
 				Enabled:     true,
 				Members:     []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 				ToolGrants:  []config.GroupToolGrant{{ToolID: "git", Enabled: true}},
@@ -59,7 +59,7 @@ func TestWorkspaceToolsAndResourcesGet(t *testing.T) {
 			},
 			{
 				WorkspaceID: "engineering",
-				ID:          "disabled",
+				Alias:       "disabled",
 				Enabled:     false,
 				Members:     []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 				ResourceGrants: []config.GroupResourceGrant{

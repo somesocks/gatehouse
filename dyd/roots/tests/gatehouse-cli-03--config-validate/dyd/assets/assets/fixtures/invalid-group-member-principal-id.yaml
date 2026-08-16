@@ -2,6 +2,6 @@ api_version: v1
 workspaces:
   - alias: engineering
     groups:
-      - id: deployers
+      - alias: deployers
         members:
           - principal_id: alice

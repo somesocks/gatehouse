@@ -1,3 +1,6 @@
 api_version: v1
 database:
   kind: ephemeral
+services:
+  http:
+    listen: 127.0.0.1:0

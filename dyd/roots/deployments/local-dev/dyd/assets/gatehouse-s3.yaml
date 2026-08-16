@@ -51,7 +51,7 @@ workspaces:
       - provider: local-s3
         priority: 1
     groups:
-      - id: members
+      - alias: members
         name: Members
         members:
           - principal: root
