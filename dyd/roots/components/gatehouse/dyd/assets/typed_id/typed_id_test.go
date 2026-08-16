@@ -11,17 +11,6 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestDerive(t *testing.T) {
-	first, err := Derive(SessionEvent, "stable input")
-	if err != nil || !Valid(SessionEvent, first) {
-		t.Fatalf("Derive() = (%q, %v)", first, err)
-	}
-	second, err := Derive(SessionEvent, "stable input")
-	if err != nil || first != second {
-		t.Fatalf("Derive() = (%q, %v), want %q", second, err, first)
-	}
-}
-
 func TestValid(t *testing.T) {
 	for _, test := range []struct {
 		kind, value string

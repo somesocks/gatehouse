@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dbos-inc/dbos-transact-golang/dbos"
+
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -130,6 +132,71 @@ func (store *Store) SessionEventsCreate(ctx context.Context, event model.Session
 		return err, model.SessionEvent{}
 	}
 	return nil, events[0]
+}
+
+// SessionEventCreateInTransaction persists an agent event with the DBOS checkpoint transaction.
+func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transaction dbos.Tx, event model.SessionEvent) (error, model.SessionEvent) {
+	if transaction == nil {
+		return fmt.Errorf("create session event: transaction is required"), model.SessionEvent{}
+	}
+	if strings.TrimSpace(event.Ref.Id) == "" || strings.TrimSpace(event.Kind) == "" {
+		return fmt.Errorf("create session event: ID and kind must not be blank"), model.SessionEvent{}
+	}
+	principal, agent, gateway, err := sessionEventAuthorValues(event)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	parent, err := sessionEventParentValue(event)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	if event.Parent != nil {
+		var parentExists bool
+		if err := transaction.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM gatehouse_session_events
+				WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+`
+			)
+		`, event.Parent.Session.Workspace.Id, event.Parent.Session.Id, event.Parent.Id).Scan(&parentExists); err != nil {
+			return fmt.Errorf("check session event parent: %w", err), model.SessionEvent{}
+		}
+		if !parentExists {
+			return fmt.Errorf("create session event: parent must already exist"), model.SessionEvent{}
+		}
+	}
+	if event.CreatedAt == "" {
+		event.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	}
+	payload, err := json.Marshal(event.Payload)
+	if err != nil {
+		return fmt.Errorf("encode session event payload: %w", err), model.SessionEvent{}
+	}
+	row := transaction.QueryRow(ctx, `
+		INSERT INTO gatehouse_session_events (
+			workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at
+		) VALUES (
+			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`,
+			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`
+		)
+		RETURNING created_at
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, parent, event.Kind, principal, agent, gateway, string(payload), event.CreatedAt)
+	if err := row.Scan(&event.CreatedAt); err != nil {
+		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
+	}
+	session := event.Ref.Session
+	err, _ = store.ActivityEventAppendInTransaction(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Event:        "session_event.create",
+		ResourceKind: ActivityResourceKindSessionEvent,
+		Session:      &session,
+		SessionEvent: &event.Ref,
+		CreatedAt:    event.CreatedAt,
+	}, []string{ActivityTopicSession(session)})
+	if err != nil {
+		return fmt.Errorf("append session event activity: %w", err), model.SessionEvent{}
+	}
+	return nil, event
 }
 
 func (store *Store) SessionMessagesCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {

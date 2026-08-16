@@ -3,7 +3,6 @@ package typed_id
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/base32"
 	"fmt"
 	"strings"
@@ -39,15 +38,6 @@ func New(kind string) (string, error) {
 		return "", fmt.Errorf("generate typed ID: %w", err)
 	}
 	return kind + "_" + strings.ToLower(encoding.EncodeToString(bytes)), nil
-}
-
-// Derive returns a deterministic typed ID from stable input bytes.
-func Derive(kind, input string) (string, error) {
-	if !validKind(kind) {
-		return "", fmt.Errorf("invalid typed ID kind %q", kind)
-	}
-	sum := sha256.Sum256([]byte(input))
-	return kind + "_" + strings.ToLower(encoding.EncodeToString(sum[:16])), nil
 }
 
 func Valid(kind, value string) bool {

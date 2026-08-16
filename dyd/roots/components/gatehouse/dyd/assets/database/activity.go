@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dbos-inc/dbos-transact-golang/dbos"
+
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -75,6 +77,58 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
 		`, activity.Ref.Workspace.Id, activity.Ref.Id, topic, activity.CreatedAt)
 		if err != nil {
+			return fmt.Errorf("insert activity event topic: %w", err), model.ActivityEvent{}
+		}
+	}
+	return nil, activity
+}
+
+// ActivityEventAppendInTransaction records an activity event in a DBOS transaction.
+func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transaction dbos.Tx, activity model.ActivityEvent, topics []string) (error, model.ActivityEvent) {
+	if transaction == nil {
+		return fmt.Errorf("append activity event: transaction is required"), model.ActivityEvent{}
+	}
+	if err := validateActivityEvent(&activity, topics); err != nil {
+		return err, model.ActivityEvent{}
+	}
+	if activity.Ref.Id != "" && !typed_id.Valid(typed_id.ActivityEvent, activity.Ref.Id) {
+		return fmt.Errorf("append activity event: ID is invalid"), model.ActivityEvent{}
+	}
+	if activity.Ref.Id == "" {
+		id, err := activityEventID()
+		if err != nil {
+			return fmt.Errorf("generate activity event ID: %w", err), model.ActivityEvent{}
+		}
+		activity.Ref.Id = id
+	}
+	if activity.CreatedAt == "" {
+		activity.CreatedAt = time.Now().UTC().Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
+	}
+
+	placeholder := keychainPlaceholder(store.kind)
+	var session, sessionEvent any
+	if activity.Session != nil {
+		session = activity.Session.Id
+	}
+	if activity.SessionEvent != nil {
+		sessionEvent = activity.SessionEvent.Id
+	}
+	row := transaction.QueryRow(ctx, `
+		INSERT INTO gatehouse_activity_events (
+			workspace, id, event, resource_kind, session, session_event, created_at
+		) VALUES (
+			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`
+		)
+		RETURNING created_at
+	`, activity.Ref.Workspace.Id, activity.Ref.Id, activity.Event, activity.ResourceKind, session, sessionEvent, activity.CreatedAt)
+	if err := row.Scan(&activity.CreatedAt); err != nil {
+		return fmt.Errorf("insert activity event: %w", err), model.ActivityEvent{}
+	}
+	for _, topic := range topics {
+		if _, err := transaction.Exec(ctx, `
+			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
+			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
+		`, activity.Ref.Workspace.Id, activity.Ref.Id, topic, activity.CreatedAt); err != nil {
 			return fmt.Errorf("insert activity event topic: %w", err), model.ActivityEvent{}
 		}
 	}

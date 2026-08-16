@@ -58,7 +58,6 @@ type sessionToolCallExecution struct {
 }
 
 type sessionReplyPreparation struct {
-	Existing *model.SessionEvent
 	Selected *database.WorkspaceAgentModel
 	Message  *model.SessionEvent
 	Messages []openAICompatibleMessage
@@ -74,19 +73,15 @@ type sessionReplyCancelled struct{}
 
 func (sessionReplyCancelled) Error() string { return "reply cancelled" }
 
-type sessionToolCallStoredOutput struct {
-	Found  bool
-	Output string
-}
-
 type SessionEventReplyRuntime struct {
 	store *database.Store
 	keyring *keychain.Keyring
 	storage *storage.Client
-	dbos  dbos.Context
-	queue dbos.Queue
-	toolQueue dbos.Queue
-	nameQueue dbos.Queue
+	dbos       dbos.Context
+	dataSource *dbos.DataSource
+	queue      dbos.Queue
+	toolQueue  dbos.Queue
+	nameQueue  dbos.Queue
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
@@ -105,7 +100,11 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session name queue: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, queue: queue, toolQueue: toolQueue, nameQueue: nameQueue}
+	dataSource, err := dbos.NewDataSource(ctx, store.DB, dbos.WithDataSourceName("gatehouse"))
+	if err != nil {
+		return fmt.Errorf("register Gatehouse database data source: %w", err), nil
+	}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue, nameQueue: nameQueue}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
@@ -131,16 +130,6 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 		return err
 	}
 	for _, task := range tasks {
-		err, cancelled := runtime.replyCancellationComplete(runtime.dbos, task.Event)
-		if err != nil {
-			return err
-		}
-		if cancelled {
-			if err := runtime.store.SessionEventReplyTaskDelete(runtime.dbos, task.Event); err != nil {
-				return err
-			}
-			continue
-		}
 		_, err = dbos.RunWorkflow(runtime.dbos, runtime.reply, SessionEventReplyInput{Event: task.Event},
 			dbos.WithRunInstance(runtime),
 			dbos.WithWorkflowID(sessionEventReplyWorkflowID(task.Event)),
@@ -284,12 +273,7 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 }
 
 func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEvent, error) {
-	replyRef := model.SessionEventRef{Session: input.Event.Session, Id: sessionEventReplyID(input.Event)}
 	preparation, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionReplyPreparation, error) {
-		err, existing := runtime.store.SessionEventGet(step, replyRef)
-		if err != nil || existing != nil {
-			return sessionReplyPreparation{Existing: existing}, err
-		}
 		err, message := runtime.store.SessionEventGet(step, input.Event)
 		if err != nil {
 			return sessionReplyPreparation{}, err
@@ -314,9 +298,6 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}, dbos.WithStepName("gatehouse.session-event-reply-prepare"))
 	if err != nil {
 		return model.SessionEvent{}, err
-	}
-	if preparation.Existing != nil {
-		return *preparation.Existing, nil
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
@@ -374,16 +355,13 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		return model.SessionEvent{}, err
 	}
 	event := model.SessionEvent{
-		Ref:         replyRef,
+		Ref:         model.SessionEventRef{Session: input.Event.Session},
 		Parent:      &input.Event,
 		Kind:        "message.text",
 		AuthorAgent: &selected.Ref,
 		Payload:     map[string]interface{}{"text": text},
 	}
-	stored, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		err, stored := runtime.sessionEventGetOrCreate(step, event)
-		return stored, err
-	}, dbos.WithStepName("gatehouse.session-event-reply-persist"))
+	err, stored := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
 		return model.SessionEvent{}, err
 	}
@@ -493,39 +471,16 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	storedCall, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
 	callEvent := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, "tool.request", input.Position)}, Parent: &input.Parent, Kind: "tool.request", AuthorAgent: &input.Agent,
-			Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "code": input.Code, "reason": input.Reason, "batch": input.Round, "position": input.Position},
-		}
-		err, event := runtime.sessionEventGetOrCreate(step, callEvent)
-		if err != nil {
-			return model.SessionEvent{}, err
-		}
-		return event, nil
-	}, dbos.WithStepName("gatehouse.session-tool-call-persist"))
+		Ref:     model.SessionEventRef{Session: input.Parent.Session},
+		Parent:  &input.Parent,
+		Kind:    "tool.request",
+		AuthorAgent: &input.Agent,
+		Payload:     map[string]interface{}{"name": "lisp", "call_id": input.CallID, "code": input.Code, "reason": input.Reason, "batch": input.Round, "position": input.Position},
+	}
+	err, storedCall := runtime.persistAgentEvent(ctx, callEvent)
 	if err != nil {
 		return "", err
-	}
-	storedOutput, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallStoredOutput, error) {
-		for _, kind := range []string{"tool.success", "tool.failure"} {
-			resultRef := model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, kind, input.Position)}
-			err, existing := runtime.store.SessionEventGet(step, resultRef)
-			if err != nil {
-				return sessionToolCallStoredOutput{}, err
-			}
-			if existing != nil {
-				output, _ := existing.Payload["output"].(string)
-				return sessionToolCallStoredOutput{Found: true, Output: output}, nil
-			}
-		}
-		return sessionToolCallStoredOutput{}, nil
-	}, dbos.WithStepName("gatehouse.session-tool-call-load-output"))
-	if err != nil {
-		return "", err
-	}
-	if storedOutput.Found {
-		return storedOutput.Output, nil
 	}
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
 		err, tools, resources, files, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
@@ -556,14 +511,11 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	if err != nil {
 		return "", err
 	}
-	_, err = dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		resultEvent := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: input.Parent.Session, Id: sessionEventReplyChildID(input.Parent, execution.Kind, input.Position)}, Parent: &storedCall.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
-			Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
-		}
-		err, event := runtime.sessionEventGetOrCreate(step, resultEvent)
-		return event, err
-	}, dbos.WithStepName("gatehouse.session-tool-call-persist-output"))
+	resultEvent := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: input.Parent.Session}, Parent: &storedCall.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
+		Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
+	}
+	err, _ = runtime.persistAgentEvent(ctx, resultEvent)
 	if err != nil {
 		return "", err
 	}
@@ -750,15 +702,17 @@ func openAICompatibleReasoningEffort(parameters string) (error, string) {
 	return fmt.Errorf("OpenAI-compatible reasoning_effort %q is invalid", configured.ReasoningEffort), ""
 }
 
-func (runtime *SessionEventReplyRuntime) sessionEventGetOrCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, existing := runtime.store.SessionEventGet(ctx, event.Ref)
-	if err != nil {
-		return err, model.SessionEvent{}
-	}
-	if existing != nil {
-		return nil, *existing
-	}
-	return runtime.store.SessionEventsCreate(ctx, event)
+func (runtime *SessionEventReplyRuntime) persistAgentEvent(ctx dbos.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	stored, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEvent, error) {
+		id, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			return model.SessionEvent{}, fmt.Errorf("generate session event ID: %w", err)
+		}
+		event.Ref.Id = id
+		err, stored := runtime.store.SessionEventCreateInTransaction(step, transaction, event)
+		return stored, err
+	}, dbos.WithStepName("gatehouse.session-event-agent-persist"))
+	return err, stored
 }
 
 func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.Context, parent model.SessionEventRef) (error, *model.SessionEvent) {
@@ -766,10 +720,7 @@ func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.
 }
 
 func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context, parent model.SessionEventRef) error {
-	cancelled, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-		err, cancelled := runtime.replyCancellationComplete(step, parent)
-		return cancelled, err
-	}, dbos.WithStepName("gatehouse.session-event-reply-cancellation-check"))
+	err, cancelled := runtime.replyCancellationComplete(ctx, parent)
 	if err != nil {
 		return err
 	}
@@ -779,8 +730,11 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 	return sessionReplyCancelled{}
 }
 
-func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx context.Context, parent model.SessionEventRef) (error, bool) {
-	err, request := runtime.replyCancellationRequested(ctx, parent)
+func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx dbos.Context, parent model.SessionEventRef) (error, bool) {
+	request, err := dbos.RunAsStep(ctx, func(step context.Context) (*model.SessionEvent, error) {
+		err, request := runtime.replyCancellationRequested(step, parent)
+		return request, err
+	}, dbos.WithStepName("gatehouse.session-event-reply-cancellation-check"))
 	if err != nil {
 		return err, false
 	}
@@ -788,34 +742,27 @@ func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx context.C
 		return nil, false
 	}
 	event := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, "cancel.success", 0)}, Parent: &request.Ref, Kind: "cancel.success", AuthorPrincipal: request.AuthorPrincipal,
+		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &request.Ref, Kind: "cancel.success", AuthorPrincipal: request.AuthorPrincipal,
 		Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(request.CreatedAt),
 	}
-	err, _ = runtime.sessionEventGetOrCreate(ctx, event)
+	err, _ = runtime.persistAgentEvent(ctx, event)
 	return err, err == nil
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {
-	started, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		event := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: parent.Session, Id: sessionEventReplyChildID(parent, "thinking.started", turn)}, Parent: &parent, Kind: "thinking.started", AuthorAgent: &agent,
-			Payload: map[string]interface{}{"turn": turn},
-		}
-		err, stored := runtime.sessionEventGetOrCreate(step, event)
-		return stored, err
-	}, dbos.WithStepName("gatehouse.session-event-thinking-start"))
-	return err, started
+	event := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent, Kind: "thinking.started", AuthorAgent: &agent,
+		Payload: map[string]interface{}{"turn": turn},
+	}
+	return runtime.persistAgentEvent(ctx, event)
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error) error {
-	_, err := dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEvent, error) {
-		event := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: started.Ref.Session, Id: sessionEventReplyChildID(started.Ref, kind, 0)}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
-			Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
-		}
-		err, stored := runtime.sessionEventGetOrCreate(step, event)
-		return stored, err
-	}, dbos.WithStepName("gatehouse.session-event-thinking-finish"))
+	event := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
+		Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
+	}
+	err, _ := runtime.persistAgentEvent(ctx, event)
 	if completionErr != nil && err != nil {
 		return errors.Join(completionErr, err)
 	}
@@ -1159,25 +1106,9 @@ func sessionNameWorkflowID(session model.SessionRef) string {
 }
 
 func sessionToolCallWorkflowID(event model.SessionEventRef, position int) string {
-	return "session-tool-call:" + sessionEventReplyChildID(event, "workflow", position)
+	return "session-tool-call:" + event.Session.Workspace.Id + "/" + event.Session.Id + "/" + event.Id + "/" + fmt.Sprintf("%d", position)
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {
 	return session.Workspace.Id + "/" + session.Id
-}
-
-func sessionEventReplyID(event model.SessionEventRef) string {
-	return sessionEventID(event, "reply")
-}
-
-func sessionEventReplyChildID(event model.SessionEventRef, kind string, index int) string {
-	return sessionEventID(event, kind+"\x00"+fmt.Sprintf("%d", index))
-}
-
-func sessionEventID(event model.SessionEventRef, suffix string) string {
-	id, err := typed_id.Derive(typed_id.SessionEvent, event.Session.Workspace.Id+"\x00"+event.Session.Id+"\x00"+event.Id+"\x00"+suffix)
-	if err != nil {
-		panic(err)
-	}
-	return id
 }
