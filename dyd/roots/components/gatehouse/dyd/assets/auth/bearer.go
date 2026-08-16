@@ -13,6 +13,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/model"
 	"gatehouse/storage"
+	"gatehouse/typed_id"
 )
 
 var bearerAssociatedData = []byte("gatehouse bearer token v1")
@@ -152,7 +153,7 @@ func (tokens *BearerTokens) Authenticate(ctx context.Context, authorization stri
 }
 
 func (tokens *BearerTokens) MintStorageToken(ctx context.Context, token StorageToken) (error, string) {
-	if token.ID == "" || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+	if !typed_id.Valid(typed_id.StorageObject, token.ID) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
 		return fmt.Errorf("storage token is invalid"), ""
 	}
 	return tokens.seal(ctx, storageTokenAssociatedData, token)
@@ -185,7 +186,7 @@ func (tokens *BearerTokens) AuthenticateStorageToken(ctx context.Context, encode
 		return fmt.Errorf("open storage token: %w", decryptedErr), StorageToken{}
 	}
 	var token StorageToken
-	if err := json.Unmarshal(payload, &token); err != nil || token.ID == "" || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+	if err := json.Unmarshal(payload, &token); err != nil || !typed_id.Valid(typed_id.StorageObject, token.ID) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
 		return fmt.Errorf("decode storage token: invalid payload"), StorageToken{}
 	}
 	return nil, token

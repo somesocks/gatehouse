@@ -3,7 +3,7 @@ package typed_id
 import "testing"
 
 func TestNew(t *testing.T) {
-	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel, StorageProvider, Session, SessionEvent, ActivityEvent} {
+	for _, kind := range []string{Workspace, Principal, Identity, Group, Tool, Resource, AgentProvider, AgentModel, StorageProvider, StorageObject, SessionFile, Session, SessionEvent, ActivityEvent} {
 		id, err := New(kind)
 		if err != nil || !Valid(kind, id) {
 			t.Fatalf("New(%q) = (%q, %v)", kind, id, err)

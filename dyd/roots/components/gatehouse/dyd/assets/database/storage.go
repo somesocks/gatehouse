@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 const (
@@ -54,8 +55,8 @@ func (store *Store) SessionFileSnapshots(ctx context.Context, transaction *sql.T
 	snapshots := make([]SessionFileSummary, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
-		if strings.TrimSpace(id) == "" {
-			return fmt.Errorf("session file ID must not be blank"), nil
+		if !typed_id.Valid(typed_id.SessionFile, id) {
+			return fmt.Errorf("session file ID is invalid"), nil
 		}
 		if _, exists := seen[id]; exists {
 			return fmt.Errorf("session file ID %q is duplicated", id), nil
@@ -120,8 +121,8 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 }
 
 func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string) (error, model.SessionFile, string) {
-	if strings.TrimSpace(file.Ref.Id) == "" || strings.TrimSpace(file.Name) == "" || strings.TrimSpace(storageObjectID) == "" {
-		return fmt.Errorf("create session file: IDs and name must not be blank"), model.SessionFile{}, ""
+	if !typed_id.Valid(typed_id.SessionFile, file.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, storageObjectID) || strings.TrimSpace(file.Name) == "" {
+		return fmt.Errorf("create session file: IDs or name are invalid"), model.SessionFile{}, ""
 	}
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -186,6 +187,9 @@ func (store *Store) StorageObjectSuccessGet(ctx context.Context, id string) (err
 }
 
 func (store *Store) storageObjectGet(ctx context.Context, id, state string) (error, *StorageObjectProvider) {
+	if !typed_id.Valid(typed_id.StorageObject, id) {
+		return fmt.Errorf("get storage object: ID is invalid"), nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		SELECT objects.id, objects.provider, objects.object, objects.state, objects.sha256, objects.size,
@@ -222,8 +226,8 @@ func (store *Store) storageObjectGet(ctx context.Context, id, state string) (err
 }
 
 func (store *Store) StorageObjectStoreIntegrity(ctx context.Context, id string, digest []byte, size int64) error {
-	if len(digest) != sha256.Size || size < 0 {
-		return fmt.Errorf("store storage object integrity: invalid digest or size")
+	if !typed_id.Valid(typed_id.StorageObject, id) || len(digest) != sha256.Size || size < 0 {
+		return fmt.Errorf("store storage object integrity: invalid ID, digest, or size")
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	result, err := store.ExecContext(ctx, `
@@ -244,6 +248,9 @@ func (store *Store) StorageObjectStoreIntegrity(ctx context.Context, id string, 
 }
 
 func (store *Store) StorageObjectMarkSuccess(ctx context.Context, id string) error {
+	if !typed_id.Valid(typed_id.StorageObject, id) {
+		return fmt.Errorf("finish storage object: ID is invalid")
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	result, err := store.ExecContext(ctx, `
 		UPDATE gatehouse_storage_objects SET state = 'success'
@@ -263,6 +270,9 @@ func (store *Store) StorageObjectMarkSuccess(ctx context.Context, id string) err
 }
 
 func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRef, principal model.PrincipalRef) (error, *model.SessionFile, *StorageObject) {
+	if !typed_id.Valid(typed_id.SessionFile, file.Id) {
+		return fmt.Errorf("get session file: ID is invalid"), nil, nil
+	}
 	err, session := store.SessionGet(ctx, file.Session, principal)
 	if err != nil || session == nil {
 		return err, nil, nil
@@ -297,6 +307,9 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 }
 
 func (store *Store) StorageObjectPutEmbedded(ctx context.Context, id string, source io.Reader) error {
+	if !typed_id.Valid(typed_id.StorageObject, id) {
+		return fmt.Errorf("upload embedded storage object: ID is invalid")
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -367,6 +380,9 @@ func (store *Store) StorageObjectPutEmbedded(ctx context.Context, id string, sou
 }
 
 func (store *Store) StorageObjectFinishEmbedded(ctx context.Context, id string) error {
+	if !typed_id.Valid(typed_id.StorageObject, id) {
+		return fmt.Errorf("finish storage object: ID is invalid")
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -442,6 +458,9 @@ func (store *Store) StorageObjectFinishEmbedded(ctx context.Context, id string) 
 }
 
 func (store *Store) StorageObjectGetEmbedded(ctx context.Context, id string) (error, io.ReadCloser) {
+	if !typed_id.Valid(typed_id.StorageObject, id) {
+		return fmt.Errorf("get embedded storage object: ID is invalid"), nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		SELECT objects.object

@@ -19,6 +19,8 @@ const (
 	AgentProvider = "apr"
 	AgentModel    = "amd"
 	StorageProvider = "stp"
+	StorageObject   = "obj"
+	SessionFile     = "sfi"
 	Session         = "ses"
 	SessionEvent    = "sev"
 	ActivityEvent   = "act"

@@ -2,9 +2,7 @@ package httpservice
 
 import (
 	"context"
-	"crypto/rand"
 	"embed"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -579,12 +577,12 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			http.Error(response, "invalid session file", http.StatusBadRequest)
 			return
 		}
-		fileID, err := randomUUID()
+		fileID, err := typed_id.New(typed_id.SessionFile)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		storageObjectID, err := randomUUID()
+		storageObjectID, err := typed_id.New(typed_id.StorageObject)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -903,7 +901,7 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 func authorizedSessionFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.SessionFile, *database.StorageObject, bool) {
 	workspaceID := request.PathValue("workspace")
 	sessionID := request.PathValue("session")
-	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !validUUID(fileID) {
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionFile, fileID) {
 		http.NotFound(response, request)
 		return nil, nil, false
 	}
@@ -943,25 +941,6 @@ func writeJSONStatus(response http.ResponseWriter, status int, value any) {
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(status)
 	_ = json.NewEncoder(response).Encode(value)
-}
-
-func randomUUID() (string, error) {
-	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return "", err
-	}
-	value[6] = value[6]&0x0f | 0x40
-	value[8] = value[8]&0x3f | 0x80
-	encoded := hex.EncodeToString(value[:])
-	return encoded[:8] + "-" + encoded[8:12] + "-" + encoded[12:16] + "-" + encoded[16:20] + "-" + encoded[20:], nil
-}
-
-func validUUID(value string) bool {
-	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
-		return false
-	}
-	_, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
-	return err == nil
 }
 
 func logout(response http.ResponseWriter, request *http.Request) {

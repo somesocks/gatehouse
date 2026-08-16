@@ -374,7 +374,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Description: "create_storage_objects_and_session_files",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_objects (
-				id TEXT PRIMARY KEY,
+				id TEXT PRIMARY KEY CHECK (id ~ '^obj_[a-z2-7]{26}$'),
 				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
 				object TEXT NOT NULL CHECK (length(trim(object)) > 0),
 				state TEXT NOT NULL CHECK (state IN ('pending', 'success', 'failure')),
@@ -400,7 +400,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			CREATE TABLE gatehouse_session_files (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (id ~ '^sfi_[a-z2-7]{26}$'),
 				storage_object TEXT NOT NULL UNIQUE REFERENCES gatehouse_storage_objects (id),
 				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
 				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),

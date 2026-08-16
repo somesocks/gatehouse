@@ -394,7 +394,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			Description: "create_storage_objects_and_session_files",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_objects (
-				id TEXT PRIMARY KEY,
+				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'obj_'),
 				provider TEXT NOT NULL REFERENCES gatehouse_storage_providers (id),
 				object TEXT NOT NULL CHECK (length(trim(object)) > 0),
 				state TEXT NOT NULL CHECK (state IN ('pending', 'success', 'failure')),
@@ -420,7 +420,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			CREATE TABLE gatehouse_session_files (
 				workspace TEXT NOT NULL,
 				session TEXT NOT NULL,
-				id TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'sfi_'),
 				storage_object TEXT NOT NULL REFERENCES gatehouse_storage_objects (id),
 				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
 				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),

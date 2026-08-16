@@ -363,7 +363,7 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if err := json.Unmarshal(createdFile.Body.Bytes(), &uploaded); err != nil {
 		t.Fatal(err)
 	}
-	if uploaded.File.Ref.Id == "" || uploaded.File.Name != "report.txt" || uploaded.File.MediaType == nil || *uploaded.File.MediaType != "text/plain" || uploaded.UploadURL == "" {
+	if !typed_id.Valid(typed_id.SessionFile, uploaded.File.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, uploaded.File.StorageObject.Id) || uploaded.File.Name != "report.txt" || uploaded.File.MediaType == nil || *uploaded.File.MediaType != "text/plain" || uploaded.UploadURL == "" {
 		t.Fatalf("POST session file response = %#v", uploaded)
 	}
 	put := httptest.NewRecorder()

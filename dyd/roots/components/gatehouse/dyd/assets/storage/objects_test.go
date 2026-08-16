@@ -24,8 +24,9 @@ import (
 func TestClientStoresS3Objects(t *testing.T) {
 	var mutex sync.Mutex
 	var object []byte
+	var objectID string
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/gatehouse/object" {
+		if request.URL.Path != "/gatehouse/"+objectID {
 			http.NotFound(response, request)
 			return
 		}
@@ -104,8 +105,16 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'ses_aaaaaaaaaaaaaaaaaaaaaaaaaa', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
 		t.Fatal(err)
 	}
-	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, Id: "file"}, Name: "report.txt"}
-	err, _, objectID := store.SessionFileCreate(ctx, file, "object")
+	fileID, err := typed_id.New(typed_id.SessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectID, err = typed_id.New(typed_id.StorageObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "ses_aaaaaaaaaaaaaaaaaaaaaaaaaa"}, Id: fileID}, Name: "report.txt"}
+	err, _, objectID = store.SessionFileCreate(ctx, file, objectID)
 	if err != nil {
 		t.Fatal(err)
 	}

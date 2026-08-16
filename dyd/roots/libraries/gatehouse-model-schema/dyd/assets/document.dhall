@@ -422,7 +422,7 @@ let StorageObjectRef =
       s.record.from
         s.record.props::{
         , required = toMap
-            { id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "storage object identity" } }
+            { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed storage object identity" } }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "StorageObjectRef", description = Some "The stable identity of a stored object." }
@@ -444,11 +444,11 @@ let SessionFileRef =
         s.record.props::{
         , required = toMap
             { session = s.reference.from s.reference.props::{ to = "SessionRef" } s.reference.meta::{ description = Some "owning session identity" }
-            , id = s.text.from s.text.props::{ variant = s.text.variants.uuid } s.text.meta::{ description = Some "session-local file identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed session file identity" }
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.record.meta::{ name = Some "SessionFileRef", description = Some "The stable identity of a session-private file." }
+        s.record.meta::{ name = Some "SessionFileRef", description = Some "The stable identity of a file attached to a session." }
 
 let SessionFile =
       s.record.from
