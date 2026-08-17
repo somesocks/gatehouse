@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Send, X } from "@lucide/svelte"
+  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Search, Send, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
   import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
 
@@ -24,12 +24,14 @@
 
   type Session = {
     id: string
+    created_at: string
     name?: string
     project?: string
   }
 
   type Project = {
     id: string
+    created_at: string
     name?: string
     description?: string
   }
@@ -139,26 +141,24 @@
   let projectSearchLoading = $state(false)
   let sessionSearchGeneration = 0
   let projectSearchGeneration = 0
-  let sessionSearchTimer: ReturnType<typeof setTimeout> | undefined
-  let projectSearchTimer: ReturnType<typeof setTimeout> | undefined
 
   onMount(() => {
     currentPath = window.location.pathname
     const handlePopState = () => {
       currentPath = window.location.pathname
-      void checkSession()
+      if (status === "authenticated" && activeWorkspace !== null && workspaceIDFromPath(currentPath) === activeWorkspace.id) {
+        void selectWorkspace(activeWorkspace, true)
+      } else if (status === "authenticated") {
+        void loadWorkspaces()
+      } else {
+        void checkSession()
+      }
     }
     window.addEventListener("popstate", handlePopState)
     void checkSession()
     return () => {
       window.removeEventListener("popstate", handlePopState)
       stopActivityPolling()
-      if (sessionSearchTimer !== undefined) {
-        clearTimeout(sessionSearchTimer)
-      }
-      if (projectSearchTimer !== undefined) {
-        clearTimeout(projectSearchTimer)
-      }
     }
   })
 
@@ -235,6 +235,15 @@
     return `${workspacePath(workspace)}/grp`
   }
 
+  function collectionSearchName() {
+    return new URLSearchParams(window.location.search).get("name") ?? ""
+  }
+
+  function collectionSearchPath(path: string, name: string) {
+    const query = name.trim()
+    return query === "" ? path : `${path}?${new URLSearchParams({ name: query })}`
+  }
+
   function isCollectionPath(collection: "ses" | "prj" | "grp") {
     return new RegExp(`^/app/wsp/[^/]+/${collection}/?$`).test(currentPath)
   }
@@ -259,6 +268,22 @@
     await selectWorkspace(activeWorkspace, true)
   }
 
+  async function submitSessionSearch() {
+    if (activeWorkspace === null) {
+      return
+    }
+    navigate(collectionSearchPath(sessionsPath(activeWorkspace), chatSearch))
+    await loadSessionSearch(true)
+  }
+
+  async function submitProjectSearch() {
+    if (activeWorkspace === null) {
+      return
+    }
+    navigate(collectionSearchPath(projectsPath(activeWorkspace), projectSearch))
+    await loadProjectSearch(true)
+  }
+
   function ordered<T extends { id: string }>(items: T[]) {
     return [...items].sort((left, right) => right.id.localeCompare(left.id))
   }
@@ -266,6 +291,15 @@
   function matchesSearch(item: { id: string; name?: string }, search: string) {
     const query = search.trim().toLocaleLowerCase()
     return query === "" || item.id.toLocaleLowerCase().includes(query) || item.name?.toLocaleLowerCase().includes(query) === true
+  }
+
+  function createdAtLabel(value: string) {
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) {
+      return value
+    }
+    const number = (part: number) => part.toString().padStart(2, "0")
+    return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}`
   }
 
   function navigate(path: string, replace = true) {
@@ -478,10 +512,11 @@
       return
     }
     const workspace = activeWorkspace
-    const name = chatSearch
+    const name = collectionSearchName()
     const cursor = reset ? "" : sessionSearchCursor ?? ""
     const generation = reset ? ++sessionSearchGeneration : sessionSearchGeneration
     if (reset) {
+      chatSearch = name
       searchedSessions = []
       sessionSearchCursor = null
     }
@@ -520,10 +555,11 @@
       return
     }
     const workspace = activeWorkspace
-    const name = projectSearch
+    const name = collectionSearchName()
     const cursor = reset ? "" : projectSearchCursor ?? ""
     const generation = reset ? ++projectSearchGeneration : projectSearchGeneration
     if (reset) {
+      projectSearch = name
       searchedProjects = []
       projectSearchCursor = null
     }
@@ -575,26 +611,6 @@
     if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id) {
       projectSessions = loaded.sessions
     }
-  }
-
-  function scheduleSessionSearch(value: string) {
-    chatSearch = value
-    if (sessionSearchTimer !== undefined) {
-      clearTimeout(sessionSearchTimer)
-    }
-    sessionSearchTimer = setTimeout(() => {
-      void loadSessionSearch(true)
-    }, 200)
-  }
-
-  function scheduleProjectSearch(value: string) {
-    projectSearch = value
-    if (projectSearchTimer !== undefined) {
-      clearTimeout(projectSearchTimer)
-    }
-    projectSearchTimer = setTimeout(() => {
-      void loadProjectSearch(true)
-    }, 200)
   }
 
   async function loadSessionEvents(session: Session, showLoading = true) {
@@ -1291,26 +1307,29 @@
           <section class="dashboard-widget dashboard-widget-wide">
             <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
             {#each latestSessions as session}
-              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">No chats yet.</p>{/each}
-            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</button>
+            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
           </section>
           <section class="dashboard-widget dashboard-widget-wide">
             <div class="dashboard-widget-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
             {#each latestProjects as project}
-              <button class="dashboard-row" type="button" onclick={() => void selectProject(project)}><span>{project.name ?? "New Project"}</span><small>{project.id}</small></button>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(project.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(project) }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">No projects yet.</p>{/each}
-            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>View all projects</button>
+            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>View all projects</a>
           </section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
       {:else if isChatCollection()}
         <section class="collection-page">
           <div class="collection-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
-          <label class="collection-search"><span>Search chats</span><input class="input" type="search" placeholder="Search chats" value={chatSearch} oninput={(event) => scheduleSessionSearch((event.currentTarget as HTMLInputElement).value)} /></label>
+          <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitSessionSearch() }}>
+            <label><span>Search chats</span><input class="input" type="search" placeholder="Search chats" bind:value={chatSearch} /></label>
+            <button class="button" type="submit" aria-label="Search chats" title="Search chats"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
+          </form>
           <div class="collection-list">
             {#each searchedSessions as session}
-              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">{sessionSearchLoading ? "Searching chats..." : "No chats match your search."}</p>{/each}
           </div>
           {#if sessionSearchCursor !== null}<button class="button is-small" type="button" disabled={sessionSearchLoading} onclick={() => void loadSessionSearch()}>{sessionSearchLoading ? "Loading..." : "Show more"}</button>{/if}
@@ -1318,10 +1337,13 @@
       {:else if isProjectCollection()}
         <section class="collection-page">
           <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
-          <label class="collection-search"><span>Search projects</span><input class="input" type="search" placeholder="Search projects" value={projectSearch} oninput={(event) => scheduleProjectSearch((event.currentTarget as HTMLInputElement).value)} /></label>
+          <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitProjectSearch() }}>
+            <label><span>Search projects</span><input class="input" type="search" placeholder="Search projects" bind:value={projectSearch} /></label>
+            <button class="button" type="submit" aria-label="Search projects" title="Search projects"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
+          </form>
           <div class="collection-list">
             {#each searchedProjects as project}
-              <button class="dashboard-row" type="button" onclick={() => void selectProject(project)}><span>{project.name ?? "New Project"}</span><small>{project.id}</small></button>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(project.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(project) }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">{projectSearchLoading ? "Searching projects..." : "No projects match your search."}</p>{/each}
           </div>
           {#if projectSearchCursor !== null}<button class="button is-small" type="button" disabled={projectSearchLoading} onclick={() => void loadProjectSearch()}>{projectSearchLoading ? "Loading..." : "Show more"}</button>{/if}
@@ -1329,7 +1351,7 @@
       {:else if isGroupCollection()}
         <section class="collection-page">
           <div class="collection-heading"><h2>Groups</h2></div>
-          <label class="collection-search"><span>Search groups</span><input class="input" type="search" placeholder="Search groups" bind:value={groupSearch} /></label>
+          <div class="collection-search"><label><span>Search groups</span><input class="input" type="search" placeholder="Search groups" bind:value={groupSearch} /></label></div>
           <div class="collection-list">
             {#each ordered(groups.filter((group) => matchesSearch(group, groupSearch))) as group}
               <div class="dashboard-row"><span>{group.name ?? "New Group"}</span><small>{group.id}</small></div>
@@ -1338,12 +1360,12 @@
         </section>
       {:else if activeSession === null}
         <section class="dashboard-grid">
-          <section class="dashboard-widget dashboard-widget-full">
+          <section class="dashboard-widget dashboard-widget-wide">
             <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession(activeProject ?? undefined)}>New chat</button></div>
             {#each projectSessions as session}
-              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
-            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</button>
+            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
           </section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>

@@ -226,15 +226,17 @@ type resourceResponse struct {
 }
 
 type sessionResponse struct {
-	ID      string  `json:"id"`
-	Name    *string `json:"name,omitempty"`
-	Project *string `json:"project,omitempty"`
+	ID        string  `json:"id"`
+	Name      *string `json:"name,omitempty"`
+	Project   *string `json:"project,omitempty"`
+	CreatedAt string  `json:"created_at"`
 }
 
 type projectResponse struct {
 	ID          string  `json:"id"`
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
+	CreatedAt   string  `json:"created_at"`
 }
 
 type sessionSearchResponse struct {
@@ -417,7 +419,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			}
 			result := make([]projectResponse, 0, len(projects))
 			for _, project := range projects {
-				result = append(result, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+				result = append(result, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt})
 			}
 			writeJSON(response, projectSearchResponse{Projects: result, NextCursor: nextCursor})
 		case http.MethodPost:
@@ -446,7 +448,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 				http.Error(response, "project could not be created", http.StatusBadRequest)
 				return
 			}
-			writeJSONStatus(response, http.StatusCreated, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+			writeJSONStatus(response, http.StatusCreated, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt})
 		default:
 			response.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -483,7 +485,7 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 				http.NotFound(response, request)
 				return
 			}
-			writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+			writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt})
 			return
 		}
 		var input projectUpdateRequest
@@ -502,7 +504,7 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.NotFound(response, request)
 			return
 		}
-		writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+		writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt})
 	}
 }
 
@@ -544,7 +546,7 @@ func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.NotFound(response, request)
 			return
 		}
-		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name}
+		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name, CreatedAt: session.CreatedAt}
 		if session.Project != nil {
 			entry.Project = &session.Project.Id
 		}
@@ -587,7 +589,7 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 	}
 	result := make([]sessionResponse, 0, len(sessions))
 	for _, session := range sessions {
-		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name}
+		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name, CreatedAt: session.CreatedAt}
 		if session.Project != nil {
 			entry.Project = &session.Project.Id
 		}
@@ -650,7 +652,7 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name}
+	entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name, CreatedAt: stored.CreatedAt}
 	if stored.Project != nil {
 		entry.Project = &stored.Project.Id
 	}
@@ -696,7 +698,7 @@ func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) h
 			http.NotFound(response, request)
 			return
 		}
-		entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name}
+		entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name, CreatedAt: stored.CreatedAt}
 		if stored.Project != nil {
 			entry.Project = &stored.Project.Id
 		}
