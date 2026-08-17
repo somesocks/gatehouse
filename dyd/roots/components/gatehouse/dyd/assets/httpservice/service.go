@@ -119,6 +119,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes", workspaceProjectNotes(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}", workspaceProjectNote(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/start", workspaceProjectFileStart(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}/finish", workspaceProjectFileFinish(store, tokens[0]))
@@ -335,6 +337,26 @@ type projectFileResponse struct {
 type projectFileCreateResponse struct {
 	File      projectFileResponse `json:"file"`
 	UploadURL string              `json:"upload_url"`
+}
+
+type projectNoteRequest struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Body        *string `json:"body"`
+}
+
+type projectNoteAuthorResponse struct {
+	ID   string  `json:"id"`
+	Name *string `json:"name,omitempty"`
+}
+
+type projectNoteResponse struct {
+	ID          string                    `json:"id"`
+	Title       string                    `json:"title"`
+	Description string                    `json:"description"`
+	Body        *string                   `json:"body,omitempty"`
+	Author      projectNoteAuthorResponse `json:"author"`
+	CreatedAt   string                    `json:"created_at"`
 }
 
 type sessionEventTreeResponse struct {
@@ -1052,6 +1074,124 @@ func workspaceProjectFiles(store *database.Store, tokens *auth.BearerTokens) htt
 	}
 }
 
+func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, notes := store.ProjectNotesGet(request.Context(), project, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectNoteResponse, 0, len(notes))
+			for _, note := range notes {
+				result = append(result, projectNoteResponseFromSummary(note))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			var input projectNoteRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, true) {
+				http.Error(response, "invalid project note", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.ProjectNote)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			note := model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: *input.Title, Description: *input.Description, Body: *input.Body}
+			err, stored := store.ProjectNoteCreate(request.Context(), note, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "project note could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := projectNoteRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.ProjectNoteGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectNoteResponseFromDetail(*current))
+		case http.MethodPatch:
+			var input projectNoteRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, false) {
+				http.Error(response, "invalid project note", http.StatusBadRequest)
+				return
+			}
+			title, description, body := current.Note.Title, current.Note.Description, current.Note.Body
+			if input.Title != nil {
+				title = *input.Title
+			}
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Body != nil {
+				body = *input.Body
+			}
+			err, updated := store.ProjectNoteDetailsSet(request.Context(), note, claims.Principal.Ref, &title, &description, &body)
+			if err != nil {
+				http.Error(response, "project note could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectNoteResponseFromDetail(*updated))
+		case http.MethodDelete:
+			err, removed := store.ProjectNoteRemove(request.Context(), note, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
@@ -1464,6 +1604,36 @@ func projectFileRef(response http.ResponseWriter, request *http.Request) (model.
 		return model.ProjectRef{}, "", false
 	}
 	return model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, fileID, true
+}
+
+func projectNoteRef(response http.ResponseWriter, request *http.Request) (model.ProjectNoteRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	projectID := request.PathValue("project")
+	noteID := request.PathValue("note")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Project, projectID) || !typed_id.Valid(typed_id.ProjectNote, noteID) {
+		http.NotFound(response, request)
+		return model.ProjectNoteRef{}, false
+	}
+	return model.ProjectNoteRef{Project: model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, Id: noteID}, true
+}
+
+func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
+	if required && (input.Title == nil || input.Description == nil || input.Body == nil) {
+		return false
+	}
+	if !required && input.Title == nil && input.Description == nil && input.Body == nil {
+		return false
+	}
+	return (input.Title == nil || len(*input.Title) <= 256) && (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Body == nil || len(*input.Body) <= 1024*1024)
+}
+
+func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+}
+
+func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNoteResponse {
+	note := detail.Note
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func authorizedProjectFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.ProjectFile, *database.StorageObject, bool) {

@@ -306,6 +306,23 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				PRIMARY KEY (workspace, id)
 			);
 
+			CREATE TABLE gatehouse_project_notes (
+				workspace TEXT NOT NULL,
+				project TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (id ~ '^pnt_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
+				author_principal TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				title TEXT NOT NULL CHECK (length(trim(title)) > 0) CHECK (octet_length(title) <= 256),
+				description TEXT NOT NULL CHECK (length(trim(description)) > 0) CHECK (octet_length(description) <= 4096),
+				body TEXT NOT NULL CHECK (length(trim(body)) > 0) CHECK (octet_length(body) <= 1048576),
+				enabled BOOLEAN NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (workspace, project, id),
+				FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id)
+			);
+
+			CREATE INDEX gatehouse_project_notes_by_project_created
+			ON gatehouse_project_notes (workspace, project, created_at DESC, id DESC);
+
 			CREATE TABLE gatehouse_project_principal_grants (
 				workspace TEXT NOT NULL,
 				project TEXT NOT NULL,

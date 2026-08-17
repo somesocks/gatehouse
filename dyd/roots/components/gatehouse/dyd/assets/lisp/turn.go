@@ -41,6 +41,20 @@ type TurnProjectFiles struct {
 	Read  TurnFileRead
 }
 
+type TurnProjectNote struct {
+	ID         string
+	Title      string
+	Description string
+	AuthorID   string
+	AuthorName *string
+	CreatedAt  string
+}
+
+type TurnProjectNotes struct {
+	Notes []TurnProjectNote
+	Read  TurnFileRead
+}
+
 var turnFileListDocumentation = doc(
 	"(file/list) -> List",
 	"Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.",
@@ -67,6 +81,20 @@ var turnProjectFileReadDocumentation = doc(
 	"Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.",
 	"(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))",
 	"\"first bytes of the file\"",
+)
+
+var turnProjectNoteListDocumentation = doc(
+	"(project/notes/list) -> List",
+	"Returns project notes with id, title, description, author_id, optional author_name, and created_at.",
+	"(project/notes/list)",
+	"((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))",
+)
+
+var turnProjectNoteReadDocumentation = doc(
+	"(project/notes/read id offset length) -> Bytes",
+	"Reads Markdown source from a note in the project linked to the current session. Length must be from 1 through 65536 bytes.",
+	"(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))",
+	"\"# Project guide\"",
 )
 
 const defaultTurnPrelude = `(import/restrict
@@ -110,25 +138,35 @@ func RunTurnWithFiles(source string, tools []TurnTool, resources []TurnResource,
 
 // RunTurnWithFilesAndProjectFiles evaluates source with session files and optional linked-project files.
 func RunTurnWithFilesAndProjectFiles(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
-	return RunTurnWithPreludeAndFilesAndProjectFiles(source, defaultTurnPrelude, tools, resources, files, read, projectFiles)
+	return RunTurnWithFilesAndProjectFilesAndNotes(source, tools, resources, files, read, projectFiles, nil)
+}
+
+// RunTurnWithFilesAndProjectFilesAndNotes evaluates source with session files and optional linked-project files and notes.
+func RunTurnWithFilesAndProjectFilesAndNotes(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, defaultTurnPrelude, tools, resources, files, read, projectFiles, projectNotes)
 }
 
 // RunTurnWithPreludeAndFiles evaluates source through a prelude with session-file capabilities.
 func RunTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
-	return RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude, tools, resources, files, read, nil)
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, nil, nil)
 }
 
 // RunTurnWithPreludeAndFilesAndProjectFiles evaluates source through a prelude with session files and optional linked-project files.
 func RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, projectFiles, nil)
+}
+
+// RunTurnWithPreludeAndFilesAndProjectFilesAndNotes evaluates source through a prelude with session files and optional linked-project files and notes.
+func RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
 	call, err := diagnostics.Begin("lisp.turn", "")
 	if err != nil {
 		return err, nil
 	}
-	err, result := runTurnWithPreludeAndFilesAndProjectFiles(source, prelude, tools, resources, files, read, projectFiles)
+	err, result := runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, projectFiles, projectNotes)
 	return call.End(err), result
 }
 
-func runTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
+func runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
 	err, program := Read(source)
 	if err != nil {
 		return err, nil
@@ -163,6 +201,13 @@ func runTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []T
 		env.bind("project/files/list", withHelp(&builtin{call: pure(turnFileList(projectFiles.Files, "project/files/list"))}, turnProjectFileListDocumentation.text()))
 		env.bind("project/files/read", withHelp(&builtin{call: pure(turnFileRead(projectFiles.Read, "project/files/read"))}, turnProjectFileReadDocumentation.text()))
 	}
+	if projectNotes != nil {
+		if projectNotes.Read == nil {
+			return fmt.Errorf("turn project note reader is required"), nil
+		}
+		env.bind("project/notes/list", withHelp(&builtin{call: pure(turnProjectNoteList(projectNotes.Notes))}, turnProjectNoteListDocumentation.text()))
+		env.bind("project/notes/read", withHelp(&builtin{call: pure(turnFileRead(projectNotes.Read, "project/notes/read"))}, turnProjectNoteReadDocumentation.text()))
+	}
 
 	cache := newModuleCache()
 	for _, tool := range tools {
@@ -194,6 +239,33 @@ func runTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []T
 	}
 	bindImports(env, cache)
 	return (&evaluator{}).eval(preludeProgram, env)
+}
+
+func turnProjectNoteList(notes []TurnProjectNote) pureBuiltinCall {
+	return func(_ *evaluator, arguments []Expr) (error, Expr) {
+		if len(arguments) != 0 {
+			return expressionError("project/notes/list requires no arguments"), nil
+		}
+		values := make([]Expr, 0, len(notes))
+		for _, note := range notes {
+			if note.ID == "" || note.Title == "" || note.Description == "" || note.AuthorID == "" || note.CreatedAt == "" {
+				return expressionError("project/notes/list has invalid note metadata"), nil
+			}
+			authorName := Expr(null())
+			if note.AuthorName != nil {
+				authorName = stringValue(*note.AuthorName)
+			}
+			values = append(values, list([]Expr{
+				pairValue(symbol("id"), stringValue(note.ID)),
+				pairValue(symbol("title"), stringValue(note.Title)),
+				pairValue(symbol("description"), stringValue(note.Description)),
+				pairValue(symbol("author_id"), stringValue(note.AuthorID)),
+				pairValue(symbol("author_name"), authorName),
+				pairValue(symbol("created_at"), stringValue(note.CreatedAt)),
+			}))
+		}
+		return nil, list(values)
+	}
 }
 
 func turnFileList(files []TurnFile, name string) pureBuiltinCall {

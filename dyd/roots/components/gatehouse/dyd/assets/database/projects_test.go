@@ -3,6 +3,7 @@ package database_test
 import (
 	"context"
 	"crypto/sha256"
+	"strings"
 	"testing"
 	"time"
 
@@ -167,6 +168,96 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 	err, files = store.ProjectFilesGet(ctx, project, alice)
 	if err != nil || len(files) != 2 || files[0].ID != older.Id || files[1].ID != pending.Ref.Id {
 		t.Fatalf("ProjectFilesGet() after removal = (%#v, %v)", files, err)
+	}
+}
+
+func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	projectID, err := typed_id.New(typed_id.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := model.ProjectRef{Workspace: workspace, Id: projectID}
+	if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, alice, nil); err != nil {
+		t.Fatal(err)
+	}
+	create := func(at time.Time, title string) model.ProjectNote {
+		id, err := typed_id.NewAt(typed_id.ProjectNote, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err, stored := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: "  "+title+"  ", Description: "  Description for "+title+".  ", Body: "# "+title}, alice)
+		if err != nil || stored.AuthorPrincipal != alice || stored.Title != title || stored.Description != "Description for "+title+"." || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
+			t.Fatalf("ProjectNoteCreate() = (%#v, %v)", stored, err)
+		}
+		return stored
+	}
+	older := create(time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC), "Guide")
+	newer := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "Architecture")
+	err, notes := store.ProjectNotesGet(ctx, project, alice)
+	if err != nil || len(notes) != 2 || notes[0].Ref.Id != newer.Ref.Id || notes[0].Title != "Architecture" || notes[1].Ref.Id != older.Ref.Id {
+		t.Fatalf("ProjectNotesGet() = (%#v, %v)", notes, err)
+	}
+	err, denied := store.ProjectNotesGet(ctx, project, bob)
+	if err != nil || len(denied) != 0 {
+		t.Fatalf("ProjectNotesGet() for ungranted principal = (%#v, %v)", denied, err)
+	}
+	err, hidden := store.ProjectNoteGet(ctx, newer.Ref, bob)
+	if err != nil || hidden != nil {
+		t.Fatalf("ProjectNoteGet() for ungranted principal = (%#v, %v)", hidden, err)
+	}
+	if createErr, _ := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: newer.Ref.Id}, Title: "Denied", Description: "Denied note", Body: "Denied"}, bob); createErr == nil {
+		t.Fatal("ProjectNoteCreate() accepted an ungranted principal")
+	}
+	title, description, body := "Updated guide", "Updated description", "# Updated guide"
+	err, updated := store.ProjectNoteDetailsSet(ctx, older.Ref, alice, &title, &description, &body)
+	if err != nil || updated == nil || updated.Note.AuthorPrincipal != alice || updated.Note.Title != title || updated.Note.Description != description || updated.Note.Body != body {
+		t.Fatalf("ProjectNoteDetailsSet() = (%#v, %v)", updated, err)
+	}
+	err, removed := store.ProjectNoteRemove(ctx, newer.Ref, bob)
+	if err != nil || removed {
+		t.Fatalf("ProjectNoteRemove() for ungranted principal = (%t, %v)", removed, err)
+	}
+	err, removed = store.ProjectNoteRemove(ctx, newer.Ref, alice)
+	if err != nil || !removed {
+		t.Fatalf("ProjectNoteRemove() = (%t, %v)", removed, err)
+	}
+	err, hidden = store.ProjectNoteGet(ctx, newer.Ref, alice)
+	if err != nil || hidden != nil {
+		t.Fatalf("ProjectNoteGet() after removal = (%#v, %v)", hidden, err)
+	}
+	err, notes = store.ProjectNotesGet(ctx, project, alice)
+	if err != nil || len(notes) != 1 || notes[0].Ref.Id != older.Ref.Id {
+		t.Fatalf("ProjectNotesGet() after removal = (%#v, %v)", notes, err)
+	}
+	oversizedID, err := typed_id.NewAt(typed_id.ProjectNote, time.Date(2026, 1, 2, 3, 4, 7, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createErr, _ := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: oversizedID}, Title: "Oversized", Description: "Oversized body", Body: strings.Repeat("x", 1024*1024+1)}, alice); createErr == nil {
+		t.Fatal("ProjectNoteCreate() accepted a body exceeding 1 MiB")
+	}
+	for _, event := range []string{"project_note.create", "project_note.update", "project_note.remove"} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND project = ? AND event = ?`, workspace.Id, project.Id, event).Scan(&count); err != nil || count == 0 {
+			t.Fatalf("project note activity %q = (%d, %v)", event, count, err)
+		}
 	}
 }
 

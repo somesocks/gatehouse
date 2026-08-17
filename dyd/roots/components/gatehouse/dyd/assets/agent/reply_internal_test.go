@@ -44,7 +44,7 @@ func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
 }
 
 func TestOpenAISystemPromptDocumentsProjectFiles(t *testing.T) {
-	for _, binding := range []string{"project/files/list", "project/files/read"} {
+	for _, binding := range []string{"project/files/list", "project/files/read", "project/notes/list", "project/notes/read"} {
 		if !strings.Contains(openAISystemPrompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}

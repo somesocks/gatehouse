@@ -272,7 +272,17 @@ body {
 }
 
 .project-files-widget {
-  align-content: start;
+	align-content: start;
+}
+
+.project-notes-widget { align-content: start; }
+
+.project-note-row { justify-content: flex-start; }
+
+.project-note-description {
+	color: #c7c9bd;
+	font-size: 0.85rem;
+	line-height: 1.35;
 }
 
 .project-file-row {
@@ -595,6 +605,65 @@ body {
 	display: flex;
 	gap: 0.6rem;
 	justify-content: flex-end;
+}
+
+.project-note-page {
+	flex: 1;
+	min-height: 0;
+	overflow-y: auto;
+	padding: 1.5rem 0;
+}
+
+.project-note-editor,
+.project-note-view {
+	display: grid;
+	gap: 1rem;
+}
+
+.project-note-page-heading {
+	align-items: flex-start;
+	display: flex;
+	gap: 1rem;
+	justify-content: space-between;
+}
+
+.project-note-page-heading h2 { font-size: 1.5rem; margin: 0; }
+
+.project-note-page-heading p { color: #c7c9bd; margin: 0.3rem 0 0; }
+
+.project-note-page-heading small { color: #9ea494; display: block; margin-top: 0.5rem; }
+
+.project-note-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.6rem;
+	justify-content: flex-end;
+}
+
+.project-note-body-input {
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+	min-height: 20rem;
+	resize: vertical;
+}
+
+.project-note-markdown {
+	border-top: 1px solid #3f4538;
+	color: #eff2e8;
+	line-height: 1.65;
+	padding-top: 1.25rem;
+	overflow-wrap: anywhere;
+}
+
+.project-note-markdown > :first-child { margin-top: 0; }
+
+.project-note-markdown > :last-child { margin-bottom: 0; }
+
+.project-note-markdown pre {
+	background: #10120c;
+	border: 1px solid #3f4538;
+	border-radius: 0.45rem;
+	overflow-x: auto;
+	padding: 0.8rem;
 }
 
 .workspace-empty {

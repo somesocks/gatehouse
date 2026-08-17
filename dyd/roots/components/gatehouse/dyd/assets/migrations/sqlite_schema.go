@@ -324,6 +324,23 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				PRIMARY KEY (workspace, id)
 			) STRICT;
 
+			CREATE TABLE gatehouse_project_notes (
+				workspace TEXT NOT NULL,
+				project TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'pnt_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
+				author_principal TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				title TEXT NOT NULL CHECK (length(trim(title)) > 0) CHECK (length(CAST(title AS BLOB)) <= 256),
+				description TEXT NOT NULL CHECK (length(trim(description)) > 0) CHECK (length(CAST(description AS BLOB)) <= 4096),
+				body TEXT NOT NULL CHECK (length(trim(body)) > 0) CHECK (length(CAST(body AS BLOB)) <= 1048576),
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, project, id),
+				FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id)
+			) STRICT;
+
+			CREATE INDEX gatehouse_project_notes_by_project_created
+			ON gatehouse_project_notes (workspace, project, created_at DESC, id DESC);
+
 			CREATE TABLE gatehouse_project_principal_grants (
 				workspace TEXT NOT NULL,
 				project TEXT NOT NULL,

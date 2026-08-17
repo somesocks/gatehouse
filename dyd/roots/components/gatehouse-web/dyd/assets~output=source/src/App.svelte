@@ -45,6 +45,15 @@
     created_at: string
   }
 
+  type ProjectNote = {
+    id: string
+    title: string
+    description: string
+    body?: string
+    author: { id: string; name?: string }
+    created_at: string
+  }
+
   type SessionSearchResponse = {
     sessions: Session[]
     next_cursor?: string
@@ -117,6 +126,15 @@
   let latestSessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
+  let activeProjectNote = $state<ProjectNote | null>(null)
+  let creatingProjectNote = $state(false)
+  let editingProjectNote = $state(false)
+  let savingProjectNote = $state(false)
+  let deletingProjectNote = $state(false)
+  let projectNoteTitle = $state("")
+  let projectNoteDescription = $state("")
+  let projectNoteBody = $state("")
+  let projectNoteError = $state("")
   let creatingProject = $state(false)
   let updatingProject = $state(false)
   let projectEditName = $state("")
@@ -156,6 +174,8 @@
   let uploadingProjectFiles = $state(0)
   let removingProjectFileIDs = $state<Set<string>>(new Set())
   let projectFileInputElement = $state<HTMLInputElement | undefined>()
+  let projectNotes = $state<ProjectNote[]>([])
+  let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
   let sessionSearchCursor = $state<string | null>(null)
   let projectSearchCursor = $state<string | null>(null)
   let sessionSearchLoading = $state(false)
@@ -247,6 +267,18 @@
     }
   }
 
+  function projectNoteIDFromPath(path: string) {
+    const match = /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/pnt\/([^/]+)\/?$/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
   function workspacePath(workspace: Workspace) {
     return `/app/wsp/${encodeURIComponent(workspace.id)}`
   }
@@ -257,6 +289,11 @@
 
   function projectsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/prj`
+  }
+
+  function projectNotePath(workspace: Workspace, project: Project, note: ProjectNote | string) {
+    const id = typeof note === "string" ? note : note.id
+    return `${projectsPath(workspace)}/${encodeURIComponent(project.id)}/pnt/${encodeURIComponent(id)}`
   }
 
   function groupsPath(workspace: Workspace) {
@@ -352,8 +389,11 @@
     latestSessions = []
     activeSession = null
     activeProject = null
+    activeProjectNote = null
+    creatingProjectNote = false
     projectFiles = []
     projectFileError = ""
+    projectNotes = []
     events = []
     showJumpToLatest = false
     status = "anonymous"
@@ -428,8 +468,11 @@
     latestSessions = []
     activeSession = null
     activeProject = null
+    activeProjectNote = null
+    creatingProjectNote = false
     projectFiles = []
     projectFileError = ""
+    projectNotes = []
     events = []
     showJumpToLatest = false
     workspaceContentStatus = "checking"
@@ -463,7 +506,16 @@
         const projectID = projectIDFromPath(currentPath)
         activeProject = projectID === null ? null : latestProjects.find((candidate) => candidate.id === projectID) ?? await loadProject(workspace, projectID)
         if (activeProject !== null) {
-          await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject)])
+          await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject), loadProjectNotes(activeProject)])
+          const noteID = projectNoteIDFromPath(currentPath)
+          if (noteID === "new") {
+            startProjectNoteCreate()
+          } else if (noteID !== null) {
+            activeProjectNote = await loadProjectNote(activeProject, noteID)
+            if (activeProjectNote === null) {
+              navigate(`${projectsPath(workspace)}/${encodeURIComponent(activeProject.id)}`, true)
+            }
+          }
         } else if (isChatCollection()) {
           await loadSessionSearch(true)
         } else if (isProjectCollection()) {
@@ -485,6 +537,8 @@
     activeSessionCursor = null
     activeSession = session
     activeProject = session.project ?? null
+    activeProjectNote = null
+    creatingProjectNote = false
     projectFiles = []
     projectFileError = ""
     events = []
@@ -505,11 +559,14 @@
     mobileMenuOpen = false
     activeSession = null
     activeProject = project
+    activeProjectNote = null
+    creatingProjectNote = false
     projectFiles = []
     projectFileError = ""
+    projectNotes = []
     events = []
     navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(project.id)}`, replace)
-    await Promise.all([loadProjectSessions(project), loadProjectFiles(project)])
+    await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project)])
     startActivityPolling()
   }
 
@@ -684,6 +741,60 @@
     }
   }
 
+  async function loadProjectNotes(project: Project, showLoading = true) {
+    if (activeWorkspace === null) {
+      return false
+    }
+    const workspace = activeWorkspace
+    if (showLoading) {
+      projectNoteStatus = "checking"
+    }
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes`, { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return false
+      }
+      if (!response.ok) {
+        throw new Error("project notes could not be loaded")
+      }
+      const loaded = (await response.json()) as ProjectNote[]
+      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
+        return false
+      }
+      projectNotes = [...loaded].sort((left, right) => {
+        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
+      })
+      projectNoteStatus = "ready"
+      return true
+    } catch {
+      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
+        projectNoteStatus = "unavailable"
+      }
+      return false
+    }
+  }
+
+  async function loadProjectNote(project: Project, id: string) {
+    if (activeWorkspace === null) {
+      return null
+    }
+    const workspace = activeWorkspace
+    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(id)}`, { credentials: "same-origin" })
+    if (response.status === 401) {
+      signInRequired()
+      return null
+    }
+    if (response.status === 404) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error("project note could not be loaded")
+    }
+    return (await response.json()) as ProjectNote
+  }
+
   async function loadSessionEvents(session: Session, showLoading = true) {
     if (activeWorkspace === null) {
       return false
@@ -849,7 +960,18 @@
           await loadSessionEvents(session, false)
         }
         if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
-          refreshed = await loadProjectFiles(activeProject, false)
+          refreshed = (await Promise.all([loadProjectFiles(activeProject, false), loadProjectNotes(activeProject, false)])).every(Boolean)
+          if (refreshed && activeProjectNote !== null) {
+            const note = activeProjectNote
+            const loaded = await loadProjectNote(activeProject, note.id)
+            if (loaded === null && activeWorkspace?.id === workspace.id && activeProject?.id === projectID && activeProjectNote?.id === note.id) {
+              activeProjectNote = null
+              editingProjectNote = false
+              navigate(`${projectsPath(workspace)}/${encodeURIComponent(activeProject.id)}`)
+            } else if (loaded !== null && activeProjectNote?.id === note.id) {
+              activeProjectNote = loaded
+            }
+          }
         }
         if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
           return
@@ -1097,6 +1219,143 @@
       messageError = "A new project could not be created. Try again."
     } finally {
       creatingProject = false
+    }
+  }
+
+  async function selectProjectNote(note: ProjectNote) {
+    if (activeWorkspace === null || activeProject === null) {
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    projectNoteError = ""
+    creatingProjectNote = false
+    editingProjectNote = false
+    navigate(projectNotePath(workspace, project, note))
+    try {
+      const loaded = await loadProjectNote(project, note.id)
+      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
+        return
+      }
+      if (loaded === null) {
+        navigate(`${projectsPath(workspace)}/${encodeURIComponent(project.id)}`)
+        return
+      }
+      activeProjectNote = loaded
+    } catch {
+      projectNoteError = "The note could not be loaded. Try again."
+    }
+  }
+
+  function startProjectNoteCreate() {
+    if (activeWorkspace === null || activeProject === null) {
+      return
+    }
+    activeProjectNote = null
+    creatingProjectNote = true
+    editingProjectNote = true
+    projectNoteTitle = ""
+    projectNoteDescription = ""
+    projectNoteBody = ""
+    projectNoteError = ""
+    navigate(projectNotePath(activeWorkspace, activeProject, "new"))
+  }
+
+  function startProjectNoteEdit() {
+    if (activeProjectNote === null) {
+      return
+    }
+    projectNoteTitle = activeProjectNote.title
+    projectNoteDescription = activeProjectNote.description
+    projectNoteBody = activeProjectNote.body ?? ""
+    projectNoteError = ""
+    editingProjectNote = true
+  }
+
+  function cancelProjectNoteEdit() {
+    if (savingProjectNote || activeWorkspace === null || activeProject === null) {
+      return
+    }
+    projectNoteError = ""
+    if (creatingProjectNote) {
+      creatingProjectNote = false
+      editingProjectNote = false
+      navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(activeProject.id)}`)
+      return
+    }
+    editingProjectNote = false
+  }
+
+  async function saveProjectNote() {
+    if (activeWorkspace === null || activeProject === null || projectNoteTitle.trim() === "" || projectNoteDescription.trim() === "" || projectNoteBody.trim() === "") {
+      projectNoteError = "Title, description, and Markdown are required."
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    const creating = creatingProjectNote
+    const note = activeProjectNote
+    projectNoteError = ""
+    savingProjectNote = true
+    try {
+      const path = creating ? `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes` : `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(note?.id ?? "")}`
+      const response = await fetch(path, {
+        method: creating ? "POST" : "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: projectNoteTitle, description: projectNoteDescription, body: projectNoteBody }),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("project note could not be saved")
+      }
+      const saved = (await response.json()) as ProjectNote
+      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
+        return
+      }
+      activeProjectNote = saved
+      creatingProjectNote = false
+      editingProjectNote = false
+      projectNotes = [saved, ...projectNotes.filter((candidate) => candidate.id !== saved.id)]
+      navigate(projectNotePath(workspace, project, saved))
+    } catch {
+      projectNoteError = "The note could not be saved. Try again."
+    } finally {
+      savingProjectNote = false
+    }
+  }
+
+  async function removeProjectNote() {
+    if (activeWorkspace === null || activeProject === null || activeProjectNote === null || deletingProjectNote || !window.confirm(`Remove ${activeProjectNote.title}?`)) {
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    const note = activeProjectNote
+    deletingProjectNote = true
+    projectNoteError = ""
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(note.id)}`, { method: "DELETE", credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("project note could not be removed")
+      }
+      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeProjectNote?.id === note.id) {
+        activeProjectNote = null
+        editingProjectNote = false
+        projectNotes = projectNotes.filter((candidate) => candidate.id !== note.id)
+        navigate(`${projectsPath(workspace)}/${encodeURIComponent(project.id)}`)
+      }
+    } catch {
+      projectNoteError = "The note could not be removed. Try again."
+    } finally {
+      deletingProjectNote = false
     }
   }
 
@@ -1520,10 +1779,13 @@
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeSession.name ?? "New Chat"}</span>
+            {:else if activeProjectNote !== null || creatingProjectNote}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>{activeProjectNote?.title ?? "New Note"}</span>
             {/if}
           </h1>
       </header>
-      {#if activeSession === null && activeProject !== null}
+      {#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote}
         <section class="project-dashboard-heading">
           <div>
             <h2 class="title is-3">{activeProject.name ?? "New Project"}</h2>
@@ -1591,6 +1853,25 @@
             {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
           </div>
         </section>
+      {:else if activeSession === null && (activeProjectNote !== null || creatingProjectNote)}
+        <section class="project-note-page">
+          {#if editingProjectNote}
+            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectNote() }}>
+              <div class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{creatingProjectNote ? "New Note" : "Edit Note"}</h2></div></div>
+              <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
+              <div class="field"><label class="label" for="project-note-description">Description</label><div class="control"><textarea class="textarea" id="project-note-description" rows="3" maxlength="4096" required bind:value={projectNoteDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="project-note-body">Content</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" rows="18" maxlength="1048576" required bind:value={projectNoteBody}></textarea></div></div>
+              {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
+              <div class="project-note-actions"><button class="button" type="button" disabled={savingProjectNote} onclick={cancelProjectNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectNote}>{savingProjectNote ? "Saving..." : "Save note"}</button></div>
+            </form>
+          {:else if activeProjectNote !== null}
+            <article class="project-note-view">
+              <header class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{activeProjectNote.title}</h2><p>{activeProjectNote.description}</p><small>By {activeProjectNote.author.name ?? activeProjectNote.author.id} on {createdAtLabel(activeProjectNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button></div></header>
+              <div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body ?? "")}</div>
+              {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
+            </article>
+          {/if}
+        </section>
       {:else if activeSession === null}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">
@@ -1619,6 +1900,18 @@
               {:else}<p class="dashboard-empty">No files yet.</p>{/each}
             {/if}
             {#if projectFileError !== ""}<p class="help is-danger" aria-live="polite">{projectFileError}</p>{/if}
+          </section>
+          <section class="dashboard-widget dashboard-widget-wide project-notes-widget">
+            <div class="dashboard-widget-heading"><h2>Project Notes</h2><button class="button is-primary is-small" type="button" onclick={startProjectNoteCreate}>New note</button></div>
+            {#if projectNoteStatus === "checking"}
+              <p class="dashboard-empty">Loading notes...</p>
+            {:else if projectNoteStatus === "unavailable"}
+              <p class="dashboard-empty">Notes could not be loaded.</p>
+            {:else}
+              {#each projectNotes as note (note.id)}
+                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span><span class="project-note-description">{note.description}</span><span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
+              {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
+            {/if}
           </section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>

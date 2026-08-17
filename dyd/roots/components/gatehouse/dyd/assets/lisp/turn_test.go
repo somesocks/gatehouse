@@ -1,6 +1,9 @@
 package lisp
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRunTurnPreloadsAuthorizedToolsAndResources(t *testing.T) {
 	err, result := RunTurn(
@@ -113,5 +116,31 @@ func TestRunTurnExposesLinkedProjectFilesSeparately(t *testing.T) {
 	err, _ = RunTurnWithFilesAndProjectFiles(`(project/files/read "guide" 0 65537)`, nil, nil, nil, nil, &TurnProjectFiles{Read: func(string, int64, int64) (error, []byte) { return nil, nil }})
 	if err == nil {
 		t.Fatal("RunTurnWithFilesAndProjectFiles() accepted an oversized project file read")
+	}
+}
+
+func TestRunTurnExposesLinkedProjectNotesSeparately(t *testing.T) {
+	authorName := "Ada"
+	err, result := RunTurnWithFilesAndProjectFilesAndNotes(`(list
+  (project/notes/list)
+  (bytes/utf8/decode (project/notes/read "guide" 0 7)))`, nil, nil, nil, nil, nil, &TurnProjectNotes{Notes: []TurnProjectNote{{
+		ID: "guide", Title: "Guide", Description: "Project guide", AuthorID: "author", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z",
+	}}, Read: func(id string, offset, length int64) (error, []byte) {
+		if id != "guide" || offset != 0 || length != 7 {
+			t.Fatalf("project note reader = (%q, %d, %d)", id, offset, length)
+		}
+		return nil, []byte("# Guide")
+	}})
+	if err != nil || !strings.Contains(result.String(), `(title . "Guide")`) || !strings.Contains(result.String(), `(author_name . "Ada")`) || !strings.HasSuffix(result.String(), `"# Guide")`) {
+		t.Fatalf("RunTurnWithFilesAndProjectFilesAndNotes() = (%s, %v)", result, err)
+	}
+
+	err, _ = RunTurnWithFiles(`(project/notes/list)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
+	if err == nil {
+		t.Fatal("RunTurnWithFiles() exposed project notes without a linked project")
+	}
+	err, _ = RunTurnWithFilesAndProjectFilesAndNotes(`(project/notes/read "guide" 0 65537)`, nil, nil, nil, nil, nil, &TurnProjectNotes{Read: func(string, int64, int64) (error, []byte) { return nil, nil }})
+	if err == nil {
+		t.Fatal("RunTurnWithFilesAndProjectFilesAndNotes() accepted an oversized project note read")
 	}
 }
