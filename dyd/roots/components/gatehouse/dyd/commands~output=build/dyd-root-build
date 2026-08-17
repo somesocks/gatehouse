@@ -20,7 +20,6 @@ cp -R "$SRC_DIR/dyd/dependencies/web/dyd/assets/." "$WORK_DIR/httpservice/web"
 chmod -R u+w "$WORK_DIR/httpservice/web"
 
 cd "$WORK_DIR"
-GOWORK=off go test ./...
 GOARCH="$ARCH" GOOS="$OS" GOWORK=off \
 	go build -trimpath -buildvcs=false -o "$DEST_DIR/dyd/commands/dyd-stem-run" \
 		-ldflags "-X main.Version=$VERSION -X main.Fingerprint=$FINGERPRINT" .

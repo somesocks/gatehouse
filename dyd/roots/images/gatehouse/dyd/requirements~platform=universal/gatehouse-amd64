@@ -1,1 +1,1 @@
-root:../../../../components/gatehouse?arch=amd64&os=linux
+root:../../../../components/gatehouse?arch=amd64&os=linux&output=build

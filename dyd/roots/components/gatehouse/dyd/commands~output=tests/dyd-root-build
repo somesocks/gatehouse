@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+WORK_DIR="$DEST_DIR/work"
+SOURCE_DIR="$DEST_DIR/dyd/assets/source"
+TESTS_DIR="$DEST_DIR/dyd/assets/tests"
+PACKAGES_FILE="$DEST_DIR/packages"
+MANIFEST="$DEST_DIR/dyd/assets/tests.manifest"
+
+mkdir -p "$DEST_DIR/dyd/commands" "$WORK_DIR/config" "$WORK_DIR/configschema" "$WORK_DIR/httpservice/web" "$TESTS_DIR"
+cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
+chmod -R +w "$WORK_DIR"
+cp -R "$SRC_DIR/dyd/dependencies/config-schema-codec/dyd/assets/." "$WORK_DIR/configschema"
+cp "$SRC_DIR/dyd/dependencies/config-schema-json/dyd/assets/schema.json" "$WORK_DIR/config/schema.json"
+cp -R "$SRC_DIR/dyd/dependencies/model-schema/dyd/assets/." "$WORK_DIR/model"
+chmod -R u+w "$WORK_DIR/model"
+cp -R "$SRC_DIR/dyd/dependencies/web/dyd/assets/." "$WORK_DIR/httpservice/web"
+chmod -R u+w "$WORK_DIR/httpservice/web"
+
+cd "$WORK_DIR"
+GOWORK=off go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... > "$PACKAGES_FILE"
+: > "$MANIFEST"
+while IFS= read -r package; do
+	[ -n "$package" ] || continue
+	test_name=$(printf '%s' "$package" | tr '/' '_')
+	GOWORK=off go test -c -o "$TESTS_DIR/$test_name" "$package"
+	printf '%s\t%s\n' "$package" "$test_name" >> "$MANIFEST"
+done < "$PACKAGES_FILE"
+cp -R "$WORK_DIR" "$SOURCE_DIR"
+rm -rf "$WORK_DIR" "$PACKAGES_FILE"
+
+cat > "$DEST_DIR/dyd/commands/dyd-stem-run" <<'EOF'
+#!/usr/bin/env sh
+
+set -eu
+
+SOURCE_DIR="$DYD_STEM/dyd/assets/source"
+TESTS_DIR="$DYD_STEM/dyd/assets/tests"
+MANIFEST="$DYD_STEM/dyd/assets/tests.manifest"
+
+while IFS="$(printf '\t')" read -r package test_name; do
+	case "$package" in
+		gatehouse) package_dir="$SOURCE_DIR" ;;
+		gatehouse/*) package_dir="$SOURCE_DIR/${package#gatehouse/}" ;;
+		*)
+			printf 'unexpected test package: %s\n' "$package" >&2
+			exit 1
+			;;
+	esac
+	(
+		cd "$package_dir"
+		exec "$TESTS_DIR/$test_name" "$@"
+	)
+done < "$MANIFEST"
+EOF
+chmod +x "$DEST_DIR/dyd/commands/dyd-stem-run"

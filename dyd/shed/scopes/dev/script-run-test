@@ -2,4 +2,5 @@
 
 set -eu
 
-exec dryad sprouts run --scope="$DYD_SCOPE" --join-stdout --join-stderr "$@"
+dryad roots build --scope="$DYD_SCOPE"
+exec dryad sprouts run --scope=none --include='~test=true' --include='~output=tests' --join-stdout --join-stderr "$@"
