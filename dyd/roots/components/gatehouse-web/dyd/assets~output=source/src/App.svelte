@@ -1804,14 +1804,14 @@
             {#each latestSessions as session}
               <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">No chats yet.</p>{/each}
-            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
+            {#if latestSessions.length > 0}<a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>{/if}
           </section>
           <section class="dashboard-widget dashboard-widget-wide">
             <div class="dashboard-widget-heading"><h2>Latest Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
             {#each latestProjects as project}
               <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(project.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(project) }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">No projects yet.</p>{/each}
-            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>View all projects</a>
+            {#if latestProjects.length > 0}<a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>View all projects</a>{/if}
           </section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
@@ -1879,7 +1879,7 @@
             {#each projectSessions as session}
               <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
-            <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
+            {#if projectSessions.length > 0}<a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>{/if}
           </section>
           <section class="dashboard-widget dashboard-widget-wide project-files-widget">
             <div class="dashboard-widget-heading"><h2>Project Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
