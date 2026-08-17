@@ -23,6 +23,7 @@ const (
 	StorageObject   = "obj"
 	SessionFile     = "sfi"
 	Gateway         = "gwy"
+	Project         = "prj"
 	Session         = "ses"
 	SessionEvent    = "sev"
 	ActivityEvent = "act"

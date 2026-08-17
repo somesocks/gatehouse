@@ -26,6 +26,18 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 		return fmt.Errorf("create session: ID is invalid"), model.Session{}
 	}
 	session.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
+	if session.Project != nil {
+		if session.Project.Workspace != session.Ref.Workspace {
+			return fmt.Errorf("create session: project belongs to another workspace"), model.Session{}
+		}
+		err, project := store.ProjectGet(ctx, *session.Project, grantee)
+		if err != nil {
+			return err, model.Session{}
+		}
+		if project == nil {
+			return fmt.Errorf("create session: project is unavailable"), model.Session{}
+		}
+	}
 
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -34,11 +46,15 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	defer transaction.Rollback()
 
 	placeholder := keychainPlaceholder(store.kind)
+	var project any
+	if session.Project != nil {
+		project = session.Project.Id
+	}
 	row := transaction.QueryRowContext(ctx, `
-		INSERT INTO gatehouse_sessions (workspace, id, name, author_principal, author_agent, author_gateway, enabled, created_at)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
+		INSERT INTO gatehouse_sessions (workspace, project, id, name, author_principal, author_agent, author_gateway, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`)
 		RETURNING created_at
-	`, session.Ref.Workspace.Id, session.Ref.Id, session.Name, authorPrincipal, authorAgent, authorGateway, session.Enabled, session.CreatedAt)
+	`, session.Ref.Workspace.Id, project, session.Ref.Id, session.Name, authorPrincipal, authorAgent, authorGateway, session.Enabled, session.CreatedAt)
 	if err := row.Scan(&session.CreatedAt); err != nil {
 		return fmt.Errorf("insert session: %w", err), model.Session{}
 	}
@@ -49,13 +65,17 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	if err != nil {
 		return fmt.Errorf("grant session principal: %w", err), model.Session{}
 	}
+	topics := []string{ActivityTopicSession(session.Ref)}
+	if session.Project != nil {
+		topics = append(topics, ActivityTopicProject(*session.Project))
+	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 		Ref:          model.ActivityEventRef{Workspace: session.Ref.Workspace},
 		Event:        "session.create",
 		ResourceKind: ActivityResourceKindSession,
 		Session:      &session.Ref,
 		CreatedAt:    session.CreatedAt,
-	}, []string{ActivityTopicSessions, ActivityTopicSession(session.Ref)})
+	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session creation activity: %w", err), model.Session{}
 	}
@@ -63,6 +83,121 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 		return fmt.Errorf("commit session creation: %w", err), model.Session{}
 	}
 	return nil, session
+}
+
+func (store *Store) SessionProjectSet(ctx context.Context, session model.SessionRef, project *model.ProjectRef, principal model.PrincipalRef) (error, *model.Session) {
+	err, stored := store.SessionGet(ctx, session, principal)
+	if err != nil {
+		return err, nil
+	}
+	if stored == nil {
+		return nil, nil
+	}
+	if project != nil {
+		if project.Workspace != session.Workspace {
+			return fmt.Errorf("set session project: project belongs to another workspace"), nil
+		}
+		err, available := store.ProjectGet(ctx, *project, principal)
+		if err != nil {
+			return err, nil
+		}
+		if available == nil {
+			return fmt.Errorf("set session project: project is unavailable"), nil
+		}
+		if err := store.sessionProjectGrantCompatible(ctx, session, *project); err != nil {
+			return err, nil
+		}
+	}
+	if stored.Project == project || stored.Project != nil && project != nil && *stored.Project == *project {
+		return nil, stored
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session project update: %w", err), nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	var value any
+	if project != nil {
+		value = project.Id
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_sessions SET project = `+placeholder(1)+`
+		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+`
+	`, value, session.Workspace.Id, session.Id); err != nil {
+		return fmt.Errorf("update session project: %w", err), nil
+	}
+	topics := []string{ActivityTopicSession(session)}
+	if stored.Project != nil {
+		topics = append(topics, ActivityTopicProject(*stored.Project))
+	}
+	if project != nil {
+		topics = append(topics, ActivityTopicProject(*project))
+	}
+	event := "session.project.unlink"
+	if stored.Project == nil && project != nil {
+		event = "session.project.link"
+	} else if stored.Project != nil && project != nil {
+		event = "session.project.move"
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Event:        event,
+		ResourceKind: ActivityResourceKindSession,
+		Session:      &session,
+	}, topics); err != nil {
+		return fmt.Errorf("append session project activity: %w", err), nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session project update: %w", err), nil
+	}
+	stored.Project = project
+	return nil, stored
+}
+
+func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session model.SessionRef, project model.ProjectRef) error {
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT principal
+		FROM gatehouse_session_principal_grants
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND enabled = TRUE
+
+		UNION
+
+		SELECT members.principal_id
+		FROM gatehouse_session_group_grants AS grants
+		JOIN gatehouse_group_members AS members
+			ON members.workspace_id = grants.workspace AND members.group_id = grants."group"
+		WHERE grants.workspace = `+placeholder(3)+` AND grants.session = `+placeholder(4)+`
+			AND grants.enabled = TRUE AND members.enabled = TRUE
+	`, session.Workspace.Id, session.Id, session.Workspace.Id, session.Id)
+	if err != nil {
+		return fmt.Errorf("get session grantees: %w", err)
+	}
+	grantees := []model.PrincipalRef{}
+	for rows.Next() {
+		var principal model.PrincipalRef
+		if err := rows.Scan(&principal.Id); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan session grantee: %w", err)
+		}
+		grantees = append(grantees, principal)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate session grantees: %w", err)
+	}
+	rows.Close()
+	for _, grantee := range grantees {
+		err, available := store.ProjectGet(ctx, project, grantee)
+		if err != nil {
+			return err
+		}
+		if available == nil {
+			return fmt.Errorf("set session project: destination does not grant %q", grantee.Id)
+		}
+	}
+	return nil
 }
 
 func (store *Store) SessionGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, *model.Session) {
@@ -76,6 +211,25 @@ func (store *Store) SessionGet(ctx context.Context, session model.SessionRef, pr
 		}
 	}
 	return nil, nil
+}
+
+func (store *Store) SessionProjectGet(ctx context.Context, session model.SessionRef) (error, *model.ProjectRef) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT project FROM gatehouse_sessions
+		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
+	`, session.Workspace.Id, session.Id)
+	var project sql.NullString
+	if err := row.Scan(&project); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get session project: %w", err), nil
+	}
+	if !project.Valid {
+		return nil, nil
+	}
+	return nil, &model.ProjectRef{Workspace: session.Workspace, Id: project.String}
 }
 
 func sessionAuthorValues(session model.Session) (any, any, any, error) {
@@ -190,6 +344,17 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
 	}
 	session := event.Ref.Session
+	var projectID sql.NullString
+	if err := transaction.QueryRow(ctx, `
+		SELECT project FROM gatehouse_sessions
+		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
+	`, session.Workspace.Id, session.Id).Scan(&projectID); err != nil {
+		return fmt.Errorf("get session project: %w", err), model.SessionEvent{}
+	}
+	topics := []string{ActivityTopicSession(session)}
+	if projectID.Valid {
+		topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: projectID.String}))
+	}
 	err, _ = store.ActivityEventAppendInTransaction(ctx, transaction, model.ActivityEvent{
 		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
 		Event:        "session_event.create",
@@ -197,7 +362,7 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 		Session:      &session,
 		SessionEvent: &event.Ref,
 		CreatedAt:    event.CreatedAt,
-	}, []string{ActivityTopicSession(session)})
+	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session event activity: %w", err), model.SessionEvent{}
 	}
@@ -323,6 +488,17 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			return fmt.Errorf("insert session event: %w", err), nil
 		}
 		session := insert.event.Ref.Session
+		var projectID sql.NullString
+		if err := transaction.QueryRowContext(ctx, `
+			SELECT project FROM gatehouse_sessions
+			WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
+		`, session.Workspace.Id, session.Id).Scan(&projectID); err != nil {
+			return fmt.Errorf("get session project: %w", err), nil
+		}
+		topics := []string{ActivityTopicSession(session)}
+		if projectID.Valid {
+			topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: projectID.String}))
+		}
 		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 			Ref:          model.ActivityEventRef{Workspace: session.Workspace},
 			Event:        "session_event.create",
@@ -330,7 +506,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			Session:      &session,
 			SessionEvent: &insert.event.Ref,
 			CreatedAt:    insert.event.CreatedAt,
-		}, []string{ActivityTopicSession(session)})
+		}, topics)
 		if err != nil {
 			return fmt.Errorf("append session event activity: %w", err), nil
 		}
@@ -721,10 +897,11 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 		UPDATE gatehouse_sessions
 		SET name = `+placeholder(1)+`
 		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+` AND name IS NULL
-		RETURNING id
+		RETURNING id, project
 	`, name, session.Workspace.Id, session.Id)
 	var updated string
-	if err := row.Scan(&updated); err != nil {
+	var project sql.NullString
+	if err := row.Scan(&updated, &project); err != nil {
 		if err == sql.ErrNoRows {
 			if err := transaction.Commit(); err != nil {
 				return fmt.Errorf("commit unchanged session name: %w", err), false
@@ -733,12 +910,16 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 		}
 		return fmt.Errorf("update session name: %w", err), false
 	}
+	topics := []string{ActivityTopicSession(session)}
+	if project.Valid {
+		topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: project.String}))
+	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
 		Event:        "session.update",
 		ResourceKind: ActivityResourceKindSession,
 		Session:      &session,
-	}, []string{ActivityTopicSessions, ActivityTopicSession(session)})
+	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session name activity: %w", err), false
 	}
@@ -922,6 +1103,7 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 	rows, err := store.QueryContext(ctx, `
 		SELECT
 			sessions.workspace,
+			sessions.project,
 			sessions.id,
 			sessions.name,
 			sessions.author_principal,
@@ -976,9 +1158,10 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 	sessions := []model.Session{}
 	for rows.Next() {
 		var session model.Session
-		var name, authorPrincipal, authorAgent, authorGateway sql.NullString
+		var project, name, authorPrincipal, authorAgent, authorGateway sql.NullString
 		if err := rows.Scan(
 			&session.Ref.Workspace.Id,
+			&project,
 			&session.Ref.Id,
 			&name,
 			&authorPrincipal,
@@ -992,6 +1175,9 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 		if name.Valid {
 			session.Name = &name.String
 		}
+		if project.Valid {
+			session.Project = &model.ProjectRef{Workspace: session.Ref.Workspace, Id: project.String}
+		}
 		authorPrincipalRef, authorAgentRef, authorGatewayRef, err := sessionAuthorsFromValues(session.Ref.Workspace, authorPrincipal, authorAgent, authorGateway)
 		if err != nil {
 			return err, nil
@@ -1004,5 +1190,21 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate sessions: %w", err), nil
 	}
-	return nil, sessions
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close sessions: %w", err), nil
+	}
+	visible := make([]model.Session, 0, len(sessions))
+	for _, session := range sessions {
+		if session.Project != nil {
+			err, available := store.ProjectGet(ctx, *session.Project, principal)
+			if err != nil {
+				return err, nil
+			}
+			if available == nil {
+				continue
+			}
+		}
+		visible = append(visible, session)
+	}
+	return nil, visible
 }

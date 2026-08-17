@@ -367,15 +367,9 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		}
 		return advanced
 	}
-	initial := check(bob, []database.ActivityTopicCheckpoint{
-		{Topic: database.ActivityTopicSessions},
-		{Topic: database.ActivityTopicSession(shared)},
-	})
-	if len(initial) != 2 || initial[0].ID == "" || initial[1].ID == "" {
-		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, want advanced checkpoints", initial)
-	}
-	if initial[0] == initial[1] {
-		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, topics should advance independently", initial)
+	initial := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared)}})
+	if len(initial) != 1 || initial[0].ID == "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, want an advanced checkpoint", initial)
 	}
 	if repeated := check(bob, initial); !reflect.DeepEqual(repeated, initial) {
 		t.Fatalf("ActivityTopicCheckpointsGet() with current checkpoints = %#v, want %#v", repeated, initial)
@@ -383,7 +377,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private)}}); checkpoints[0].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for private session = %#v, want no cursor", checkpoints)
 	}
-	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSessions}, {Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].ID != "" || checkpoints[1].ID != "" {
+	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
 	}
 	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
@@ -391,8 +385,8 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		t.Fatal(err)
 	}
 	advanced := check(bob, initial)
-	if advanced[0] != initial[0] || advanced[1].ID == initial[1].ID {
-		t.Fatalf("ActivityTopicCheckpointsGet() after session event = %#v, want only session topic to advance from %#v", advanced, initial)
+	if advanced[0].ID == initial[0].ID {
+		t.Fatalf("ActivityTopicCheckpointsGet() after session event = %#v, want an advanced checkpoint from %#v", advanced, initial)
 	}
 
 	var activityID, createdAt string

@@ -354,6 +354,67 @@ let GroupMember =
         , description = Some "A principal assigned to a workspace-local authorization group."
         }
 
+let ProjectRef =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { workspace =
+                  s.reference.from
+                    s.reference.props::{ to = "WorkspaceRef" }
+                    s.reference.meta::{ description = Some "owning workspace identity" }
+              , id =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "durable typed project identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectRef", description = Some "The stable identity of a workspace project." }
+
+let Project =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { ref = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "project identity" }
+              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project is enabled" }
+              , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project creation timestamp" }
+              }
+        , optional =
+            toMap
+              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project display name" }
+              , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project description" }
+              }
+        }
+        s.record.meta::{ name = Some "Project", description = Some "A collaboration container within a workspace." }
+
+let ProjectPrincipalGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "granted project identity" }
+              , principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "granted principal identity" }
+              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project grant is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectPrincipalGrant", description = Some "A principal granted access to a project." }
+
+let ProjectGroupGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "granted project identity" }
+              , group = s.reference.from s.reference.props::{ to = "GroupRef" } s.reference.meta::{ description = Some "granted group identity" }
+              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project grant is enabled" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectGroupGrant", description = Some "A group granted access to a project." }
+
 let SessionRef =
       s.record.from
         s.record.props::{
@@ -395,7 +456,7 @@ let Session =
               }
         , optional =
             toMap
-              { name =
+               { name =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "AI-generated session title" }
@@ -411,7 +472,11 @@ let Session =
                   s.reference.from
                     s.reference.props::{ to = "GatewayRef" }
                     s.reference.meta::{ description = Some "gateway session author" }
-              }
+               , project =
+                   s.reference.from
+                     s.reference.props::{ to = "ProjectRef" }
+                     s.reference.meta::{ description = Some "optional project association" }
+               }
         }
         s.record.meta::{
         , name = Some "Session"
@@ -478,7 +543,7 @@ let SessionEventRef =
         s.record.props::{
         , required =
             toMap
-              { session =
+               { session =
                   s.reference.from
                     s.reference.props::{ to = "SessionRef" }
                     s.reference.meta::{ description = Some "owning session identity" }
@@ -589,7 +654,11 @@ let ActivityEvent =
                   s.reference.from
                     s.reference.props::{ to = "SessionEventRef" }
                     s.reference.meta::{ description = Some "session event activity subject" }
-              }
+               , project =
+                   s.reference.from
+                     s.reference.props::{ to = "ProjectRef" }
+                     s.reference.meta::{ description = Some "project activity subject" }
+               }
         }
         s.record.meta::{ name = Some "ActivityEvent", description = Some "A durable workspace activity event with a typed resource subject." }
 
@@ -874,8 +943,12 @@ in  Document::{
           , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
            , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
            , s.root.from Group s.root.meta::{ name = "Group" }
-         , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
-           , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
+          , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
+          , s.root.from ProjectRef s.root.meta::{ name = "ProjectRef" }
+          , s.root.from Project s.root.meta::{ name = "Project" }
+          , s.root.from ProjectPrincipalGrant s.root.meta::{ name = "ProjectPrincipalGrant" }
+          , s.root.from ProjectGroupGrant s.root.meta::{ name = "ProjectGroupGrant" }
+            , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
            , s.root.from Session s.root.meta::{ name = "Session" }
            , s.root.from StorageObjectRef s.root.meta::{ name = "StorageObjectRef" }
            , s.root.from StorageObject s.root.meta::{ name = "StorageObject" }

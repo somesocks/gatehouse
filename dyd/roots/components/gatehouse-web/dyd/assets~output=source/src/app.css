@@ -208,6 +208,87 @@ body {
   border-color: #b9db6f;
 }
 
+.dashboard-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  padding: 1.5rem;
+}
+
+.dashboard-widget {
+  background: #171910;
+  border: 1px solid #3f4538;
+  border-radius: 0.75rem;
+  display: grid;
+  gap: 0.6rem;
+  padding: 1.1rem;
+}
+
+.dashboard-widget-wide { grid-column: span 6; }
+.dashboard-widget-full { grid-column: 1 / -1; }
+
+.dashboard-widget-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.dashboard-widget-heading h2 { font-size: 1.15rem; margin: 0; }
+.dashboard-widget-heading .eyebrow { margin: 0 0 0.15rem; }
+
+.dashboard-row {
+  align-items: center;
+  background: #20241a;
+  border: 0;
+  border-radius: 0.4rem;
+  color: #f4f4ee;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+}
+
+.dashboard-row:hover,
+.dashboard-row:focus-visible { background: #2c3323; }
+.dashboard-row small { color: #9ea494; }
+.dashboard-empty { color: #9ea494; margin: 0; }
+.dashboard-error { grid-column: 1 / -1; }
+
+.collection-page {
+  display: grid;
+  gap: 1rem;
+  max-width: 58rem;
+  padding: 1.5rem;
+}
+
+.collection-heading {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.collection-heading h2 {
+  font-size: 1.4rem;
+  margin: 0;
+}
+
+.collection-search {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.collection-search span {
+  color: #9ea494;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.collection-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .sidebar-nav {
   display: grid;
   gap: 2rem;
@@ -299,6 +380,17 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workspace-breadcrumb a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.workspace-breadcrumb a:hover,
+.workspace-breadcrumb a:focus-visible {
+  color: #b9db6f;
+  text-decoration: underline;
 }
 
 .workspace-breadcrumb-separator {
@@ -818,6 +910,10 @@ body {
 }
 
 @media (max-width: 700px) {
+  .dashboard-grid { grid-template-columns: 1fr; padding: 1rem; }
+  .dashboard-widget-wide,
+  .dashboard-widget-full { grid-column: 1; }
+
   .app-shell {
     display: block;
     height: 100svh;

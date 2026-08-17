@@ -25,6 +25,13 @@
   type Session = {
     id: string
     name?: string
+    project?: string
+  }
+
+  type Project = {
+    id: string
+    name?: string
+    description?: string
   }
 
   type ActivityCursor = NonNullable<ActivityTopicCheckpoint["cursor"]>
@@ -83,10 +90,13 @@
   let workspaces = $state<Workspace[]>([])
   let activeWorkspace = $state<Workspace | null>(null)
   let groups = $state<Group[]>([])
+  let projects = $state<Project[]>([])
   let agents = $state<WorkspaceAgent[]>([])
   let selectedAgent = $state("")
   let sessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
+  let activeProject = $state<Project | null>(null)
+  let creatingProject = $state(false)
   let events = $state<SessionEventTree[]>([])
   let eventStatus = $state<WorkspaceContentStatus>("checking")
   let messageText = $state("")
@@ -103,8 +113,13 @@
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let activityPollTimer: ReturnType<typeof setTimeout> | undefined
   let activityPollGeneration = 0
-  let sessionsCursor: ActivityCursor | null = null
   let activeSessionCursor: ActivityCursor | null = null
+  let activeProjectCursor: ActivityCursor | null = null
+  let workspaceSessionsCursor: ActivityCursor | null = null
+  let workspaceProjectsCursor: ActivityCursor | null = null
+  let chatSearch = $state("")
+  let projectSearch = $state("")
+  let groupSearch = $state("")
 
   onMount(() => {
     currentPath = window.location.pathname
@@ -142,7 +157,7 @@
   }
 
   function workspaceIDFromPath(path: string) {
-    const match = /^\/app\/w\/([^/]+)(?:\/|$)/.exec(path)
+    const match = /^\/app\/wsp\/([^/]+)(?:\/|$)/.exec(path)
     if (match === null) {
       return null
     }
@@ -154,7 +169,7 @@
   }
 
   function sessionIDFromPath(path: string) {
-    const match = /^\/app\/w\/[^/]+\/s\/([^/]+)(?:\/|$)/.exec(path)
+    const match = /^\/app\/wsp\/[^/]+\/ses\/([^/]+)(?:\/|$)/.exec(path)
     if (match === null) {
       return null
     }
@@ -163,6 +178,71 @@
     } catch {
       return null
     }
+  }
+
+  function projectIDFromPath(path: string) {
+    const match = /^\/app\/wsp\/[^/]+\/prj\/([^/]+)(?:\/|$)/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
+  function workspacePath(workspace: Workspace) {
+    return `/app/wsp/${encodeURIComponent(workspace.id)}`
+  }
+
+  function sessionsPath(workspace: Workspace) {
+    return `${workspacePath(workspace)}/ses`
+  }
+
+  function projectsPath(workspace: Workspace) {
+    return `${workspacePath(workspace)}/prj`
+  }
+
+  function groupsPath(workspace: Workspace) {
+    return `${workspacePath(workspace)}/grp`
+  }
+
+  function isCollectionPath(collection: "ses" | "prj" | "grp") {
+    return new RegExp(`^/app/wsp/[^/]+/${collection}/?$`).test(currentPath)
+  }
+
+  function isChatCollection() {
+    return isCollectionPath("ses")
+  }
+
+  function isProjectCollection() {
+    return isCollectionPath("prj")
+  }
+
+  function isGroupCollection() {
+    return isCollectionPath("grp")
+  }
+
+  async function selectWorkspaceRoute(path: string) {
+    if (activeWorkspace === null) {
+      return
+    }
+    navigate(path)
+    await selectWorkspace(activeWorkspace, true)
+  }
+
+  function ordered<T extends { id: string }>(items: T[]) {
+    return [...items].sort((left, right) => right.id.localeCompare(left.id))
+  }
+
+  function latest<T extends { id: string }>(items: T[]) {
+    return ordered(items).slice(0, 5)
+  }
+
+  function matchesSearch(item: { id: string; name?: string }, search: string) {
+    const query = search.trim().toLocaleLowerCase()
+    return query === "" || item.id.toLocaleLowerCase().includes(query) || item.name?.toLocaleLowerCase().includes(query) === true
   }
 
   function navigate(path: string, replace = true) {
@@ -181,10 +261,12 @@
     workspaces = []
     activeWorkspace = null
     groups = []
+	projects = []
     agents = []
     selectedAgent = ""
     sessions = []
     activeSession = null
+    activeProject = null
     events = []
     showJumpToLatest = false
     status = "anonymous"
@@ -229,6 +311,7 @@
       if (workspaces.length === 0) {
         activeWorkspace = null
         groups = []
+	projects = []
         sessions = []
         workspaceStatus = "empty"
         navigate("/app/no-access")
@@ -252,30 +335,34 @@
     stopActivityPolling(true)
     activeWorkspace = workspace
     groups = []
+	projects = []
     agents = []
     selectedAgent = ""
     sessions = []
     activeSession = null
+    activeProject = null
     events = []
     showJumpToLatest = false
     workspaceContentStatus = "checking"
     if (workspaceIDFromPath(currentPath) !== workspace.id) {
-      navigate(`/app/w/${encodeURIComponent(workspace.id)}`, replace)
+      navigate(workspacePath(workspace), replace)
     }
     try {
-      const [groupsResponse, sessionsResponse, agentsResponse] = await Promise.all([
+      const [groupsResponse, projectsResponse, sessionsResponse, agentsResponse] = await Promise.all([
         fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/groups`, { credentials: "same-origin" }),
+        fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects`, { credentials: "same-origin" }),
         fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions`, { credentials: "same-origin" }),
         fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/agents`, { credentials: "same-origin" }),
       ])
-      if (groupsResponse.status === 401 || sessionsResponse.status === 401 || agentsResponse.status === 401) {
+      if (groupsResponse.status === 401 || projectsResponse.status === 401 || sessionsResponse.status === 401 || agentsResponse.status === 401) {
         signInRequired()
         return
       }
-      if (!groupsResponse.ok || !sessionsResponse.ok || !agentsResponse.ok) {
+      if (!groupsResponse.ok || !projectsResponse.ok || !sessionsResponse.ok || !agentsResponse.ok) {
         throw new Error("workspace data could not be loaded")
       }
       groups = (await groupsResponse.json()) as Group[]
+	  projects = (await projectsResponse.json()) as Project[]
       sessions = (await sessionsResponse.json()) as Session[]
       agents = (await agentsResponse.json()) as WorkspaceAgent[]
       workspaceContentStatus = "ready"
@@ -284,6 +371,8 @@
       if (session !== undefined) {
         await selectSession(session, true)
       } else {
+        const projectID = projectIDFromPath(currentPath)
+        activeProject = projects.find((candidate) => candidate.id === projectID) ?? null
         startActivityPolling()
       }
     } catch {
@@ -299,14 +388,27 @@
     stopActivityPolling(false)
     activeSessionCursor = null
     activeSession = session
+    activeProject = session.project === undefined ? null : projects.find((project) => project.id === session.project) ?? null
     events = []
     showJumpToLatest = false
     eventStatus = "checking"
     messageError = ""
     if (sessionIDFromPath(currentPath) !== session.id) {
-      navigate(`/app/w/${encodeURIComponent(activeWorkspace.id)}/s/${encodeURIComponent(session.id)}`, replace)
+      navigate(`${sessionsPath(activeWorkspace)}/${encodeURIComponent(session.id)}`, replace)
     }
     await loadSessionEvents(session)
+    startActivityPolling()
+  }
+
+  function selectProject(project: Project, replace = false) {
+    if (activeWorkspace === null) {
+      return
+    }
+    mobileMenuOpen = false
+    activeSession = null
+    activeProject = project
+    events = []
+    navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(project.id)}`, replace)
     startActivityPolling()
   }
 
@@ -362,8 +464,10 @@
       activityPollTimer = undefined
     }
     if (clearCursors) {
-      sessionsCursor = null
       activeSessionCursor = null
+      activeProjectCursor = null
+      workspaceSessionsCursor = null
+      workspaceProjectsCursor = null
     }
     awaitingReplyFor = []
   }
@@ -388,8 +492,28 @@
     return true
   }
 
+  async function refreshWorkspaceProjects(workspace: Workspace, generation: number) {
+    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects`, { credentials: "same-origin" })
+    if (response.status === 401) {
+      signInRequired()
+      return false
+    }
+    if (!response.ok) {
+      throw new Error("projects could not be refreshed")
+    }
+    const loaded = (await response.json()) as Project[]
+    if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
+      return false
+    }
+    projects = loaded
+    if (activeProject !== null) {
+      activeProject = loaded.find((project) => project.id === activeProject?.id) ?? activeProject
+    }
+    return true
+  }
+
   function sameActivityCursor(left: ActivityCursor | null, right: ActivityCursor | null) {
-    return left?.created_at === right?.created_at && left?.id === right?.id
+    return left?.id === right?.id
   }
 
   function startActivityPolling() {
@@ -404,8 +528,20 @@
       }
       try {
         const session = activeSession
-        const sessionTopic = session === null ? undefined : `session/${session.id}`
-        const topics = [{ topic: "sessions", cursor: sessionsCursor }, ...(sessionTopic === undefined ? [] : [{ topic: sessionTopic, cursor: activeSessionCursor }])]
+        const overview = session === null && activeProject === null
+        const sessionTopic = session === null ? (overview ? "session/*" : undefined) : `session/${session.id}`
+        const projectID = session?.project ?? activeProject?.id
+        const projectTopic = projectID === undefined ? (overview ? "project/*" : undefined) : `project/${projectID}`
+        if (sessionTopic === undefined && projectTopic === undefined) {
+          return
+        }
+        const topics: { topic: string; cursor: ActivityCursor | null }[] = []
+        if (sessionTopic !== undefined) {
+          topics.push({ topic: sessionTopic, cursor: session === null ? workspaceSessionsCursor : activeSessionCursor })
+        }
+        if (projectTopic !== undefined) {
+          topics.push({ topic: projectTopic, cursor: projectID === undefined ? workspaceProjectsCursor : activeProjectCursor })
+        }
         const input: ActivityTopicCheckpoints = {
           topics,
         }
@@ -427,25 +563,35 @@
           return
         }
         const returned = new Map(output.topics.map((checkpoint) => [checkpoint.topic, checkpoint.cursor ?? null]))
-        const nextSessionsCursor = returned.get("sessions") ?? null
-        const sessionsChanged = !sameActivityCursor(sessionsCursor, nextSessionsCursor)
         const nextSessionCursor = sessionTopic === undefined ? null : returned.get(sessionTopic) ?? null
-        const sessionChanged = sessionTopic !== undefined && !sameActivityCursor(activeSessionCursor, nextSessionCursor)
-        const sessionsRefreshed = !sessionsChanged || await refreshWorkspaceSessions(workspace, generation)
-        let sessionRefreshed = !sessionChanged
-        if (session !== null && sessionTopic !== undefined && sessionChanged) {
-          if (activeSession?.id === session.id && await loadSessionEvents(session, false)) {
-            sessionRefreshed = true
-          }
+        const nextProjectCursor = projectTopic === undefined ? null : returned.get(projectTopic) ?? null
+        const sessionCursor = session === null ? workspaceSessionsCursor : activeSessionCursor
+        const projectCursor = projectID === undefined ? workspaceProjectsCursor : activeProjectCursor
+        const sessionChanged = sessionTopic !== undefined && !sameActivityCursor(sessionCursor, nextSessionCursor)
+        const projectChanged = projectTopic !== undefined && !sameActivityCursor(projectCursor, nextProjectCursor)
+        const refreshed = !sessionChanged && !projectChanged || (await Promise.all([
+          refreshWorkspaceSessions(workspace, generation),
+          ...(projectChanged ? [refreshWorkspaceProjects(workspace, generation)] : []),
+        ])).every(Boolean)
+        if (refreshed && session !== null && (sessionChanged || projectChanged) && activeSession?.id === session.id) {
+          await loadSessionEvents(session, false)
         }
         if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
           return
         }
-        if (sessionsChanged && sessionsRefreshed) {
-          sessionsCursor = nextSessionsCursor
+        if (refreshed && sessionChanged) {
+          if (session === null) {
+            workspaceSessionsCursor = nextSessionCursor
+          } else {
+            activeSessionCursor = nextSessionCursor
+          }
         }
-        if (sessionChanged && sessionRefreshed) {
-          activeSessionCursor = nextSessionCursor
+        if (refreshed && projectChanged) {
+          if (projectID === undefined) {
+            workspaceProjectsCursor = nextProjectCursor
+          } else {
+            activeProjectCursor = nextProjectCursor
+          }
         }
       } catch {
         // Keep checkpoints unchanged so a transient failure retries the same invalidation.
@@ -621,7 +767,7 @@
     }
   }
 
-  async function createSession() {
+  async function createSession(project?: Project) {
     if (activeWorkspace === null) {
       return
     }
@@ -631,6 +777,8 @@
       const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions`, {
         method: "POST",
         credentials: "same-origin",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(project === undefined ? {} : { project: project.id }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -644,6 +792,36 @@
       await selectSession(session)
     } catch {
       messageError = "A new chat could not be created. Try again."
+    }
+  }
+
+  async function createProject() {
+    if (activeWorkspace === null) {
+      return
+    }
+    creatingProject = true
+    messageError = ""
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/projects`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("project could not be created")
+      }
+      const project = (await response.json()) as Project
+      projects = [project, ...projects]
+      selectProject(project)
+    } catch {
+      messageError = "A new project could not be created. Try again."
+    } finally {
+      creatingProject = false
     }
   }
 
@@ -879,43 +1057,11 @@
 
       <nav class="sidebar-nav" aria-label="Workspace navigation">
         <section class="sidebar-section">
-          <div class="sidebar-section-heading">
-            <h2>Chats</h2>
-            <button class="new-chat" type="button" onclick={() => void createSession()}>New</button>
-          </div>
-          {#if workspaceContentStatus === "checking"}
-            <p class="sidebar-empty">Loading chats...</p>
-          {:else if workspaceContentStatus === "unavailable"}
-            <p class="sidebar-empty">Chats unavailable.</p>
-          {:else if sessions.length === 0}
-            <p class="sidebar-empty">No chats yet.</p>
-          {:else}
-            <ul>
-              {#each sessions as session}
-                <li><a class:active={activeSession?.id === session.id} href={`/app/w/${encodeURIComponent(activeWorkspace?.id ?? "")}/s/${encodeURIComponent(session.id)}`} onclick={(event) => {
-                  event.preventDefault()
-                  void selectSession(session)
-                }}>{session.name ?? "New Chat"}</a></li>
-              {/each}
-            </ul>
-          {/if}
-        </section>
-
-        <section class="sidebar-section">
-          <h2>Groups</h2>
-          {#if workspaceContentStatus === "checking"}
-            <p class="sidebar-empty">Loading groups...</p>
-          {:else if workspaceContentStatus === "unavailable"}
-            <p class="sidebar-empty">Groups unavailable.</p>
-          {:else if groups.length === 0}
-            <p class="sidebar-empty">No groups yet.</p>
-          {:else}
-            <ul>
-              {#each groups as group}
-                <li>{group.name ?? group.id}</li>
-              {/each}
-            </ul>
-          {/if}
+          <ul>
+            <li><a class:active={isChatCollection() || activeSession !== null} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>Chats</a></li>
+            <li><a class:active={isProjectCollection() || activeProject !== null && activeSession === null} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>Projects</a></li>
+            <li><a class:active={isGroupCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/grp`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(groupsPath(activeWorkspace)) } }}>Groups</a></li>
+          </ul>
         </section>
       </nav>
 
@@ -931,22 +1077,88 @@
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
           </button>
           <h1 class="workspace-breadcrumb">
-            <span>{activeWorkspace?.name ?? "New Workspace"}</span>
+            <a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(workspacePath(activeWorkspace)) } }}>{activeWorkspace?.name ?? "New Workspace"}</a>
+            {#if isChatCollection()}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>Chats</span>
+            {:else if isProjectCollection()}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>Projects</span>
+            {:else if isGroupCollection()}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>Groups</span>
+            {:else if activeProject !== null}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              {#if activeSession === null}
+                <span>{activeProject.name ?? "New Project"}</span>
+              {:else}
+                <a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(activeProject.id)}`} onclick={(event) => { event.preventDefault(); selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
+              {/if}
+            {/if}
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeSession.name ?? "New Chat"}</span>
             {/if}
           </h1>
       </header>
-      {#if activeSession === null}
-        <section class="workspace-empty">
-          <p class="eyebrow">Chats</p>
-          <h2 class="title is-3">Start a new conversation.</h2>
-          <p class="subtitle is-6">Create a chat to send the first message.</p>
-          <button class="button is-primary" type="button" onclick={() => void createSession()}>New chat</button>
-          {#if messageError !== ""}
-            <p class="help is-danger" aria-live="polite">{messageError}</p>
-          {/if}
+      {#if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
+        <section class="dashboard-grid">
+          <section class="dashboard-widget dashboard-widget-wide">
+            <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
+            {#each latest(sessions) as session}
+              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+            {:else}<p class="dashboard-empty">No chats yet.</p>{/each}
+            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</button>
+          </section>
+          <section class="dashboard-widget dashboard-widget-wide">
+            <div class="dashboard-widget-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
+            {#each latest(projects) as project}
+              <button class="dashboard-row" type="button" onclick={() => selectProject(project)}><span>{project.name ?? "New Project"}</span><small>{project.id}</small></button>
+            {:else}<p class="dashboard-empty">No projects yet.</p>{/each}
+            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(projectsPath(activeWorkspace)) } }}>View all projects</button>
+          </section>
+          {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
+        </section>
+      {:else if isChatCollection()}
+        <section class="collection-page">
+          <div class="collection-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
+          <label class="collection-search"><span>Search chats</span><input class="input" type="search" placeholder="Search chats" bind:value={chatSearch} /></label>
+          <div class="collection-list">
+            {#each ordered(sessions.filter((session) => matchesSearch(session, chatSearch))) as session}
+              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+            {:else}<p class="dashboard-empty">No chats match your search.</p>{/each}
+          </div>
+        </section>
+      {:else if isProjectCollection()}
+        <section class="collection-page">
+          <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
+          <label class="collection-search"><span>Search projects</span><input class="input" type="search" placeholder="Search projects" bind:value={projectSearch} /></label>
+          <div class="collection-list">
+            {#each ordered(projects.filter((project) => matchesSearch(project, projectSearch))) as project}
+              <button class="dashboard-row" type="button" onclick={() => selectProject(project)}><span>{project.name ?? "New Project"}</span><small>{project.id}</small></button>
+            {:else}<p class="dashboard-empty">No projects match your search.</p>{/each}
+          </div>
+        </section>
+      {:else if isGroupCollection()}
+        <section class="collection-page">
+          <div class="collection-heading"><h2>Groups</h2></div>
+          <label class="collection-search"><span>Search groups</span><input class="input" type="search" placeholder="Search groups" bind:value={groupSearch} /></label>
+          <div class="collection-list">
+            {#each ordered(groups.filter((group) => matchesSearch(group, groupSearch))) as group}
+              <div class="dashboard-row"><span>{group.name ?? "New Group"}</span><small>{group.id}</small></div>
+            {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
+          </div>
+        </section>
+      {:else if activeSession === null}
+        <section class="dashboard-grid">
+          <section class="dashboard-widget dashboard-widget-full">
+            <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession(activeProject ?? undefined)}>New chat</button></div>
+            {#each latest(sessions.filter((session) => session.project === activeProject?.id)) as session}
+              <button class="dashboard-row" type="button" onclick={() => void selectSession(session)}><span>{session.name ?? "New Chat"}</span><small>{session.id}</small></button>
+            {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
+            <button class="button is-small" type="button" onclick={() => { if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</button>
+          </section>
+          {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
       {:else}
         <section class="chat-pane">

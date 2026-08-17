@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"path"
 	"strings"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
@@ -13,15 +14,18 @@ import (
 )
 
 const (
+	ActivityResourceKindProject      = "project"
 	ActivityResourceKindSession      = "session"
 	ActivityResourceKindSessionEvent = "session_event"
-
-	ActivityTopicSessions = "sessions"
 )
 
 type ActivityTopicCheckpoint struct {
 	Topic string
 	ID    string
+}
+
+func ActivityTopicProject(project model.ProjectRef) string {
+	return "project/" + project.Id
 }
 
 func ActivityTopicSession(session model.SessionRef) string {
@@ -50,7 +54,10 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 	activity.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 
 	placeholder := keychainPlaceholder(store.kind)
-	var session, sessionEvent any
+	var project, session, sessionEvent any
+	if activity.Project != nil {
+		project = activity.Project.Id
+	}
 	if activity.Session != nil {
 		session = activity.Session.Id
 	}
@@ -59,21 +66,20 @@ func (store *Store) ActivityEventAppend(ctx context.Context, transaction *sql.Tx
 	}
 	row := transaction.QueryRowContext(ctx, `
 		INSERT INTO gatehouse_activity_events (
-			workspace, id, event, resource_kind, session, session_event, created_at
+			workspace, id, event, resource_kind, project, session, session_event, created_at
 		) VALUES (
-			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`
+			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`
 		)
 		RETURNING created_at
-	`, activity.Ref.Workspace.Id, activity.Ref.Id, activity.Event, activity.ResourceKind, session, sessionEvent, activity.CreatedAt)
+	`, activity.Ref.Workspace.Id, activity.Ref.Id, activity.Event, activity.ResourceKind, project, session, sessionEvent, activity.CreatedAt)
 	if err := row.Scan(&activity.CreatedAt); err != nil {
 		return fmt.Errorf("insert activity event: %w", err), model.ActivityEvent{}
 	}
 	for _, topic := range topics {
-		_, err := transaction.ExecContext(ctx, `
+		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
 			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
-		`, activity.Ref.Workspace.Id, activity.Ref.Id, topic, activity.CreatedAt)
-		if err != nil {
+		`, activity.Ref.Workspace.Id, activity.Ref.Id, topic, activity.CreatedAt); err != nil {
 			return fmt.Errorf("insert activity event topic: %w", err), model.ActivityEvent{}
 		}
 	}
@@ -102,7 +108,10 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 	activity.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 
 	placeholder := keychainPlaceholder(store.kind)
-	var session, sessionEvent any
+	var project, session, sessionEvent any
+	if activity.Project != nil {
+		project = activity.Project.Id
+	}
 	if activity.Session != nil {
 		session = activity.Session.Id
 	}
@@ -111,12 +120,12 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 	}
 	row := transaction.QueryRow(ctx, `
 		INSERT INTO gatehouse_activity_events (
-			workspace, id, event, resource_kind, session, session_event, created_at
+			workspace, id, event, resource_kind, project, session, session_event, created_at
 		) VALUES (
-			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`
+			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`
 		)
 		RETURNING created_at
-	`, activity.Ref.Workspace.Id, activity.Ref.Id, activity.Event, activity.ResourceKind, session, sessionEvent, activity.CreatedAt)
+	`, activity.Ref.Workspace.Id, activity.Ref.Id, activity.Event, activity.ResourceKind, project, session, sessionEvent, activity.CreatedAt)
 	if err := row.Scan(&activity.CreatedAt); err != nil {
 		return fmt.Errorf("insert activity event: %w", err), model.ActivityEvent{}
 	}
@@ -148,8 +157,11 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 		}
 		seenTopics[topic] = struct{}{}
 	}
-
 	switch activity.ResourceKind {
+	case ActivityResourceKindProject:
+		if activity.Project == nil || activity.Session != nil || activity.SessionEvent != nil {
+			return fmt.Errorf("append activity event: project subject requires only a project")
+		}
 	case ActivityResourceKindSession:
 		if activity.Session == nil || activity.SessionEvent != nil {
 			return fmt.Errorf("append activity event: session subject requires only a session")
@@ -161,7 +173,10 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 	default:
 		return fmt.Errorf("append activity event: unsupported resource kind %q", activity.ResourceKind)
 	}
-	if activity.Session.Workspace != activity.Ref.Workspace || strings.TrimSpace(activity.Session.Id) == "" {
+	if activity.Project != nil && (activity.Project.Workspace != activity.Ref.Workspace || strings.TrimSpace(activity.Project.Id) == "") {
+		return fmt.Errorf("append activity event: project subject belongs to another workspace or has no ID")
+	}
+	if activity.Session != nil && (activity.Session.Workspace != activity.Ref.Workspace || strings.TrimSpace(activity.Session.Id) == "") {
 		return fmt.Errorf("append activity event: session subject belongs to another workspace or has no ID")
 	}
 	if activity.SessionEvent != nil && strings.TrimSpace(activity.SessionEvent.Id) == "" {
@@ -194,65 +209,75 @@ func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace m
 	placeholder := keychainPlaceholder(store.kind)
 	advanced := make([]ActivityTopicCheckpoint, 0, len(checkpoints))
 	for _, checkpoint := range checkpoints {
-		row := store.QueryRowContext(ctx, `
-			SELECT activities.id
+		rows, err := store.QueryContext(ctx, `
+			SELECT topics.topic, activities.id, activities.resource_kind, activities.project, activities.session
 			FROM gatehouse_activity_event_topics AS topics
 			JOIN gatehouse_activity_events AS activities
 				ON activities.workspace = topics.workspace AND activities.id = topics.activity
 			WHERE topics.workspace = `+placeholder(1)+`
-				AND topics.topic = `+placeholder(2)+`
-				AND topics.activity > `+placeholder(3)+`
-				AND EXISTS (
-					SELECT 1 FROM gatehouse_workspaces AS workspaces
-					WHERE workspaces.id = activities.workspace AND workspaces.enabled = TRUE
-				)
-				AND EXISTS (
-					SELECT 1 FROM gatehouse_principals AS principals
-					WHERE principals.id = `+placeholder(5)+` AND principals.enabled = TRUE
-				)
-				AND EXISTS (
-					SELECT 1
-					FROM gatehouse_sessions AS sessions
-					WHERE sessions.workspace = activities.workspace
-						AND sessions.id = activities.session
-						AND sessions.enabled = TRUE
-						AND (
-							EXISTS (
-								SELECT 1
-								FROM gatehouse_session_principal_grants AS grants
-								WHERE grants.workspace = sessions.workspace
-									AND grants.session = sessions.id
-									AND grants.principal = `+placeholder(6)+`
-									AND grants.enabled = TRUE
-							)
-							OR EXISTS (
-								SELECT 1
-								FROM gatehouse_session_group_grants AS grants
-								JOIN gatehouse_groups AS groups
-									ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
-								JOIN gatehouse_group_members AS members
-									ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-								WHERE grants.workspace = sessions.workspace
-									AND grants.session = sessions.id
-									AND grants.enabled = TRUE
-									AND groups.enabled = TRUE
-									AND members.principal_id = `+placeholder(7)+`
-									AND members.enabled = TRUE
-							)
-						)
-				)
+				AND topics.activity > `+placeholder(2)+`
 			ORDER BY topics.activity DESC
-			LIMIT 1
-		`, workspace.Id, checkpoint.Topic, checkpoint.ID, principal.Id, principal.Id, principal.Id)
-		next := checkpoint
-		if err := row.Scan(&next.ID); err != nil {
-			if err == sql.ErrNoRows {
-				advanced = append(advanced, next)
-				continue
-			}
+		`, workspace.Id, checkpoint.ID)
+		if err != nil {
 			return fmt.Errorf("get activity topic checkpoint: %w", err), nil
+		}
+		type candidate struct {
+			topic, id, resourceKind string
+			project, session  sql.NullString
+		}
+		candidates := []candidate{}
+		for rows.Next() {
+			var topic, id, resourceKind string
+			var project, session sql.NullString
+			if err := rows.Scan(&topic, &id, &resourceKind, &project, &session); err != nil {
+				rows.Close()
+				return fmt.Errorf("scan activity topic checkpoint: %w", err), nil
+			}
+			if activityTopicMatches(checkpoint.Topic, topic) {
+				candidates = append(candidates, candidate{id: id, resourceKind: resourceKind, project: project, session: session})
+			}
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return fmt.Errorf("iterate activity topic checkpoint: %w", err), nil
+		}
+		rows.Close()
+		next := checkpoint
+		for _, candidate := range candidates {
+			authorized, err := store.activityTopicAuthorized(ctx, workspace, principal, candidate.resourceKind, candidate.project, candidate.session)
+			if err != nil {
+				return err, nil
+			}
+			if authorized {
+				next.ID = candidate.id
+				break
+			}
 		}
 		advanced = append(advanced, next)
 	}
 	return nil, advanced
+}
+
+func activityTopicMatches(pattern, topic string) bool {
+	matched, err := path.Match(pattern, topic)
+	return err == nil && matched
+}
+
+func (store *Store) activityTopicAuthorized(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, resourceKind string, project, session sql.NullString) (bool, error) {
+	switch resourceKind {
+	case ActivityResourceKindProject:
+		if !project.Valid {
+			return false, nil
+		}
+		err, available := store.ProjectGet(ctx, model.ProjectRef{Workspace: workspace, Id: project.String}, principal)
+		return available != nil, err
+	case ActivityResourceKindSession, ActivityResourceKindSessionEvent:
+		if !session.Valid {
+			return false, nil
+		}
+		err, available := store.SessionGet(ctx, model.SessionRef{Workspace: workspace, Id: session.String}, principal)
+		return available != nil, err
+	default:
+		return false, nil
+	}
 }

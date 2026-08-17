@@ -170,6 +170,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_sessions (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				project TEXT,
 				id TEXT NOT NULL CHECK (id ~ '^ses_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
 				author_principal TEXT REFERENCES gatehouse_principals (id),
@@ -180,6 +181,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				PRIMARY KEY (workspace, id),
 				FOREIGN KEY (workspace, author_agent)
 					REFERENCES gatehouse_workspace_agents (workspace_id, model_id),
+				FOREIGN KEY (workspace, project)
+					REFERENCES gatehouse_projects (workspace, id),
 				CHECK (
 					(author_principal IS NOT NULL AND author_agent IS NULL AND author_gateway IS NULL)
 					OR (author_principal IS NULL AND author_agent IS NOT NULL AND author_gateway IS NULL)
@@ -256,7 +259,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 		`),
 		}, {
 			Index:       7,
-			Description: "create_agents",
+			Description: "create_agents_and_projects",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_agent_providers (
 				id TEXT PRIMARY KEY CHECK (id ~ '^apr_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
@@ -291,6 +294,35 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				priority BIGINT NOT NULL CHECK (priority > 0),
 				enabled BOOLEAN NOT NULL,
 				PRIMARY KEY (workspace_id, model_id)
+			);
+
+			CREATE TABLE gatehouse_projects (
+				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
+				id TEXT NOT NULL CHECK (id ~ '^prj_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
+				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
+				description TEXT CHECK (description IS NULL OR length(trim(description)) > 0),
+				enabled BOOLEAN NOT NULL,
+				created_at TIMESTAMPTZ NOT NULL,
+				PRIMARY KEY (workspace, id)
+			);
+
+			CREATE TABLE gatehouse_project_principal_grants (
+				workspace TEXT NOT NULL,
+				project TEXT NOT NULL,
+				principal TEXT NOT NULL REFERENCES gatehouse_principals (id),
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace, project, principal),
+				FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id)
+			);
+
+			CREATE TABLE gatehouse_project_group_grants (
+				workspace TEXT NOT NULL,
+				project TEXT NOT NULL,
+				"group" TEXT NOT NULL,
+				enabled BOOLEAN NOT NULL,
+				PRIMARY KEY (workspace, project, "group"),
+				FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id),
+				FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
 			);
 		`),
 		}, {
@@ -417,7 +449,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				id TEXT NOT NULL CHECK (id ~ '^act_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				event TEXT NOT NULL CHECK (length(trim(event)) > 0),
-				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('session', 'session_event')),
+				resource_kind TEXT NOT NULL CHECK (resource_kind IN ('project', 'session', 'session_event')),
+				project TEXT,
 				session TEXT,
 				session_event TEXT,
 				created_at TIMESTAMPTZ NOT NULL,
@@ -425,10 +458,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				UNIQUE (workspace, id, created_at),
 				FOREIGN KEY (workspace, session)
 					REFERENCES gatehouse_sessions (workspace, id),
+				FOREIGN KEY (workspace, project)
+					REFERENCES gatehouse_projects (workspace, id),
 				FOREIGN KEY (workspace, session, session_event)
 					REFERENCES gatehouse_session_events (workspace, session, id),
 				CHECK (
-					(resource_kind = 'session' AND session IS NOT NULL AND session_event IS NULL)
+					(resource_kind = 'project' AND project IS NOT NULL AND session IS NULL AND session_event IS NULL)
+					OR (resource_kind = 'session' AND session IS NOT NULL AND session_event IS NULL)
 					OR (resource_kind = 'session_event' AND session IS NOT NULL AND session_event IS NOT NULL)
 				)
 			);

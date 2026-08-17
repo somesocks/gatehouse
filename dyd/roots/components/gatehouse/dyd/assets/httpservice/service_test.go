@@ -54,7 +54,7 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 		t.Fatalf("GET /app/ = status %d content type %q body %q", app.Code, app.Header().Get("Content-Type"), app.Body.String())
 	}
 	route := httptest.NewRecorder()
-	handler.ServeHTTP(route, httptest.NewRequest(http.MethodGet, "/app/w/engineering/s/ses_00000000000000000000000000", nil))
+	handler.ServeHTTP(route, httptest.NewRequest(http.MethodGet, "/app/wsp/engineering/ses/ses_00000000000000000000000000", nil))
 	if route.Code != http.StatusOK || route.Body.String() != app.Body.String() {
 		t.Fatalf("GET client route = status %d body %q", route.Code, route.Body.String())
 	}
@@ -525,7 +525,6 @@ func TestActivityAPI(t *testing.T) {
 		t.Fatalf("POST activity with null cursor = (%d, %#v, %v)", empty.Code, emptyCheckpoints, err)
 	}
 	response := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
-		{Topic: "sessions"},
 		{Topic: "session/" + session.Id},
 	}})
 	if response.Code != http.StatusOK {
@@ -535,12 +534,11 @@ func TestActivityAPI(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &checkpoints); err != nil {
 		t.Fatal(err)
 	}
-	if len(checkpoints.Topics) != 2 || checkpoints.Topics[0].Cursor == nil || checkpoints.Topics[1].Cursor == nil {
-		t.Fatalf("POST activity = %#v, want two advanced topic checkpoints", checkpoints)
+	if len(checkpoints.Topics) != 1 || checkpoints.Topics[0].Cursor == nil {
+		t.Fatalf("POST activity = %#v, want an advanced topic checkpoint", checkpoints)
 	}
 	repeated := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
 		{Topic: checkpoints.Topics[0].Topic, Cursor: checkpoints.Topics[0].Cursor},
-		{Topic: checkpoints.Topics[1].Topic, Cursor: checkpoints.Topics[1].Cursor},
 	}})
 	var repeatedCheckpoints model.ActivityTopicCheckpoints
 	if err := json.Unmarshal(repeated.Body.Bytes(), &repeatedCheckpoints); err != nil || repeated.Code != http.StatusOK || !reflect.DeepEqual(repeatedCheckpoints, checkpoints) {

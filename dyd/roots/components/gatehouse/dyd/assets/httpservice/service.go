@@ -115,8 +115,11 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/auth/logout", logout)
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
@@ -222,8 +225,33 @@ type resourceResponse struct {
 }
 
 type sessionResponse struct {
-	ID   string  `json:"id"`
-	Name *string `json:"name,omitempty"`
+	ID      string  `json:"id"`
+	Name    *string `json:"name,omitempty"`
+	Project *string `json:"project,omitempty"`
+}
+
+type projectResponse struct {
+	ID          string  `json:"id"`
+	Name        *string `json:"name,omitempty"`
+	Description *string `json:"description,omitempty"`
+}
+
+type projectCreateRequest struct {
+	Name        *string  `json:"name"`
+	Description *string  `json:"description"`
+	Groups      []string `json:"groups"`
+}
+
+type projectUpdateRequest struct {
+	Name *string `json:"name"`
+}
+
+type sessionCreateRequest struct {
+	Project *string `json:"project"`
+}
+
+type sessionProjectRequest struct {
+	Project *string `json:"project"`
 }
 
 type sessionMessageRequest struct {
@@ -351,6 +379,100 @@ func workspaceAgents(store *database.Store, tokens *auth.BearerTokens) http.Hand
 	}
 }
 
+func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, projects := store.ProjectsGet(request.Context(), workspace, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectResponse, 0, len(projects))
+			for _, project := range projects {
+				result = append(result, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			var input projectCreateRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil {
+				http.Error(response, "invalid project", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.Project)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			groups := make([]model.GroupRef, 0, len(input.Groups))
+			for _, groupID := range input.Groups {
+				if !typed_id.Valid(typed_id.Group, groupID) {
+					http.Error(response, "invalid project group", http.StatusBadRequest)
+					return
+				}
+				groups = append(groups, model.GroupRef{Workspace: workspace, Id: groupID})
+			}
+			err, project := store.ProjectsCreate(request.Context(), model.Project{Ref: model.ProjectRef{Workspace: workspace, Id: id}, Name: input.Name, Description: input.Description, Enabled: true}, claims.Principal.Ref, groups)
+			if err != nil {
+				http.Error(response, "project could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPatch {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		if !ok {
+			return
+		}
+		projectID := request.PathValue("project")
+		if !typed_id.Valid(typed_id.Project, projectID) {
+			http.NotFound(response, request)
+			return
+		}
+		var input projectUpdateRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil {
+			http.Error(response, "invalid project", http.StatusBadRequest)
+			return
+		}
+		err, project := store.ProjectNameSet(request.Context(), model.ProjectRef{Workspace: workspace, Id: projectID}, claims.Principal.Ref, input.Name)
+		if err != nil {
+			http.Error(response, "project could not be updated", http.StatusBadRequest)
+			return
+		}
+		if project == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+	}
+}
+
 func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		switch request.Method {
@@ -385,7 +507,11 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 	}
 	result := make([]sessionResponse, 0, len(sessions))
 	for _, session := range sessions {
-		result = append(result, sessionResponse{ID: session.Ref.Id, Name: session.Name})
+		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name}
+		if session.Project != nil {
+			entry.Project = &session.Project.Id
+		}
+		result = append(result, entry)
 	}
 	writeJSON(response, result)
 }
@@ -399,19 +525,85 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 	if !ok {
 		return
 	}
+	var input sessionCreateRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil && err != io.EOF {
+		http.Error(response, "invalid session", http.StatusBadRequest)
+		return
+	}
+	var project *model.ProjectRef
+	if input.Project != nil {
+		if !typed_id.Valid(typed_id.Project, *input.Project) {
+			http.Error(response, "invalid project", http.StatusBadRequest)
+			return
+		}
+		project = &model.ProjectRef{Workspace: workspace, Id: *input.Project}
+	}
 	id, err := typed_id.New(typed_id.Session)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
 	principal := claims.Principal.Ref
-	session := model.Session{Ref: model.SessionRef{Workspace: workspace, Id: id}, AuthorPrincipal: &principal, Enabled: true}
+	session := model.Session{Ref: model.SessionRef{Workspace: workspace, Id: id}, Project: project, AuthorPrincipal: &principal, Enabled: true}
 	err, stored := store.SessionsCreate(request.Context(), session, principal)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	writeJSONStatus(response, http.StatusCreated, sessionResponse{ID: stored.Ref.Id, Name: stored.Name})
+	entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name}
+	if stored.Project != nil {
+		entry.Project = &stored.Project.Id
+	}
+	writeJSONStatus(response, http.StatusCreated, entry)
+}
+
+func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPatch {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID, sessionID := request.PathValue("workspace"), request.PathValue("session")
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
+			http.NotFound(response, request)
+			return
+		}
+		var input sessionProjectRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			http.Error(response, "invalid session project", http.StatusBadRequest)
+			return
+		}
+		var project *model.ProjectRef
+		if input.Project != nil {
+			if !typed_id.Valid(typed_id.Project, *input.Project) {
+				http.Error(response, "invalid project", http.StatusBadRequest)
+				return
+			}
+			project = &model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: *input.Project}
+		}
+		err, stored := store.SessionProjectSet(request.Context(), model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, project, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "session project could not be updated", http.StatusBadRequest)
+			return
+		}
+		if stored == nil {
+			http.NotFound(response, request)
+			return
+		}
+		entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name}
+		if stored.Project != nil {
+			entry.Project = &stored.Project.Id
+		}
+		writeJSON(response, entry)
+	}
 }
 
 func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
