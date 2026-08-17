@@ -64,16 +64,16 @@ type TurnProjectNotes struct {
 }
 
 var turnFileListDocumentation = doc(
-	"(file/list) -> List",
+	"(session/files/list) -> List",
 	"Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.",
-	"(file/list)",
+	"(session/files/list)",
 	"((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))",
 )
 
 var turnFileReadDocumentation = doc(
-	"(file/read id offset length) -> Bytes",
+	"(session/files/read id offset length) -> Bytes",
 	"Reads bytes from a successful file in the current session. Length must be from 1 through 65536 bytes.",
-	"(bytes/utf8/decode (file/read \"example-file-id\" 0 64))",
+	"(bytes/utf8/decode (session/files/read \"example-file-id\" 0 64))",
 	"\"first bytes of the file\"",
 )
 
@@ -206,8 +206,8 @@ func runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, t
 		return fmt.Errorf("turn file reader is required"), nil
 	}
 	if read != nil {
-		env.bind("file/list", withHelp(&builtin{call: pure(turnFileList(files, "file/list"))}, turnFileListDocumentation.text()))
-		env.bind("file/read", withHelp(&builtin{call: pure(turnFileRead(read, "file/read"))}, turnFileReadDocumentation.text()))
+		env.bind("session/files/list", withHelp(&builtin{call: pure(turnFileList(files, "session/files/list"))}, turnFileListDocumentation.text()))
+		env.bind("session/files/read", withHelp(&builtin{call: pure(turnFileRead(read, "session/files/read"))}, turnFileReadDocumentation.text()))
 	}
 	if projectInfo != nil {
 		env.bind("project/info", withHelp(&builtin{call: pure(turnProjectInfo(*projectInfo))}, turnProjectInfoDocumentation.text()))

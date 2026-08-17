@@ -68,8 +68,8 @@ func TestRunTurnDefaultPreludeHidesImports(t *testing.T) {
 func TestRunTurnExposesSessionFiles(t *testing.T) {
 	mediaType := "text/plain"
 	err, result := RunTurnWithFiles(`(list
-  (file/list)
-  (bytes/utf8/decode (file/read "report" 6 5)))`, nil, nil, []TurnFile{{
+  (session/files/list)
+  (bytes/utf8/decode (session/files/read "report" 6 5)))`, nil, nil, []TurnFile{{
 		ID: "report", Name: "report.txt", MediaType: &mediaType, Size: 11, Fingerprint: "sha256:abc",
 	}}, func(id string, offset, length int64) (error, []byte) {
 		if id != "report" || offset != 6 || length != 5 {
@@ -81,7 +81,7 @@ func TestRunTurnExposesSessionFiles(t *testing.T) {
 		t.Fatalf("RunTurnWithFiles() = (%s, %v)", result, err)
 	}
 
-	err, _ = RunTurnWithFiles(`(file/read "report" 0 65537)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
+	err, _ = RunTurnWithFiles(`(session/files/read "report" 0 65537)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
 	if err == nil {
 		t.Fatal("RunTurnWithFiles() accepted an oversized file read")
 	}
@@ -91,7 +91,7 @@ func TestRunTurnExposesLinkedProjectFilesSeparately(t *testing.T) {
 	attachmentMediaType := "text/plain"
 	mediaType := "text/markdown"
 	err, result := RunTurnWithFilesAndProjectFiles(`(list
-  (file/list)
+  (session/files/list)
   (project/files/list)
   (bytes/utf8/decode (project/files/read "guide" 0 5)))`, nil, nil, []TurnFile{{
 		ID: "attachment", Name: "attachment.txt", MediaType: &attachmentMediaType, Size: 1, Fingerprint: "sha256:attachment",

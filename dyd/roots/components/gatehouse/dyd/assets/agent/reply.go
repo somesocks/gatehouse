@@ -578,7 +578,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session file attachments are available through ` + "`file/list`" + ` and ` + "`file/read`" + `. When a project is linked to the session, its metadata is available through ` + "`project/info`" + `, its files through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `. When a project is linked to the session, its metadata is available through ` + "`project/info`" + `, its files through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
