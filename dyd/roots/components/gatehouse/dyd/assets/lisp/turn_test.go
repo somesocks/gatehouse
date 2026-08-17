@@ -123,7 +123,7 @@ func TestRunTurnExposesLinkedProjectNotesSeparately(t *testing.T) {
 	authorName := "Ada"
 	err, result := RunTurnWithFilesAndProjectFilesAndNotes(`(list
   (project/notes/list)
-  (bytes/utf8/decode (project/notes/read "guide" 0 7)))`, nil, nil, nil, nil, nil, &TurnProjectNotes{Notes: []TurnProjectNote{{
+  (bytes/utf8/decode (project/notes/read "guide" 0 7)))`, nil, nil, nil, nil, nil, nil, &TurnProjectNotes{Notes: []TurnProjectNote{{
 		ID: "guide", Title: "Guide", AuthorID: "author", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z",
 	}}, Read: func(id string, offset, length int64) (error, []byte) {
 		if id != "guide" || offset != 0 || length != 7 {
@@ -139,8 +139,20 @@ func TestRunTurnExposesLinkedProjectNotesSeparately(t *testing.T) {
 	if err == nil {
 		t.Fatal("RunTurnWithFiles() exposed project notes without a linked project")
 	}
-	err, _ = RunTurnWithFilesAndProjectFilesAndNotes(`(project/notes/read "guide" 0 65537)`, nil, nil, nil, nil, nil, &TurnProjectNotes{Read: func(string, int64, int64) (error, []byte) { return nil, nil }})
+	err, _ = RunTurnWithFilesAndProjectFilesAndNotes(`(project/notes/read "guide" 0 65537)`, nil, nil, nil, nil, nil, nil, &TurnProjectNotes{Read: func(string, int64, int64) (error, []byte) { return nil, nil }})
 	if err == nil {
 		t.Fatal("RunTurnWithFilesAndProjectFilesAndNotes() accepted an oversized project note read")
+	}
+}
+
+func TestRunTurnExposesLinkedProjectInfo(t *testing.T) {
+	name := "Roadmap"
+	err, result := RunTurnWithFilesAndProjectFilesAndNotes(`(project/info)`, nil, nil, nil, nil, &TurnProjectInfo{Name: &name, CreatedAt: "2026-01-01T00:00:00.000Z"}, nil, nil)
+	if err != nil || result.String() != `((name . "Roadmap") (description) (created_at . "2026-01-01T00:00:00.000Z"))` {
+		t.Fatalf("RunTurnWithFilesAndProjectFilesAndNotes() = (%s, %v)", result, err)
+	}
+	err, _ = RunTurnWithFiles(`(project/info)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
+	if err == nil {
+		t.Fatal("RunTurnWithFiles() exposed project info without a linked project")
 	}
 }
