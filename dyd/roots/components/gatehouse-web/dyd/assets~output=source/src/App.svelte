@@ -153,7 +153,7 @@
   let expandedActivity = $state<Set<string>>(new Set())
   let mobileMenuOpen = $state(false)
   let showJumpToLatest = $state(false)
-  let chatEventsElement = $state<HTMLDivElement | undefined>()
+  let workspaceMainElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let activityPollTimer: ReturnType<typeof setTimeout> | undefined
@@ -1143,18 +1143,18 @@
   }
 
   function isNearChatBottom() {
-    if (chatEventsElement === undefined) {
+    if (workspaceMainElement === undefined) {
       return true
     }
-    return chatEventsElement.scrollHeight - chatEventsElement.scrollTop - chatEventsElement.clientHeight < 64
+    return workspaceMainElement.scrollHeight - workspaceMainElement.scrollTop - workspaceMainElement.clientHeight < 64
   }
 
   async function scrollToLatest(behavior: ScrollBehavior = "smooth") {
     await tick()
-    if (chatEventsElement === undefined) {
+    if (workspaceMainElement === undefined) {
       return
     }
-    chatEventsElement.scrollTo({ top: chatEventsElement.scrollHeight, behavior })
+    workspaceMainElement.scrollTo({ top: workspaceMainElement.scrollHeight, behavior })
     showJumpToLatest = false
   }
 
@@ -1752,7 +1752,7 @@
       </div>
     </aside>
 
-    <main class="workspace-main">
+    <main class="workspace-main" bind:this={workspaceMainElement} onscroll={trackChatScroll}>
       <header class="workspace-header">
           <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}>
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
@@ -1917,7 +1917,7 @@
         </section>
       {:else}
         <section class="chat-pane">
-          <div class="chat-events" aria-live="polite" bind:this={chatEventsElement} onscroll={trackChatScroll}>
+          <div class="chat-events" aria-live="polite">
             {#if eventStatus === "checking"}
               <p class="chat-status">Loading chat...</p>
             {:else if eventStatus === "unavailable"}
