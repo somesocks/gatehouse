@@ -2,13 +2,173 @@ package database_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
+
+func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	projectID, err := typed_id.New(typed_id.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := model.ProjectRef{Workspace: workspace, Id: projectID}
+	if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, alice, nil); err != nil {
+		t.Fatal(err)
+	}
+	activity := func(event string, want int) {
+		var got int
+		if err := store.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics
+				ON topics.workspace = events.workspace AND topics.activity = events.id
+			WHERE events.workspace = ? AND events.event = ? AND topics.topic = ?
+		`, workspace.Id, event, database.ActivityTopicProject(project)).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("%s activity count = %d, want %d", event, got, want)
+		}
+	}
+	pendingFileID, err := typed_id.NewAt(typed_id.ProjectFile, time.Date(2026, 1, 2, 3, 4, 2, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pendingObjectID, err := typed_id.NewAt(typed_id.StorageObject, time.Date(2026, 1, 2, 3, 4, 2, 679_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: pendingFileID}, Name: "pending.txt", Enabled: true}
+	if err, _, _ := store.ProjectFileCreate(ctx, pending, pendingObjectID, alice); err != nil {
+		t.Fatal(err)
+	}
+	activity("project_file.create", 1)
+	digest := sha256.Sum256([]byte("pending"))
+	if err := store.StorageObjectStoreIntegrity(ctx, pendingObjectID, digest[:], int64(len("pending"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StorageObjectMarkSuccess(ctx, pendingObjectID); err != nil {
+		t.Fatal(err)
+	}
+	if err, _, _ := store.ProjectFileFinish(ctx, pending.Ref, alice); err != nil {
+		t.Fatal(err)
+	}
+	activity("project_file.update", 1)
+	revokedFileID, err := typed_id.NewAt(typed_id.ProjectFile, time.Date(2026, 1, 2, 3, 4, 3, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revokedObjectID, err := typed_id.NewAt(typed_id.StorageObject, time.Date(2026, 1, 2, 3, 4, 3, 679_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	revoked := model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: revokedFileID}, Name: "revoked.txt", Enabled: true}
+	if err, _, _ := store.ProjectFileCreate(ctx, revoked, revokedObjectID, alice); err != nil {
+		t.Fatal(err)
+	}
+	if err, removed := store.ProjectFileRemove(ctx, revoked.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectFileRemove() pending = (%t, %v)", removed, err)
+	}
+	if err, provider := store.StorageObjectPendingGet(ctx, revokedObjectID); err != nil || provider != nil {
+		t.Fatalf("StorageObjectPendingGet() after project file removal = (%#v, %v)", provider, err)
+	}
+	activity("project_file.remove", 1)
+	deniedFileID, err := typed_id.NewAt(typed_id.ProjectFile, time.Date(2026, 1, 2, 3, 4, 4, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	deniedObjectID, err := typed_id.NewAt(typed_id.StorageObject, time.Date(2026, 1, 2, 3, 4, 4, 679_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createErr, _, _ := store.ProjectFileCreate(ctx, model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: deniedFileID}, Name: "private.txt", Enabled: true}, deniedObjectID, bob); createErr == nil {
+		t.Fatal("ProjectFileCreate() accepted an ungranted principal")
+	}
+
+	create := func(at time.Time, name string) (model.ProjectFileRef, string) {
+		fileID, err := typed_id.NewAt(typed_id.ProjectFile, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objectID, err := typed_id.NewAt(typed_id.StorageObject, at.Add(time.Millisecond))
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: fileID}, Name: name, MediaType: stringPointer("application/octet-stream"), Enabled: true}
+		err, stored, objectID := store.ProjectFileCreate(ctx, file, objectID, alice)
+		if err != nil || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") || stored.StorageObject.Id != objectID {
+			t.Fatalf("ProjectFileCreate() = (%#v, %q, %v)", stored, objectID, err)
+		}
+		err, pending, object := store.ProjectFileGet(ctx, file.Ref, alice)
+		if err != nil || pending == nil || object == nil || object.State != "pending" {
+			t.Fatalf("ProjectFileGet() pending = (%#v, %#v, %v)", pending, object, err)
+		}
+		digest := sha256.Sum256([]byte(name))
+		if err := store.StorageObjectStoreIntegrity(ctx, objectID, digest[:], int64(len(name))); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.StorageObjectMarkSuccess(ctx, objectID); err != nil {
+			t.Fatal(err)
+		}
+		return file.Ref, objectID
+	}
+
+	older, _ := create(time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC), "requirements.txt")
+	newer, _ := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "design.pdf")
+	err, files := store.ProjectFilesGet(ctx, project, alice)
+	if err != nil || len(files) != 3 || files[0].ID != newer.Id || files[0].Name != "design.pdf" || files[0].MediaType == nil || *files[0].MediaType != "application/octet-stream" || files[0].Size != int64(len("design.pdf")) || files[0].Fingerprint != "sha256:2699a8a0c49f286591802474c202cf177fb2b9de754315de6051485c5d30f10f" || files[1].ID != older.Id || files[2].ID != pending.Ref.Id {
+		t.Fatalf("ProjectFilesGet() = (%#v, %v)", files, err)
+	}
+	err, denied := store.ProjectFilesGet(ctx, project, bob)
+	if err != nil || len(denied) != 0 {
+		t.Fatalf("ProjectFilesGet() for ungranted principal = (%#v, %v)", denied, err)
+	}
+	err, hidden, object := store.ProjectFileGet(ctx, newer, bob)
+	if err != nil || hidden != nil || object != nil {
+		t.Fatalf("ProjectFileGet() for ungranted principal = (%#v, %#v, %v)", hidden, object, err)
+	}
+	err, removed := store.ProjectFileRemove(ctx, newer, bob)
+	if err != nil || removed {
+		t.Fatalf("ProjectFileRemove() for ungranted principal = (%t, %v)", removed, err)
+	}
+	err, removed = store.ProjectFileRemove(ctx, newer, alice)
+	if err != nil || !removed {
+		t.Fatalf("ProjectFileRemove() = (%t, %v)", removed, err)
+	}
+	err, hidden, object = store.ProjectFileGet(ctx, newer, alice)
+	if err != nil || hidden != nil || object != nil {
+		t.Fatalf("ProjectFileGet() after removal = (%#v, %#v, %v)", hidden, object, err)
+	}
+	err, files = store.ProjectFilesGet(ctx, project, alice)
+	if err != nil || len(files) != 2 || files[0].ID != older.Id || files[1].ID != pending.Ref.Id {
+		t.Fatalf("ProjectFilesGet() after removal = (%#v, %v)", files, err)
+	}
+}
 
 func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	ctx := context.Background()

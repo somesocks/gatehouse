@@ -46,6 +46,14 @@ type SessionFileSummary struct {
 	Fingerprint string  `json:"fingerprint"`
 }
 
+type ProjectFileSummary struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	MediaType   *string `json:"media_type,omitempty"`
+	Size        int64   `json:"size"`
+	Fingerprint string  `json:"fingerprint"`
+}
+
 func (store *Store) SessionFileSnapshots(ctx context.Context, transaction *sql.Tx, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
 	if len(ids) == 0 {
 		return nil, []SessionFileSummary{}
@@ -185,6 +193,172 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	return nil, file, storageObjectID
 }
 
+func (store *Store) ProjectFileCreate(ctx context.Context, file model.ProjectFile, storageObjectID string, principal model.PrincipalRef) (error, model.ProjectFile, string) {
+	if !typed_id.Valid(typed_id.ProjectFile, file.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, storageObjectID) || strings.TrimSpace(file.Name) == "" {
+		return fmt.Errorf("create project file: IDs or name are invalid"), model.ProjectFile{}, ""
+	}
+	if err, project := store.ProjectGet(ctx, file.Ref.Project, principal); err != nil {
+		return err, model.ProjectFile{}, ""
+	} else if project == nil {
+		return fmt.Errorf("create project file: project is unavailable"), model.ProjectFile{}, ""
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project file creation: %w", err), model.ProjectFile{}, ""
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	row := transaction.QueryRowContext(ctx, `
+		SELECT bindings.provider, providers.protocol
+		FROM gatehouse_workspace_storage_providers AS bindings
+		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
+		WHERE bindings.workspace = `+placeholder(1)+`
+			AND bindings.enabled = TRUE
+			AND providers.enabled = TRUE
+		ORDER BY bindings.priority DESC, bindings.provider
+		LIMIT 1
+	`, file.Ref.Project.Workspace.Id)
+	var provider, protocol string
+	if err := row.Scan(&provider, &protocol); err != nil {
+		if err == sql.ErrNoRows {
+			return fmt.Errorf("create project file: no available storage provider"), model.ProjectFile{}, ""
+		}
+		return fmt.Errorf("select storage provider: %w", err), model.ProjectFile{}, ""
+	}
+	fileCreatedAt, err := typed_id.Timestamp(typed_id.ProjectFile, file.Ref.Id)
+	if err != nil {
+		return fmt.Errorf("create project file: project file ID is invalid"), model.ProjectFile{}, ""
+	}
+	storageObjectCreatedAt, err := typed_id.Timestamp(typed_id.StorageObject, storageObjectID)
+	if err != nil {
+		return fmt.Errorf("create project file: storage object ID is invalid"), model.ProjectFile{}, ""
+	}
+	file.CreatedAt = fileCreatedAt.Format("2006-01-02T15:04:05.000Z")
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO gatehouse_storage_objects (id, provider, object, state, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, 'pending', `+placeholder(4)+`)
+	`, storageObjectID, provider, storageObjectID, storageObjectCreatedAt.Format("2006-01-02T15:04:05.000Z")); err != nil {
+		return fmt.Errorf("insert storage object: %w", err), model.ProjectFile{}, ""
+	}
+	if protocol == "embedded" {
+		if _, err := transaction.ExecContext(ctx, `
+			INSERT INTO gatehouse_embedded_storage_objects (id) VALUES (`+placeholder(1)+`)
+		`, storageObjectID); err != nil {
+			return fmt.Errorf("insert embedded storage object: %w", err), model.ProjectFile{}, ""
+		}
+	}
+	var mediaType any
+	if file.MediaType != nil {
+		mediaType = *file.MediaType
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		INSERT INTO gatehouse_project_files (workspace, project, id, storage_object, name, media_type, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
+	`, file.Ref.Project.Workspace.Id, file.Ref.Project.Id, file.Ref.Id, storageObjectID, file.Name, mediaType, file.Enabled, file.CreatedAt); err != nil {
+		return fmt.Errorf("insert project file: %w", err), model.ProjectFile{}, ""
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: file.Ref.Project.Workspace},
+		Event:        "project_file.create",
+		ResourceKind: ActivityResourceKindProject,
+		Project:      &file.Ref.Project,
+	}, []string{ActivityTopicProject(file.Ref.Project)}); err != nil {
+		return fmt.Errorf("append project file creation activity: %w", err), model.ProjectFile{}, ""
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit project file creation: %w", err), model.ProjectFile{}, ""
+	}
+	file.StorageObject = model.StorageObjectRef{Id: storageObjectID}
+	return nil, file, storageObjectID
+}
+
+// ProjectFileFinish publishes a successful project-file update to activity subscribers.
+func (store *Store) ProjectFileFinish(ctx context.Context, file model.ProjectFileRef, principal model.PrincipalRef) (error, *model.ProjectFile, *StorageObject) {
+	err, stored, object := store.ProjectFileGet(ctx, file, principal)
+	if err != nil || stored == nil || object == nil {
+		return err, stored, object
+	}
+	if object.State != "success" {
+		return fmt.Errorf("finish project file: storage object is not ready"), nil, nil
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project file finish: %w", err), nil, nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_project_files SET enabled = TRUE
+		WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND id = `+placeholder(3)+`
+			AND enabled = TRUE AND storage_object = `+placeholder(4)+`
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_storage_objects AS objects
+				WHERE objects.id = gatehouse_project_files.storage_object AND objects.state = 'success'
+			)
+	`, file.Project.Workspace.Id, file.Project.Id, file.Id, object.ID)
+	if err != nil {
+		return fmt.Errorf("lock finished project file: %w", err), nil, nil
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("lock finished project file: %w", err), nil, nil
+	}
+	if changed != 1 {
+		return nil, nil, nil
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: file.Project.Workspace},
+		Event:        "project_file.update",
+		ResourceKind: ActivityResourceKindProject,
+		Project:      &file.Project,
+	}, []string{ActivityTopicProject(file.Project)}); err != nil {
+		return fmt.Errorf("append project file update activity: %w", err), nil, nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit project file finish: %w", err), nil, nil
+	}
+	return nil, stored, object
+}
+
+func (store *Store) ProjectFilesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []ProjectFileSummary) {
+	if err, available := store.ProjectGet(ctx, project, principal); err != nil {
+		return err, nil
+	} else if available == nil {
+		return nil, []ProjectFileSummary{}
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
+		FROM gatehouse_project_files AS files
+		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
+		WHERE files.workspace = `+placeholder(1)+` AND files.project = `+placeholder(2)+`
+			AND files.enabled = TRUE AND objects.state = 'success'
+		ORDER BY files.created_at DESC, files.id DESC
+	`, project.Workspace.Id, project.Id)
+	if err != nil {
+		return fmt.Errorf("get project files: %w", err), nil
+	}
+	defer rows.Close()
+	files := []ProjectFileSummary{}
+	for rows.Next() {
+		var file ProjectFileSummary
+		var mediaType sql.NullString
+		var digest []byte
+		if err := rows.Scan(&file.ID, &file.Name, &mediaType, &file.Size, &digest); err != nil {
+			return fmt.Errorf("scan project file: %w", err), nil
+		}
+		if mediaType.Valid {
+			file.MediaType = &mediaType.String
+		}
+		file.Fingerprint = "sha256:" + hex.EncodeToString(digest)
+		files = append(files, file)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate project files: %w", err), nil
+	}
+	return nil, files
+}
+
 func (store *Store) StorageObjectPendingGet(ctx context.Context, id string) (error, *StorageObjectProvider) {
 	return store.storageObjectGet(ctx, id, "pending")
 }
@@ -311,6 +485,91 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 		object.Size = size.Int64
 	}
 	return nil, &stored, object
+}
+
+func (store *Store) ProjectFileGet(ctx context.Context, file model.ProjectFileRef, principal model.PrincipalRef) (error, *model.ProjectFile, *StorageObject) {
+	if !typed_id.Valid(typed_id.ProjectFile, file.Id) {
+		return fmt.Errorf("get project file: ID is invalid"), nil, nil
+	}
+	if err, project := store.ProjectGet(ctx, file.Project, principal); err != nil {
+		return err, nil, nil
+	} else if project == nil {
+		return nil, nil, nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT files.storage_object, files.name, files.media_type, files.enabled, files.created_at, objects.provider, objects.object, objects.state, objects.sha256, objects.size
+		FROM gatehouse_project_files AS files
+		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
+		WHERE files.workspace = `+placeholder(1)+` AND files.project = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND files.enabled = TRUE
+	`, file.Project.Workspace.Id, file.Project.Id, file.Id)
+	stored := model.ProjectFile{Ref: file}
+	object := &StorageObject{ID: ""}
+	var mediaType sql.NullString
+	var digest []byte
+	var size sql.NullInt64
+	if err := row.Scan(&stored.StorageObject.Id, &stored.Name, &mediaType, &stored.Enabled, &stored.CreatedAt, &object.Provider, &object.Object, &object.State, &digest, &size); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil, nil
+		}
+		return fmt.Errorf("get project file: %w", err), nil, nil
+	}
+	object.ID = stored.StorageObject.Id
+	if mediaType.Valid {
+		stored.MediaType = &mediaType.String
+	}
+	if size.Valid {
+		object.SHA256 = digest
+		object.Size = size.Int64
+	}
+	return nil, &stored, object
+}
+
+func (store *Store) ProjectFileRemove(ctx context.Context, file model.ProjectFileRef, principal model.PrincipalRef) (error, bool) {
+	if !typed_id.Valid(typed_id.ProjectFile, file.Id) {
+		return fmt.Errorf("remove project file: ID is invalid"), false
+	}
+	if err, project := store.ProjectGet(ctx, file.Project, principal); err != nil {
+		return err, false
+	} else if project == nil {
+		return nil, false
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project file removal: %w", err), false
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	var storageObjectID string
+	err = transaction.QueryRowContext(ctx, `
+		UPDATE gatehouse_project_files SET enabled = FALSE
+		WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND id = `+placeholder(3)+` AND enabled = TRUE
+		RETURNING storage_object
+	`, file.Project.Workspace.Id, file.Project.Id, file.Id).Scan(&storageObjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false
+		}
+		return fmt.Errorf("remove project file: %w", err), false
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_storage_objects SET state = 'failure'
+		WHERE id = `+placeholder(1)+` AND state = 'pending'
+	`, storageObjectID); err != nil {
+		return fmt.Errorf("revoke pending project file upload: %w", err), false
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{Workspace: file.Project.Workspace},
+		Event:        "project_file.remove",
+		ResourceKind: ActivityResourceKindProject,
+		Project:      &file.Project,
+	}, []string{ActivityTopicProject(file.Project)}); err != nil {
+		return fmt.Errorf("append project file removal activity: %w", err), false
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit project file removal: %w", err), false
+	}
+	return nil, true
 }
 
 func (store *Store) StorageObjectPutEmbedded(ctx context.Context, id string, source io.Reader) error {

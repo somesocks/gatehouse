@@ -36,6 +36,15 @@
     description?: string
   }
 
+  type ProjectFile = {
+    id: string
+    name: string
+    media_type?: string
+    size: number
+    fingerprint: string
+    created_at: string
+  }
+
   type SessionSearchResponse = {
     sessions: Session[]
     next_cursor?: string
@@ -135,6 +144,12 @@
   let searchedSessions = $state<Session[]>([])
   let searchedProjects = $state<Project[]>([])
   let projectSessions = $state<Session[]>([])
+  let projectFiles = $state<ProjectFile[]>([])
+  let projectFileStatus = $state<WorkspaceContentStatus>("checking")
+  let projectFileError = $state("")
+  let uploadingProjectFiles = $state(0)
+  let removingProjectFileIDs = $state<Set<string>>(new Set())
+  let projectFileInputElement = $state<HTMLInputElement | undefined>()
   let sessionSearchCursor = $state<string | null>(null)
   let projectSearchCursor = $state<string | null>(null)
   let sessionSearchLoading = $state(false)
@@ -324,6 +339,8 @@
     latestSessions = []
     activeSession = null
     activeProject = null
+    projectFiles = []
+    projectFileError = ""
     events = []
     showJumpToLatest = false
     status = "anonymous"
@@ -398,6 +415,8 @@
     latestSessions = []
     activeSession = null
     activeProject = null
+    projectFiles = []
+    projectFileError = ""
     events = []
     showJumpToLatest = false
     workspaceContentStatus = "checking"
@@ -431,7 +450,7 @@
         const projectID = projectIDFromPath(currentPath)
         activeProject = projectID === null ? null : latestProjects.find((candidate) => candidate.id === projectID) ?? await loadProject(workspace, projectID)
         if (activeProject !== null) {
-          await loadProjectSessions(activeProject)
+          await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject)])
         } else if (isChatCollection()) {
           await loadSessionSearch(true)
         } else if (isProjectCollection()) {
@@ -453,6 +472,8 @@
     activeSessionCursor = null
     activeSession = session
     activeProject = session.project ?? null
+    projectFiles = []
+    projectFileError = ""
     events = []
     showJumpToLatest = false
     eventStatus = "checking"
@@ -471,9 +492,11 @@
     mobileMenuOpen = false
     activeSession = null
     activeProject = project
+    projectFiles = []
+    projectFileError = ""
     events = []
     navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(project.id)}`, replace)
-    await loadProjectSessions(project)
+    await Promise.all([loadProjectSessions(project), loadProjectFiles(project)])
     startActivityPolling()
   }
 
@@ -610,6 +633,41 @@
     const loaded = (await response.json()) as SessionSearchResponse
     if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id) {
       projectSessions = loaded.sessions
+    }
+  }
+
+  async function loadProjectFiles(project: Project, showLoading = true) {
+    if (activeWorkspace === null) {
+      return false
+    }
+    const workspace = activeWorkspace
+    if (showLoading) {
+      projectFileStatus = "checking"
+    }
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files`, { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return false
+      }
+      if (!response.ok) {
+        throw new Error("project files could not be loaded")
+      }
+      const loaded = (await response.json()) as ProjectFile[]
+      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
+        return false
+      }
+      projectFiles = [...loaded].sort((left, right) => {
+        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
+      })
+      projectFileStatus = "ready"
+      return true
+    } catch {
+      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
+        projectFileStatus = "unavailable"
+      }
+      return false
     }
   }
 
@@ -770,12 +828,15 @@
         const projectCursor = projectID === undefined ? workspaceProjectsCursor : activeProjectCursor
         const sessionChanged = sessionTopic !== undefined && !sameActivityCursor(sessionCursor, nextSessionCursor)
         const projectChanged = projectTopic !== undefined && !sameActivityCursor(projectCursor, nextProjectCursor)
-        const refreshed = !sessionChanged && !projectChanged || (await Promise.all([
+        let refreshed = !sessionChanged && !projectChanged || (await Promise.all([
           refreshWorkspaceSessions(workspace, generation),
           ...(projectChanged ? [refreshWorkspaceProjects(workspace, generation)] : []),
         ])).every(Boolean)
         if (refreshed && session !== null && (sessionChanged || projectChanged) && activeSession?.id === session.id) {
           await loadSessionEvents(session, false)
+        }
+        if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
+          refreshed = await loadProjectFiles(activeProject, false)
         }
         if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
           return
@@ -1104,6 +1165,100 @@
     }
   }
 
+  async function uploadProjectFiles(input: HTMLInputElement) {
+    if (activeWorkspace === null || activeProject === null) {
+      return
+    }
+    const selected = Array.from(input.files ?? [])
+    input.value = ""
+    if (selected.length === 0) {
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    projectFileError = ""
+    uploadingProjectFiles += selected.length
+    try {
+      const results = await Promise.allSettled(selected.map((file) => uploadProjectFile(workspace, project, file)))
+      await loadProjectFiles(project, false)
+      if (results.some((result) => result.status === "rejected")) {
+        projectFileError = "Some files could not be uploaded. Try again."
+      }
+    } finally {
+      uploadingProjectFiles -= selected.length
+    }
+  }
+
+  async function uploadProjectFile(workspace: Workspace, project: Project, file: File) {
+    const created = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/start`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: file.name, ...(file.type === "" ? {} : { media_type: file.type }) }),
+    })
+    if (created.status === 401) {
+      signInRequired()
+      throw new Error("authentication required")
+    }
+    if (!created.ok) {
+      throw new Error("project file could not be started")
+    }
+    const upload = (await created.json()) as { file: ProjectFile; upload_url: string }
+    const put = await fetch(upload.upload_url, { method: "PUT", body: file, ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }) })
+    if (!put.ok) {
+      throw new Error("project file could not be uploaded")
+    }
+    const finished = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(upload.file.id)}/finish`, {
+      method: "POST",
+      credentials: "same-origin",
+    })
+    if (finished.status === 401) {
+      signInRequired()
+      throw new Error("authentication required")
+    }
+    if (!finished.ok) {
+      throw new Error("project file could not be finished")
+    }
+  }
+
+  async function removeProjectFile(file: ProjectFile) {
+    if (activeWorkspace === null || activeProject === null || removingProjectFileIDs.has(file.id) || !window.confirm(`Remove ${file.name}?`)) {
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    const removing = new Set(removingProjectFileIDs)
+    removing.add(file.id)
+    removingProjectFileIDs = removing
+    projectFileError = ""
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("project file could not be removed")
+      }
+      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
+        projectFiles = projectFiles.filter((candidate) => candidate.id !== file.id)
+      }
+    } catch {
+      projectFileError = "The file could not be removed. Try again."
+    } finally {
+      const remaining = new Set(removingProjectFileIDs)
+      remaining.delete(file.id)
+      removingProjectFileIDs = remaining
+    }
+  }
+
+  function projectFileDownloadPath(workspace: Workspace, project: Project, file: ProjectFile) {
+    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}/download`
+  }
+
   function updateComposerFile(file: File, update: Partial<ComposerFile>) {
     composerFiles = composerFiles.map((entry) => entry.file === file ? { ...entry, ...update } : entry)
   }
@@ -1366,6 +1521,26 @@
               <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
             <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
+          </section>
+          <section class="dashboard-widget dashboard-widget-wide project-files-widget">
+            <div class="dashboard-widget-heading"><h2>Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
+            <input class="is-sr-only" type="file" multiple bind:this={projectFileInputElement} onchange={(event) => void uploadProjectFiles(event.currentTarget)} />
+            {#if projectFileStatus === "checking"}
+              <p class="dashboard-empty">Loading files...</p>
+            {:else if projectFileStatus === "unavailable"}
+              <p class="dashboard-empty">Files could not be loaded.</p>
+            {:else}
+              {#each projectFiles as file (file.id)}
+                <div class="project-file-row">
+                  <a class="project-file-download" href={activeWorkspace !== null && activeProject !== null ? projectFileDownloadPath(activeWorkspace, activeProject, file) : "#"} download={file.name} title={file.fingerprint}>
+                    <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
+                    <span class="project-file-content"><span>{file.name}</span><span class="project-file-meta"><time datetime={file.created_at}>{createdAtLabel(file.created_at)}</time><span>{file.size} bytes</span>{#if file.media_type !== undefined}<span>{file.media_type}</span>{/if}</span></span>
+                  </a>
+                  <button class="button is-small is-danger is-light" type="button" disabled={removingProjectFileIDs.has(file.id)} onclick={() => void removeProjectFile(file)}>{removingProjectFileIDs.has(file.id) ? "Removing..." : "Remove"}</button>
+                </div>
+              {:else}<p class="dashboard-empty">No files yet.</p>{/each}
+            {/if}
+            {#if projectFileError !== ""}<p class="help is-danger" aria-live="polite">{projectFileError}</p>{/if}
           </section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>

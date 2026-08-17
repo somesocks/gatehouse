@@ -423,7 +423,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 		`),
 		}, {
 			Index:       14,
-			Description: "create_storage_objects_and_session_files",
+			Description: "create_storage_objects_and_files",
 			Builder: staticMigrationBuilder(`
 			CREATE TABLE gatehouse_storage_objects (
 				id TEXT PRIMARY KEY CHECK (length(id) = 30 AND substr(id, 1, 4) = 'obj_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
@@ -460,6 +460,20 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				PRIMARY KEY (workspace, session, id),
 				UNIQUE (storage_object),
 				FOREIGN KEY (workspace, session) REFERENCES gatehouse_sessions (workspace, id)
+			) STRICT;
+
+			CREATE TABLE gatehouse_project_files (
+				workspace TEXT NOT NULL,
+				project TEXT NOT NULL,
+				id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'pfi_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
+				storage_object TEXT NOT NULL REFERENCES gatehouse_storage_objects (id),
+				name TEXT NOT NULL CHECK (length(trim(name)) > 0),
+				media_type TEXT CHECK (media_type IS NULL OR length(trim(media_type)) > 0),
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+				created_at TEXT NOT NULL,
+				PRIMARY KEY (workspace, project, id),
+				UNIQUE (storage_object),
+				FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id)
 			) STRICT;
 		`),
 		}, {

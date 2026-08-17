@@ -34,6 +34,13 @@ type TurnFile struct {
 
 type TurnFileRead func(id string, offset, length int64) (error, []byte)
 
+// TurnProjectFiles is the optional project-file capability for a turn.
+// Supplying it exposes project/files/list and project/files/read.
+type TurnProjectFiles struct {
+	Files []TurnFile
+	Read  TurnFileRead
+}
+
 var turnFileListDocumentation = doc(
 	"(file/list) -> List",
 	"Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.",
@@ -45,6 +52,20 @@ var turnFileReadDocumentation = doc(
 	"(file/read id offset length) -> Bytes",
 	"Reads bytes from a successful file in the current session. Length must be from 1 through 65536 bytes.",
 	"(bytes/utf8/decode (file/read \"example-file-id\" 0 64))",
+	"\"first bytes of the file\"",
+)
+
+var turnProjectFileListDocumentation = doc(
+	"(project/files/list) -> List",
+	"Returns successful files in the project linked to the current session with id, name, optional media_type, size, and fingerprint.",
+	"(project/files/list)",
+	"((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))",
+)
+
+var turnProjectFileReadDocumentation = doc(
+	"(project/files/read id offset length) -> Bytes",
+	"Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.",
+	"(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))",
 	"\"first bytes of the file\"",
 )
 
@@ -79,23 +100,35 @@ func RunTurn(source string, tools []TurnTool, resources []TurnResource) (error, 
 // RunTurnWithPrelude evaluates source through a prelude with only the supplied tools and resources.
 // The parsed source is bound as agent/program, tools as tool-id/export, and resources as resource/id.
 func RunTurnWithPrelude(source, prelude string, tools []TurnTool, resources []TurnResource) (error, Expr) {
-	return RunTurnWithPreludeAndFiles(source, prelude, tools, resources, nil, nil)
+	return RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude, tools, resources, nil, nil, nil)
 }
 
+// RunTurnWithFiles evaluates source with session-file capabilities.
 func RunTurnWithFiles(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
-	return RunTurnWithPreludeAndFiles(source, defaultTurnPrelude, tools, resources, files, read)
+	return RunTurnWithFilesAndProjectFiles(source, tools, resources, files, read, nil)
 }
 
+// RunTurnWithFilesAndProjectFiles evaluates source with session files and optional linked-project files.
+func RunTurnWithFilesAndProjectFiles(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
+	return RunTurnWithPreludeAndFilesAndProjectFiles(source, defaultTurnPrelude, tools, resources, files, read, projectFiles)
+}
+
+// RunTurnWithPreludeAndFiles evaluates source through a prelude with session-file capabilities.
 func RunTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
+	return RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude, tools, resources, files, read, nil)
+}
+
+// RunTurnWithPreludeAndFilesAndProjectFiles evaluates source through a prelude with session files and optional linked-project files.
+func RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
 	call, err := diagnostics.Begin("lisp.turn", "")
 	if err != nil {
 		return err, nil
 	}
-	err, result := runTurnWithPreludeAndFiles(source, prelude, tools, resources, files, read)
+	err, result := runTurnWithPreludeAndFilesAndProjectFiles(source, prelude, tools, resources, files, read, projectFiles)
 	return call.End(err), result
 }
 
-func runTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
+func runTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
 	err, program := Read(source)
 	if err != nil {
 		return err, nil
@@ -120,8 +153,15 @@ func runTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resour
 		return fmt.Errorf("turn file reader is required"), nil
 	}
 	if read != nil {
-		env.bind("file/list", withHelp(&builtin{call: pure(turnFileList(files))}, turnFileListDocumentation.text()))
-		env.bind("file/read", withHelp(&builtin{call: pure(turnFileRead(read))}, turnFileReadDocumentation.text()))
+		env.bind("file/list", withHelp(&builtin{call: pure(turnFileList(files, "file/list"))}, turnFileListDocumentation.text()))
+		env.bind("file/read", withHelp(&builtin{call: pure(turnFileRead(read, "file/read"))}, turnFileReadDocumentation.text()))
+	}
+	if projectFiles != nil {
+		if projectFiles.Read == nil {
+			return fmt.Errorf("turn project file reader is required"), nil
+		}
+		env.bind("project/files/list", withHelp(&builtin{call: pure(turnFileList(projectFiles.Files, "project/files/list"))}, turnProjectFileListDocumentation.text()))
+		env.bind("project/files/read", withHelp(&builtin{call: pure(turnFileRead(projectFiles.Read, "project/files/read"))}, turnProjectFileReadDocumentation.text()))
 	}
 
 	cache := newModuleCache()
@@ -156,15 +196,15 @@ func runTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resour
 	return (&evaluator{}).eval(preludeProgram, env)
 }
 
-func turnFileList(files []TurnFile) pureBuiltinCall {
+func turnFileList(files []TurnFile, name string) pureBuiltinCall {
 	return func(_ *evaluator, arguments []Expr) (error, Expr) {
 		if len(arguments) != 0 {
-			return expressionError("file/list requires no arguments"), nil
+			return expressionError("%s", name+" requires no arguments"), nil
 		}
 		values := make([]Expr, 0, len(files))
 		for _, file := range files {
 			if file.ID == "" || file.Name == "" || file.Size < 0 || file.Fingerprint == "" {
-				return expressionError("file/list has invalid file metadata"), nil
+				return expressionError("%s", name+" has invalid file metadata"), nil
 			}
 			mediaType := Expr(null())
 			if file.MediaType != nil {
@@ -182,10 +222,10 @@ func turnFileList(files []TurnFile) pureBuiltinCall {
 	}
 }
 
-func turnFileRead(read TurnFileRead) pureBuiltinCall {
+func turnFileRead(read TurnFileRead, name string) pureBuiltinCall {
 	return func(_ *evaluator, arguments []Expr) (error, Expr) {
 		if len(arguments) != 3 {
-			return expressionError("file/read requires id, offset, and length"), nil
+			return expressionError("%s", name+" requires id, offset, and length"), nil
 		}
 		err, id := requireString(arguments[0])
 		if err != nil {
@@ -200,16 +240,16 @@ func turnFileRead(read TurnFileRead) pureBuiltinCall {
 			return err, nil
 		}
 		if id == "" || offset < 0 || length < 1 || length > 64*1024 {
-			return expressionError("file/read requires a non-empty id, non-negative offset, and length from 1 through 65536"), nil
+			return expressionError("%s", name+" requires a non-empty id, non-negative offset, and length from 1 through 65536"), nil
 		}
 		call, diagnosticErr := diagnostics.Begin("lisp.file_read", id)
 		if diagnosticErr != nil {
-			return expressionError("file/read failed"), nil
+			return expressionError("%s", name+" failed"), nil
 		}
 		err, value := read(id, offset, length)
 		err = call.End(err)
 		if err != nil {
-			return expressionError("file/read failed"), nil
+			return expressionError("%s", name+" failed"), nil
 		}
 		return nil, bytesValue(string(value))
 	}

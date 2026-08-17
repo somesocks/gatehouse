@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 
 	"gatehouse/database"
@@ -39,5 +40,13 @@ func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
 	withDefaultPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{}, messages)
 	if len(withDefaultPrompt) != 2 || withDefaultPrompt[0].Role != "system" || withDefaultPrompt[0].Content != openAISystemPrompt || withDefaultPrompt[1].Role != "user" || withDefaultPrompt[1].Content != "hello" {
 		t.Fatalf("messages with default prompt = %#v", withDefaultPrompt)
+	}
+}
+
+func TestOpenAISystemPromptDocumentsProjectFiles(t *testing.T) {
+	for _, binding := range []string{"project/files/list", "project/files/read"} {
+		if !strings.Contains(openAISystemPrompt, binding) {
+			t.Fatalf("system prompt does not document %q", binding)
+		}
 	}
 }

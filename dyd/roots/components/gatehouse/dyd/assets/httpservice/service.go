@@ -3,11 +3,13 @@ package httpservice
 import (
 	"context"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -117,6 +119,11 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/start", workspaceProjectFileStart(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}/finish", workspaceProjectFileFinish(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}/download", workspaceProjectFileDownload(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}", workspaceProjectFile(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}", workspaceSession(store, tokens[0]))
@@ -313,6 +320,20 @@ type sessionFileCreateRequest struct {
 type sessionFileCreateResponse struct {
 	File      model.SessionFile `json:"file"`
 	UploadURL string            `json:"upload_url"`
+}
+
+type projectFileResponse struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	MediaType   *string `json:"media_type,omitempty"`
+	Size        *int64  `json:"size,omitempty"`
+	Fingerprint *string `json:"fingerprint,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+}
+
+type projectFileCreateResponse struct {
+	File      projectFileResponse `json:"file"`
+	UploadURL string              `json:"upload_url"`
 }
 
 type sessionEventTreeResponse struct {
@@ -978,6 +999,191 @@ func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerToke
 	}
 }
 
+func workspaceProjectFiles(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		err, files := store.ProjectFilesGet(request.Context(), project, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := make([]projectFileResponse, 0, len(files))
+		for _, file := range files {
+			createdAt, err := typed_id.Timestamp(typed_id.ProjectFile, file.ID)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			size, fingerprint := file.Size, file.Fingerprint
+			result = append(result, projectFileResponse{
+				ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: &size, Fingerprint: &fingerprint,
+				CreatedAt: createdAt.Format("2006-01-02T15:04:05.000Z"),
+			})
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		var input sessionFileCreateRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil || strings.TrimSpace(input.Name) == "" || (input.MediaType != nil && strings.TrimSpace(*input.MediaType) == "") {
+			http.Error(response, "invalid project file", http.StatusBadRequest)
+			return
+		}
+		fileID, err := typed_id.New(typed_id.ProjectFile)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		storageObjectID, err := typed_id.New(typed_id.StorageObject)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		created := model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: fileID}, Name: input.Name, MediaType: input.MediaType, Enabled: true}
+		err, stored, objectID := store.ProjectFileCreate(request.Context(), created, storageObjectID, claims.Principal.Ref)
+		if err != nil {
+			if strings.Contains(err.Error(), "no available storage provider") {
+				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)
+				return
+			}
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSONStatus(response, http.StatusCreated, projectFileCreateResponse{File: projectFileResponseFromModel(stored, nil), UploadURL: storageURL(request, token)})
+	}
+}
+
+func workspaceProjectFileFinish(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		file, object, ok := authorizedProjectFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil || object == nil {
+			return
+		}
+		if err := tokens.StorageClient().Finish(request.Context(), object.ID); err != nil {
+			http.Error(response, "storage object is not ready", http.StatusConflict)
+			return
+		}
+		err, file, object := store.ProjectFileFinish(request.Context(), file.Ref, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if file == nil || object == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, projectFileResponseFromModel(*file, object))
+	}
+}
+
+func workspaceProjectFileDownload(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		file, object, ok := authorizedProjectFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil || object == nil {
+			return
+		}
+		if object.State != "success" {
+			http.Error(response, "storage object is not ready", http.StatusConflict)
+			return
+		}
+		err, content := tokens.StorageClient().Get(request.Context(), object.ID)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if content == nil {
+			http.NotFound(response, request)
+			return
+		}
+		defer content.Close()
+		noStore(response)
+		disposition := mime.FormatMediaType("attachment", map[string]string{"filename": file.Name})
+		if disposition == "" {
+			disposition = "attachment"
+		}
+		response.Header().Set("Content-Disposition", disposition)
+		response.Header().Set("Content-Type", "application/octet-stream")
+		response.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = io.Copy(response, content)
+	}
+}
+
+func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, fileID, ok := projectFileRef(response, request)
+		if !ok {
+			return
+		}
+		err, removed := store.ProjectFileRemove(request.Context(), model.ProjectFileRef{Project: project, Id: fileID}, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !removed {
+			http.NotFound(response, request)
+			return
+		}
+		noStore(response)
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
 func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
 	objects := tokens.StorageClient()
 	return func(response http.ResponseWriter, request *http.Request) {
@@ -1210,6 +1416,66 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 		return model.WorkspaceRef{}, false
 	}
 	return workspace, true
+}
+
+func authorizedProject(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.ProjectRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	projectID := request.PathValue("project")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Project, projectID) {
+		http.NotFound(response, request)
+		return model.ProjectRef{}, false
+	}
+	project := model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}
+	err, available := store.ProjectGet(request.Context(), project, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return model.ProjectRef{}, false
+	}
+	if available == nil {
+		http.NotFound(response, request)
+		return model.ProjectRef{}, false
+	}
+	return project, true
+}
+
+func projectFileRef(response http.ResponseWriter, request *http.Request) (model.ProjectRef, string, bool) {
+	workspaceID := request.PathValue("workspace")
+	projectID := request.PathValue("project")
+	fileID := request.PathValue("file")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Project, projectID) || !typed_id.Valid(typed_id.ProjectFile, fileID) {
+		http.NotFound(response, request)
+		return model.ProjectRef{}, "", false
+	}
+	return model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, fileID, true
+}
+
+func authorizedProjectFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.ProjectFile, *database.StorageObject, bool) {
+	project, expectedFileID, ok := projectFileRef(response, request)
+	if !ok || fileID != expectedFileID {
+		return nil, nil, false
+	}
+	file := model.ProjectFileRef{Project: project, Id: fileID}
+	err, stored, object := store.ProjectFileGet(request.Context(), file, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, nil, false
+	}
+	if stored == nil || object == nil {
+		http.NotFound(response, request)
+		return nil, nil, false
+	}
+	return stored, object, true
+}
+
+func projectFileResponseFromModel(file model.ProjectFile, object *database.StorageObject) projectFileResponse {
+	response := projectFileResponse{ID: file.Ref.Id, Name: file.Name, MediaType: file.MediaType, CreatedAt: file.CreatedAt}
+	if object != nil && object.State == "success" {
+		size := object.Size
+		fingerprint := "sha256:" + hex.EncodeToString(object.SHA256)
+		response.Size = &size
+		response.Fingerprint = &fingerprint
+	}
+	return response
 }
 
 func authorizedSessionFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.SessionFile, *database.StorageObject, bool) {

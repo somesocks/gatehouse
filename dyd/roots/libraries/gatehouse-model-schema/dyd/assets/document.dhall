@@ -529,6 +529,32 @@ let SessionFile =
         }
         s.record.meta::{ name = Some "SessionFile", description = Some "A private file attached to a session." }
 
+let ProjectFileRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "owning project identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project file identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectFileRef", description = Some "The stable identity of a file attached to a project." }
+
+let ProjectFile =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectFileRef" } s.reference.meta::{ description = Some "project file identity" }
+            , storage_object = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "backing immutable storage object" }
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project file is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project file creation timestamp" }
+            }
+        , optional = toMap
+            { media_type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "declared media type" } }
+        }
+        s.record.meta::{ name = Some "ProjectFile", description = Some "A shared file attached to a project." }
+
 let GatewayRef =
       s.record.from
         s.record.props::{
@@ -954,6 +980,8 @@ in  Document::{
            , s.root.from StorageObject s.root.meta::{ name = "StorageObject" }
            , s.root.from SessionFileRef s.root.meta::{ name = "SessionFileRef" }
            , s.root.from SessionFile s.root.meta::{ name = "SessionFile" }
+           , s.root.from ProjectFileRef s.root.meta::{ name = "ProjectFileRef" }
+           , s.root.from ProjectFile s.root.meta::{ name = "ProjectFile" }
             , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
             , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
             , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }

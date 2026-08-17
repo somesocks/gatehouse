@@ -22,6 +22,7 @@ const (
 	StorageProvider = "stp"
 	StorageObject   = "obj"
 	SessionFile     = "sfi"
+	ProjectFile     = "pfi"
 	Gateway         = "gwy"
 	Project         = "prj"
 	Session         = "ses"

@@ -428,6 +428,72 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	}
 }
 
+func TestProjectFileUploadFinishListDownloadAndRemove(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	createdProject := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects", `{"name":"Files"}`)
+	var project projectResponse
+	if err := json.Unmarshal(createdProject.Body.Bytes(), &project); err != nil || createdProject.Code != http.StatusCreated || !typed_id.Valid(typed_id.Project, project.ID) {
+		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/files"
+	started := request(http.MethodPost, base+"/start", `{"name":"design.html","media_type":"text/html"}`)
+	var upload projectFileCreateResponse
+	if err := json.Unmarshal(started.Body.Bytes(), &upload); err != nil || started.Code != http.StatusCreated {
+		t.Fatalf("POST project file start = (%d, %#v, %v)", started.Code, upload, err)
+	}
+	if !typed_id.Valid(typed_id.ProjectFile, upload.File.ID) || upload.File.Name != "design.html" || upload.File.MediaType == nil || *upload.File.MediaType != "text/html" || upload.File.CreatedAt == "" || upload.File.Size != nil || upload.File.Fingerprint != nil || upload.UploadURL == "" {
+		t.Fatalf("POST project file start response = %#v", upload)
+	}
+	pending := request(http.MethodGet, base, "")
+	var pendingFiles []projectFileResponse
+	if err := json.Unmarshal(pending.Body.Bytes(), &pendingFiles); err != nil || pending.Code != http.StatusOK || len(pendingFiles) != 0 {
+		t.Fatalf("GET pending project files = (%d, %#v, %v)", pending.Code, pendingFiles, err)
+	}
+	put := httptest.NewRecorder()
+	handler.ServeHTTP(put, httptest.NewRequest(http.MethodPut, upload.UploadURL, strings.NewReader("project storage")))
+	if put.Code != http.StatusNoContent {
+		t.Fatalf("PUT storage = status %d body %q", put.Code, put.Body.String())
+	}
+	finished := request(http.MethodPost, base+"/"+upload.File.ID+"/finish", "")
+	var completed projectFileResponse
+	if err := json.Unmarshal(finished.Body.Bytes(), &completed); err != nil || finished.Code != http.StatusOK || completed.ID != upload.File.ID || completed.Size == nil || *completed.Size != int64(len("project storage")) || completed.Fingerprint == nil || *completed.Fingerprint == "" {
+		t.Fatalf("POST project file finish = (%d, %#v, %v)", finished.Code, completed, err)
+	}
+	listed := request(http.MethodGet, base, "")
+	var files []projectFileResponse
+	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 1 || files[0].ID != completed.ID || files[0].Name != completed.Name || files[0].MediaType == nil || completed.MediaType == nil || *files[0].MediaType != *completed.MediaType || files[0].Size == nil || completed.Size == nil || *files[0].Size != *completed.Size || files[0].Fingerprint == nil || completed.Fingerprint == nil || *files[0].Fingerprint != *completed.Fingerprint || files[0].CreatedAt != completed.CreatedAt {
+		t.Fatalf("GET project files = (%d, %#v, %v)", listed.Code, files, err)
+	}
+	download := request(http.MethodGet, base+"/"+upload.File.ID+"/download", "")
+	if download.Code != http.StatusOK || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Content-Disposition") != "attachment; filename=design.html" || download.Header().Get("Content-Type") != "application/octet-stream" || download.Header().Get("X-Content-Type-Options") != "nosniff" || download.Body.String() != "project storage" {
+		t.Fatalf("GET project file download = status %d cache %q disposition %q content type %q nosniff %q body %q", download.Code, download.Header().Get("Cache-Control"), download.Header().Get("Content-Disposition"), download.Header().Get("Content-Type"), download.Header().Get("X-Content-Type-Options"), download.Body.String())
+	}
+	removed := request(http.MethodDelete, base+"/"+upload.File.ID, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE project file = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	listed = request(http.MethodGet, base, "")
+	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 0 {
+		t.Fatalf("GET removed project files = (%d, %#v, %v)", listed.Code, files, err)
+	}
+}
+
 func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	label := "Assistant"

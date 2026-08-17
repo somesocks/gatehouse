@@ -83,3 +83,35 @@ func TestRunTurnExposesSessionFiles(t *testing.T) {
 		t.Fatal("RunTurnWithFiles() accepted an oversized file read")
 	}
 }
+
+func TestRunTurnExposesLinkedProjectFilesSeparately(t *testing.T) {
+	attachmentMediaType := "text/plain"
+	mediaType := "text/markdown"
+	err, result := RunTurnWithFilesAndProjectFiles(`(list
+  (file/list)
+  (project/files/list)
+  (bytes/utf8/decode (project/files/read "guide" 0 5)))`, nil, nil, []TurnFile{{
+		ID: "attachment", Name: "attachment.txt", MediaType: &attachmentMediaType, Size: 1, Fingerprint: "sha256:attachment",
+	}}, func(string, int64, int64) (error, []byte) {
+		return nil, []byte("a")
+	}, &TurnProjectFiles{Files: []TurnFile{{
+		ID: "guide", Name: "guide.md", MediaType: &mediaType, Size: 5, Fingerprint: "sha256:guide",
+	}}, Read: func(id string, offset, length int64) (error, []byte) {
+		if id != "guide" || offset != 0 || length != 5 {
+			t.Fatalf("project file reader = (%q, %d, %d)", id, offset, length)
+		}
+		return nil, []byte("hello")
+	}})
+	if err != nil || result.String() != `((((id . "attachment") (name . "attachment.txt") (media_type . "text/plain") (size . 1) (fingerprint . "sha256:attachment"))) (((id . "guide") (name . "guide.md") (media_type . "text/markdown") (size . 5) (fingerprint . "sha256:guide"))) "hello")` {
+		t.Fatalf("RunTurnWithFilesAndProjectFiles() = (%s, %v)", result, err)
+	}
+
+	err, _ = RunTurnWithFiles(`(project/files/list)`, nil, nil, nil, func(string, int64, int64) (error, []byte) { return nil, nil })
+	if err == nil {
+		t.Fatal("RunTurnWithFiles() exposed project files without a linked project")
+	}
+	err, _ = RunTurnWithFilesAndProjectFiles(`(project/files/read "guide" 0 65537)`, nil, nil, nil, nil, &TurnProjectFiles{Read: func(string, int64, int64) (error, []byte) { return nil, nil }})
+	if err == nil {
+		t.Fatal("RunTurnWithFilesAndProjectFiles() accepted an oversized project file read")
+	}
+}

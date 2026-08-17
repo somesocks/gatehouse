@@ -271,6 +271,55 @@ body {
   color: #9ea494;
 }
 
+.project-files-widget {
+  align-content: start;
+}
+
+.project-file-row {
+  align-items: center;
+  background: #20241a;
+  border-radius: 0.4rem;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.45rem 0.5rem 0.45rem 0.75rem;
+}
+
+.project-file-download {
+  align-items: center;
+  color: #f4f4ee;
+  display: flex;
+  flex: 1;
+  gap: 0.55rem;
+  min-width: 0;
+  text-decoration: none;
+}
+
+.project-file-download:hover,
+.project-file-download:focus-visible {
+  color: #dfff9b;
+  text-decoration: underline;
+}
+
+.project-file-content {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.project-file-content > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-file-meta {
+  color: #9ea494;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.75rem;
+  gap: 0.5rem;
+}
+
 .dashboard-empty { color: #9ea494; margin: 0; }
 .dashboard-widget .dashboard-empty { padding: 0.65rem 0.75rem; }
 .dashboard-error { grid-column: 1 / -1; }
