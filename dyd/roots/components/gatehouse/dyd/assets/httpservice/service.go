@@ -119,6 +119,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/agents", workspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}", workspaceSession(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
@@ -234,6 +235,16 @@ type projectResponse struct {
 	ID          string  `json:"id"`
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
+}
+
+type sessionSearchResponse struct {
+	Sessions   []sessionResponse `json:"sessions"`
+	NextCursor string            `json:"next_cursor,omitempty"`
+}
+
+type projectSearchResponse struct {
+	Projects   []projectResponse `json:"projects"`
+	NextCursor string            `json:"next_cursor,omitempty"`
 }
 
 type projectCreateRequest struct {
@@ -391,7 +402,15 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, projects := store.ProjectsGet(request.Context(), workspace, claims.Principal.Ref)
+			name, cursor, limit, ok := catalogSearchParameters(response, request)
+			if !ok {
+				return
+			}
+			if cursor != "" && !typed_id.Valid(typed_id.Project, cursor) {
+				http.Error(response, "invalid project cursor", http.StatusBadRequest)
+				return
+			}
+			err, projects, nextCursor := store.ProjectsSearch(request.Context(), workspace, claims.Principal.Ref, database.ProjectSearch{Name: name, Cursor: cursor, Limit: limit})
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -400,7 +419,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			for _, project := range projects {
 				result = append(result, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
 			}
-			writeJSON(response, result)
+			writeJSON(response, projectSearchResponse{Projects: result, NextCursor: nextCursor})
 		case http.MethodPost:
 			var input projectCreateRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
@@ -436,7 +455,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 
 func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPatch {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -453,6 +472,20 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.NotFound(response, request)
 			return
 		}
+		projectRef := model.ProjectRef{Workspace: workspace, Id: projectID}
+		if request.Method == http.MethodGet {
+			err, project := store.ProjectGet(request.Context(), projectRef, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if project == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description})
+			return
+		}
 		var input projectUpdateRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
@@ -460,7 +493,7 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.Error(response, "invalid project", http.StatusBadRequest)
 			return
 		}
-		err, project := store.ProjectNameSet(request.Context(), model.ProjectRef{Workspace: workspace, Id: projectID}, claims.Principal.Ref, input.Name)
+		err, project := store.ProjectNameSet(request.Context(), projectRef, claims.Principal.Ref, input.Name)
 		if err != nil {
 			http.Error(response, "project could not be updated", http.StatusBadRequest)
 			return
@@ -486,6 +519,39 @@ func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.Ha
 	}
 }
 
+func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
+			http.NotFound(response, request)
+			return
+		}
+		err, session := store.SessionGet(request.Context(), model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if session == nil {
+			http.NotFound(response, request)
+			return
+		}
+		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name}
+		if session.Project != nil {
+			entry.Project = &session.Project.Id
+		}
+		writeJSON(response, entry)
+	}
+}
+
 func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, response http.ResponseWriter, request *http.Request) {
 	claims, ok := authenticate(response, request, tokens)
 	if !ok {
@@ -496,10 +562,24 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 		http.NotFound(response, request)
 		return
 	}
-	err, sessions := store.SessionsGet(
+	name, cursor, limit, ok := catalogSearchParameters(response, request)
+	if !ok {
+		return
+	}
+	if cursor != "" && !typed_id.Valid(typed_id.Session, cursor) {
+		http.Error(response, "invalid session cursor", http.StatusBadRequest)
+		return
+	}
+	projectID := request.URL.Query().Get("project")
+	if projectID != "" && !typed_id.Valid(typed_id.Project, projectID) {
+		http.Error(response, "invalid project", http.StatusBadRequest)
+		return
+	}
+	err, sessions, nextCursor := store.SessionsSearch(
 		request.Context(),
 		model.WorkspaceRef{Id: workspaceID},
 		claims.Principal.Ref,
+		database.SessionSearch{Name: name, Project: projectID, Cursor: cursor, Limit: limit},
 	)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -513,7 +593,25 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 		}
 		result = append(result, entry)
 	}
-	writeJSON(response, result)
+	writeJSON(response, sessionSearchResponse{Sessions: result, NextCursor: nextCursor})
+}
+
+func catalogSearchParameters(response http.ResponseWriter, request *http.Request) (string, string, int, bool) {
+	name := strings.TrimSpace(request.URL.Query().Get("name"))
+	if len(name) > 256 {
+		http.Error(response, "search name is too long", http.StatusBadRequest)
+		return "", "", 0, false
+	}
+	limit := 50
+	if raw := request.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			http.Error(response, "limit must be between 1 and 100", http.StatusBadRequest)
+			return "", "", 0, false
+		}
+		limit = parsed
+	}
+	return name, request.URL.Query().Get("cursor"), limit, true
 }
 
 func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, response http.ResponseWriter, request *http.Request) {

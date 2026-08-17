@@ -201,7 +201,7 @@ func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session m
 }
 
 func (store *Store) SessionGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, *model.Session) {
-	err, sessions := store.SessionsGet(ctx, session.Workspace, principal)
+	err, sessions, _ := store.sessionsSearch(ctx, session.Workspace, principal, SessionSearch{Limit: 1}, session.Id)
 	if err != nil {
 		return err, nil
 	}
@@ -1207,4 +1207,141 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 		visible = append(visible, session)
 	}
 	return nil, visible
+}
+
+type SessionSearch struct {
+	Name    string
+	Project string
+	Cursor  string
+	Limit   int
+}
+
+func (store *Store) SessionsSearch(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, search SessionSearch) (error, []model.Session, string) {
+	return store.sessionsSearch(ctx, workspace, principal, search, "")
+}
+
+func (store *Store) sessionsSearch(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, search SessionSearch, id string) (error, []model.Session, string) {
+	if search.Limit < 1 || search.Limit > 100 {
+		return fmt.Errorf("search sessions: limit must be between 1 and 100"), nil, ""
+	}
+	if search.Cursor != "" && !typed_id.Valid(typed_id.Session, search.Cursor) {
+		return fmt.Errorf("search sessions: cursor is invalid"), nil, ""
+	}
+	if search.Project != "" && !typed_id.Valid(typed_id.Project, search.Project) {
+		return fmt.Errorf("search sessions: project is invalid"), nil, ""
+	}
+	if id != "" && !typed_id.Valid(typed_id.Session, id) {
+		return fmt.Errorf("search sessions: ID is invalid"), nil, ""
+	}
+	name := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(search.Name)) + "%"
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT
+			sessions.workspace,
+			sessions.project,
+			sessions.id,
+			sessions.name,
+			sessions.author_principal,
+			sessions.author_agent,
+			sessions.author_gateway,
+			sessions.enabled,
+			sessions.created_at
+		FROM gatehouse_sessions AS sessions
+		WHERE sessions.workspace = `+placeholder(1)+`
+			AND sessions.enabled = TRUE
+			AND LOWER(COALESCE(sessions.name, '')) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
+			AND (`+placeholder(3)+` = '' OR sessions.id < `+placeholder(4)+`)
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_workspaces AS workspaces
+				WHERE workspaces.id = sessions.workspace AND workspaces.enabled = TRUE
+			)
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_principals AS principals
+				WHERE principals.id = `+placeholder(5)+` AND principals.enabled = TRUE
+			)
+			AND (
+				EXISTS (
+					SELECT 1 FROM gatehouse_session_principal_grants AS grants
+					WHERE grants.workspace = sessions.workspace AND grants.session = sessions.id
+						AND grants.principal = `+placeholder(6)+` AND grants.enabled = TRUE
+				)
+				OR EXISTS (
+					SELECT 1 FROM gatehouse_session_group_grants AS grants
+					JOIN gatehouse_groups AS groups
+						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+					JOIN gatehouse_group_members AS members
+						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+					WHERE grants.workspace = sessions.workspace AND grants.session = sessions.id
+						AND grants.enabled = TRUE AND groups.enabled = TRUE
+						AND members.principal_id = `+placeholder(7)+` AND members.enabled = TRUE
+				)
+			)
+			AND (
+				sessions.project IS NULL
+				OR EXISTS (
+					SELECT 1 FROM gatehouse_project_principal_grants AS grants
+					WHERE grants.workspace = sessions.workspace AND grants.project = sessions.project
+						AND grants.principal = `+placeholder(8)+` AND grants.enabled = TRUE
+				)
+				OR EXISTS (
+					SELECT 1 FROM gatehouse_project_group_grants AS grants
+					JOIN gatehouse_groups AS groups
+						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+					JOIN gatehouse_group_members AS members
+						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+					WHERE grants.workspace = sessions.workspace AND grants.project = sessions.project
+						AND grants.enabled = TRUE AND groups.enabled = TRUE
+						AND members.principal_id = `+placeholder(9)+` AND members.enabled = TRUE
+				)
+			)
+			AND (`+placeholder(10)+` = '' OR sessions.project = `+placeholder(11)+`)
+			AND (`+placeholder(12)+` = '' OR sessions.id = `+placeholder(13)+`)
+		ORDER BY sessions.id DESC
+		LIMIT `+placeholder(14)+`
+	`, workspace.Id, name, search.Cursor, search.Cursor, principal.Id, principal.Id, principal.Id, principal.Id, principal.Id, search.Project, search.Project, id, id, search.Limit+1)
+	if err != nil {
+		return fmt.Errorf("search sessions: %w", err), nil, ""
+	}
+	defer rows.Close()
+
+	sessions := []model.Session{}
+	for rows.Next() {
+		var session model.Session
+		var project, name, authorPrincipal, authorAgent, authorGateway sql.NullString
+		if err := rows.Scan(
+			&session.Ref.Workspace.Id,
+			&project,
+			&session.Ref.Id,
+			&name,
+			&authorPrincipal,
+			&authorAgent,
+			&authorGateway,
+			&session.Enabled,
+			&session.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("scan session search result: %w", err), nil, ""
+		}
+		if name.Valid {
+			session.Name = &name.String
+		}
+		if project.Valid {
+			session.Project = &model.ProjectRef{Workspace: session.Ref.Workspace, Id: project.String}
+		}
+		authorPrincipalRef, authorAgentRef, authorGatewayRef, err := sessionAuthorsFromValues(session.Ref.Workspace, authorPrincipal, authorAgent, authorGateway)
+		if err != nil {
+			return err, nil, ""
+		}
+		session.AuthorPrincipal = authorPrincipalRef
+		session.AuthorAgent = authorAgentRef
+		session.AuthorGateway = authorGatewayRef
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate session search results: %w", err), nil, ""
+	}
+	if len(sessions) <= search.Limit {
+		return nil, sessions, ""
+	}
+	nextCursor := sessions[search.Limit-1].Ref.Id
+	return nil, sessions[:search.Limit], nextCursor
 }

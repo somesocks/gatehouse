@@ -112,6 +112,49 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	}
 }
 
+func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_sessions (workspace, id, name, author_principal, enabled, created_at) VALUES
+			(?, 'ses_00000000000000000000000000', 'Weekly report', ?, TRUE, '2026-01-01 00:00:00'),
+			(?, 'ses_00000000000000000000000001', 'Incident report', ?, TRUE, '2026-01-01 00:00:01'),
+			(?, 'ses_00000000000000000000000002', 'Planning', ?, TRUE, '2026-01-01 00:00:02')
+	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled) VALUES
+			(?, 'ses_00000000000000000000000000', ?, TRUE),
+			(?, 'ses_00000000000000000000000001', ?, TRUE),
+			(?, 'ses_00000000000000000000000002', ?, TRUE)
+	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, first, cursor := store.SessionsSearch(ctx, workspace, alice, database.SessionSearch{Name: "REPORT", Limit: 1})
+	if err != nil || len(first) != 1 || first[0].Ref.Id != "ses_00000000000000000000000001" || cursor != first[0].Ref.Id {
+		t.Fatalf("SessionsSearch() first page = (%#v, %q, %v)", first, cursor, err)
+	}
+	err, second, cursor := store.SessionsSearch(ctx, workspace, alice, database.SessionSearch{Name: "report", Cursor: cursor, Limit: 1})
+	if err != nil || len(second) != 1 || second[0].Ref.Id != "ses_00000000000000000000000000" || cursor != "" {
+		t.Fatalf("SessionsSearch() second page = (%#v, %q, %v)", second, cursor, err)
+	}
+}
+
 func TestSessionsCreateAndEvents(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}

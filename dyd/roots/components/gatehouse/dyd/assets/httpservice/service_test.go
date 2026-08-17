@@ -198,8 +198,20 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
 	sessions := request("/api/v1/workspaces/" + engineering.Id + "/sessions")
-	if sessions.Code != http.StatusOK || sessions.Body.String() != "[{\"id\":\"ses_00000000000000000000000001\"},{\"id\":\"ses_00000000000000000000000000\"}]\n" {
+	if sessions.Code != http.StatusOK || sessions.Body.String() != "{\"sessions\":[{\"id\":\"ses_00000000000000000000000001\"},{\"id\":\"ses_00000000000000000000000000\"}]}\n" {
 		t.Fatalf("GET sessions = status %d body %q", sessions.Code, sessions.Body.String())
+	}
+	firstSessionPage := request("/api/v1/workspaces/" + engineering.Id + "/sessions?limit=1")
+	if firstSessionPage.Code != http.StatusOK || firstSessionPage.Body.String() != "{\"sessions\":[{\"id\":\"ses_00000000000000000000000001\"}],\"next_cursor\":\"ses_00000000000000000000000001\"}\n" {
+		t.Fatalf("GET first session page = status %d body %q", firstSessionPage.Code, firstSessionPage.Body.String())
+	}
+	secondSessionPage := request("/api/v1/workspaces/" + engineering.Id + "/sessions?limit=1&cursor=ses_00000000000000000000000001")
+	if secondSessionPage.Code != http.StatusOK || secondSessionPage.Body.String() != "{\"sessions\":[{\"id\":\"ses_00000000000000000000000000\"}]}\n" {
+		t.Fatalf("GET second session page = status %d body %q", secondSessionPage.Code, secondSessionPage.Body.String())
+	}
+	invalidSessionPage := request("/api/v1/workspaces/" + engineering.Id + "/sessions?limit=101")
+	if invalidSessionPage.Code != http.StatusBadRequest {
+		t.Fatalf("GET invalid session page = status %d", invalidSessionPage.Code)
 	}
 	resources := request("/api/v1/workspaces/" + engineering.Id + "/resources")
 	var resourceResponse []struct {

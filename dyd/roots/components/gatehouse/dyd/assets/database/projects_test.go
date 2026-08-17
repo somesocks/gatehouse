@@ -82,3 +82,46 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 		t.Fatalf("SessionProjectSet() unlink = (%#v, %v)", linked, err)
 	}
 }
+
+func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_projects (workspace, id, name, enabled, created_at) VALUES
+			(?, 'prj_00000000000000000000000000', 'Website refresh', TRUE, '2026-01-01 00:00:00'),
+			(?, 'prj_00000000000000000000000001', 'Mobile refresh', TRUE, '2026-01-01 00:00:01'),
+			(?, 'prj_00000000000000000000000002', 'Operations', TRUE, '2026-01-01 00:00:02')
+	`, workspace.Id, workspace.Id, workspace.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_project_principal_grants (workspace, project, principal, enabled) VALUES
+			(?, 'prj_00000000000000000000000000', ?, TRUE),
+			(?, 'prj_00000000000000000000000001', ?, TRUE),
+			(?, 'prj_00000000000000000000000002', ?, TRUE)
+	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, first, cursor := store.ProjectsSearch(ctx, workspace, alice, database.ProjectSearch{Name: "REFRESH", Limit: 1})
+	if err != nil || len(first) != 1 || first[0].Ref.Id != "prj_00000000000000000000000001" || cursor != first[0].Ref.Id {
+		t.Fatalf("ProjectsSearch() first page = (%#v, %q, %v)", first, cursor, err)
+	}
+	err, second, cursor := store.ProjectsSearch(ctx, workspace, alice, database.ProjectSearch{Name: "refresh", Cursor: cursor, Limit: 1})
+	if err != nil || len(second) != 1 || second[0].Ref.Id != "prj_00000000000000000000000000" || cursor != "" {
+		t.Fatalf("ProjectsSearch() second page = (%#v, %q, %v)", second, cursor, err)
+	}
+}
