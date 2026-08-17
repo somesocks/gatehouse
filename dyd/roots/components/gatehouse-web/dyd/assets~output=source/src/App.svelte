@@ -1231,7 +1231,7 @@
     projectNoteError = ""
     creatingProjectNote = false
     editingProjectNote = false
-    navigate(projectNotePath(workspace, project, note))
+    navigate(projectNotePath(workspace, project, note), false)
     try {
       const loaded = await loadProjectNote(project, note.id)
       if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
@@ -1258,7 +1258,7 @@
     projectNoteDescription = ""
     projectNoteBody = ""
     projectNoteError = ""
-    navigate(projectNotePath(activeWorkspace, activeProject, "new"))
+    navigate(projectNotePath(activeWorkspace, activeProject, "new"), false)
   }
 
   function startProjectNoteEdit() {
@@ -1287,8 +1287,8 @@
   }
 
   async function saveProjectNote() {
-    if (activeWorkspace === null || activeProject === null || projectNoteTitle.trim() === "" || projectNoteDescription.trim() === "" || projectNoteBody.trim() === "") {
-      projectNoteError = "Title, description, and Markdown are required."
+    if (activeWorkspace === null || activeProject === null || projectNoteTitle.trim() === "") {
+      projectNoteError = "Title is required."
       return
     }
     const workspace = activeWorkspace
@@ -1770,7 +1770,7 @@
               <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if activeSession === null}
+              {#if activeSession === null && activeProjectNote === null && !creatingProjectNote}
                 <span>{activeProject.name ?? "New Project"}</span>
               {:else}
                 <a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(activeProject.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
@@ -1859,15 +1859,15 @@
             <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectNote() }}>
               <div class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{creatingProjectNote ? "New Note" : "Edit Note"}</h2></div></div>
               <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
-              <div class="field"><label class="label" for="project-note-description">Description</label><div class="control"><textarea class="textarea" id="project-note-description" rows="3" maxlength="4096" required bind:value={projectNoteDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="project-note-body">Content</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" rows="18" maxlength="1048576" required bind:value={projectNoteBody}></textarea></div></div>
+              <div class="field"><label class="label" for="project-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="project-note-description" rows="3" maxlength="4096" bind:value={projectNoteDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="project-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" rows="18" maxlength="1048576" bind:value={projectNoteBody}></textarea></div></div>
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
               <div class="project-note-actions"><button class="button" type="button" disabled={savingProjectNote} onclick={cancelProjectNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectNote}>{savingProjectNote ? "Saving..." : "Save note"}</button></div>
             </form>
           {:else if activeProjectNote !== null}
             <article class="project-note-view">
-              <header class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{activeProjectNote.title}</h2><p>{activeProjectNote.description}</p><small>By {activeProjectNote.author.name ?? activeProjectNote.author.id} on {createdAtLabel(activeProjectNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button></div></header>
-              <div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body ?? "")}</div>
+              <header class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{activeProjectNote.title}</h2>{#if activeProjectNote.description !== ""}<p>{activeProjectNote.description}</p>{/if}<small>By {activeProjectNote.author.name ?? activeProjectNote.author.id} on {createdAtLabel(activeProjectNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button></div></header>
+              {#if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
             </article>
           {/if}
@@ -1909,7 +1909,7 @@
               <p class="dashboard-empty">Notes could not be loaded.</p>
             {:else}
               {#each projectNotes as note (note.id)}
-                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span><span class="project-note-description">{note.description}</span><span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
+                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
               {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
             {/if}
           </section>

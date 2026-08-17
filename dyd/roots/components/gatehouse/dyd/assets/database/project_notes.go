@@ -32,12 +32,12 @@ type ProjectNoteDetail struct {
 
 func normalizeProjectNote(title, description, body *string) error {
 	if title == nil || description == nil || body == nil {
-		return fmt.Errorf("project note title, description, and body are required")
+		return fmt.Errorf("project note fields are required")
 	}
 	*title = strings.Join(strings.Fields(*title), " ")
 	*description = strings.TrimSpace(*description)
-	if *title == "" || *description == "" || strings.TrimSpace(*body) == "" {
-		return fmt.Errorf("project note title, description, and body must not be blank")
+	if *title == "" {
+		return fmt.Errorf("project note title must not be blank")
 	}
 	if len(*title) > projectNoteTitleMaxSize || len(*description) > projectNoteDescriptionMaxSize || len(*body) > projectNoteBodyMaxSize {
 		return fmt.Errorf("project note title, description, or body exceeds the size limit")

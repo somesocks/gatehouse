@@ -85,7 +85,7 @@ var turnProjectFileReadDocumentation = doc(
 
 var turnProjectNoteListDocumentation = doc(
 	"(project/notes/list) -> List",
-	"Returns project notes with id, title, description, author_id, optional author_name, and created_at.",
+	"Returns project notes with id, title, possibly empty description, author_id, optional author_name, and created_at.",
 	"(project/notes/list)",
 	"((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))",
 )
@@ -248,7 +248,7 @@ func turnProjectNoteList(notes []TurnProjectNote) pureBuiltinCall {
 		}
 		values := make([]Expr, 0, len(notes))
 		for _, note := range notes {
-			if note.ID == "" || note.Title == "" || note.Description == "" || note.AuthorID == "" || note.CreatedAt == "" {
+			if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
 				return expressionError("project/notes/list has invalid note metadata"), nil
 			}
 			authorName := Expr(null())

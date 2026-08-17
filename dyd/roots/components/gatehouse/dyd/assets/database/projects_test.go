@@ -253,6 +253,14 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	if createErr, _ := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: oversizedID}, Title: "Oversized", Description: "Oversized body", Body: strings.Repeat("x", 1024*1024+1)}, alice); createErr == nil {
 		t.Fatal("ProjectNoteCreate() accepted a body exceeding 1 MiB")
 	}
+	emptyID, err := typed_id.NewAt(typed_id.ProjectNote, time.Date(2026, 1, 2, 3, 4, 8, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, empty := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: emptyID}, Title: "Empty"}, alice)
+	if err != nil || empty.Description != "" || empty.Body != "" {
+		t.Fatalf("ProjectNoteCreate() with empty optional fields = (%#v, %v)", empty, err)
+	}
 	for _, event := range []string{"project_note.create", "project_note.update", "project_note.remove"} {
 		var count int
 		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND project = ? AND event = ?`, workspace.Id, project.Id, event).Scan(&count); err != nil || count == 0 {

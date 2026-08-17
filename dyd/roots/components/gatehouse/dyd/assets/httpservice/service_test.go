@@ -539,9 +539,13 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	if err := json.Unmarshal(detail.Body.Bytes(), &note); err != nil || detail.Code != http.StatusOK || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." {
 		t.Fatalf("GET project note = (%d, %#v, %v)", detail.Code, note, err)
 	}
-	updated := request(http.MethodPatch, base+"/"+note.ID, `{"description":"Updated guide."}`)
-	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Title != "Guide" || note.Description != "Updated guide." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." {
+	updated := request(http.MethodPatch, base+"/"+note.ID, `{"description":"","body":""}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
 		t.Fatalf("PATCH project note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
+	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
+		t.Fatalf("POST empty project note = (%d, %#v, %v)", empty.Code, note, err)
 	}
 	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
 	if invalid.Code != http.StatusBadRequest {

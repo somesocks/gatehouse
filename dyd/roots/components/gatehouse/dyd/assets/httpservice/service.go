@@ -1109,7 +1109,14 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			note := model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: *input.Title, Description: *input.Description, Body: *input.Body}
+			description, body := "", ""
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Body != nil {
+				body = *input.Body
+			}
+			note := model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: *input.Title, Description: description, Body: body}
 			err, stored := store.ProjectNoteCreate(request.Context(), note, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "project note could not be created", http.StatusBadRequest)
@@ -1618,7 +1625,7 @@ func projectNoteRef(response http.ResponseWriter, request *http.Request) (model.
 }
 
 func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
-	if required && (input.Title == nil || input.Description == nil || input.Body == nil) {
+	if required && input.Title == nil {
 		return false
 	}
 	if !required && input.Title == nil && input.Description == nil && input.Body == nil {
