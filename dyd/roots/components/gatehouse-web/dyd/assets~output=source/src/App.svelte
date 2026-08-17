@@ -118,6 +118,12 @@
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
   let creatingProject = $state(false)
+  let updatingProject = $state(false)
+  let projectEditName = $state("")
+  let projectEditDescription = $state("")
+  let projectEditError = $state("")
+  let projectEditDialogElement = $state<HTMLDialogElement | undefined>()
+  let projectActionMenuElement = $state<HTMLDetailsElement | undefined>()
   let events = $state<SessionEventTree[]>([])
   let eventStatus = $state<WorkspaceContentStatus>("checking")
   let messageText = $state("")
@@ -169,10 +175,17 @@
         void checkSession()
       }
     }
+    const closeProjectActionMenu = (event: MouseEvent) => {
+      if (projectActionMenuElement?.open && event.target instanceof Node && !projectActionMenuElement.contains(event.target)) {
+        projectActionMenuElement.open = false
+      }
+    }
     window.addEventListener("popstate", handlePopState)
+    document.addEventListener("click", closeProjectActionMenu)
     void checkSession()
     return () => {
       window.removeEventListener("popstate", handlePopState)
+      document.removeEventListener("click", closeProjectActionMenu)
       stopActivityPolling()
     }
   })
@@ -1087,6 +1100,59 @@
     }
   }
 
+  function openProjectEdit() {
+    if (activeProject === null) {
+      return
+    }
+    projectActionMenuElement?.removeAttribute("open")
+    projectEditName = activeProject.name ?? ""
+    projectEditDescription = activeProject.description ?? ""
+    projectEditError = ""
+    projectEditDialogElement?.showModal()
+  }
+
+  function closeProjectEdit() {
+    if (!updatingProject) {
+      projectEditDialogElement?.close()
+    }
+  }
+
+  async function updateProject() {
+    if (activeWorkspace === null || activeProject === null) {
+      return
+    }
+    const workspace = activeWorkspace
+    const project = activeProject
+    projectEditError = ""
+    updatingProject = true
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}`, {
+        method: "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: projectEditName, description: projectEditDescription }),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("project could not be updated")
+      }
+      const updated = (await response.json()) as Project
+      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
+        return
+      }
+      activeProject = updated
+      latestProjects = latestProjects.map((candidate) => candidate.id === updated.id ? updated : candidate)
+      projectEditDialogElement?.close()
+    } catch {
+      projectEditError = "The project could not be updated. Try again."
+    } finally {
+      updatingProject = false
+    }
+  }
+
   async function sendMessage() {
     if (activeWorkspace === null || activeSession === null || (messageText.trim() === "" && composerFiles.length === 0)) {
       return
@@ -1457,6 +1523,18 @@
             {/if}
           </h1>
       </header>
+      {#if activeSession === null && activeProject !== null}
+        <section class="project-dashboard-heading">
+          <div>
+            <h2 class="title is-3">{activeProject.name ?? "New Project"}</h2>
+            <p class="subtitle is-6">{activeProject.description ?? "No description yet."}</p>
+          </div>
+          <details class="project-action-menu" bind:this={projectActionMenuElement}>
+            <summary class="button is-small project-action-menu-trigger" aria-label="Project actions" title="Project actions"><Menu size={22} strokeWidth={2} aria-hidden="true" /></summary>
+            <div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button></div>
+          </details>
+        </section>
+      {/if}
       {#if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">
@@ -1523,7 +1601,7 @@
             <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
           </section>
           <section class="dashboard-widget dashboard-widget-wide project-files-widget">
-            <div class="dashboard-widget-heading"><h2>Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
+            <div class="dashboard-widget-heading"><h2>Project Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
             <input class="is-sr-only" type="file" multiple bind:this={projectFileInputElement} onchange={(event) => void uploadProjectFiles(event.currentTarget)} />
             {#if projectFileStatus === "checking"}
               <p class="dashboard-empty">Loading files...</p>
@@ -1702,4 +1780,19 @@
       {/if}
     </main>
   </div>
+  <dialog class="project-edit-dialog" bind:this={projectEditDialogElement} onclose={() => projectEditError = ""}>
+    <form class="project-edit-form" onsubmit={(event) => { event.preventDefault(); void updateProject() }}>
+      <div class="project-edit-heading"><h2>Edit project</h2><button class="button is-ghost is-small" type="button" aria-label="Close" onclick={closeProjectEdit}><X size={18} strokeWidth={2} aria-hidden="true" /></button></div>
+      <div class="field">
+        <label class="label" for="project-edit-name">Name</label>
+        <div class="control"><input class="input" id="project-edit-name" maxlength="256" bind:value={projectEditName} /></div>
+      </div>
+      <div class="field">
+        <label class="label" for="project-edit-description">Description</label>
+        <div class="control"><textarea class="textarea" id="project-edit-description" rows="4" maxlength="4096" bind:value={projectEditDescription}></textarea></div>
+      </div>
+      {#if projectEditError !== ""}<p class="help is-danger" aria-live="polite">{projectEditError}</p>{/if}
+      <div class="project-edit-actions"><button class="button" type="button" disabled={updatingProject} onclick={closeProjectEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={updatingProject}>{updatingProject ? "Saving..." : "Save changes"}</button></div>
+    </form>
+  </dialog>
 {/if}

@@ -490,8 +490,111 @@ body {
 }
 
 .workspace-breadcrumb-separator {
-  color: #818878;
-  margin: 0 0.45rem;
+	color: #818878;
+	margin: 0 0.45rem;
+}
+
+.project-dashboard-heading {
+	align-items: flex-start;
+	display: flex;
+	gap: 1rem;
+	justify-content: space-between;
+	padding: 1.5rem 1.5rem 0;
+}
+
+.project-dashboard-heading .title { margin: 0; }
+
+.project-dashboard-heading .subtitle {
+	color: #c7c9bd;
+	margin: 0.3rem 0 0;
+}
+
+.project-action-menu {
+	position: relative;
+}
+
+.project-action-menu summary {
+	align-items: center;
+	display: flex;
+	justify-content: center;
+	list-style: none;
+}
+
+.project-action-menu summary::-webkit-details-marker { display: none; }
+
+.project-action-menu-items {
+	background: #20241a;
+	border: 1px solid #626858;
+	box-sizing: border-box;
+	border-radius: 0.5rem;
+	box-shadow: 0 0.6rem 1.5rem rgb(0 0 0 / 30%);
+	min-width: 10rem;
+	overflow: hidden;
+	padding: 0.3rem;
+	position: absolute;
+	right: 0;
+	top: calc(100% + 0.4rem);
+	z-index: 2;
+}
+
+.project-action-menu-items button {
+	background: transparent;
+	border: 0;
+	border-radius: 0.3rem;
+	box-sizing: border-box;
+	color: #f4f4ee;
+	cursor: pointer;
+	display: block;
+	font: inherit;
+	padding: 0.45rem 0.55rem;
+	text-align: left;
+	width: 100%;
+}
+
+.project-action-menu-items button:hover,
+.project-action-menu-items button:focus-visible { background: #2c3323; }
+
+.project-action-menu-trigger {
+	align-items: center;
+	display: inline-flex;
+	height: 2.25rem;
+	justify-content: center;
+	padding: 0;
+	width: 2.25rem;
+}
+
+.project-edit-dialog {
+	background: #171910;
+	border: 1px solid #626858;
+	border-radius: 0.75rem;
+	color: #f4f4ee;
+	max-width: calc(100vw - 2rem);
+	padding: 0;
+	width: min(32rem, 100%);
+}
+
+.project-edit-dialog::backdrop { background: rgb(5 7 4 / 72%); }
+
+.project-edit-form {
+	display: grid;
+	gap: 1rem;
+	padding: 1.25rem;
+}
+
+.project-edit-heading {
+	align-items: center;
+	display: flex;
+	justify-content: space-between;
+}
+
+.project-edit-heading h2 { font-size: 1.2rem; margin: 0; }
+
+.project-edit-heading .button { color: #c7c9bd; }
+
+.project-edit-actions {
+	display: flex;
+	gap: 0.6rem;
+	justify-content: flex-end;
 }
 
 .workspace-empty {

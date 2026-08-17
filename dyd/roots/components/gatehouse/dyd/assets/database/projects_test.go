@@ -211,6 +211,17 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ProjectsGet() for ungranted principal = (%#v, %v)", projects, err)
 	}
+	name := "  Design system  "
+	description := "  Shared components and guidelines.  "
+	err, updated := store.ProjectDetailsSet(ctx, projectRef, alice, &name, &description)
+	if err != nil || updated == nil || updated.Name == nil || *updated.Name != "Design system" || updated.Description == nil || *updated.Description != "Shared components and guidelines." {
+		t.Fatalf("ProjectDetailsSet() = (%#v, %v)", updated, err)
+	}
+	blank := "  "
+	err, updated = store.ProjectDetailsSet(ctx, projectRef, alice, &blank, &blank)
+	if err != nil || updated == nil || updated.Name != nil || updated.Description != nil {
+		t.Fatalf("ProjectDetailsSet() blank values = (%#v, %v)", updated, err)
+	}
 
 	sessionID, err := typed_id.New(typed_id.Session)
 	if err != nil {

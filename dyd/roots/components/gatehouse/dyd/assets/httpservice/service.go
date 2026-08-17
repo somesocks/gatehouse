@@ -295,7 +295,8 @@ type projectCreateRequest struct {
 }
 
 type projectUpdateRequest struct {
-	Name *string `json:"name"`
+	Name        *string `json:"name"`
+	Description *string `json:"description"`
 }
 
 type sessionCreateRequest struct {
@@ -544,11 +545,27 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 		var input projectUpdateRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&input); err != nil {
+		if err := decoder.Decode(&input); err != nil {
 			http.Error(response, "invalid project", http.StatusBadRequest)
 			return
 		}
-		err, project := store.ProjectNameSet(request.Context(), projectRef, claims.Principal.Ref, input.Name)
+		err, current := store.ProjectGet(request.Context(), projectRef, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		name, description := input.Name, input.Description
+		if name == nil {
+			name = current.Name
+		}
+		if description == nil {
+			description = current.Description
+		}
+		err, project := store.ProjectDetailsSet(request.Context(), projectRef, claims.Principal.Ref, name, description)
 		if err != nil {
 			http.Error(response, "project could not be updated", http.StatusBadRequest)
 			return

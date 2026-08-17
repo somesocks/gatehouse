@@ -451,6 +451,14 @@ func TestProjectFileUploadFinishListDownloadAndRemove(t *testing.T) {
 	if err := json.Unmarshal(createdProject.Body.Bytes(), &project); err != nil || createdProject.Code != http.StatusCreated || !typed_id.Valid(typed_id.Project, project.ID) {
 		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
 	}
+	updatedProject := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{"name":"Design files","description":"Shared files for the design team."}`)
+	if err := json.Unmarshal(updatedProject.Body.Bytes(), &project); err != nil || updatedProject.Code != http.StatusOK || project.Name == nil || *project.Name != "Design files" || project.Description == nil || *project.Description != "Shared files for the design team." {
+		t.Fatalf("PATCH project = (%d, %#v, %v)", updatedProject.Code, project, err)
+	}
+	updatedProject = request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{"name":"Updated design files"}`)
+	if err := json.Unmarshal(updatedProject.Body.Bytes(), &project); err != nil || updatedProject.Code != http.StatusOK || project.Name == nil || *project.Name != "Updated design files" || project.Description == nil || *project.Description != "Shared files for the design team." {
+		t.Fatalf("PATCH project name only = (%d, %#v, %v)", updatedProject.Code, project, err)
+	}
 	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/files"
 	started := request(http.MethodPost, base+"/start", `{"name":"design.html","media_type":"text/html"}`)
 	var upload projectFileCreateResponse

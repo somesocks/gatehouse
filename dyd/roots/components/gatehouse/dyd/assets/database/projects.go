@@ -211,13 +211,21 @@ func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.Works
 	return nil, projects
 }
 
-func (store *Store) ProjectNameSet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, name *string) (error, *model.Project) {
+func (store *Store) ProjectDetailsSet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, name, description *string) (error, *model.Project) {
 	if name != nil {
 		value := strings.Join(strings.Fields(*name), " ")
 		if value == "" {
 			name = nil
 		} else {
 			name = &value
+		}
+	}
+	if description != nil {
+		value := strings.TrimSpace(*description)
+		if value == "" {
+			description = nil
+		} else {
+			description = &value
 		}
 	}
 	err, stored := store.ProjectGet(ctx, project, principal)
@@ -231,12 +239,13 @@ func (store *Store) ProjectNameSet(ctx context.Context, project model.ProjectRef
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	if _, err := transaction.ExecContext(ctx, `
-		UPDATE gatehouse_projects SET name = `+placeholder(1)+`
-		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+`
-	`, name, project.Workspace.Id, project.Id); err != nil {
-		return fmt.Errorf("update project name: %w", err), nil
+		UPDATE gatehouse_projects SET name = `+placeholder(1)+`, description = `+placeholder(2)+`
+		WHERE workspace = `+placeholder(3)+` AND id = `+placeholder(4)+`
+	`, name, description, project.Workspace.Id, project.Id); err != nil {
+		return fmt.Errorf("update project details: %w", err), nil
 	}
 	stored.Name = name
+	stored.Description = description
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 		Ref:          model.ActivityEventRef{Workspace: project.Workspace},
 		Event:        "project.update",
