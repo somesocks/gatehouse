@@ -1,1 +1,1 @@
---include=dyd/roots/tests/*~test=true --include=dyd/roots/components/*~output=tests --include=dyd/roots/deployments/local-dev~arch=host
+--include=dyd/roots/tests/*~test=true --include=dyd/roots/components/*~output=tests

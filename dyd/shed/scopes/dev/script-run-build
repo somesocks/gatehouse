@@ -2,4 +2,13 @@
 
 set -eu
 
-exec dryad roots build --scope="$DYD_SCOPE" "$@"
+case "$(uname -m)" in
+  x86_64) host_arch=amd64 ;;
+  aarch64 | arm64) host_arch=arm64 ;;
+  *)
+    printf 'unsupported host architecture: %s\n' "$(uname -m)" >&2
+    exit 1
+    ;;
+esac
+
+exec dryad roots build --scope="$DYD_SCOPE" --include="dyd/roots/deployments/local-dev~arch=$host_arch" "$@"
