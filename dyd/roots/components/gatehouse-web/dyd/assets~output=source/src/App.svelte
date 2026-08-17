@@ -26,7 +26,7 @@
     id: string
     created_at: string
     name?: string
-    project?: string
+    project?: Project
   }
 
   type Project = {
@@ -452,7 +452,7 @@
     stopActivityPolling(false)
     activeSessionCursor = null
     activeSession = session
-    activeProject = session.project === undefined ? null : latestProjects.find((project) => project.id === session.project) ?? await loadProject(activeWorkspace, session.project)
+    activeProject = session.project ?? null
     events = []
     showJumpToLatest = false
     eventStatus = "checking"
@@ -731,7 +731,7 @@
         const session = activeSession
         const overview = session === null && activeProject === null
         const sessionTopic = session === null ? (overview ? "session/*" : undefined) : `session/${session.id}`
-        const projectID = session?.project ?? activeProject?.id
+        const projectID = session?.project?.id ?? activeProject?.id
         const projectTopic = projectID === undefined ? (overview ? "project/*" : undefined) : `project/${projectID}`
         if (sessionTopic === undefined && projectTopic === undefined) {
           return
@@ -1305,14 +1305,14 @@
       {#if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">
-            <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
+            <div class="dashboard-widget-heading"><h2>Latest Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
             {#each latestSessions as session}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">No chats yet.</p>{/each}
             <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
           </section>
           <section class="dashboard-widget dashboard-widget-wide">
-            <div class="dashboard-widget-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
+            <div class="dashboard-widget-heading"><h2>Latest Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
             {#each latestProjects as project}
               <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(project.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(project) }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
             {:else}<p class="dashboard-empty">No projects yet.</p>{/each}
@@ -1329,7 +1329,7 @@
           </form>
           <div class="collection-list">
             {#each searchedSessions as session}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">{sessionSearchLoading ? "Searching chats..." : "No chats match your search."}</p>{/each}
           </div>
           {#if sessionSearchCursor !== null}<button class="button is-small" type="button" disabled={sessionSearchLoading} onclick={() => void loadSessionSearch()}>{sessionSearchLoading ? "Loading..." : "Show more"}</button>{/if}
@@ -1361,9 +1361,9 @@
       {:else if activeSession === null}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">
-            <div class="dashboard-widget-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession(activeProject ?? undefined)}>New chat</button></div>
+            <div class="dashboard-widget-heading"><h2>Project Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession(activeProject ?? undefined)}>New chat</button></div>
             {#each projectSessions as session}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time></span></a>
+              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); void selectSession(session) }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
             {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
             <a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(sessionsPath(activeWorkspace)) } }}>View all chats</a>
           </section>

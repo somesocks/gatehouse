@@ -260,9 +260,15 @@ body {
   gap: 0.15rem;
 }
 
+.dashboard-row-meta {
+  color: #9ea494;
+  display: flex;
+  font-size: 0.8rem;
+  gap: 0.5rem;
+}
+
 .dashboard-row time {
   color: #9ea494;
-  font-size: 0.8rem;
 }
 
 .dashboard-empty { color: #9ea494; margin: 0; }

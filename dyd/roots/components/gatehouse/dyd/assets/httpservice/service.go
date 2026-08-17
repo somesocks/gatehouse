@@ -228,7 +228,7 @@ type resourceResponse struct {
 type sessionResponse struct {
 	ID        string  `json:"id"`
 	Name      *string `json:"name,omitempty"`
-	Project   *string `json:"project,omitempty"`
+	Project   *projectResponse `json:"project,omitempty"`
 	CreatedAt string  `json:"created_at"`
 }
 
@@ -237,6 +237,38 @@ type projectResponse struct {
 	Name        *string `json:"name,omitempty"`
 	Description *string `json:"description,omitempty"`
 	CreatedAt   string  `json:"created_at"`
+}
+
+func projectResponseFromModel(project model.Project) projectResponse {
+	return projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt}
+}
+
+func sessionResponses(ctx context.Context, store *database.Store, workspace model.WorkspaceRef, principal model.PrincipalRef, sessions []model.Session) (error, []sessionResponse) {
+	refs := make([]model.ProjectRef, 0, len(sessions))
+	for _, session := range sessions {
+		if session.Project != nil {
+			refs = append(refs, *session.Project)
+		}
+	}
+	err, projects := store.ProjectsGetByRefs(ctx, workspace, principal, refs)
+	if err != nil {
+		return err, nil
+	}
+	projectByID := make(map[string]projectResponse, len(projects))
+	for _, project := range projects {
+		projectByID[project.Ref.Id] = projectResponseFromModel(project)
+	}
+	result := make([]sessionResponse, 0, len(sessions))
+	for _, session := range sessions {
+		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name, CreatedAt: session.CreatedAt}
+		if session.Project != nil {
+			if project, ok := projectByID[session.Project.Id]; ok {
+				entry.Project = &project
+			}
+		}
+		result = append(result, entry)
+	}
+	return nil, result
 }
 
 type sessionSearchResponse struct {
@@ -546,11 +578,12 @@ func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.NotFound(response, request)
 			return
 		}
-		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name, CreatedAt: session.CreatedAt}
-		if session.Project != nil {
-			entry.Project = &session.Project.Id
+		err, entries := sessionResponses(request.Context(), store, model.WorkspaceRef{Id: workspaceID}, claims.Principal.Ref, []model.Session{*session})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
 		}
-		writeJSON(response, entry)
+		writeJSON(response, entries[0])
 	}
 }
 
@@ -587,13 +620,10 @@ func workspaceSessionsGet(store *database.Store, tokens *auth.BearerTokens, resp
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	result := make([]sessionResponse, 0, len(sessions))
-	for _, session := range sessions {
-		entry := sessionResponse{ID: session.Ref.Id, Name: session.Name, CreatedAt: session.CreatedAt}
-		if session.Project != nil {
-			entry.Project = &session.Project.Id
-		}
-		result = append(result, entry)
+	err, result := sessionResponses(request.Context(), store, model.WorkspaceRef{Id: workspaceID}, claims.Principal.Ref, sessions)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return
 	}
 	writeJSON(response, sessionSearchResponse{Sessions: result, NextCursor: nextCursor})
 }
@@ -652,11 +682,12 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 		http.Error(response, "internal server error", http.StatusInternalServerError)
 		return
 	}
-	entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name, CreatedAt: stored.CreatedAt}
-	if stored.Project != nil {
-		entry.Project = &stored.Project.Id
+	err, entries := sessionResponses(request.Context(), store, workspace, principal, []model.Session{stored})
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return
 	}
-	writeJSONStatus(response, http.StatusCreated, entry)
+	writeJSONStatus(response, http.StatusCreated, entries[0])
 }
 
 func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
@@ -698,11 +729,12 @@ func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) h
 			http.NotFound(response, request)
 			return
 		}
-		entry := sessionResponse{ID: stored.Ref.Id, Name: stored.Name, CreatedAt: stored.CreatedAt}
-		if stored.Project != nil {
-			entry.Project = &stored.Project.Id
+		err, entries := sessionResponses(request.Context(), store, model.WorkspaceRef{Id: workspaceID}, claims.Principal.Ref, []model.Session{*stored})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
 		}
-		writeJSON(response, entry)
+		writeJSON(response, entries[0])
 	}
 }
 

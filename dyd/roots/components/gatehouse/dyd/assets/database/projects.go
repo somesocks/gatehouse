@@ -136,6 +136,81 @@ func (store *Store) ProjectGet(ctx context.Context, project model.ProjectRef, pr
 	return nil, nil
 }
 
+func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, refs []model.ProjectRef) (error, []model.Project) {
+	if len(refs) == 0 {
+		return nil, []model.Project{}
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	ids := make([]string, 0, len(refs))
+	placeholders := make([]string, 0, len(refs))
+	seen := map[string]struct{}{}
+	for _, ref := range refs {
+		if ref.Workspace != workspace {
+			return fmt.Errorf("get projects by references: project belongs to another workspace"), nil
+		}
+		if !typed_id.Valid(typed_id.Project, ref.Id) {
+			return fmt.Errorf("get projects by references: project ID is invalid"), nil
+		}
+		if _, exists := seen[ref.Id]; exists {
+			continue
+		}
+		seen[ref.Id] = struct{}{}
+		ids = append(ids, ref.Id)
+		placeholders = append(placeholders, placeholder(len(ids)+1))
+	}
+	arguments := make([]any, 0, len(ids)+3)
+	arguments = append(arguments, workspace.Id)
+	for _, id := range ids {
+		arguments = append(arguments, id)
+	}
+	principalPlaceholder := placeholder(len(arguments) + 1)
+	arguments = append(arguments, principal.Id)
+	groupPlaceholder := placeholder(len(arguments) + 1)
+	arguments = append(arguments, principal.Id)
+	rows, err := store.QueryContext(ctx, `
+		SELECT projects.workspace, projects.id, projects.name, projects.description, projects.enabled, projects.created_at
+		FROM gatehouse_projects AS projects
+		WHERE projects.workspace = `+placeholder(1)+`
+			AND projects.id IN (`+strings.Join(placeholders, ", ")+`)
+			AND projects.enabled = TRUE
+			AND (
+				EXISTS (
+					SELECT 1 FROM gatehouse_project_principal_grants AS grants
+					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
+						AND grants.principal = `+principalPlaceholder+` AND grants.enabled = TRUE
+				)
+				OR EXISTS (
+					SELECT 1 FROM gatehouse_project_group_grants AS grants
+					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
+						AND groups.enabled = TRUE AND members.principal_id = `+groupPlaceholder+` AND members.enabled = TRUE
+				)
+			)
+		ORDER BY projects.id DESC
+	`, arguments...)
+	if err != nil {
+		return fmt.Errorf("get projects by references: %w", err), nil
+	}
+	defer rows.Close()
+	projects := []model.Project{}
+	for rows.Next() {
+		var project model.Project
+		var description sql.NullString
+		if err := rows.Scan(&project.Ref.Workspace.Id, &project.Ref.Id, &project.Name, &description, &project.Enabled, &project.CreatedAt); err != nil {
+			return fmt.Errorf("scan project reference: %w", err), nil
+		}
+		if description.Valid {
+			project.Description = &description.String
+		}
+		projects = append(projects, project)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate project references: %w", err), nil
+	}
+	return nil, projects
+}
+
 func (store *Store) ProjectNameSet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, name *string) (error, *model.Project) {
 	if name != nil {
 		value := strings.Join(strings.Fields(*name), " ")
