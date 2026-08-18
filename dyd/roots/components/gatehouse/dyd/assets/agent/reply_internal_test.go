@@ -43,8 +43,8 @@ func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
 	}
 }
 
-func TestOpenAISystemPromptDocumentsSessionAndProjectFiles(t *testing.T) {
-	for _, binding := range []string{"session/files/list", "session/files/read", "project/info", "project/files/list", "project/files/read", "project/notes/list", "project/notes/read"} {
+func TestOpenAISystemPromptDocumentsSessionAndProjectCapabilities(t *testing.T) {
+	for _, binding := range []string{"session/files/list", "session/files/read", "session/notes/list", "session/notes/read", "project/info", "project/files/list", "project/files/read", "project/notes/list", "project/notes/read"} {
 		if !strings.Contains(openAISystemPrompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}

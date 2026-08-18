@@ -483,7 +483,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return "", err
 	}
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
-		err, tools, resources, files, projectInfo, projectFiles, projectNotes, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
+		err, tools, resources, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
 		if err != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
@@ -501,7 +501,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 				return fmt.Errorf("read session file: unavailable"), nil
 			}
 			return runtime.storage.Read(step, file.StorageObject.Id, offset, length)
-		}, projectInfo, projectFiles, projectNotes)
+		}, projectInfo, projectFiles, projectNotes, sessionNotes)
 		evalErr = call.End(evalErr)
 		if evalErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
@@ -578,7 +578,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `. When a project is linked to the session, its metadata is available through ` + "`project/info`" + `, its files through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + ` and ` + "`session/notes/read`" + `. When a project is linked to the session, its metadata is available through ` + "`project/info`" + `, its files through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
@@ -813,26 +813,26 @@ func clearResourceValues(values map[model.ResourceRef][]byte) {
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, []lisp.TurnFile, *lisp.TurnProjectInfo, *lisp.TurnProjectFiles, *lisp.TurnProjectNotes, map[model.ResourceRef][]byte) {
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, []lisp.TurnFile, *lisp.TurnProjectInfo, *lisp.TurnProjectFiles, *lisp.TurnProjectNotes, *lisp.TurnSessionNotes, map[model.ResourceRef][]byte) {
 	workspace := session.Workspace
 	err, configuredTools := runtime.store.WorkspaceToolsGet(ctx, workspace, principal)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	err, configuredResources := runtime.store.WorkspaceResourcesGet(ctx, workspace, principal)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	err, values := runtime.resolveResources(ctx, configuredResources)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	tools := make([]lisp.TurnTool, 0, len(configuredTools))
 	for _, configured := range configuredTools {
 		err, source := readToolSource(configured.Source)
 		if err != nil {
 			clearResourceValues(values)
-			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil, nil, nil, nil, nil
+			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		tools = append(tools, lisp.TurnTool{ID: configured.Ref.Id, Source: source})
 	}
@@ -843,16 +843,43 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
 		clearResourceValues(values)
-		return err, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	files := make([]lisp.TurnFile, 0, len(summaries))
 	for _, file := range summaries {
 		files = append(files, lisp.TurnFile{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
 	}
+	err, noteSummaries := runtime.store.SessionNotesGet(ctx, session, principal)
+	if err != nil {
+		clearResourceValues(values)
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
+	}
+	sessionNotes := &lisp.TurnSessionNotes{Notes: make([]lisp.TurnProjectNote, 0, len(noteSummaries))}
+	for _, note := range noteSummaries {
+		sessionNotes.Notes = append(sessionNotes.Notes, lisp.TurnProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+	}
+	sessionNotes.Read = func(id string, offset, length int64) (error, []byte) {
+		err, detail := runtime.store.SessionNoteGet(ctx, model.SessionNoteRef{Session: session, Id: id}, principal)
+		if err != nil || detail == nil {
+			if err != nil {
+				return err, nil
+			}
+			return fmt.Errorf("read session note: unavailable"), nil
+		}
+		body := []byte(detail.Note.Body)
+		if offset > int64(len(body)) {
+			return fmt.Errorf("read session note: offset is unavailable"), nil
+		}
+		end := offset + length
+		if end > int64(len(body)) {
+			end = int64(len(body))
+		}
+		return nil, append([]byte(nil), body[offset:end]...)
+	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {
 		clearResourceValues(values)
-		return err, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	var projectInfo *lisp.TurnProjectInfo
 	var projectFiles *lisp.TurnProjectFiles
@@ -861,7 +888,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
 		if err != nil {
 			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil
+			return err, nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
 			projectInfo = &lisp.TurnProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
@@ -869,7 +896,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
 		if err != nil {
 			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil
+			return err, nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		projectFiles = &lisp.TurnProjectFiles{Files: make([]lisp.TurnFile, 0, len(summaries))}
 		for _, file := range summaries {
@@ -888,7 +915,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
 		if err != nil {
 			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil
+			return err, nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		projectNotes = &lisp.TurnProjectNotes{Notes: make([]lisp.TurnProjectNote, 0, len(noteSummaries))}
 		for _, note := range noteSummaries {
@@ -913,7 +940,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			return nil, append([]byte(nil), body[offset:end]...)
 		}
 	}
-	return nil, tools, turnResources, files, projectInfo, projectFiles, projectNotes, values
+	return nil, tools, turnResources, files, projectInfo, projectFiles, projectNotes, sessionNotes, values
 }
 
 func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []model.Resource) (error, map[model.ResourceRef][]byte) {

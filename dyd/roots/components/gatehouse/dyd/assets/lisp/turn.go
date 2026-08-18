@@ -63,6 +63,13 @@ type TurnProjectNotes struct {
 	Read  TurnFileRead
 }
 
+// TurnSessionNotes is the optional session-note capability for a turn.
+// Supplying it exposes session/notes/list and session/notes/read.
+type TurnSessionNotes struct {
+	Notes []TurnProjectNote
+	Read  TurnFileRead
+}
+
 var turnFileListDocumentation = doc(
 	"(session/files/list) -> List",
 	"Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.",
@@ -112,6 +119,20 @@ var turnProjectNoteReadDocumentation = doc(
 	"\"# Project guide\"",
 )
 
+var turnSessionNoteListDocumentation = doc(
+	"(session/notes/list) -> List",
+	"Returns notes in the current session with id, title, possibly empty description, author_id, optional author_name, and created_at.",
+	"(session/notes/list)",
+	"((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))",
+)
+
+var turnSessionNoteReadDocumentation = doc(
+	"(session/notes/read id offset length) -> Bytes",
+	"Reads Markdown source from a note in the current session. Length must be from 1 through 65536 bytes.",
+	"(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))",
+	"\"# Session guide\"",
+)
+
 const defaultTurnPrelude = `(import/restrict
   (@native:json/v1
    @native:seq/v1
@@ -153,35 +174,35 @@ func RunTurnWithFiles(source string, tools []TurnTool, resources []TurnResource,
 
 // RunTurnWithFilesAndProjectFiles evaluates source with session files and optional linked-project files.
 func RunTurnWithFilesAndProjectFiles(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
-	return RunTurnWithFilesAndProjectFilesAndNotes(source, tools, resources, files, read, nil, projectFiles, nil)
+	return RunTurnWithFilesAndProjectFilesAndNotes(source, tools, resources, files, read, nil, projectFiles, nil, nil)
 }
 
-// RunTurnWithFilesAndProjectFilesAndNotes evaluates source with session files and optional linked-project metadata, files, and notes.
-func RunTurnWithFilesAndProjectFilesAndNotes(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
-	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, defaultTurnPrelude, tools, resources, files, read, projectInfo, projectFiles, projectNotes)
+// RunTurnWithFilesAndProjectFilesAndNotes evaluates source with session files and optional project and session capabilities.
+func RunTurnWithFilesAndProjectFilesAndNotes(source string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes, sessionNotes *TurnSessionNotes) (error, Expr) {
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, defaultTurnPrelude, tools, resources, files, read, projectInfo, projectFiles, projectNotes, sessionNotes)
 }
 
 // RunTurnWithPreludeAndFiles evaluates source through a prelude with session-file capabilities.
 func RunTurnWithPreludeAndFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead) (error, Expr) {
-	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, nil, nil, nil)
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, nil, nil, nil, nil)
 }
 
 // RunTurnWithPreludeAndFilesAndProjectFiles evaluates source through a prelude with session files and optional linked-project files.
 func RunTurnWithPreludeAndFilesAndProjectFiles(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectFiles *TurnProjectFiles) (error, Expr) {
-	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, nil, projectFiles, nil)
+	return RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, nil, projectFiles, nil, nil)
 }
 
-// RunTurnWithPreludeAndFilesAndProjectFilesAndNotes evaluates source through a prelude with session files and optional linked-project metadata, files, and notes.
-func RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
+// RunTurnWithPreludeAndFilesAndProjectFilesAndNotes evaluates source through a prelude with session files and optional project and session capabilities.
+func RunTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes, sessionNotes *TurnSessionNotes) (error, Expr) {
 	call, err := diagnostics.Begin("lisp.turn", "")
 	if err != nil {
 		return err, nil
 	}
-	err, result := runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, projectInfo, projectFiles, projectNotes)
+	err, result := runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude, tools, resources, files, read, projectInfo, projectFiles, projectNotes, sessionNotes)
 	return call.End(err), result
 }
 
-func runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes) (error, Expr) {
+func runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, tools []TurnTool, resources []TurnResource, files []TurnFile, read TurnFileRead, projectInfo *TurnProjectInfo, projectFiles *TurnProjectFiles, projectNotes *TurnProjectNotes, sessionNotes *TurnSessionNotes) (error, Expr) {
 	err, program := Read(source)
 	if err != nil {
 		return err, nil
@@ -225,6 +246,13 @@ func runTurnWithPreludeAndFilesAndProjectFilesAndNotes(source, prelude string, t
 		}
 		env.bind("project/notes/list", withHelp(&builtin{call: pure(turnProjectNoteList(projectNotes.Notes))}, turnProjectNoteListDocumentation.text()))
 		env.bind("project/notes/read", withHelp(&builtin{call: pure(turnFileRead(projectNotes.Read, "project/notes/read"))}, turnProjectNoteReadDocumentation.text()))
+	}
+	if sessionNotes != nil {
+		if sessionNotes.Read == nil {
+			return fmt.Errorf("turn session note reader is required"), nil
+		}
+		env.bind("session/notes/list", withHelp(&builtin{call: pure(turnProjectNoteList(sessionNotes.Notes))}, turnSessionNoteListDocumentation.text()))
+		env.bind("session/notes/read", withHelp(&builtin{call: pure(turnFileRead(sessionNotes.Read, "session/notes/read"))}, turnSessionNoteReadDocumentation.text()))
 	}
 
 	cache := newModuleCache()
