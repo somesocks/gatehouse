@@ -19,6 +19,9 @@ type File struct {
 // FileRead reads an authorized byte range from a file or note.
 type FileRead func(id string, offset, length int64) (error, []byte)
 
+// NoteCreate creates an authorized session note.
+type NoteCreate func(title, description, body string) (error, ProjectNote)
+
 // ProjectInfo describes the project linked to an agent session.
 type ProjectInfo struct {
 	Name        *string
@@ -50,8 +53,9 @@ type ProjectNotes struct {
 
 // SessionNotes contains the authorized notes in the current session.
 type SessionNotes struct {
-	Notes []ProjectNote
-	Read  FileRead
+	Notes  []ProjectNote
+	Read   FileRead
+	Create NoteCreate
 }
 
 type capabilityDocumentation struct {
@@ -73,6 +77,7 @@ var (
 	projectNoteReadDocumentation = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
 	sessionNoteListDocumentation = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, author_id, optional author_name, and created_at.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	sessionNoteReadDocumentation = capabilityDocumentation{"(session/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))", "\"# Session guide\""}
+	sessionNoteCreateDocumentation = capabilityDocumentation{"(session/notes/create title description body) -> List", "Creates a shared Markdown note in the current session and returns its metadata. Description and body may be empty strings.", "(session/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 )
 
 // NewProjectModule constructs the project capability module for one agent evaluation.
@@ -133,10 +138,14 @@ func NewSessionModule(files []File, read FileRead, notes *SessionNotes) lisp.Hos
 		fileRead = fileReadFunction(read, "session/files/read")
 	}
 	notesList, noteRead := noteListFunction(nil, "session/notes/list"), unavailableRead("session/notes/read")
+	noteCreate := unavailableCreate("session/notes/create")
 	if notes != nil {
 		notesList = noteListFunction(notes.Notes, "session/notes/list")
 		if notes.Read != nil {
 			noteRead = fileReadFunction(notes.Read, "session/notes/read")
+		}
+		if notes.Create != nil {
+			noteCreate = noteCreateFunction(notes.Create)
 		}
 	}
 
@@ -145,6 +154,7 @@ func NewSessionModule(files []File, read FileRead, notes *SessionNotes) lisp.Hos
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), sessionNoteReadDocumentation)},
+		{Name: "notes/create", Value: document(lisp.Function(noteCreate), sessionNoteCreateDocumentation)},
 	}}
 }
 
@@ -185,24 +195,63 @@ func noteListFunction(notes []ProjectNote, name string) func([]lisp.Expr) (error
 		}
 		values := make([]lisp.Expr, 0, len(notes))
 		for _, note := range notes {
-			if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
-				return lisp.Errorf("%s has invalid note metadata", name), nil
+			err, value := noteValue(note, name)
+			if err != nil {
+				return err, nil
 			}
-			authorName := lisp.Null()
-			if note.AuthorName != nil {
-				authorName = lisp.String(*note.AuthorName)
-			}
-			values = append(values, lisp.List(
-				lisp.Pair("id", lisp.String(note.ID)),
-				lisp.Pair("title", lisp.String(note.Title)),
-				lisp.Pair("description", lisp.String(note.Description)),
-				lisp.Pair("author_id", lisp.String(note.AuthorID)),
-				lisp.Pair("author_name", authorName),
-				lisp.Pair("created_at", lisp.String(note.CreatedAt)),
-			))
+			values = append(values, value)
 		}
 		return nil, lisp.List(values...)
 	}
+}
+
+func noteCreateFunction(create NoteCreate) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 3 {
+			return lisp.Errorf("session/notes/create requires title, description, and body"), nil
+		}
+		err, title := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		err, description := lisp.RequireString(arguments[1])
+		if err != nil {
+			return err, nil
+		}
+		err, body := lisp.RequireString(arguments[2])
+		if err != nil {
+			return err, nil
+		}
+		err, note := create(title, description, body)
+		if err != nil {
+			return lisp.Errorf("session/notes/create failed"), nil
+		}
+		return noteValue(note, "session/notes/create")
+	}
+}
+
+func unavailableCreate(name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func([]lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("%s is unavailable", name), nil
+	}
+}
+
+func noteValue(note ProjectNote, name string) (error, lisp.Expr) {
+	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
+		return lisp.Errorf("%s has invalid note metadata", name), nil
+	}
+	authorName := lisp.Null()
+	if note.AuthorName != nil {
+		authorName = lisp.String(*note.AuthorName)
+	}
+	return nil, lisp.List(
+		lisp.Pair("id", lisp.String(note.ID)),
+		lisp.Pair("title", lisp.String(note.Title)),
+		lisp.Pair("description", lisp.String(note.Description)),
+		lisp.Pair("author_id", lisp.String(note.AuthorID)),
+		lisp.Pair("author_name", authorName),
+		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
+	)
 }
 
 func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
