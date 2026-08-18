@@ -130,6 +130,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}", workspaceSession(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes", workspaceSessionNotes(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}", workspaceSessionNote(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
@@ -358,6 +360,8 @@ type projectNoteResponse struct {
 	Author      projectNoteAuthorResponse `json:"author"`
 	CreatedAt   string                    `json:"created_at"`
 }
+
+type sessionNoteResponse = projectNoteResponse
 
 type sessionEventTreeResponse struct {
 	Event    model.SessionEvent           `json:"event"`
@@ -1199,6 +1203,131 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 	}
 }
 
+func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		session, ok := authorizedSession(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, notes := store.SessionNotesGet(request.Context(), session, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]sessionNoteResponse, 0, len(notes))
+			for _, note := range notes {
+				result = append(result, sessionNoteResponseFromSummary(note))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			var input projectNoteRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, true) {
+				http.Error(response, "invalid session note", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.SessionNote)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			description, body := "", ""
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Body != nil {
+				body = *input.Body
+			}
+			note := model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: *input.Title, Description: description, Body: body}
+			err, stored := store.SessionNoteCreate(request.Context(), note, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "session note could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, sessionNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := sessionNoteRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.SessionNoteGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, sessionNoteResponseFromDetail(*current))
+		case http.MethodPatch:
+			var input projectNoteRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, false) {
+				http.Error(response, "invalid session note", http.StatusBadRequest)
+				return
+			}
+			title, description, body := current.Note.Title, current.Note.Description, current.Note.Body
+			if input.Title != nil {
+				title = *input.Title
+			}
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Body != nil {
+				body = *input.Body
+			}
+			err, updated := store.SessionNoteDetailsSet(request.Context(), note, claims.Principal.Ref, &title, &description, &body)
+			if err != nil {
+				http.Error(response, "session note could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, sessionNoteResponseFromDetail(*updated))
+		case http.MethodDelete:
+			err, removed := store.SessionNoteRemove(request.Context(), note, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
@@ -1602,6 +1731,26 @@ func authorizedProject(response http.ResponseWriter, request *http.Request, stor
 	return project, true
 }
 
+func authorizedSession(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.SessionRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	sessionID := request.PathValue("session")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
+		http.NotFound(response, request)
+		return model.SessionRef{}, false
+	}
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+	err, available := store.SessionGet(request.Context(), session, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return model.SessionRef{}, false
+	}
+	if available == nil {
+		http.NotFound(response, request)
+		return model.SessionRef{}, false
+	}
+	return session, true
+}
+
 func projectFileRef(response http.ResponseWriter, request *http.Request) (model.ProjectRef, string, bool) {
 	workspaceID := request.PathValue("workspace")
 	projectID := request.PathValue("project")
@@ -1624,6 +1773,17 @@ func projectNoteRef(response http.ResponseWriter, request *http.Request) (model.
 	return model.ProjectNoteRef{Project: model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, Id: noteID}, true
 }
 
+func sessionNoteRef(response http.ResponseWriter, request *http.Request) (model.SessionNoteRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	sessionID := request.PathValue("session")
+	noteID := request.PathValue("note")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionNote, noteID) {
+		http.NotFound(response, request)
+		return model.SessionNoteRef{}, false
+	}
+	return model.SessionNoteRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: noteID}, true
+}
+
 func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 	if required && input.Title == nil {
 		return false
@@ -1641,6 +1801,15 @@ func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNot
 func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNoteResponse {
 	note := detail.Note
 	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+}
+
+func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNoteResponse {
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+}
+
+func sessionNoteResponseFromDetail(detail database.SessionNoteDetail) sessionNoteResponse {
+	note := detail.Note
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func authorizedProjectFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.ProjectFile, *database.StorageObject, bool) {

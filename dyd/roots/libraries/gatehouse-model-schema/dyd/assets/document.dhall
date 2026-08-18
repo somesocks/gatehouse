@@ -582,6 +582,33 @@ let ProjectNote =
         }
         s.record.meta::{ name = Some "ProjectNote", description = Some "A shared Markdown note attached to a project." }
 
+let SessionNoteRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { session = s.reference.from s.reference.props::{ to = "SessionRef" } s.reference.meta::{ description = Some "owning session identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed session note identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionNoteRef", description = Some "The stable identity of a note attached to a session." }
+
+let SessionNote =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SessionNoteRef" } s.reference.meta::{ description = Some "session note identity" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable note author" }
+            , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note title" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note description" }
+            , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Markdown note body" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session note is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session note creation timestamp" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionNote", description = Some "A shared Markdown note attached to a session." }
+
 let GatewayRef =
       s.record.from
         s.record.props::{
@@ -1011,6 +1038,8 @@ in  Document::{
             , s.root.from ProjectFile s.root.meta::{ name = "ProjectFile" }
 			, s.root.from ProjectNoteRef s.root.meta::{ name = "ProjectNoteRef" }
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
+            , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
+            , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
             , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
             , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
             , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }

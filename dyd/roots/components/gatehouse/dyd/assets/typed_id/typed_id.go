@@ -24,6 +24,7 @@ const (
 	SessionFile     = "sfi"
 	ProjectFile     = "pfi"
 	ProjectNote     = "pnt"
+	SessionNote     = "snt"
 	Gateway         = "gwy"
 	Project         = "prj"
 	Session         = "ses"

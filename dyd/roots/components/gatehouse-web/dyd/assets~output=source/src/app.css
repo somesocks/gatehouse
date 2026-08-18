@@ -494,6 +494,31 @@ body {
   padding-bottom: 0.75rem;
 }
 
+.session-tabs {
+  border-bottom: 1px solid #4f5442;
+  display: flex;
+  gap: 0.25rem;
+}
+
+.session-tabs a {
+  border-bottom: 2px solid transparent;
+  color: #aeb3a3;
+  font-size: 0.9rem;
+  font-weight: 700;
+  padding: 0.7rem 0.8rem 0.55rem;
+  text-decoration: none;
+}
+
+.session-tabs a:hover,
+.session-tabs a:focus-visible {
+  color: #dfff9b;
+}
+
+.session-tabs a.active {
+  border-bottom-color: #b9db6f;
+  color: #eff2e8;
+}
+
 .mobile-menu-trigger,
 .mobile-menu-backdrop {
   display: none;

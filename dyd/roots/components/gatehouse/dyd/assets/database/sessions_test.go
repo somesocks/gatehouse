@@ -349,6 +349,106 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	}
 }
 
+func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	create := func(at time.Time, title string) model.SessionNote {
+		id, err := typed_id.NewAt(typed_id.SessionNote, at)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err, stored := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: "  " + title + "  ", Description: "  Description for " + title + ".  ", Body: "# " + title}, alice)
+		if err != nil || stored.AuthorPrincipal != alice || stored.Title != title || stored.Description != "Description for "+title+"." || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
+			t.Fatalf("SessionNoteCreate() = (%#v, %v)", stored, err)
+		}
+		return stored
+	}
+	older := create(time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC), "Guide")
+	newer := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "Architecture")
+	err, notes := store.SessionNotesGet(ctx, session, alice)
+	if err != nil || len(notes) != 2 || notes[0].Ref.Id != newer.Ref.Id || notes[0].Title != "Architecture" || notes[1].Ref.Id != older.Ref.Id {
+		t.Fatalf("SessionNotesGet() = (%#v, %v)", notes, err)
+	}
+	err, denied := store.SessionNotesGet(ctx, session, bob)
+	if err != nil || len(denied) != 0 {
+		t.Fatalf("SessionNotesGet() for ungranted principal = (%#v, %v)", denied, err)
+	}
+	err, hidden := store.SessionNoteGet(ctx, newer.Ref, bob)
+	if err != nil || hidden != nil {
+		t.Fatalf("SessionNoteGet() for ungranted principal = (%#v, %v)", hidden, err)
+	}
+	if createErr, _ := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: newer.Ref.Id}, Title: "Denied", Description: "Denied note", Body: "Denied"}, bob); createErr == nil {
+		t.Fatal("SessionNoteCreate() accepted an ungranted principal")
+	}
+	title, description, body := "Updated guide", "Updated description", "# Updated guide"
+	err, updated := store.SessionNoteDetailsSet(ctx, older.Ref, alice, &title, &description, &body)
+	if err != nil || updated == nil || updated.Note.AuthorPrincipal != alice || updated.Note.Title != title || updated.Note.Description != description || updated.Note.Body != body {
+		t.Fatalf("SessionNoteDetailsSet() = (%#v, %v)", updated, err)
+	}
+	err, removed := store.SessionNoteRemove(ctx, newer.Ref, bob)
+	if err != nil || removed {
+		t.Fatalf("SessionNoteRemove() for ungranted principal = (%t, %v)", removed, err)
+	}
+	err, removed = store.SessionNoteRemove(ctx, newer.Ref, alice)
+	if err != nil || !removed {
+		t.Fatalf("SessionNoteRemove() = (%t, %v)", removed, err)
+	}
+	err, hidden = store.SessionNoteGet(ctx, newer.Ref, alice)
+	if err != nil || hidden != nil {
+		t.Fatalf("SessionNoteGet() after removal = (%#v, %v)", hidden, err)
+	}
+	err, notes = store.SessionNotesGet(ctx, session, alice)
+	if err != nil || len(notes) != 1 || notes[0].Ref.Id != older.Ref.Id {
+		t.Fatalf("SessionNotesGet() after removal = (%#v, %v)", notes, err)
+	}
+	oversizedID, err := typed_id.NewAt(typed_id.SessionNote, time.Date(2026, 1, 2, 3, 4, 7, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createErr, _ := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: oversizedID}, Title: "Oversized", Description: "Oversized body", Body: strings.Repeat("x", 1024*1024+1)}, alice); createErr == nil {
+		t.Fatal("SessionNoteCreate() accepted a body exceeding 1 MiB")
+	}
+	emptyID, err := typed_id.NewAt(typed_id.SessionNote, time.Date(2026, 1, 2, 3, 4, 8, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, empty := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: emptyID}, Title: "Empty"}, alice)
+	if err != nil || empty.Description != "" || empty.Body != "" {
+		t.Fatalf("SessionNoteCreate() with empty optional fields = (%#v, %v)", empty, err)
+	}
+	for _, event := range []string{"session_note.create", "session_note.update", "session_note.remove"} {
+		var count int
+		if err := store.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics
+				ON topics.workspace = events.workspace AND topics.activity = events.id
+			WHERE events.workspace = ? AND events.session = ? AND events.event = ? AND topics.topic = ?
+		`, workspace.Id, session.Id, event, database.ActivityTopicSession(session)).Scan(&count); err != nil || count == 0 {
+			t.Fatalf("session note activity %q = (%d, %v)", event, count, err)
+		}
+	}
+}
+
 func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}

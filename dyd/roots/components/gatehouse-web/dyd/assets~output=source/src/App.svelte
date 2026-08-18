@@ -54,6 +54,8 @@
     created_at: string
   }
 
+  type SessionNote = ProjectNote
+
   type SessionSearchResponse = {
     sessions: Session[]
     next_cursor?: string
@@ -135,6 +137,15 @@
   let projectNoteDescription = $state("")
   let projectNoteBody = $state("")
   let projectNoteError = $state("")
+  let activeSessionNote = $state<SessionNote | null>(null)
+  let creatingSessionNote = $state(false)
+  let editingSessionNote = $state(false)
+  let savingSessionNote = $state(false)
+  let deletingSessionNote = $state(false)
+  let sessionNoteTitle = $state("")
+  let sessionNoteDescription = $state("")
+  let sessionNoteBody = $state("")
+  let sessionNoteError = $state("")
   let creatingProject = $state(false)
   let updatingProject = $state(false)
   let projectEditName = $state("")
@@ -176,6 +187,8 @@
   let projectFileInputElement = $state<HTMLInputElement | undefined>()
   let projectNotes = $state<ProjectNote[]>([])
   let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
+  let sessionNotes = $state<SessionNote[]>([])
+  let sessionNoteStatus = $state<WorkspaceContentStatus>("checking")
   let sessionSearchCursor = $state<string | null>(null)
   let projectSearchCursor = $state<string | null>(null)
   let sessionSearchLoading = $state(false)
@@ -279,12 +292,37 @@
     }
   }
 
+  function sessionNoteIDFromPath(path: string) {
+    const match = /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes\/([^/]+)\/?$/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
   function workspacePath(workspace: Workspace) {
     return `/app/wsp/${encodeURIComponent(workspace.id)}`
   }
 
   function sessionsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/ses`
+  }
+
+  function sessionPath(workspace: Workspace, session: Session) {
+    return `${sessionsPath(workspace)}/${encodeURIComponent(session.id)}`
+  }
+
+  function sessionNotesPath(workspace: Workspace, session: Session) {
+    return `${sessionPath(workspace, session)}/notes`
+  }
+
+  function sessionNotePath(workspace: Workspace, session: Session, note: SessionNote | string) {
+    const id = typeof note === "string" ? note : note.id
+    return `${sessionNotesPath(workspace, session)}/${encodeURIComponent(id)}`
   }
 
   function projectsPath(workspace: Workspace) {
@@ -315,6 +353,10 @@
 
   function isChatCollection() {
     return isCollectionPath("ses")
+  }
+
+  function isSessionNotesRoute() {
+    return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes(?:\/[^/]+)?\/?$/.test(currentPath)
   }
 
   function isProjectCollection() {
@@ -388,6 +430,10 @@
     selectedAgent = ""
     latestSessions = []
     activeSession = null
+    activeSessionNote = null
+    creatingSessionNote = false
+    editingSessionNote = false
+    sessionNotes = []
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -467,6 +513,10 @@
     selectedAgent = ""
     latestSessions = []
     activeSession = null
+    activeSessionNote = null
+    creatingSessionNote = false
+    editingSessionNote = false
+    sessionNotes = []
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -536,6 +586,10 @@
     stopActivityPolling(false)
     activeSessionCursor = null
     activeSession = session
+    activeSessionNote = null
+    creatingSessionNote = false
+    editingSessionNote = false
+    sessionNotes = []
     activeProject = session.project ?? null
     activeProjectNote = null
     creatingProjectNote = false
@@ -546,10 +600,45 @@
     eventStatus = "checking"
     messageError = ""
     if (sessionIDFromPath(currentPath) !== session.id) {
-      navigate(`${sessionsPath(activeWorkspace)}/${encodeURIComponent(session.id)}`, replace)
+      navigate(sessionPath(activeWorkspace, session), replace)
     }
-    await loadSessionEvents(session)
+    if (isSessionNotesRoute()) {
+      await loadSessionNotes(session)
+      const noteID = sessionNoteIDFromPath(currentPath)
+      if (noteID === "new") {
+        startSessionNoteCreate(false)
+      } else if (noteID !== null) {
+        activeSessionNote = await loadSessionNote(session, noteID)
+        if (activeSessionNote === null) {
+          navigate(sessionNotesPath(activeWorkspace, session), true)
+        }
+      }
+    } else {
+      await loadSessionEvents(session)
+    }
     startActivityPolling()
+  }
+
+  async function selectSessionNotes(session: Session) {
+    if (activeWorkspace === null || activeSession?.id !== session.id) {
+      return
+    }
+    mobileMenuOpen = false
+    activeSessionNote = null
+    creatingSessionNote = false
+    editingSessionNote = false
+    sessionNoteError = ""
+    navigate(sessionNotesPath(activeWorkspace, session), false)
+    await loadSessionNotes(session)
+    startActivityPolling()
+  }
+
+  async function selectSessionChat(session: Session) {
+    if (activeWorkspace === null || activeSession?.id !== session.id) {
+      return
+    }
+    navigate(sessionPath(activeWorkspace, session), false)
+    await selectSession(session)
   }
 
   async function selectProject(project: Project, replace = false) {
@@ -795,6 +884,60 @@
     return (await response.json()) as ProjectNote
   }
 
+  async function loadSessionNotes(session: Session, showLoading = true) {
+    if (activeWorkspace === null || !isSessionNotesRoute()) {
+      return false
+    }
+    const workspace = activeWorkspace
+    if (showLoading) {
+      sessionNoteStatus = "checking"
+    }
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes`, { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return false
+      }
+      if (!response.ok) {
+        throw new Error("session notes could not be loaded")
+      }
+      const loaded = (await response.json()) as SessionNote[]
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || !isSessionNotesRoute()) {
+        return false
+      }
+      sessionNotes = [...loaded].sort((left, right) => {
+        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
+        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
+      })
+      sessionNoteStatus = "ready"
+      return true
+    } catch {
+      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && isSessionNotesRoute()) {
+        sessionNoteStatus = "unavailable"
+      }
+      return false
+    }
+  }
+
+  async function loadSessionNote(session: Session, id: string) {
+    if (activeWorkspace === null || !isSessionNotesRoute()) {
+      return null
+    }
+    const workspace = activeWorkspace
+    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes/${encodeURIComponent(id)}`, { credentials: "same-origin" })
+    if (response.status === 401) {
+      signInRequired()
+      return null
+    }
+    if (response.status === 404) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error("session note could not be loaded")
+    }
+    return (await response.json()) as SessionNote
+  }
+
   async function loadSessionEvents(session: Session, showLoading = true) {
     if (activeWorkspace === null) {
       return false
@@ -957,7 +1100,24 @@
           ...(projectChanged ? [refreshWorkspaceProjects(workspace, generation)] : []),
         ])).every(Boolean)
         if (refreshed && session !== null && (sessionChanged || projectChanged) && activeSession?.id === session.id) {
-          await loadSessionEvents(session, false)
+          if (isSessionNotesRoute()) {
+            if (sessionChanged) {
+              refreshed = await loadSessionNotes(session, false)
+              if (refreshed && activeSessionNote !== null) {
+                const note = activeSessionNote
+                const loaded = await loadSessionNote(session, note.id)
+                if (loaded === null && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionNote?.id === note.id) {
+                  activeSessionNote = null
+                  editingSessionNote = false
+                  navigate(sessionNotesPath(workspace, session))
+                } else if (loaded !== null && activeSessionNote?.id === note.id) {
+                  activeSessionNote = loaded
+                }
+              }
+            }
+          } else {
+            await loadSessionEvents(session, false)
+          }
         }
         if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
           refreshed = (await Promise.all([loadProjectFiles(activeProject, false), loadProjectNotes(activeProject, false)])).every(Boolean)
@@ -1357,6 +1517,150 @@
     } finally {
       deletingProjectNote = false
     }
+  }
+
+  async function selectSessionNote(note: SessionNote) {
+    if (activeWorkspace === null || activeSession === null) {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    sessionNoteError = ""
+    creatingSessionNote = false
+    editingSessionNote = false
+    navigate(sessionNotePath(workspace, session, note), false)
+    try {
+      const loaded = await loadSessionNote(session, note.id)
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
+        return
+      }
+      if (loaded === null) {
+        navigate(sessionNotesPath(workspace, session))
+        return
+      }
+      activeSessionNote = loaded
+    } catch {
+      sessionNoteError = "The note could not be loaded. Try again."
+    }
+  }
+
+  function startSessionNoteCreate(navigateRoute = true) {
+    if (activeWorkspace === null || activeSession === null) {
+      return
+    }
+    activeSessionNote = null
+    creatingSessionNote = true
+    editingSessionNote = true
+    sessionNoteTitle = ""
+    sessionNoteDescription = ""
+    sessionNoteBody = ""
+    sessionNoteError = ""
+    if (navigateRoute) {
+      navigate(sessionNotePath(activeWorkspace, activeSession, "new"), false)
+    }
+  }
+
+  function startSessionNoteEdit() {
+    if (activeSessionNote === null) {
+      return
+    }
+    sessionNoteTitle = activeSessionNote.title
+    sessionNoteDescription = activeSessionNote.description
+    sessionNoteBody = activeSessionNote.body ?? ""
+    sessionNoteError = ""
+    editingSessionNote = true
+  }
+
+  function cancelSessionNoteEdit() {
+    if (savingSessionNote || activeWorkspace === null || activeSession === null) {
+      return
+    }
+    sessionNoteError = ""
+    if (creatingSessionNote) {
+      creatingSessionNote = false
+      editingSessionNote = false
+      navigate(sessionNotesPath(activeWorkspace, activeSession))
+      return
+    }
+    editingSessionNote = false
+  }
+
+  async function saveSessionNote() {
+    if (activeWorkspace === null || activeSession === null || sessionNoteTitle.trim() === "") {
+      sessionNoteError = "Title is required."
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    const creating = creatingSessionNote
+    const note = activeSessionNote
+    sessionNoteError = ""
+    savingSessionNote = true
+    try {
+      const notesPath = sessionNotesAPIPath(workspace, session)
+      const path = creating ? notesPath : `${notesPath}/${encodeURIComponent(note?.id ?? "")}`
+      const response = await fetch(path, {
+        method: creating ? "POST" : "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: sessionNoteTitle, description: sessionNoteDescription, body: sessionNoteBody }),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session note could not be saved")
+      }
+      const saved = (await response.json()) as SessionNote
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
+        return
+      }
+      activeSessionNote = saved
+      creatingSessionNote = false
+      editingSessionNote = false
+      sessionNotes = [saved, ...sessionNotes.filter((candidate) => candidate.id !== saved.id)]
+      navigate(sessionNotePath(workspace, session, saved))
+    } catch {
+      sessionNoteError = "The note could not be saved. Try again."
+    } finally {
+      savingSessionNote = false
+    }
+  }
+
+  async function removeSessionNote() {
+    if (activeWorkspace === null || activeSession === null || activeSessionNote === null || deletingSessionNote || !window.confirm(`Remove ${activeSessionNote.title}?`)) {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    const note = activeSessionNote
+    deletingSessionNote = true
+    sessionNoteError = ""
+    try {
+      const response = await fetch(`${sessionNotesAPIPath(workspace, session)}/${encodeURIComponent(note.id)}`, { method: "DELETE", credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session note could not be removed")
+      }
+      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionNote?.id === note.id) {
+        activeSessionNote = null
+        editingSessionNote = false
+        sessionNotes = sessionNotes.filter((candidate) => candidate.id !== note.id)
+        navigate(sessionNotesPath(workspace, session))
+      }
+    } catch {
+      sessionNoteError = "The note could not be removed. Try again."
+    } finally {
+      deletingSessionNote = false
+    }
+  }
+
+  function sessionNotesAPIPath(workspace: Workspace, session: Session) {
+    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes`
   }
 
   function openProjectEdit() {
@@ -1778,13 +2082,27 @@
             {/if}
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>{activeSession.name ?? "New Chat"}</span>
+              {#if isSessionNotesRoute()}
+                <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>{activeSession.name ?? "New Chat"}</a>
+              {:else}
+                <span>{activeSession.name ?? "New Chat"}</span>
+              {/if}
             {:else if activeProjectNote !== null || creatingProjectNote}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeProjectNote?.title ?? "New Note"}</span>
             {/if}
+            {#if activeSession !== null && (activeSessionNote !== null || creatingSessionNote)}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>{activeSessionNote?.title ?? "New Note"}</span>
+            {/if}
           </h1>
       </header>
+      {#if activeSession !== null}
+        <nav class="session-tabs" aria-label="Session navigation">
+          <a class:active={!isSessionNotesRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>Chat</a>
+          <a class:active={isSessionNotesRoute()} href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
+        </nav>
+      {/if}
       {#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote}
         <section class="project-dashboard-heading">
           <div>
@@ -1870,6 +2188,38 @@
               {#if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
             </article>
+          {/if}
+        </section>
+      {:else if activeSession !== null && isSessionNotesRoute()}
+        <section class="project-note-page">
+          {#if editingSessionNote}
+            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveSessionNote() }}>
+              <div class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2>{creatingSessionNote ? "New Note" : "Edit Note"}</h2></div></div>
+              <div class="field"><label class="label" for="session-note-title">Title</label><div class="control"><input class="input" id="session-note-title" maxlength="256" required bind:value={sessionNoteTitle} /></div></div>
+              <div class="field"><label class="label" for="session-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="session-note-description" rows="3" maxlength="4096" bind:value={sessionNoteDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="session-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="session-note-body" rows="18" maxlength="1048576" bind:value={sessionNoteBody}></textarea></div></div>
+              {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
+              <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionNote} onclick={cancelSessionNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionNote}>{savingSessionNote ? "Saving..." : "Save note"}</button></div>
+            </form>
+          {:else if activeSessionNote !== null}
+            <article class="project-note-view">
+              <header class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2>{activeSessionNote.title}</h2>{#if activeSessionNote.description !== ""}<p>{activeSessionNote.description}</p>{/if}<small>By {activeSessionNote.author.name ?? activeSessionNote.author.id} on {createdAtLabel(activeSessionNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startSessionNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingSessionNote} onclick={() => void removeSessionNote()}>{deletingSessionNote ? "Removing..." : "Remove"}</button></div></header>
+              {#if activeSessionNote.body !== undefined && activeSessionNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeSessionNote.body)}</div>{/if}
+              {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
+            </article>
+          {:else}
+            <div class="collection-heading"><h2>Notes</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionNoteCreate()}>New note</button></div>
+            <div class="collection-list">
+              {#if sessionNoteStatus === "checking"}
+                <p class="dashboard-empty">Loading notes...</p>
+              {:else if sessionNoteStatus === "unavailable"}
+                <p class="dashboard-empty">Notes could not be loaded.</p>
+              {:else}
+                {#each sessionNotes as note (note.id)}
+                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionNotePath(activeWorkspace, activeSession, note) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><span>{note.author.name ?? note.author.id}</span><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
+                {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
+              {/if}
+            </div>
           {/if}
         </section>
       {:else if activeSession === null}

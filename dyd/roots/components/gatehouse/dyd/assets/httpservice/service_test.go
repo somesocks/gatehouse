@@ -560,6 +560,64 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 }
 
+func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated || !typed_id.Valid(typed_id.Session, session.ID) {
+		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + session.ID + "/notes"
+	created := request(http.MethodPost, base, `{"title":"Guide","description":"How to work in this session.","body":"# Guide\n\nFollow the checklist."}`)
+	var note sessionNoteResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionNote, note.ID) || note.Title != "Guide" || note.Description != "How to work in this session." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Author.ID == "" || note.CreatedAt == "" {
+		t.Fatalf("POST session note = (%d, %#v, %v)", created.Code, note, err)
+	}
+	listed := request(http.MethodGet, base, "")
+	var notes []sessionNoteResponse
+	if err := json.Unmarshal(listed.Body.Bytes(), &notes); err != nil || listed.Code != http.StatusOK || len(notes) != 1 || notes[0].ID != note.ID || notes[0].Body != nil {
+		t.Fatalf("GET session notes = (%d, %#v, %v)", listed.Code, notes, err)
+	}
+	detail := request(http.MethodGet, base+"/"+note.ID, "")
+	if err := json.Unmarshal(detail.Body.Bytes(), &note); err != nil || detail.Code != http.StatusOK || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." {
+		t.Fatalf("GET session note = (%d, %#v, %v)", detail.Code, note, err)
+	}
+	updated := request(http.MethodPatch, base+"/"+note.ID, `{"description":"","body":""}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
+		t.Fatalf("PATCH session note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
+	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
+		t.Fatalf("POST empty session note = (%d, %#v, %v)", empty.Code, note, err)
+	}
+	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid session note = status %d", invalid.Code)
+	}
+	removed := request(http.MethodDelete, base+"/"+note.ID, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE session note = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if get := request(http.MethodGet, base+"/"+note.ID, ""); get.Code != http.StatusNotFound {
+		t.Fatalf("GET removed session note = status %d", get.Code)
+	}
+}
+
 func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	label := "Assistant"
