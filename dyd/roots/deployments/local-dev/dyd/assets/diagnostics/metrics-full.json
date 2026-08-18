@@ -39,26 +39,6 @@
       }
     },
     {
-      "id": "lisp-turn",
-      "op": "lisp.turn",
-      "key": "*",
-      "when": { "mode": "every_x", "x": 1 },
-      "action": {
-        "type": "metrics",
-        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
-      }
-    },
-    {
-      "id": "lisp-file-read",
-      "op": "lisp.file_read",
-      "key": "*",
-      "when": { "mode": "every_x", "x": 1 },
-      "action": {
-        "type": "metrics",
-        "capture": { "calls": true, "errors": true, "timing": true, "allocs": true }
-      }
-    },
-    {
       "id": "agent-tool-call-evaluate",
       "op": "agent.tool_call.evaluate",
       "key": "*",

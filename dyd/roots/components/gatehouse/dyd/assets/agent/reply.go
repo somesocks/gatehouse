@@ -483,7 +483,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return "", err
 	}
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
-		err, tools, resources, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
+		err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
 		if err != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
@@ -492,7 +492,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		if diagnosticErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: diagnosticErr.Error()}, nil
 		}
-		evalErr, result := lisp.RunTurnWithFilesAndProjectFilesAndNotes(input.Code, tools, resources, files, func(id string, offset, length int64) (error, []byte) {
+		sessionFileRead := func(id string, offset, length int64) (error, []byte) {
 			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Parent.Session, Id: id}, input.Principal)
 			if err != nil || file == nil {
 				if err != nil {
@@ -501,7 +501,12 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 				return fmt.Errorf("read session file: unavailable"), nil
 			}
 			return runtime.storage.Read(step, file.StorageObject.Id, offset, length)
-		}, projectInfo, projectFiles, projectNotes, sessionNotes)
+		}
+		modules := []lisp.HostModule{
+			NewProjectModule(projectInfo, projectFiles, projectNotes),
+			NewSessionModule(files, sessionFileRead, sessionNotes),
+		}
+		evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
 		evalErr = call.End(evalErr)
 		if evalErr != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
@@ -578,7 +583,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + ` and ` + "`session/notes/read`" + `. When a project is linked to the session, its metadata is available through ` + "`project/info`" + `, its files through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + ` and ` + "`session/notes/read`" + `. Project metadata is available through ` + "`project/info`" + `, which returns ` + "`null`" + ` when no authorized project is linked; its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
@@ -813,7 +818,7 @@ func clearResourceValues(values map[model.ResourceRef][]byte) {
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.TurnTool, []lisp.TurnResource, []lisp.TurnFile, *lisp.TurnProjectInfo, *lisp.TurnProjectFiles, *lisp.TurnProjectNotes, *lisp.TurnSessionNotes, map[model.ResourceRef][]byte) {
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.SourceModule, []lisp.Binding, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *SessionNotes, map[model.ResourceRef][]byte) {
 	workspace := session.Workspace
 	err, configuredTools := runtime.store.WorkspaceToolsGet(ctx, workspace, principal)
 	if err != nil {
@@ -827,36 +832,40 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	if err != nil {
 		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
-	tools := make([]lisp.TurnTool, 0, len(configuredTools))
+	tools := make([]lisp.SourceModule, 0, len(configuredTools))
 	for _, configured := range configuredTools {
 		err, source := readToolSource(configured.Source)
 		if err != nil {
 			clearResourceValues(values)
 			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil, nil, nil, nil, nil, nil
 		}
-		tools = append(tools, lisp.TurnTool{ID: configured.Ref.Id, Source: source})
+		tools = append(tools, lisp.SourceModule{ID: configured.Ref.Id, Source: source})
 	}
-	turnResources := make([]lisp.TurnResource, 0, len(configuredResources))
+	bindings := make([]lisp.Binding, 0, len(configuredResources))
 	for _, configured := range configuredResources {
-		turnResources = append(turnResources, lisp.TurnResource{ID: configured.Ref.Id, Value: values[configured.Ref], Secret: configured.Secret})
+		value := lisp.Bytes(values[configured.Ref])
+		if configured.Secret {
+			value = lisp.MarkSecret(value)
+		}
+		bindings = append(bindings, lisp.Binding{Name: "resource/" + configured.Ref.Id, Value: value})
 	}
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
 		clearResourceValues(values)
 		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
-	files := make([]lisp.TurnFile, 0, len(summaries))
+	files := make([]File, 0, len(summaries))
 	for _, file := range summaries {
-		files = append(files, lisp.TurnFile{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
+		files = append(files, File{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
 	}
 	err, noteSummaries := runtime.store.SessionNotesGet(ctx, session, principal)
 	if err != nil {
 		clearResourceValues(values)
 		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
-	sessionNotes := &lisp.TurnSessionNotes{Notes: make([]lisp.TurnProjectNote, 0, len(noteSummaries))}
+	sessionNotes := &SessionNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
-		sessionNotes.Notes = append(sessionNotes.Notes, lisp.TurnProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+		sessionNotes.Notes = append(sessionNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
 	}
 	sessionNotes.Read = func(id string, offset, length int64) (error, []byte) {
 		err, detail := runtime.store.SessionNoteGet(ctx, model.SessionNoteRef{Session: session, Id: id}, principal)
@@ -881,9 +890,9 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		clearResourceValues(values)
 		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
-	var projectInfo *lisp.TurnProjectInfo
-	var projectFiles *lisp.TurnProjectFiles
-	var projectNotes *lisp.TurnProjectNotes
+	var projectInfo *ProjectInfo
+	var projectFiles *ProjectFiles
+	var projectNotes *ProjectNotes
 	if project != nil {
 		err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
 		if err != nil {
@@ -891,56 +900,56 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			return err, nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
-			projectInfo = &lisp.TurnProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
-		}
-		err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
-		if err != nil {
-			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil, nil
-		}
-		projectFiles = &lisp.TurnProjectFiles{Files: make([]lisp.TurnFile, 0, len(summaries))}
-		for _, file := range summaries {
-			projectFiles.Files = append(projectFiles.Files, lisp.TurnFile{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
-		}
-		projectFiles.Read = func(id string, offset, length int64) (error, []byte) {
-			err, file, object := runtime.store.ProjectFileGet(ctx, model.ProjectFileRef{Project: *project, Id: id}, principal)
-			if err != nil || file == nil || object == nil {
-				if err != nil {
-					return err, nil
+			projectInfo = &ProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
+			err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
+			if err != nil {
+				clearResourceValues(values)
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
+			}
+			projectFiles = &ProjectFiles{Files: make([]File, 0, len(summaries))}
+			for _, file := range summaries {
+				projectFiles.Files = append(projectFiles.Files, File{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
+			}
+			projectFiles.Read = func(id string, offset, length int64) (error, []byte) {
+				err, file, object := runtime.store.ProjectFileGet(ctx, model.ProjectFileRef{Project: *project, Id: id}, principal)
+				if err != nil || file == nil || object == nil {
+					if err != nil {
+						return err, nil
+					}
+					return fmt.Errorf("read project file: unavailable"), nil
 				}
-				return fmt.Errorf("read project file: unavailable"), nil
+				return runtime.storage.Read(ctx, object.ID, offset, length)
 			}
-			return runtime.storage.Read(ctx, object.ID, offset, length)
-		}
-		err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
-		if err != nil {
-			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil, nil
-		}
-		projectNotes = &lisp.TurnProjectNotes{Notes: make([]lisp.TurnProjectNote, 0, len(noteSummaries))}
-		for _, note := range noteSummaries {
-			projectNotes.Notes = append(projectNotes.Notes, lisp.TurnProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
-		}
-		projectNotes.Read = func(id string, offset, length int64) (error, []byte) {
-			err, detail := runtime.store.ProjectNoteGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
-			if err != nil || detail == nil {
-				if err != nil {
-					return err, nil
+			err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
+			if err != nil {
+				clearResourceValues(values)
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
+			}
+			projectNotes = &ProjectNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
+			for _, note := range noteSummaries {
+				projectNotes.Notes = append(projectNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+			}
+			projectNotes.Read = func(id string, offset, length int64) (error, []byte) {
+				err, detail := runtime.store.ProjectNoteGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
+				if err != nil || detail == nil {
+					if err != nil {
+						return err, nil
+					}
+					return fmt.Errorf("read project note: unavailable"), nil
 				}
-				return fmt.Errorf("read project note: unavailable"), nil
+				body := []byte(detail.Note.Body)
+				if offset > int64(len(body)) {
+					return fmt.Errorf("read project note: offset is unavailable"), nil
+				}
+				end := offset + length
+				if end > int64(len(body)) {
+					end = int64(len(body))
+				}
+				return nil, append([]byte(nil), body[offset:end]...)
 			}
-			body := []byte(detail.Note.Body)
-			if offset > int64(len(body)) {
-				return fmt.Errorf("read project note: offset is unavailable"), nil
-			}
-			end := offset + length
-			if end > int64(len(body)) {
-				end = int64(len(body))
-			}
-			return nil, append([]byte(nil), body[offset:end]...)
 		}
 	}
-	return nil, tools, turnResources, files, projectInfo, projectFiles, projectNotes, sessionNotes, values
+	return nil, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values
 }
 
 func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []model.Resource) (error, map[model.ResourceRef][]byte) {
