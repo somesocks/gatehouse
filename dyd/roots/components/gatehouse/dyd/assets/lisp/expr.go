@@ -35,9 +35,10 @@ type pair struct {
 }
 
 type closure struct {
-	parameters []string
-	body       Expr
-	env        *environment
+	parameters    []string
+	restParameter *string
+	body          Expr
+	env           *environment
 }
 
 type builtin struct {

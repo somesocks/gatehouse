@@ -9,6 +9,7 @@ func TestApply(t *testing.T) {
 	}{
 		{source: "(apply + (list 1 2 3))", want: "6"},
 		{source: "(apply (fn (left right) (- left right)) (list 7 2))", want: "5"},
+		{source: "(apply (fn (first . rest) (list first rest)) (list 1 2 3))", want: "(1 (2 3))"},
 		{source: "(error? (error/catch (apply + 1)))", want: "#t"},
 		{source: "(error? (error/catch (apply + (pair 1 2))))", want: "#t"},
 		{source: "(error? (error/catch (apply if (list #t 1 2))))", want: "#t"},

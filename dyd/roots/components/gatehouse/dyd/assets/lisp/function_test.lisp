@@ -30,6 +30,24 @@
   ; Inner lexical bindings shadow outer bindings.
   (assert (= (let ((x 1)) (let ((x 2)) x)) 2))
 
+  ; Functions can bind all arguments to a rest parameter.
+  (assert (= ((fn rest rest)) null))
+  (assert (= ((fn rest rest) 1 2 3) (list 1 2 3)))
+
+  ; Functions can combine fixed and rest parameters.
+  (assert (= ((fn (first . rest) (list first rest)) 1) (list 1 null)))
+  (assert (= ((fn (first . rest) (list first rest)) 1 2 3) (list 1 (list 2 3))))
+
+  ; Rest parameters retain lexical bindings and preserve secret taint.
+  (assert (= (let ((prefix 1)) ((fn (first . rest) (list prefix first rest)) 2 3)) (list 1 2 (list 3))))
+  (assert (secret? ((fn rest rest) (secret/mark 1))))
+
+  ; Recursive variadic functions work through apply.
+  (assert
+    (= (let ((collect (fn (first . rest) (if (null? rest) (list first) (pair first (apply collect rest))))))
+         (collect 1 2 3))
+       (list 1 2 3)))
+
   ; Tail calls do not consume the Go call stack.
   (assert
     (= (let ((count (fn (n total)

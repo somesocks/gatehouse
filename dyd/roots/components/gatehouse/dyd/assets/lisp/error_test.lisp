@@ -134,6 +134,16 @@
       (error/value (error/catch (fn (1) 1)))
       "fn parameters must be symbols"))
 
+  ; Dotted function tails must be unique symbols.
+  (assert
+    (string/contains?
+      (error/value (error/catch (fn (x . 1) x)))
+      "fn parameters must be symbols"))
+  (assert
+    (string/contains?
+      (error/value (error/catch (fn (x . x) x)))
+      "duplicated"))
+
   ; Functions require one body expression.
   (assert
     (string/contains?
@@ -157,6 +167,12 @@
     (string/contains?
       (error/value (error/catch (let ((id (fn (x) x))) (id))))
       "function requires 1 arguments, got 0"))
+
+  ; Variadic functions require their fixed arguments.
+  (assert
+    (string/contains?
+      (error/value (error/catch ((fn (x . rest) x))))
+      "function requires at least 1 arguments, got 0"))
 
   ; Referencing an unknown symbol fails.
   (assert

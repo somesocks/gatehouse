@@ -38,14 +38,16 @@
       (string/contains? (help string/slice) "(string/slice text start end) -> String")
       (= (help (int/min 1 2)) "int")
       (string/contains? (help 'string/slice) "Example: (string/slice \"hello\" 1 4) => \"ell\".")
-      (= (help 'unbound) "symbol")
-      (= (help 1) "int")
-      (= (help (fn (value) value)) "function (value)")))
+       (= (help 'unbound) "symbol")
+       (= (help 1) "int")
+       (= (help (fn (value) value)) "function (value)")
+       (= (help (fn (value . rest) value)) "function (value . rest)")
+       (= (help (fn rest rest)) "function rest")))
 
   ; Evaluator forms are discoverable and documented without bindings.
   (assert
     (and
-      (string/contains? (help 'fn) "(fn (parameter...) body) -> Function")
+       (string/contains? (help 'fn) "(fn parameters body) -> Function")
       (string/contains? (help 'let) "(let ((name value) ...) body) -> Value")
       (list? (help/search "recursive lexical bindings"))))
 

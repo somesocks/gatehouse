@@ -15,6 +15,33 @@ func TestReadBuildsLispData(t *testing.T) {
 	}
 }
 
+func TestReadBuildsDottedPairs(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+	}{
+		{source: "(1 . 2)", want: "(1 . 2)"},
+		{source: "(1 2 . 3)", want: "(1 2 . 3)"},
+		{source: "'(1 . 2)", want: "(quote (1 . 2))"},
+		{source: "a.b", want: "a.b"},
+	} {
+		t.Run(test.source, func(t *testing.T) {
+			err, expression := Read(test.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := expression.String(); got != test.want {
+				t.Fatalf("Read(%q) = %s, want %s", test.source, got, test.want)
+			}
+		})
+	}
+
+	err, result := Run("(list (pair? '(1 . 2)) (list? '(1 . 2)) (head '(1 . 2)) (tail '(1 . 2)))")
+	if err != nil || result.String() != "(#t #f 1 2)" {
+		t.Fatalf("Run() = (%s, %v)", result, err)
+	}
+}
+
 func TestReadModuleReferences(t *testing.T) {
 	fingerprint := "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 	for _, test := range []struct {
@@ -83,6 +110,10 @@ func TestReadRejectsInvalidInput(t *testing.T) {
 	}{
 		{source: "", contains: "expected an expression"},
 		{source: "(list 1", contains: "unterminated list"},
+		{source: "(. value)", contains: "dotted list requires a preceding value"},
+		{source: "(value .)", contains: "dotted list requires a tail"},
+		{source: "(value . tail extra)", contains: "dotted list tail must be followed by a closing parenthesis"},
+		{source: "(value . tail . extra)", contains: "dotted list tail must be followed by a closing parenthesis"},
 		{source: "1 2", contains: "expected end of input"},
 		{source: "\"unterminated", contains: "unterminated string"},
 	} {

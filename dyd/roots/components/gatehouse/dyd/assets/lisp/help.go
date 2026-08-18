@@ -128,6 +128,12 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		}
 		return "pair"
 	case *closure:
+		if value.restParameter != nil {
+			if len(value.parameters) == 0 {
+				return "function " + *value.restParameter
+			}
+			return "function (" + strings.Join(value.parameters, " ") + " . " + *value.restParameter + ")"
+		}
 		return "function (" + strings.Join(value.parameters, " ") + ")"
 	case *builtin:
 		return "builtin"

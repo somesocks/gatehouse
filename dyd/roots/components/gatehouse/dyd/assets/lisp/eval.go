@@ -18,7 +18,7 @@ var evaluatorForms = []evaluatorForm{
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
 	{name: "let", documentation: doc("(let ((name value) ...) body) -> Value", "Evaluates body with recursive lexical bindings.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120")},
-	{name: "fn", documentation: doc("(fn (parameter...) body) -> Function", "Creates a closure over its lexical environment.", "((fn (x) (+ x 1)) 2)", "3")},
+	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))")},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2")},
 }
 
@@ -262,25 +262,43 @@ func (evaluator *evaluator) evaluateFunction(forms []Expr, env *environment) (er
 	if len(forms) != 3 {
 		return expressionError("fn requires parameters and one body expression"), nil
 	}
-	err, parameters := expressions(forms[1])
+	err, names, rest := functionParameters(forms[1])
 	if err != nil {
 		return err, nil
 	}
-	names := make([]string, 0, len(parameters))
-	seen := make(map[string]struct{}, len(parameters))
-	for _, parameter := range parameters {
-		base, _ := unwrap(parameter)
-		symbol, ok := base.(*symbolExpr)
-		if !ok {
-			return expressionError("fn parameters must be symbols"), nil
+	return nil, &closure{parameters: names, restParameter: rest, body: forms[2], env: env}
+}
+
+func functionParameters(expression Expr) (error, []string, *string) {
+	names := []string{}
+	seen := map[string]struct{}{}
+	for {
+		base, _ := unwrap(expression)
+		switch value := base.(type) {
+		case *nullExpr:
+			return nil, names, nil
+		case *symbolExpr:
+			if _, exists := seen[value.value]; exists {
+				return expressionError("fn parameter %q is duplicated", value.value), nil, nil
+			}
+			rest := value.value
+			return nil, names, &rest
+		case *pair:
+			parameter, _ := unwrap(value.first)
+			symbol, ok := parameter.(*symbolExpr)
+			if !ok {
+				return expressionError("fn parameters must be symbols"), nil, nil
+			}
+			if _, exists := seen[symbol.value]; exists {
+				return expressionError("fn parameter %q is duplicated", symbol.value), nil, nil
+			}
+			seen[symbol.value] = struct{}{}
+			names = append(names, symbol.value)
+			expression = value.rest
+		default:
+			return expressionError("fn parameters must be symbols"), nil, nil
 		}
-		if _, exists := seen[symbol.value]; exists {
-			return expressionError("fn parameter %q is duplicated", symbol.value), nil
-		}
-		seen[symbol.value] = struct{}{}
-		names = append(names, symbol.value)
 	}
-	return nil, &closure{parameters: names, body: forms[2], env: env}
 }
 func (evaluator *evaluator) evaluateBegin(forms []Expr, env *environment) (error, Expr) {
 	if len(forms) < 2 {
@@ -301,13 +319,20 @@ func evaluateQuote(forms []Expr) (error, Expr) {
 	return nil, forms[1]
 }
 func bindClosure(closure *closure, arguments []Expr) (error, *environment) {
-	if len(arguments) != len(closure.parameters) {
+	if closure.restParameter == nil && len(arguments) != len(closure.parameters) {
 		return expressionError("function requires %d arguments, got %d", len(closure.parameters), len(arguments)), nil
 	}
-	env := &environment{parent: closure.env, values: make(map[string]*Expr, len(arguments))}
+	if closure.restParameter != nil && len(arguments) < len(closure.parameters) {
+		return expressionError("function requires at least %d arguments, got %d", len(closure.parameters), len(arguments)), nil
+	}
+	env := &environment{parent: closure.env, values: make(map[string]*Expr, len(closure.parameters)+1)}
 	for index, parameter := range closure.parameters {
 		argument := arguments[index]
 		env.values[parameter] = &argument
+	}
+	if closure.restParameter != nil {
+		rest := list(arguments[len(closure.parameters):])
+		env.values[*closure.restParameter] = &rest
 	}
 	return nil, env
 }

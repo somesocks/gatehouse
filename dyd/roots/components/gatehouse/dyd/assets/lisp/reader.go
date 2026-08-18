@@ -128,6 +128,43 @@ func (reader *reader) readList() (error, Expr) {
 		if err != nil {
 			return err, nil
 		}
+		if isSymbol(value, ".") {
+			if len(values) == 0 {
+				return expressionError("dotted list requires a preceding value"), nil
+			}
+			err, comments := reader.readTrivia()
+			if err != nil {
+				return err, nil
+			}
+			if reader.atEnd() {
+				return expressionError("dotted list requires a tail"), nil
+			}
+			if reader.source[reader.position] == ')' {
+				return expressionError("dotted list requires a tail"), nil
+			}
+			err, tail := reader.readExprWithLeadingComments(comments)
+			if err != nil {
+				return err, nil
+			}
+			err, comments = reader.readTrivia()
+			if err != nil {
+				return err, nil
+			}
+			if reader.atEnd() || reader.source[reader.position] != ')' {
+				return expressionError("dotted list tail must be followed by a closing parenthesis"), nil
+			}
+			for _, comment := range comments {
+				if comment.leading {
+					return reader.unattachedComment(comment)
+				}
+				tail = appendHelp(tail, comment.text)
+			}
+			reader.position++
+			for index := len(values) - 1; index >= 0; index-- {
+				tail = pairValue(values[index], tail)
+			}
+			return nil, tail
+		}
 		values = append(values, value)
 	}
 }
