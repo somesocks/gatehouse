@@ -10,7 +10,8 @@ const agentPrelude = `(import/restrict
    @native:crypto/cipher/ctr/v1
    @native:crypto/padding/pkcs7/v1
    @native:gatehouse/project/v1
-   @native:gatehouse/session/v1)
+   @native:gatehouse/session/v1
+   @native:gatehouse/policy/v1)
   (import
     (json @native:json/v1)
     (seq @native:seq/v1)
@@ -22,7 +23,11 @@ const agentPrelude = `(import/restrict
     (crypto/padding/pkcs7 @native:crypto/padding/pkcs7/v1)
     (project @native:gatehouse/project/v1)
     (session @native:gatehouse/session/v1)
-    (let ((import null)
-          (import/restrict null)
-          (import/search null))
-      (eval program))))`
+    (policy @native:gatehouse/policy/v1)
+    (let ((raw-session-notes-create session/notes/create))
+      (let ((session/notes/create (policy/require-approval raw-session-notes-create)))
+        (let ((import null)
+              (import/restrict null)
+              (import/search null)
+              (raw-session-notes-create null))
+          (eval program))))))`

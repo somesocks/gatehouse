@@ -31,6 +31,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 				}
 				return nil, []byte("# Guide")
 			}}),
+			NewPolicyModule(),
 		},
 	})
 	if err != nil || !strings.Contains(result.String(), `(name . "report.txt")`) || !strings.Contains(result.String(), `(author_name . "Ada")`) || !strings.HasSuffix(result.String(), `"# Guide")`) {
@@ -46,7 +47,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
   (error/value (error/catch (project/files/read "guide" 0 1)))
   (error/value (error/catch (project/notes/read "guide" 0 1))))`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil)},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil), NewPolicyModule()},
 	})
 	if err != nil || result.String() != `(null null null "project/files/read is unavailable" "project/notes/read is unavailable")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
@@ -56,7 +57,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
 func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 	err, _ := lisp.Evaluate(`(session/files/read "file" 0 65537)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil)},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil), NewPolicyModule()},
 	})
 	if err == nil || !strings.Contains(err.Error(), "length from 1 through 65536") {
 		t.Fatalf("Evaluate() oversized read error = %v", err)
@@ -67,6 +68,7 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 		HostModules: []lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return errors.New("storage unavailable"), nil }, nil),
+			NewPolicyModule(),
 		},
 	})
 	if err != nil || result.String() != `"session/files/read failed"` {
@@ -75,10 +77,10 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 }
 
 func TestGatehouseSessionNoteCreate(t *testing.T) {
-	err, result := lisp.Evaluate(`(session/notes/create "Decision" "" "# Decision")`, lisp.EvalOptions{
-		Prelude: agentPrelude,
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/create "Decision" "" "# Decision"))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
-			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, nil, &SessionNotes{Create: func(title, description, body string) (error, ProjectNote) {
 				if title != "Decision" || description != "" || body != "# Decision" {
 					t.Fatalf("session note create = (%q, %q, %q)", title, description, body)
@@ -91,19 +93,54 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 
-	err, _ = lisp.Evaluate(`(session/notes/create "Decision" "")`, lisp.EvalOptions{
-		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) { return nil, ProjectNote{} }})},
+	err, _ = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/create "Decision" ""))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) { return nil, ProjectNote{} }})},
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires title, description, and body") {
 		t.Fatalf("Evaluate() invalid session note create error = %v", err)
 	}
 
-	err, result = lisp.Evaluate(`(error/value (error/catch (session/notes/create "Decision" "" "# Decision")))`, lisp.EvalOptions{
-		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil)},
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (error/value (error/catch (session/notes/create "Decision" "" "# Decision"))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil)},
 	})
 	if err != nil || result.String() != `"session/notes/create is unavailable"` {
 		t.Fatalf("Evaluate() unavailable session note create = (%s, %v)", result, err)
+	}
+}
+
+func TestAgentPreludeRequiresApprovalForSessionNoteCreate(t *testing.T) {
+	err, result := lisp.Evaluate(`(list
+  (error/value (error/catch (policy/await-approval)))
+  (error/value (error/catch ((policy/require-approval +) 1 2)))
+  (error/value (error/catch (session/notes/create "Decision" "" "# Decision"))))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewProjectModule(nil, nil, nil),
+			NewSessionModule(nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) {
+				t.Fatal("session note create was called without approval")
+				return nil, ProjectNote{}
+			}}),
+			NewPolicyModule(),
+		},
+	})
+	if err != nil || result.String() != `("policy/await-approval is unavailable" "policy/await-approval is unavailable" "policy/await-approval is unavailable")` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehousePolicyModuleAwaitApprovalIsUnavailable(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (policy @native:gatehouse/policy/v1)
+  (list
+    (error/value (error/catch (policy/await-approval)))
+    (error/value (error/catch ((policy/require-approval +) 1 2)))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewPolicyModule()},
+	})
+	if err != nil || result.String() != `("policy/await-approval is unavailable" "policy/await-approval is unavailable")` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }

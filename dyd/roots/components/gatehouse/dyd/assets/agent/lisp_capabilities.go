@@ -5,6 +5,7 @@ import "gatehouse/lisp"
 const (
 	gatehouseProjectModuleID = "native:gatehouse/project/v1"
 	gatehouseSessionModuleID = "native:gatehouse/session/v1"
+	gatehousePolicyModuleID  = "native:gatehouse/policy/v1"
 )
 
 // File describes a file that an agent is authorized to inspect.
@@ -78,7 +79,15 @@ var (
 	sessionNoteListDocumentation = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, author_id, optional author_name, and created_at.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	sessionNoteReadDocumentation = capabilityDocumentation{"(session/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))", "\"# Session guide\""}
 	sessionNoteCreateDocumentation = capabilityDocumentation{"(session/notes/create title description body) -> List", "Creates a shared Markdown note in the current session and returns its metadata. Description and body may be empty strings.", "(session/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	policyAwaitApprovalDocumentation = capabilityDocumentation{"(policy/await-approval) -> Null", "Waits for approval of the current policy-wrapped operation.", "(policy/await-approval)", "null"}
+	policyRequireApprovalDocumentation = capabilityDocumentation{"(policy/require-approval call) -> Function", "Returns a function that waits for approval before invoking call.", "((policy/require-approval session/notes/create) \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 )
+
+const policyRequireApprovalSource = `(fn (call)
+  (fn args
+    (begin
+      (await-approval)
+      (apply call args))))`
 
 // NewProjectModule constructs the project capability module for one agent evaluation.
 // It always exposes every project export so an unavailable project can be handled in Lisp.
@@ -155,6 +164,21 @@ func NewSessionModule(files []File, read FileRead, notes *SessionNotes) lisp.Hos
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), sessionNoteReadDocumentation)},
 		{Name: "notes/create", Value: document(lisp.Function(noteCreate), sessionNoteCreateDocumentation)},
+	}}
+}
+
+// NewPolicyModule constructs the policy capability module for one agent evaluation.
+func NewPolicyModule() lisp.HostModule {
+	awaitApproval := document(lisp.Function(func([]lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("policy/await-approval is unavailable"), nil
+	}), policyAwaitApprovalDocumentation)
+	err, requireApproval := lisp.Evaluate(policyRequireApprovalSource, lisp.EvalOptions{Bindings: []lisp.Binding{{Name: "await-approval", Value: awaitApproval}}})
+	if err != nil {
+		panic(err)
+	}
+	return lisp.HostModule{ID: gatehousePolicyModuleID, Exports: []lisp.HostExport{
+		{Name: "await-approval", Value: awaitApproval},
+		{Name: "require-approval", Value: document(requireApproval, policyRequireApprovalDocumentation)},
 	}}
 }
 

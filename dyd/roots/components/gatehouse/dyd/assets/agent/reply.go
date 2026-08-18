@@ -492,6 +492,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		modules := []lisp.HostModule{
 			NewProjectModule(projectInfo, projectFiles, projectNotes),
 			NewSessionModule(files, sessionFileRead, sessionNotes),
+			NewPolicyModule(),
 		}
 		evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
 		evalErr = call.End(evalErr)
