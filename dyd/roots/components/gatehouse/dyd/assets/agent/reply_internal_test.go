@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"gatehouse/database"
+	"gatehouse/model"
 )
 
 func TestOpenAISystemPromptFor(t *testing.T) {
@@ -48,5 +49,12 @@ func TestOpenAISystemPromptDocumentsSessionAndProjectCapabilities(t *testing.T) 
 		if !strings.Contains(openAISystemPrompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}
+	}
+}
+
+func TestSessionToolCallWorkflowIDUsesToolRequestID(t *testing.T) {
+	request := model.SessionEventRef{Id: "sev_00000000000000000000000000"}
+	if got, want := sessionToolCallWorkflowID(request), "session-tool-call:sev_00000000000000000000000000"; got != want {
+		t.Fatalf("sessionToolCallWorkflowID() = %q, want %q", got, want)
 	}
 }

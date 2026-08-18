@@ -42,11 +42,9 @@ type SessionNameInput struct {
 }
 
 type SessionToolCallInput struct {
-	Parent    model.SessionEventRef
+	Request   model.SessionEvent
 	Agent     model.WorkspaceAgentRef
 	Principal model.PrincipalRef
-	Round     int
-	Position  int
 	CallID    string
 	Code      string
 	Reason    string
@@ -471,19 +469,8 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	callEvent := model.SessionEvent{
-		Ref:     model.SessionEventRef{Session: input.Parent.Session},
-		Parent:  &input.Parent,
-		Kind:    "tool.request",
-		AuthorAgent: &input.Agent,
-		Payload:     map[string]interface{}{"name": "lisp", "call_id": input.CallID, "code": input.Code, "reason": input.Reason, "batch": input.Round, "position": input.Position},
-	}
-	err, storedCall := runtime.persistAgentEvent(ctx, callEvent)
-	if err != nil {
-		return "", err
-	}
 	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
-		err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Parent.Session, input.Principal)
+		err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Request.Ref.Session, input.Principal)
 		if err != nil {
 			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
 		}
@@ -493,7 +480,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 			return sessionToolCallExecution{Kind: "tool.failure", Output: diagnosticErr.Error()}, nil
 		}
 		sessionFileRead := func(id string, offset, length int64) (error, []byte) {
-			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Parent.Session, Id: id}, input.Principal)
+			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Request.Ref.Session, Id: id}, input.Principal)
 			if err != nil || file == nil {
 				if err != nil {
 					return err, nil
@@ -517,8 +504,8 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return "", err
 	}
 	resultEvent := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: input.Parent.Session}, Parent: &storedCall.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
-		Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(storedCall.CreatedAt),
+		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
+		Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(input.Request.CreatedAt),
 	}
 	err, _ = runtime.persistAgentEvent(ctx, resultEvent)
 	if err != nil {
@@ -539,13 +526,24 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent m
 			return nil, fmt.Errorf("OpenAI-compatible completion requested a duplicate tool call ID")
 		}
 		seen[call.ID] = true
-		inputs[index] = SessionToolCallInput{Parent: parent, Agent: agent, Principal: principal, Round: round, Position: offset + index, CallID: call.ID, Code: code, Reason: reason}
+		request := model.SessionEvent{
+			Ref:         model.SessionEventRef{Session: parent.Session},
+			Parent:      &parent,
+			Kind:        "tool.request",
+			AuthorAgent: &agent,
+			Payload:     map[string]interface{}{"name": "lisp", "call_id": call.ID, "code": code, "reason": reason, "batch": round, "position": offset + index},
+		}
+		err, stored := runtime.persistAgentEvent(ctx, request)
+		if err != nil {
+			return nil, err
+		}
+		inputs[index] = SessionToolCallInput{Request: stored, Agent: agent, Principal: principal, CallID: call.ID, Code: code, Reason: reason}
 	}
 	handles := make([]dbos.WorkflowHandle[string], len(inputs))
 	for index, input := range inputs {
 		handle, err := dbos.RunWorkflow(ctx, runtime.toolCall, input,
 			dbos.WithRunInstance(runtime),
-			dbos.WithWorkflowID(sessionToolCallWorkflowID(parent, input.Position)),
+			dbos.WithWorkflowID(sessionToolCallWorkflowID(input.Request.Ref)),
 			dbos.WithQueue(runtime.toolQueue),
 		)
 		if err != nil {
@@ -1221,8 +1219,8 @@ func sessionNameWorkflowID(session model.SessionRef) string {
 	return "session-name:" + sessionEventReplyPartition(session)
 }
 
-func sessionToolCallWorkflowID(event model.SessionEventRef, position int) string {
-	return "session-tool-call:" + event.Session.Workspace.Id + "/" + event.Session.Id + "/" + event.Id + "/" + fmt.Sprintf("%d", position)
+func sessionToolCallWorkflowID(request model.SessionEventRef) string {
+	return "session-tool-call:" + request.Id
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {
