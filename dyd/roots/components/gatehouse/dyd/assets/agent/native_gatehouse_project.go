@@ -1,0 +1,83 @@
+package agent
+
+import "gatehouse/lisp"
+
+const gatehouseProjectModuleID = "native:gatehouse/project/v1"
+
+// ProjectInfo describes the project linked to an agent session.
+type ProjectInfo struct {
+	Name        *string
+	Description *string
+	CreatedAt   string
+}
+
+// ProjectFiles contains the authorized files in a linked project.
+type ProjectFiles struct {
+	Files []File
+	Read  FileRead
+}
+
+// ProjectNotes contains the authorized notes in a linked project.
+type ProjectNotes struct {
+	Notes []ProjectNote
+	Read  FileRead
+}
+
+var (
+	projectFileListDocumentation = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with id, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectInfoDocumentation     = capabilityDocumentation{"(project/info) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
+	projectNoteListDocumentation = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, author_id, optional author_name, and created_at.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectNoteReadDocumentation = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
+)
+
+// NewProjectModule constructs the project capability module for one agent evaluation.
+// It always exposes every project export so an unavailable project can be handled in Lisp.
+func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes) lisp.HostModule {
+	infoCall := func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 0 {
+			return lisp.Errorf("project/info requires no arguments"), nil
+		}
+		if info == nil {
+			return nil, lisp.Null()
+		}
+		if info.CreatedAt == "" {
+			return lisp.Errorf("project/info has invalid project metadata"), nil
+		}
+		name, description := lisp.Null(), lisp.Null()
+		if info.Name != nil {
+			name = lisp.String(*info.Name)
+		}
+		if info.Description != nil {
+			description = lisp.String(*info.Description)
+		}
+		return nil, lisp.List(
+			lisp.Pair("name", name),
+			lisp.Pair("description", description),
+			lisp.Pair("created_at", lisp.String(info.CreatedAt)),
+		)
+	}
+
+	filesList, fileRead := fileListFunction(nil, "project/files/list"), unavailableRead("project/files/read")
+	if files != nil {
+		filesList = fileListFunction(files.Files, "project/files/list")
+		if files.Read != nil {
+			fileRead = fileReadFunction(files.Read, "project/files/read")
+		}
+	}
+	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
+	if notes != nil {
+		notesList = noteListFunction(notes.Notes, "project/notes/list")
+		if notes.Read != nil {
+			noteRead = fileReadFunction(notes.Read, "project/notes/read")
+		}
+	}
+
+	return lisp.HostModule{ID: gatehouseProjectModuleID, Exports: []lisp.HostExport{
+		{Name: "info", Value: document(lisp.Function(infoCall), projectInfoDocumentation)},
+		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
+		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
+		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
+		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
+	}}
+}
