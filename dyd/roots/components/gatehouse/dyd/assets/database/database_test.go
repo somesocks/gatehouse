@@ -40,6 +40,7 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 		"gatehouse_agent_models",
 		"gatehouse_workspace_agents",
 		"gatehouse_agent_tasks__session_event_reply",
+		"gatehouse_session_approval_decisions",
 		"gatehouse_storage_providers",
 		"gatehouse_workspace_storage_providers",
 	} {

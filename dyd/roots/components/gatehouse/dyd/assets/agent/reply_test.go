@@ -2,6 +2,9 @@ package agent_test
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,6 +17,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
@@ -238,6 +242,182 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
 	if err != nil || len(tasks) != 0 {
 		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
+	}
+}
+
+func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		decision string
+		toolKind string
+		notes    int
+	}{
+		{name: "approved", decision: "approval.approved", toolKind: "tool.success", notes: 1},
+		{name: "rejected", decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var mutex sync.Mutex
+			completions := 0
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
+					http.Error(response, "unexpected completion request", http.StatusBadRequest)
+					return
+				}
+				mutex.Lock()
+				completions++
+				completion := completions
+				mutex.Unlock()
+				response.Header().Set("Content-Type", "application/json")
+				if completion == 1 {
+					_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":"{\"code\":\"(session/notes/create \\\"Decision\\\" \\\"\\\" \\\"# Decision\\\")\",\"reason\":\"Create the requested decision note.\"}"}}]}}]}`))
+					return
+				}
+				_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Done."}}]}`))
+			}))
+			defer server.Close()
+
+			ctx := context.Background()
+			configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+			err, store := database.Open(ctx, configuration)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			t.Setenv("APPROVAL_TEST_KEYCHAIN", "passphrase")
+			t.Setenv("APPROVAL_TEST_API_KEY", "test-key")
+			baseURL := server.URL + "/v1"
+			keychainID := "default"
+			aliceName := "Alice"
+			state := config.State{
+				Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:APPROVAL_TEST_KEYCHAIN"}}},
+				Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+				Principals: []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
+				AgentProviders: []config.AgentProvider{{
+					Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
+				}},
+				AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Enabled: true}},
+				WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
+			}
+			keyringErr, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+			if keyringErr != nil {
+				t.Fatal(keyringErr)
+			}
+			defer keyring.Close()
+			buildErr, set := migrations.Build(configuration, state, keyring)
+			if buildErr != nil {
+				t.Fatal(buildErr)
+			}
+			if err := migrations.Run(ctx, store, set); err != nil {
+				t.Fatal(err)
+			}
+
+			workspace := workspaceRef(t, ctx, store, "engineering")
+			principal := principalRef(t, ctx, store, "alice")
+			principalRecord := model.Principal{Ref: principal, Name: &aliceName, Enabled: true}
+			session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+			if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
+				t.Fatal(err)
+			}
+			if err, _ := store.SessionNameSet(ctx, session, "Approval test"); err != nil {
+				t.Fatal(err)
+			}
+			message := model.SessionEvent{
+				Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{"text": "Create the decision note."},
+			}
+			if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
+				t.Fatal(err)
+			}
+
+			dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-agent-approval-test", SQLiteSystemDB: store.DB})
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+			if runtimeErr != nil {
+				t.Fatal(runtimeErr)
+			}
+			if err := dbos.Launch(dbosContext); err != nil {
+				t.Fatal(err)
+			}
+			defer dbos.Shutdown(dbosContext, time.Second)
+			if err := runtime.Reconcile(); err != nil {
+				t.Fatal(err)
+			}
+
+			approval := waitForApprovalRequest(t, ctx, store, session)
+			err, notes := store.SessionNotesGet(ctx, session, principal)
+			if err != nil || len(notes) != 0 {
+				t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+			}
+			decisionID, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision := model.SessionEvent{
+				Ref: model.SessionEventRef{Session: session, Id: decisionID}, Parent: &approval.Ref, Kind: test.decision, AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{},
+			}
+			if err, _ := store.SessionApprovalResponseCreate(ctx, decision); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.Reconcile(); err != nil {
+				t.Fatal(err)
+			}
+
+			result := waitForToolResult(t, ctx, store, session, test.toolKind)
+			if result.Parent == nil {
+				t.Fatalf("tool result has no parent: %#v", result)
+			}
+			err, notes = store.SessionNotesGet(ctx, session, principal)
+			if err != nil || len(notes) != test.notes {
+				t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
+			}
+			waitForAgentReply(t, ctx, store, session, message.Ref)
+			err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
+			if err != nil || len(tasks) != 0 {
+				t.Fatalf("approval decision tasks = (%#v, %v)", tasks, err)
+			}
+		})
+	}
+}
+
+func waitForApprovalRequest(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef) model.SessionEvent {
+	t.Helper()
+	return waitForSessionEvent(t, ctx, store, session, func(event model.SessionEvent) bool {
+		return event.Kind == "approval.request"
+	})
+}
+
+func waitForToolResult(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef, kind string) model.SessionEvent {
+	t.Helper()
+	return waitForSessionEvent(t, ctx, store, session, func(event model.SessionEvent) bool {
+		return event.Kind == kind
+	})
+}
+
+func waitForAgentReply(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef, parent model.SessionEventRef) model.SessionEvent {
+	t.Helper()
+	return waitForSessionEvent(t, ctx, store, session, func(event model.SessionEvent) bool {
+		return event.Kind == "message.text" && event.Parent != nil && *event.Parent == parent && event.AuthorAgent != nil && event.Payload["text"] == "Done."
+	})
+}
+
+func waitForSessionEvent(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef, match func(model.SessionEvent) bool) model.SessionEvent {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err, events := store.SessionEventsGet(ctx, session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range events {
+			if match(event) {
+				return event
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("matching session event was not created: %#v", events)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 

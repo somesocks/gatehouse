@@ -14,7 +14,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
   (error/value (error/catch (project/files/read "guide" 0 1)))
   (error/value (error/catch (project/notes/read "guide" 0 1))))`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil), NewPolicyModule()},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil), NewPolicyModule(nil)},
 	})
 	if err != nil || result.String() != `(null null null "project/files/read is unavailable" "project/notes/read is unavailable")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)

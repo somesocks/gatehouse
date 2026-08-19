@@ -16,9 +16,18 @@ const policyRequireApprovalSource = `(fn (call)
       (apply call args))))`
 
 // NewPolicyModule constructs the policy capability module for one agent evaluation.
-func NewPolicyModule() lisp.HostModule {
-	awaitApproval := document(lisp.Function(func([]lisp.Expr) (error, lisp.Expr) {
-		return lisp.Errorf("policy/await-approval is unavailable"), nil
+func NewPolicyModule(await func() error) lisp.HostModule {
+	awaitApproval := document(lisp.Function(func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 0 {
+			return lisp.Errorf("policy/await-approval requires no arguments"), nil
+		}
+		if await == nil {
+			return lisp.Errorf("policy/await-approval is unavailable"), nil
+		}
+		if err := await(); err != nil {
+			return err, nil
+		}
+		return nil, lisp.Null()
 	}), policyAwaitApprovalDocumentation)
 	err, requireApproval := lisp.Evaluate(policyRequireApprovalSource, lisp.EvalOptions{Bindings: []lisp.Binding{{Name: "await-approval", Value: awaitApproval}}})
 	if err != nil {

@@ -2,6 +2,7 @@ package database_test
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -884,5 +885,70 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000005', 'sev_00000000000000000000000005', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id, alice.Id); err == nil {
 		t.Fatal("session events accepted a self parent")
+	}
+}
+
+func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	alice := principalRef(t, ctx, store, "alice")
+	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	var agentID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agentID}}
+	root := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}}
+	if err, _ := store.SessionEventsCreate(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Parent: &root.Ref, Kind: "tool.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, tool); err != nil {
+		t.Fatal(err)
+	}
+	request := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &tool.Ref, Kind: "approval.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, request); err != nil {
+		t.Fatal(err)
+	}
+	decision := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Parent: &request.Ref, Kind: "approval.approved", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	err, stored := store.SessionApprovalResponseCreate(ctx, decision)
+	if err != nil || stored.Ref != decision.Ref {
+		t.Fatalf("SessionApprovalResponseCreate() = (%#v, %v)", stored, err)
+	}
+	err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Approval != request.Ref || tasks[0].Response != decision.Ref {
+		t.Fatalf("SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
+	}
+	rejected := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Parent: &request.Ref, Kind: "approval.rejected", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	err, _ = store.SessionApprovalResponseCreate(ctx, rejected)
+	if !errors.Is(err, database.ErrSessionApprovalResolved) {
+		t.Fatalf("second SessionApprovalResponseCreate() error = %v", err)
+	}
+	if err := store.SessionApprovalDecisionTaskDelivered(ctx, request.Ref); err != nil {
+		t.Fatal(err)
+	}
+	err, tasks = store.SessionApprovalDecisionTasksGet(ctx, 10)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("delivered SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
 	}
 }

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Search, Send, X } from "@lucide/svelte"
+  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
   import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
 
@@ -161,6 +161,8 @@
   let sendingMessage = $state(false)
   let awaitingReplyFor = $state<string[]>([])
   let cancellingReplyFor = $state<Set<string>>(new Set())
+  let submittingApprovals = $state<Set<string>>(new Set())
+  let approvalErrors = $state<Map<string, string>>(new Map())
   let expandedActivity = $state<Set<string>>(new Set())
   let mobileMenuOpen = $state(false)
   let showJumpToLatest = $state(false)
@@ -1225,6 +1227,18 @@
     return activityDuration(tree, "tool.success", "tool.failure")
   }
 
+  function approvalRequests(tree: SessionEventTree) {
+    return tree.children.filter((child) => child.event.kind === "approval.request")
+  }
+
+  function approvalResponse(tree: SessionEventTree) {
+    return tree.children.find((child) => child.event.kind === "approval.approved" || child.event.kind === "approval.rejected")
+  }
+
+  function approvalError(tree: SessionEventTree) {
+    return approvalErrors.get(tree.event.ref.id) ?? ""
+  }
+
   function thinkingDuration(tree: SessionEventTree) {
     return activityDuration(tree, "thinking.completed", "thinking.failed")
   }
@@ -1295,6 +1309,47 @@
       const completed = new Set(cancellingReplyFor)
       completed.delete(tree.event.ref.id)
       cancellingReplyFor = completed
+    }
+  }
+
+  async function respondToApproval(approval: SessionEventTree, decision: "approved" | "rejected") {
+    if (activeWorkspace === null || activeSession === null || submittingApprovals.has(approval.event.ref.id)) {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    const submitting = new Set(submittingApprovals)
+    submitting.add(approval.event.ref.id)
+    submittingApprovals = submitting
+    const clearedErrors = new Map(approvalErrors)
+    clearedErrors.delete(approval.event.ref.id)
+    approvalErrors = clearedErrors
+    try {
+      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/approvals/${encodeURIComponent(approval.event.ref.id)}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision }),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (response.status === 409) {
+        throw new Error("This approval has already been decided.")
+      }
+      if (!response.ok) {
+        throw new Error("The approval response could not be submitted. Try again.")
+      }
+      await loadSessionEvents(session, false)
+    } catch (error) {
+      const nextErrors = new Map(approvalErrors)
+      nextErrors.set(approval.event.ref.id, error instanceof Error ? error.message : "The approval response could not be submitted. Try again.")
+      approvalErrors = nextErrors
+    } finally {
+      const completed = new Set(submittingApprovals)
+      completed.delete(approval.event.ref.id)
+      submittingApprovals = completed
     }
   }
 
@@ -2331,6 +2386,29 @@
                                   <span class="tool-call-duration">{toolCallDuration(activity)}</span>
                                 {/if}
                               </p>
+                              {#each approvalRequests(activity) as approval (approval.event.ref.id)}
+                                {@const response = approvalResponse(approval)}
+                                <section class:approval-request-resolved={response !== undefined} class="approval-request">
+                                  {#if response === undefined}
+                                    <ShieldQuestionMark class="approval-request-icon" size={15} strokeWidth={2} aria-hidden="true" />
+                                    <span class="approval-request-heading">Approval required:</span>
+                                    <span class="approval-request-detail">{activity.event.payload.reason ?? `Run ${activity.event.payload.name ?? "tool"}`}</span>
+                                    <span class="approval-request-actions">
+                                      <button class="approval-approve" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "approved")}>{submittingApprovals.has(approval.event.ref.id) ? "Submitting..." : "Approve"}</button>
+                                      <button class="approval-reject" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "rejected")}>Reject</button>
+                                    </span>
+                                  {:else}
+                                    {#if response.event.kind === "approval.approved"}
+                                      <ShieldCheck class="approval-request-icon approval-request-approved" size={15} strokeWidth={2} aria-hidden="true" />
+                                      <span class="approval-request-heading">Approved</span>
+                                    {:else}
+                                      <ShieldX class="approval-request-icon approval-request-rejected" size={15} strokeWidth={2} aria-hidden="true" />
+                                      <span class="approval-request-heading">Rejected</span>
+                                    {/if}
+                                  {/if}
+                                </section>
+                                {#if response === undefined && approvalError(approval) !== ""}<p class="approval-request-error" role="alert">{approvalError(approval)}</p>{/if}
+                              {/each}
                             {:else if activity.event.kind === "thinking.started"}
                               <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
                                 {#if thinkingStatus(activity) === "working"}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -12,6 +13,8 @@ import (
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
+
+var ErrSessionApprovalResolved = errors.New("session approval is already resolved")
 
 func (store *Store) SessionsCreate(ctx context.Context, session model.Session, grantee model.PrincipalRef) (error, model.Session) {
 	if strings.TrimSpace(session.Ref.Id) == "" {
@@ -284,7 +287,7 @@ func sessionAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, ga
 }
 
 func (store *Store) SessionEventsCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false)
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -370,7 +373,7 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 }
 
 func (store *Store) SessionMessagesCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, true)
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, true, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -393,7 +396,16 @@ func sessionMessageFileIDs(event model.SessionEvent) ([]string, error) {
 }
 
 func (store *Store) SessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent) (error, []model.SessionEvent) {
-	return store.sessionEventsCreateBatch(ctx, events, false)
+	return store.sessionEventsCreateBatch(ctx, events, false, false)
+}
+
+// SessionApprovalResponseCreate persists one terminal approval response and schedules its delivery.
+func (store *Store) SessionApprovalResponseCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, true)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	return nil, events[0]
 }
 
 type sessionEventInsert struct {
@@ -403,7 +415,7 @@ type sessionEventInsert struct {
 	payload                  string
 }
 
-func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks bool) (error, []model.SessionEvent) {
+func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks, createApprovalResponse bool) (error, []model.SessionEvent) {
 	if len(events) == 0 {
 		return nil, []model.SessionEvent{}
 	}
@@ -475,6 +487,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		seen[event.Ref] = struct{}{}
 	}
 	for _, insert := range inserts {
+		if createApprovalResponse && (insert.event.Parent == nil || (insert.event.Kind != "approval.approved" && insert.event.Kind != "approval.rejected")) {
+			return fmt.Errorf("create approval response: event must be an approval.approved or approval.rejected child"), nil
+		}
 		row := transaction.QueryRowContext(ctx, `
 			INSERT INTO gatehouse_session_events (
 				workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at
@@ -531,6 +546,23 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 				if err != nil {
 					return fmt.Errorf("insert session name task: %w", err), nil
 				}
+			}
+		}
+		if createApprovalResponse {
+			result, err := transaction.ExecContext(ctx, `
+				INSERT INTO gatehouse_session_approval_decisions (workspace, session, approval, response, created_at, delivered)
+				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, FALSE)
+				ON CONFLICT (workspace, session, approval) DO NOTHING
+			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id, insert.event.Ref.Id, insert.event.CreatedAt)
+			if err != nil {
+				return fmt.Errorf("create approval response decision: %w", err), nil
+			}
+			created, err := result.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("create approval response decision: %w", err), nil
+			}
+			if created != 1 {
+				return ErrSessionApprovalResolved, nil
 			}
 		}
 	}
@@ -772,6 +804,55 @@ func (store *Store) SessionEventChildGet(ctx context.Context, parent model.Sessi
 
 type SessionEventReplyTask struct {
 	Event model.SessionEventRef
+}
+
+type SessionApprovalDecisionTask struct {
+	Approval model.SessionEventRef
+	Response model.SessionEventRef
+}
+
+func (store *Store) SessionApprovalDecisionTasksGet(ctx context.Context, limit int) (error, []SessionApprovalDecisionTask) {
+	if limit <= 0 {
+		return fmt.Errorf("get session approval decision tasks: limit must be positive"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT workspace, session, approval, response
+		FROM gatehouse_session_approval_decisions
+		WHERE delivered = FALSE
+		ORDER BY created_at, response
+		LIMIT `+placeholder(1)+`
+	`, limit)
+	if err != nil {
+		return fmt.Errorf("get session approval decision tasks: %w", err), nil
+	}
+	defer rows.Close()
+
+	tasks := []SessionApprovalDecisionTask{}
+	for rows.Next() {
+		var task SessionApprovalDecisionTask
+		if err := rows.Scan(&task.Approval.Session.Workspace.Id, &task.Approval.Session.Id, &task.Approval.Id, &task.Response.Id); err != nil {
+			return fmt.Errorf("scan session approval decision task: %w", err), nil
+		}
+		task.Response.Session = task.Approval.Session
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate session approval decision tasks: %w", err), nil
+	}
+	return nil, tasks
+}
+
+func (store *Store) SessionApprovalDecisionTaskDelivered(ctx context.Context, approval model.SessionEventRef) error {
+	placeholder := keychainPlaceholder(store.kind)
+	_, err := store.ExecContext(ctx, `
+		UPDATE gatehouse_session_approval_decisions SET delivered = TRUE
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND approval = `+placeholder(3)+`
+	`, approval.Session.Workspace.Id, approval.Session.Id, approval.Id)
+	if err != nil {
+		return fmt.Errorf("mark session approval decision delivered: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) SessionEventReplyTasksGet(ctx context.Context, limit int) (error, []SessionEventReplyTask) {

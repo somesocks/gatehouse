@@ -31,6 +31,7 @@ const (
 	sessionToolCallQueue   = "gatehouse.session-tool-calls"
 	sessionNameQueue       = "gatehouse.session-names"
 	sessionNamePrompt      = "Generate a concise title for this conversation. Return only the title, using a few words."
+	sessionApprovalWait    = time.Duration(1<<63 - 1)
 )
 
 type SessionEventReplyInput struct {
@@ -49,6 +50,17 @@ type SessionToolCallInput struct {
 	Code      string
 	Reason    string
 }
+
+type SessionApprovalInput struct {
+	Request model.SessionEventRef
+}
+
+type ApprovalOutcome string
+
+const (
+	ApprovalGranted  ApprovalOutcome = "approved"
+	ApprovalRejected ApprovalOutcome = "rejected"
+)
 
 type sessionToolCallExecution struct {
 	Kind   string
@@ -83,14 +95,11 @@ type SessionEventReplyRuntime struct {
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
-	queue, err := dbos.RegisterQueue(ctx, sessionEventReplyQueue,
-		dbos.WithPartitionQueue(),
-		dbos.WithGlobalConcurrency(1),
-	)
+	queue, err := dbos.RegisterQueue(ctx, sessionEventReplyQueue, dbos.WithPartitionQueue())
 	if err != nil {
 		return fmt.Errorf("register session event reply queue: %w", err), nil
 	}
-	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue, dbos.WithGlobalConcurrency(4))
+	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue)
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
@@ -110,6 +119,10 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	dbos.RegisterWorkflow(ctx, runtime.toolCall,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-tool-call"),
+	)
+	dbos.RegisterWorkflow(ctx, runtime.approval,
+		dbos.WithInstance(runtime),
+		dbos.WithWorkflowName("gatehouse.session-approval"),
 	)
 	dbos.RegisterWorkflow(ctx, runtime.nameSession,
 		dbos.WithInstance(runtime),
@@ -156,6 +169,19 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 			return fmt.Errorf("enqueue session name %q: %w", task.Session.Id, err)
 		}
 		if err := runtime.store.SessionNameTaskDelete(runtime.dbos, task.Session); err != nil {
+			return err
+		}
+	}
+	err, approvalTasks := runtime.store.SessionApprovalDecisionTasksGet(runtime.dbos, 100)
+	if err != nil {
+		return err
+	}
+	for _, task := range approvalTasks {
+		err := dbos.Send(runtime.dbos, sessionApprovalWorkflowID(task.Approval), task.Response, "response", dbos.WithIdempotencyKey(task.Response.Id))
+		if err != nil {
+			return fmt.Errorf("send approval response %q: %w", task.Response.Id, err)
+		}
+		if err := runtime.store.SessionApprovalDecisionTaskDelivered(runtime.dbos, task.Approval); err != nil {
 			return err
 		}
 	}
@@ -469,50 +495,122 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	execution, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionToolCallExecution, error) {
-		err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(step, input.Request.Ref.Session, input.Principal)
-		if err != nil {
-			return sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()}, nil
-		}
-		defer clearResourceValues(values)
-		call, diagnosticErr := diagnostics.Begin("agent.tool_call.evaluate", "")
-		if diagnosticErr != nil {
-			return sessionToolCallExecution{Kind: "tool.failure", Output: diagnosticErr.Error()}, nil
-		}
-		sessionFileRead := func(id string, offset, length int64) (error, []byte) {
-			err, file, _ := runtime.store.SessionFileGet(step, model.SessionFileRef{Session: input.Request.Ref.Session, Id: id}, input.Principal)
-			if err != nil || file == nil {
-				if err != nil {
-					return err, nil
-				}
-				return fmt.Errorf("read session file: unavailable"), nil
-			}
-			return runtime.storage.Read(step, file.StorageObject.Id, offset, length)
-		}
-		modules := []lisp.HostModule{
-			NewProjectModule(projectInfo, projectFiles, projectNotes),
-			NewSessionModule(files, sessionFileRead, sessionNotes),
-			NewPolicyModule(),
-		}
-		evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
-		evalErr = call.End(evalErr)
-		if evalErr != nil {
-			return sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}, nil
-		}
-		return sessionToolCallExecution{Kind: "tool.success", Output: result.String()}, nil
-	}, dbos.WithStepName("gatehouse.session-tool-call-evaluate"))
+	err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
 	if err != nil {
-		return "", err
+		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
+	defer clearResourceValues(values)
+	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
+	if err != nil {
+		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+	}
+	sessionFileRead := func(id string, offset, length int64) (error, []byte) {
+		err, file, _ := runtime.store.SessionFileGet(ctx, model.SessionFileRef{Session: input.Request.Ref.Session, Id: id}, input.Principal)
+		if err != nil || file == nil {
+			if err != nil {
+				return err, nil
+			}
+			return fmt.Errorf("read session file: unavailable"), nil
+		}
+		return runtime.storage.Read(ctx, file.StorageObject.Id, offset, length)
+	}
+	modules := []lisp.HostModule{
+		NewProjectModule(projectInfo, projectFiles, projectNotes),
+		NewSessionModule(files, sessionFileRead, sessionNotes),
+		NewPolicyModule(func() error { return runtime.awaitApproval(ctx, input) }),
+	}
+	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
+	evalErr = call.End(evalErr)
+	execution := sessionToolCallExecution{}
+	if evalErr != nil {
+		execution = sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}
+	} else {
+		execution = sessionToolCallExecution{Kind: "tool.success", Output: result.String()}
+	}
+	return runtime.toolCallFinish(ctx, input, execution)
+}
+
+func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, input SessionToolCallInput, execution sessionToolCallExecution) (string, error) {
 	resultEvent := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
 		Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(input.Request.CreatedAt),
 	}
-	err, _ = runtime.persistAgentEvent(ctx, resultEvent)
+	err, _ := runtime.persistAgentEvent(ctx, resultEvent)
 	if err != nil {
 		return "", err
 	}
 	return execution.Output, nil
+}
+
+func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteCreate {
+	return func(title, description, body string) (error, ProjectNote) {
+		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
+			id, err := typed_id.New(typed_id.SessionNote)
+			if err != nil {
+				return ProjectNote{}, fmt.Errorf("generate session note ID: %w", err)
+			}
+			err, note := runtime.store.SessionNoteCreate(step, model.SessionNote{
+				Ref: model.SessionNoteRef{Session: session, Id: id}, Title: title, Description: description, Body: body,
+			}, principal)
+			if err != nil {
+				return ProjectNote{}, err
+			}
+			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
+		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input SessionToolCallInput) error {
+	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
+		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: "approval.request", AuthorAgent: &input.Agent, Payload: map[string]interface{}{},
+	})
+	if err != nil {
+		return err
+	}
+	handle, err := dbos.RunWorkflow(ctx, runtime.approval, SessionApprovalInput{Request: request.Ref},
+		dbos.WithRunInstance(runtime),
+		dbos.WithWorkflowID(sessionApprovalWorkflowID(request.Ref)),
+	)
+	if err != nil {
+		return fmt.Errorf("start approval %q: %w", request.Ref.Id, err)
+	}
+	outcome, err := handle.GetResult()
+	if err != nil {
+		return fmt.Errorf("await approval %q: %w", request.Ref.Id, err)
+	}
+	if outcome == ApprovalGranted {
+		return nil
+	}
+	if outcome == ApprovalRejected {
+		return lisp.Errorf("approval rejected")
+	}
+	return fmt.Errorf("approval %q returned invalid outcome %q", request.Ref.Id, outcome)
+}
+
+func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input SessionApprovalInput) (ApprovalOutcome, error) {
+	decision, err := dbos.Recv[model.SessionEventRef](ctx, "response", sessionApprovalWait)
+	if err != nil {
+		return "", err
+	}
+	return dbos.RunAsStep(ctx, func(step context.Context) (ApprovalOutcome, error) {
+		err, event := runtime.store.SessionEventGet(step, decision)
+		if err != nil {
+			return "", err
+		}
+		if event == nil || event.Parent == nil || *event.Parent != input.Request || event.AuthorPrincipal == nil {
+			return "", fmt.Errorf("approval response is invalid")
+		}
+		switch event.Kind {
+		case "approval.approved":
+			return ApprovalGranted, nil
+		case "approval.rejected":
+			return ApprovalRejected, nil
+		default:
+			return "", fmt.Errorf("approval response has invalid kind %q", event.Kind)
+		}
+	}, dbos.WithStepName("gatehouse.session-approval-response"))
 }
 
 func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]string, error) {
@@ -1222,6 +1320,10 @@ func sessionNameWorkflowID(session model.SessionRef) string {
 
 func sessionToolCallWorkflowID(request model.SessionEventRef) string {
 	return "session-tool-call:" + request.Id
+}
+
+func sessionApprovalWorkflowID(request model.SessionEventRef) string {
+	return "session-approval:" + request.Id
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {

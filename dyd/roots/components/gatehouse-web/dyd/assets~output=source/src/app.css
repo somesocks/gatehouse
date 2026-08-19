@@ -1059,6 +1059,85 @@ body {
   white-space: nowrap;
 }
 
+.approval-request {
+  align-items: center;
+  color: #c4cbb7;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.78rem;
+  gap: 0.35rem;
+  line-height: 1.35;
+  margin: 0.15rem 0 0.15rem 1.35rem;
+}
+
+.approval-request-resolved {
+  color: #aebd98;
+}
+
+.approval-request-heading {
+  color: #e5f1c8;
+  font-weight: 700;
+}
+
+.approval-request-error {
+  color: #c4cbb7;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  margin: 0.1rem 0 0.15rem 1.35rem;
+}
+
+.approval-request-actions {
+  display: flex;
+  gap: 0.45rem;
+}
+
+.approval-request-actions button {
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 700;
+  padding: 0;
+}
+
+.approval-approve {
+  color: #b9db6f;
+}
+
+.approval-approve:hover:not(:disabled) {
+  color: #d8efa0;
+}
+
+.approval-reject {
+  color: #ffc0b0;
+}
+
+.approval-reject:hover:not(:disabled) {
+  color: #ffe0d8;
+}
+
+.approval-request-actions button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.approval-request-error {
+  color: #ffc0b0;
+}
+
+.approval-request-icon {
+  color: #d9bd72;
+  flex: 0 0 auto;
+}
+
+.approval-request-approved {
+  color: #b9db6f;
+}
+
+.approval-request-rejected {
+  color: #ffc0b0;
+}
+
 .tool-status {
   color: #7ca653;
   flex: 0 0 auto;

@@ -348,6 +348,67 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	}
 }
 
+func TestSessionApprovalResponse(t *testing.T) {
+	ctx := context.Background()
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	alice, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	if login.Code != http.StatusOK {
+		t.Fatalf("POST login = %d", login.Code)
+	}
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	session := model.SessionRef{Workspace: engineering, Id: "ses_00000000000000000000000000"}
+	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
+	var agentID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: engineering, Model: model.AgentModelRef{Id: agentID}}
+	root := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}}
+	if err, _ := store.SessionEventsCreate(ctx, root); err != nil {
+		t.Fatal(err)
+	}
+	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Parent: &root.Ref, Kind: "tool.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, tool); err != nil {
+		t.Fatal(err)
+	}
+	approval := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &tool.Ref, Kind: "approval.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
+	if err, _ := store.SessionEventsCreate(ctx, approval); err != nil {
+		t.Fatal(err)
+	}
+	request := func(decision string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.Id+"/approvals/"+approval.Ref.Id, strings.NewReader(`{"decision":"`+decision+`"}`))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	response := request("approved")
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("POST approval = %d body %q", response.Code, response.Body.String())
+	}
+	var decision model.SessionEvent
+	if err := json.Unmarshal(response.Body.Bytes(), &decision); err != nil {
+		t.Fatal(err)
+	}
+	if decision.Kind != "approval.approved" || decision.Parent == nil || *decision.Parent != approval.Ref || decision.AuthorPrincipal == nil || decision.AuthorPrincipal.Ref != alice {
+		t.Fatalf("approval response = %#v", decision)
+	}
+	if duplicate := request("rejected"); duplicate.Code != http.StatusConflict {
+		t.Fatalf("duplicate approval = %d body %q", duplicate.Code, duplicate.Body.String())
+	}
+	err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
+	if err != nil || len(tasks) != 1 || tasks[0].Approval != approval.Ref || tasks[0].Response != decision.Ref {
+		t.Fatalf("SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
+	}
+}
+
 func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
@@ -798,6 +859,9 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{WorkspaceID: "engineering", Alias: "docs", Source: "file:./docs", Secret: false, Enabled: true},
 			{WorkspaceID: "engineering", Alias: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
 		},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
 		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
 			{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},

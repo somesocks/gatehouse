@@ -31,7 +31,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 				}
 				return nil, []byte("# Guide")
 			}}),
-			NewPolicyModule(),
+			NewPolicyModule(nil),
 		},
 	})
 	if err != nil || !strings.Contains(result.String(), `(name . "report.txt")`) || !strings.Contains(result.String(), `(author_name . "Ada")`) || !strings.HasSuffix(result.String(), `"# Guide")`) {
@@ -42,7 +42,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 	err, _ := lisp.Evaluate(`(session/files/read "file" 0 65537)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil), NewPolicyModule()},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil), NewPolicyModule(nil)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "length from 1 through 65536") {
 		t.Fatalf("Evaluate() oversized read error = %v", err)
@@ -53,7 +53,7 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 		HostModules: []lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return errors.New("storage unavailable"), nil }, nil),
-			NewPolicyModule(),
+			NewPolicyModule(nil),
 		},
 	})
 	if err != nil || result.String() != `"session/files/read failed"` {

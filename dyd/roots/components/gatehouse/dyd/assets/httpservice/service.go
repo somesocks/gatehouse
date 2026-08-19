@@ -134,6 +134,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}", workspaceSessionNote(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
@@ -1580,6 +1581,91 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		writeJSONStatus(response, http.StatusAccepted, stored)
+	}
+}
+
+type sessionApprovalRequest struct {
+	Decision string `json:"decision"`
+}
+
+func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, dispatcher ReplyDispatcher) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		approvalID := request.PathValue("approval")
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionEvent, approvalID) {
+			http.NotFound(response, request)
+			return
+		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
+		}
+		var approvalInput sessionApprovalRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&approvalInput); err != nil || (approvalInput.Decision != "approved" && approvalInput.Decision != "rejected") {
+			http.Error(response, "invalid approval decision", http.StatusBadRequest)
+			return
+		}
+		approvalRef := model.SessionEventRef{Session: session, Id: approvalID}
+		err, approval := store.SessionEventGet(request.Context(), approvalRef)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if approval == nil || approval.Kind != "approval.request" || approval.AuthorAgent == nil || approval.Parent == nil {
+			http.NotFound(response, request)
+			return
+		}
+		err, tool := store.SessionEventGet(request.Context(), *approval.Parent)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if tool == nil || tool.Kind != "tool.request" || tool.AuthorAgent == nil {
+			http.NotFound(response, request)
+			return
+		}
+		id, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		kind := "approval.approved"
+		if approvalInput.Decision == "rejected" {
+			kind = "approval.rejected"
+		}
+		event := model.SessionEvent{
+			Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &approvalRef, Kind: kind, AuthorPrincipal: &claims.Principal, Payload: map[string]interface{}{},
+		}
+		err, stored := store.SessionApprovalResponseCreate(request.Context(), event)
+		if errors.Is(err, database.ErrSessionApprovalResolved) {
+			http.Error(response, "approval is already resolved", http.StatusConflict)
+			return
+		}
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if dispatcher != nil {
+			_ = dispatcher.Reconcile()
 		}
 		writeJSONStatus(response, http.StatusAccepted, stored)
 	}

@@ -58,3 +58,10 @@ func TestSessionToolCallWorkflowIDUsesToolRequestID(t *testing.T) {
 		t.Fatalf("sessionToolCallWorkflowID() = %q, want %q", got, want)
 	}
 }
+
+func TestSessionApprovalWorkflowIDUsesApprovalRequestID(t *testing.T) {
+	request := model.SessionEventRef{Id: "sev_00000000000000000000000000"}
+	if got, want := sessionApprovalWorkflowID(request), "session-approval:sev_00000000000000000000000000"; got != want {
+		t.Fatalf("sessionApprovalWorkflowID() = %q, want %q", got, want)
+	}
+}
