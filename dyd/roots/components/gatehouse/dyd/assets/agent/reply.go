@@ -518,7 +518,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	modules := []lisp.HostModule{
 		NewProjectModule(projectInfo, projectFiles, projectNotes),
 		NewSessionModule(files, sessionFileRead, sessionNotes),
-		NewPolicyModule(func() error { return runtime.awaitApproval(ctx, input) }),
+		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 	}
 	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
 	evalErr = call.End(evalErr)
@@ -562,9 +562,9 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input SessionToolCallInput) error {
+func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input SessionToolCallInput, description string) error {
 	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
-		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: "approval.request", AuthorAgent: &input.Agent, Payload: map[string]interface{}{},
+		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: "approval.request", AuthorAgent: &input.Agent, Payload: map[string]interface{}{"description": description},
 	})
 	if err != nil {
 		return err

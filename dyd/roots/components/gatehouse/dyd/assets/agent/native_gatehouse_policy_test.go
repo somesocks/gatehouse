@@ -8,8 +8,8 @@ import (
 
 func TestAgentPreludeRequiresApprovalForSessionNoteCreate(t *testing.T) {
 	err, result := lisp.Evaluate(`(list
-  (error/value (error/catch (policy/await-approval)))
-  (error/value (error/catch ((policy/require-approval +) 1 2)))
+  (error/value (error/catch (policy/await-approval "Await an action")))
+  (error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))
   (error/value (error/catch (session/notes/create "Decision" "" "# Decision"))))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
 		HostModules: []lisp.HostModule{
@@ -30,8 +30,8 @@ func TestGatehousePolicyModuleAwaitApprovalIsUnavailable(t *testing.T) {
 	err, result := lisp.Evaluate(`(import
   (policy @native:gatehouse/policy/v1)
   (list
-    (error/value (error/catch (policy/await-approval)))
-    (error/value (error/catch ((policy/require-approval +) 1 2)))))`, lisp.EvalOptions{
+    (error/value (error/catch (policy/await-approval "Await an action")))
+    (error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{NewPolicyModule(nil)},
 	})
 	if err != nil || result.String() != `("policy/await-approval is unavailable" "policy/await-approval is unavailable")` {
@@ -40,21 +40,32 @@ func TestGatehousePolicyModuleAwaitApprovalIsUnavailable(t *testing.T) {
 }
 
 func TestGatehousePolicyModuleAwaitApprovalUsesCallback(t *testing.T) {
-	awaits := 0
+	descriptions := []string{}
 	err, result := lisp.Evaluate(`(list
-  (policy/await-approval)
-  ((policy/require-approval +) 1 2))`, lisp.EvalOptions{
+  (policy/await-approval "Await an action")
+  ((policy/require-approval "Add numbers" +) 1 2))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
 		HostModules: []lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, nil, nil),
-			NewPolicyModule(func() error {
-				awaits++
+			NewPolicyModule(func(description string) error {
+				descriptions = append(descriptions, description)
 				return nil
 			}),
 		},
 	})
-	if err != nil || result.String() != `(null 3)` || awaits != 2 {
-		t.Fatalf("Evaluate() = (%s, %v), awaits = %d", result, err, awaits)
+	if err != nil || result.String() != `(null 3)` || len(descriptions) != 2 || descriptions[0] != "Await an action" || descriptions[1] != "Add numbers" {
+		t.Fatalf("Evaluate() = (%s, %v), descriptions = %#v", result, err, descriptions)
+	}
+}
+
+func TestGatehousePolicyModuleRequiresNonBlankDescription(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (policy @native:gatehouse/policy/v1)
+  (error/value (error/catch (policy/await-approval " "))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewPolicyModule(func(string) error { t.Fatal("approval callback was called with blank description"); return nil })},
+	})
+	if err != nil || result.String() != `"policy/await-approval description must not be blank"` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }

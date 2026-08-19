@@ -1,30 +1,42 @@
 package agent
 
-import "gatehouse/lisp"
+import (
+	"strings"
+
+	"gatehouse/lisp"
+)
 
 const gatehousePolicyModuleID = "native:gatehouse/policy/v1"
 
 var (
-	policyAwaitApprovalDocumentation   = capabilityDocumentation{"(policy/await-approval) -> Null", "Waits for approval of the current policy-wrapped operation.", "(policy/await-approval)", "null"}
-	policyRequireApprovalDocumentation = capabilityDocumentation{"(policy/require-approval call) -> Function", "Returns a function that waits for approval before invoking call.", "((policy/require-approval session/notes/create) \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	policyAwaitApprovalDocumentation   = capabilityDocumentation{"(policy/await-approval description) -> Null", "Requests action approval before continuing. Description must be a non-blank string shown to the user.", "(policy/await-approval \"Create a session note\")", "null"}
+	policyRequireApprovalDocumentation = capabilityDocumentation{"(policy/require-approval description call) -> Function", "Returns a function that requests action approval with description before invoking call.", "((policy/require-approval \"Create a session note\" session/notes/create) \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 )
 
-const policyRequireApprovalSource = `(fn (call)
+const policyRequireApprovalSource = `(fn (description call)
   (fn args
     (begin
-      (await-approval)
+      (await-approval description)
       (apply call args))))`
 
 // NewPolicyModule constructs the policy capability module for one agent evaluation.
-func NewPolicyModule(await func() error) lisp.HostModule {
+func NewPolicyModule(requestApproval func(description string) error) lisp.HostModule {
 	awaitApproval := document(lisp.Function(func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 0 {
-			return lisp.Errorf("policy/await-approval requires no arguments"), nil
+		if len(arguments) != 1 {
+			return lisp.Errorf("policy/await-approval requires one description argument"), nil
 		}
-		if await == nil {
+		err, description := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		description = strings.TrimSpace(description)
+		if description == "" {
+			return lisp.Errorf("policy/await-approval description must not be blank"), nil
+		}
+		if requestApproval == nil {
 			return lisp.Errorf("policy/await-approval is unavailable"), nil
 		}
-		if err := await(); err != nil {
+		if err := requestApproval(description); err != nil {
 			return err, nil
 		}
 		return nil, lisp.Null()

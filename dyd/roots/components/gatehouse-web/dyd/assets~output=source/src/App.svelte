@@ -76,7 +76,7 @@
   type SessionEvent = {
     created_at: string
     kind: string
-    payload: { text?: string; name?: string; reason?: string; code?: string; output?: string; files?: MessageFile[] }
+    payload: { text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; files?: MessageFile[] }
     ref: { id: string }
     parent?: { id: string }
     author_principal?: {
@@ -1239,6 +1239,10 @@
     return approvalErrors.get(tree.event.ref.id) ?? ""
   }
 
+  function approvalDescription(approval: SessionEventTree, task: SessionEventTree) {
+    return approval.event.payload.description ?? task.event.payload.reason ?? `Run ${task.event.payload.name ?? "tool"}`
+  }
+
   function thinkingDuration(tree: SessionEventTree) {
     return activityDuration(tree, "thinking.completed", "thinking.failed")
   }
@@ -2381,7 +2385,7 @@
                                 {:else}
                                   <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
                                 {/if}
-                                Action: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
+                                Task: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
                                 {#if toolCallDuration(activity) !== ""}
                                   <span class="tool-call-duration">{toolCallDuration(activity)}</span>
                                 {/if}
@@ -2391,8 +2395,8 @@
                                 <section class:approval-request-resolved={response !== undefined} class="approval-request">
                                   {#if response === undefined}
                                     <ShieldQuestionMark class="approval-request-icon" size={15} strokeWidth={2} aria-hidden="true" />
-                                    <span class="approval-request-heading">Approval required:</span>
-                                    <span class="approval-request-detail">{activity.event.payload.reason ?? `Run ${activity.event.payload.name ?? "tool"}`}</span>
+                                    <span class="approval-request-heading">Action approval required:</span>
+                                    <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
                                     <span class="approval-request-actions">
                                       <button class="approval-approve" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "approved")}>{submittingApprovals.has(approval.event.ref.id) ? "Submitting..." : "Approve"}</button>
                                       <button class="approval-reject" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "rejected")}>Reject</button>
@@ -2400,10 +2404,12 @@
                                   {:else}
                                     {#if response.event.kind === "approval.approved"}
                                       <ShieldCheck class="approval-request-icon approval-request-approved" size={15} strokeWidth={2} aria-hidden="true" />
-                                      <span class="approval-request-heading">Approved</span>
+                                      <span class="approval-request-heading">Action approved:</span>
+                                      <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
                                     {:else}
                                       <ShieldX class="approval-request-icon approval-request-rejected" size={15} strokeWidth={2} aria-hidden="true" />
-                                      <span class="approval-request-heading">Rejected</span>
+                                      <span class="approval-request-heading">Action rejected:</span>
+                                      <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
                                     {/if}
                                   {/if}
                                 </section>

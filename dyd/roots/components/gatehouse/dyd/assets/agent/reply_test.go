@@ -345,6 +345,9 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			}
 
 			approval := waitForApprovalRequest(t, ctx, store, session)
+			if approval.Payload["description"] != "Create a session note" {
+				t.Fatalf("approval description = %#v", approval.Payload["description"])
+			}
 			err, notes := store.SessionNotesGet(ctx, session, principal)
 			if err != nil || len(notes) != 0 {
 				t.Fatalf("notes before decision = (%#v, %v)", notes, err)
