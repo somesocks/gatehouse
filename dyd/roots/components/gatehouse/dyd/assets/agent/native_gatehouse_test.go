@@ -60,3 +60,20 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 		t.Fatalf("Evaluate() failed read = (%s, %v)", result, err)
 	}
 }
+
+func TestAgentPreludeHidesImportBindings(t *testing.T) {
+	err, result := lisp.Evaluate(`(list
+  (error? (error/catch (import)))
+  (error? (error/catch (import/restrict)))
+  (error? (error/catch (import/search))))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewProjectModule(nil, nil, nil),
+			NewSessionModule(nil, nil, nil, nil),
+			NewPolicyModule(nil),
+		},
+	})
+	if err != nil || result.String() != "(#t #t #t)" {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
