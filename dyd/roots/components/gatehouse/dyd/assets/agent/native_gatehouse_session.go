@@ -33,7 +33,7 @@ func NewSessionModule(files []File, read FileRead, notes *SessionNotes) lisp.Hos
 			noteRead = fileReadFunction(notes.Read, "session/notes/read")
 		}
 		if notes.Create != nil {
-			noteCreate = noteCreateFunction(notes.Create)
+			noteCreate = noteCreateFunction(notes.Create, "session/notes/create")
 		}
 	}
 
@@ -46,10 +46,10 @@ func NewSessionModule(files []File, read FileRead, notes *SessionNotes) lisp.Hos
 	}}
 }
 
-func noteCreateFunction(create NoteCreate) func([]lisp.Expr) (error, lisp.Expr) {
+func noteCreateFunction(create NoteCreate, name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
-			return lisp.Errorf("session/notes/create requires title, description, and body"), nil
+			return lisp.Errorf("%s requires title, description, and body", name), nil
 		}
 		err, title := lisp.RequireString(arguments[0])
 		if err != nil {
@@ -65,9 +65,9 @@ func noteCreateFunction(create NoteCreate) func([]lisp.Expr) (error, lisp.Expr) 
 		}
 		err, note := create(title, description, body)
 		if err != nil {
-			return lisp.Errorf("session/notes/create failed"), nil
+			return lisp.Errorf("%s failed", name), nil
 		}
-		return noteValue(note, "session/notes/create")
+		return noteValue(note, name)
 	}
 }
 

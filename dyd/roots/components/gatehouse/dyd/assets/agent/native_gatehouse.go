@@ -14,7 +14,7 @@ type File struct {
 // FileRead reads an authorized byte range from a file or note.
 type FileRead func(id string, offset, length int64) (error, []byte)
 
-// NoteCreate creates an authorized session note.
+// NoteCreate creates an authorized note.
 type NoteCreate func(title, description, body string) (error, ProjectNote)
 
 // ProjectNote describes an authorized project or session note.

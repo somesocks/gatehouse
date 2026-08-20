@@ -19,8 +19,9 @@ type ProjectFiles struct {
 
 // ProjectNotes contains the authorized notes in a linked project.
 type ProjectNotes struct {
-	Notes []ProjectNote
-	Read  FileRead
+	Notes  []ProjectNote
+	Read   FileRead
+	Create NoteCreate
 }
 
 var (
@@ -29,6 +30,7 @@ var (
 	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
 	projectNoteListDocumentation = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, author_id, optional author_name, and created_at.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectNoteReadDocumentation = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
+	projectNoteCreateDocumentation = capabilityDocumentation{"(project/notes/create title description body) -> List", "Creates a shared Markdown note in the project linked to the current session and returns its metadata. Description and body may be empty strings.", "(project/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 )
 
 // NewProjectModule constructs the project capability module for one agent evaluation.
@@ -66,10 +68,14 @@ func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		}
 	}
 	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
+	noteCreate := unavailableCreate("project/notes/create")
 	if notes != nil {
 		notesList = noteListFunction(notes.Notes, "project/notes/list")
 		if notes.Read != nil {
 			noteRead = fileReadFunction(notes.Read, "project/notes/read")
+		}
+		if notes.Create != nil {
+			noteCreate = noteCreateFunction(notes.Create, "project/notes/create")
 		}
 	}
 
@@ -79,5 +85,6 @@ func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
+		{Name: "notes/create", Value: document(lisp.Function(noteCreate), projectNoteCreateDocumentation)},
 	}}
 }

@@ -501,6 +501,9 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	defer clearResourceValues(values)
 	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	if projectNotes != nil {
+		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
@@ -558,6 +561,32 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 			}
 			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
+		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteCreate {
+	return func(title, description, body string) (error, ProjectNote) {
+		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil {
+				return ProjectNote{}, err
+			}
+			if project == nil {
+				return ProjectNote{}, fmt.Errorf("create project note: project is unavailable")
+			}
+			id, err := typed_id.New(typed_id.ProjectNote)
+			if err != nil {
+				return ProjectNote{}, fmt.Errorf("generate project note ID: %w", err)
+			}
+			err, note := runtime.store.ProjectNoteCreate(step, model.ProjectNote{
+				Ref: model.ProjectNoteRef{Project: *project, Id: id}, Title: title, Description: description, Body: body,
+			}, principal)
+			if err != nil {
+				return ProjectNote{}, err
+			}
+			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
 	}
 }
@@ -680,7 +709,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, and ` + "`session/notes/create`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info`" + `, which returns ` + "`null`" + ` when no authorized project is linked; its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + ` and ` + "`project/notes/read`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, and ` + "`session/notes/create`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info`" + `, which returns ` + "`null`" + ` when no authorized project is linked; its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, and ` + "`project/notes/create`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
@@ -981,22 +1010,6 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			end = int64(len(body))
 		}
 		return nil, append([]byte(nil), body[offset:end]...)
-	}
-	sessionNotes.Create = func(title, description, body string) (error, ProjectNote) {
-		id, err := typed_id.New(typed_id.SessionNote)
-		if err != nil {
-			return fmt.Errorf("generate session note ID: %w", err), ProjectNote{}
-		}
-		err, note := runtime.store.SessionNoteCreate(ctx, model.SessionNote{
-			Ref:         model.SessionNoteRef{Session: session, Id: id},
-			Title:       title,
-			Description: description,
-			Body:        body,
-		}, principal)
-		if err != nil {
-			return err, ProjectNote{}
-		}
-		return nil, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}
 	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {

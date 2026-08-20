@@ -2,6 +2,8 @@ package agent_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -247,13 +249,18 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 
 func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 	for _, test := range []struct {
-		name     string
-		decision string
-		toolKind string
-		notes    int
+		name                string
+		code                string
+		approvalDescription string
+		project             bool
+		decision            string
+		toolKind            string
+		notes               int
 	}{
-		{name: "approved", decision: "approval.approved", toolKind: "tool.success", notes: 1},
-		{name: "rejected", decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "session approved", code: `(session/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a session note", decision: "approval.approved", toolKind: "tool.success", notes: 1},
+		{name: "session rejected", code: `(session/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a session note", decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "project approved", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.approved", toolKind: "tool.success", notes: 1},
+		{name: "project rejected", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var mutex sync.Mutex
@@ -269,7 +276,8 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 				mutex.Unlock()
 				response.Header().Set("Content-Type", "application/json")
 				if completion == 1 {
-					_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":"{\"code\":\"(session/notes/create \\\"Decision\\\" \\\"\\\" \\\"# Decision\\\")\",\"reason\":\"Create the requested decision note.\"}"}}]}}]}`))
+					arguments, _ := json.Marshal(map[string]string{"code": test.code, "reason": "Create the requested decision note."})
+					_, _ = response.Write([]byte(fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":%q}}]}}]}`, string(arguments))))
 					return
 				}
 				_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Done."}}]}`))
@@ -321,6 +329,20 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			if err, _ := store.SessionNameSet(ctx, session, "Approval test"); err != nil {
 				t.Fatal(err)
 			}
+			var project *model.ProjectRef
+			if test.project {
+				id, err := typed_id.New(typed_id.Project)
+				if err != nil {
+					t.Fatal(err)
+				}
+				project = &model.ProjectRef{Workspace: workspace, Id: id}
+				if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: *project, Enabled: true}, principal, nil); err != nil {
+					t.Fatal(err)
+				}
+				if err, _ := store.SessionProjectSet(ctx, session, project, principal); err != nil {
+					t.Fatal(err)
+				}
+			}
 			message := model.SessionEvent{
 				Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{"text": "Create the decision note."},
 			}
@@ -345,12 +367,22 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			}
 
 			approval := waitForApprovalRequest(t, ctx, store, session)
-			if approval.Payload["description"] != "Create a session note" {
+			if approval.Payload["description"] != test.approvalDescription {
 				t.Fatalf("approval description = %#v", approval.Payload["description"])
 			}
-			err, notes := store.SessionNotesGet(ctx, session, principal)
-			if err != nil || len(notes) != 0 {
-				t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+			noteCount := 0
+			if project != nil {
+				err, notes := store.ProjectNotesGet(ctx, *project, principal)
+				noteCount = len(notes)
+				if err != nil || noteCount != 0 {
+					t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+				}
+			} else {
+				err, notes := store.SessionNotesGet(ctx, session, principal)
+				noteCount = len(notes)
+				if err != nil || noteCount != 0 {
+					t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+				}
 			}
 			decisionID, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {
@@ -370,9 +402,19 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			if result.Parent == nil {
 				t.Fatalf("tool result has no parent: %#v", result)
 			}
-			err, notes = store.SessionNotesGet(ctx, session, principal)
-			if err != nil || len(notes) != test.notes {
-				t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
+			noteCount = 0
+			if project != nil {
+				err, notes := store.ProjectNotesGet(ctx, *project, principal)
+				noteCount = len(notes)
+				if err != nil || noteCount != test.notes {
+					t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
+				}
+			} else {
+				err, notes := store.SessionNotesGet(ctx, session, principal)
+				noteCount = len(notes)
+				if err != nil || noteCount != test.notes {
+					t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
+				}
 			}
 			waitForAgentReply(t, ctx, store, session, message.Ref)
 			err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
