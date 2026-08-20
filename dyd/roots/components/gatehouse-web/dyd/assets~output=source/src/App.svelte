@@ -1947,6 +1947,10 @@
     return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}/download`
   }
 
+  function sessionFileDownloadPath(workspace: Workspace, session: Session, file: MessageFile) {
+    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files/${encodeURIComponent(file.id)}/download`
+  }
+
   function updateComposerFile(file: File, update: Partial<ComposerFile>) {
     composerFiles = composerFiles.map((entry) => entry.file === file ? { ...entry, ...update } : entry)
   }
@@ -2345,13 +2349,13 @@
                       <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                     {/if}
                     {#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}
-                      <div class="message-files" aria-label="Attached files">
-                        {#each tree.event.payload.attachments as file (file.id)}
-                          <span class="message-file" title={file.fingerprint}>
+                        <div class="message-files" aria-label="Attached files">
+                          {#each tree.event.payload.attachments as file (file.id)}
+                          <a class="message-file" href={activeWorkspace !== null && activeSession !== null ? sessionFileDownloadPath(activeWorkspace, activeSession, file) : "#"} target="_blank" rel="noopener noreferrer" download={file.name} title={file.fingerprint}>
                             <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
                             <span>{file.name}</span>
                             <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
-                          </span>
+                          </a>
                         {/each}
                       </div>
                     {/if}
@@ -2451,11 +2455,11 @@
                       {#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}
                         <div class="message-files" aria-label="Attached files">
                           {#each reply.event.payload.attachments as file (file.id)}
-                            <span class="message-file" title={file.fingerprint}>
+                            <a class="message-file" href={activeWorkspace !== null && activeSession !== null ? sessionFileDownloadPath(activeWorkspace, activeSession, file) : "#"} target="_blank" rel="noopener noreferrer" download={file.name} title={file.fingerprint}>
                               <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
                               <span>{file.name}</span>
                               <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
-                            </span>
+                            </a>
                           {/each}
                         </div>
                       {/if}

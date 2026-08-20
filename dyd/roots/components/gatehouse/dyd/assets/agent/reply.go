@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -554,7 +555,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	modules := []lisp.HostModule{
 		NewProjectModule(projectInfo, projectFiles, projectNotes),
-		NewSessionModule(files, sessionFileRead, sessionNotes),
+		NewSessionModule(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 	}
 	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
@@ -596,6 +597,36 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
 		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionFileCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) SessionFileCreate {
+	return func(name, mediaType string, contents []byte) (error, string) {
+		id, err := dbos.RunAsStep(ctx, func(step context.Context) (string, error) {
+			fileID, err := typed_id.New(typed_id.SessionFile)
+			if err != nil {
+				return "", fmt.Errorf("generate session file ID: %w", err)
+			}
+			storageObjectID, err := typed_id.New(typed_id.StorageObject)
+			if err != nil {
+				return "", fmt.Errorf("generate storage object ID: %w", err)
+			}
+			mediaTypeValue := mediaType
+			err, file, objectID := runtime.store.SessionFileCreate(step, model.SessionFile{
+				Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: name, MediaType: &mediaTypeValue,
+			}, storageObjectID, principal)
+			if err != nil {
+				return "", err
+			}
+			if err := runtime.storage.Put(step, objectID, bytes.NewReader(contents), int64(len(contents))); err != nil {
+				return "", err
+			}
+			if err := runtime.storage.Finish(step, objectID); err != nil {
+				return "", err
+			}
+			return file.Ref.Id, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-file-create"))
+		return err, id
 	}
 }
 
@@ -806,7 +837,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `. Create a file with ` + "`session/files/create`" + ` using its name, media type, and bytes; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 

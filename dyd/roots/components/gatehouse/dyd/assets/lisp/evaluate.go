@@ -133,5 +133,9 @@ func Document(expression Expr, signature, description, example, result string) E
 }
 func RequireString(expression Expr) (error, string) { return requireString(expression) }
 func RequireInteger(expression Expr) (error, int64) { return requireInteger(expression) }
+func RequireBytes(expression Expr) (error, []byte) {
+	err, value := requireBytes(expression)
+	return err, []byte(value)
+}
 func Errorf(format string, args ...any) error       { return expressionError(format, args...) }
 func MarkSecret(expression Expr) Expr                { return withSecret(expression) }

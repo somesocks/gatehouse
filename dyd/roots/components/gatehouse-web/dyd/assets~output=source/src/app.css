@@ -930,6 +930,16 @@ body {
   padding: 0.22rem 0.4rem;
 }
 
+a.message-file {
+  color: inherit;
+  text-decoration: none;
+}
+
+a.message-file:hover,
+a.message-file:focus-visible {
+  text-decoration: underline;
+}
+
 .message-file small,
 .composer-file small {
   font-size: 0.68rem;

@@ -980,7 +980,7 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			return
 		}
 		created := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: input.Name, MediaType: input.MediaType}
-		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID)
+		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID, claims.Principal.Ref)
 		if err != nil {
 			if strings.Contains(err.Error(), "no available storage provider") {
 				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)

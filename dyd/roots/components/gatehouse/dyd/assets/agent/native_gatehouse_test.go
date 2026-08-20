@@ -24,7 +24,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 					t.Fatalf("session file read = (%q, %d, %d)", id, offset, length)
 				}
 				return nil, []byte("world")
-			}, nil),
+			}, nil, nil),
 			NewProjectModule(&ProjectInfo{CreatedAt: "2026-01-01T00:00:00.000Z"}, nil, &ProjectNotes{Notes: []ProjectNote{{ID: "guide", Title: "Guide", AuthorID: "author", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z"}}, Read: func(id string, offset, length int64) (error, []byte) {
 				if id != "guide" || offset != 0 || length != 7 {
 					t.Fatalf("project note read = (%q, %d, %d)", id, offset, length)
@@ -42,7 +42,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 	err, _ := lisp.Evaluate(`(session/files/read "file" 0 65537)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil), NewPolicyModule(nil)},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil, nil), NewPolicyModule(nil)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "length from 1 through 65536") {
 		t.Fatalf("Evaluate() oversized read error = %v", err)
@@ -52,7 +52,7 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 		Prelude: agentPrelude,
 		HostModules: []lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
-			NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return errors.New("storage unavailable"), nil }, nil),
+			NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return errors.New("storage unavailable"), nil }, nil, nil),
 			NewPolicyModule(nil),
 		},
 	})

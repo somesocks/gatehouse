@@ -12,7 +12,7 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
   (session @native:gatehouse/session/v1)
   (session/notes/create "Decision" "" "# Decision"))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
-			NewSessionModule(nil, nil, &SessionNotes{Create: func(title, description, body string) (error, ProjectNote) {
+			NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(title, description, body string) (error, ProjectNote) {
 				if title != "Decision" || description != "" || body != "# Decision" {
 					t.Fatalf("session note create = (%q, %q, %q)", title, description, body)
 				}
@@ -27,7 +27,7 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 	err, _ = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (session/notes/create "Decision" ""))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) { return nil, ProjectNote{} }})},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) { return nil, ProjectNote{} }})},
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires title, description, and body") {
 		t.Fatalf("Evaluate() invalid session note create error = %v", err)
@@ -36,7 +36,7 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 	err, result = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (error/value (error/catch (session/notes/create "Decision" "" "# Decision"))))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil)},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil)},
 	})
 	if err != nil || result.String() != `"session/notes/create is unavailable"` {
 		t.Fatalf("Evaluate() unavailable session note create = (%s, %v)", result, err)
@@ -51,7 +51,7 @@ func TestGatehouseSessionNoteRemove(t *testing.T) {
     (session/notes/remove "note")
     (session/notes/remove "missing")))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
-			NewSessionModule(nil, nil, &SessionNotes{Remove: func(id string) (error, bool) {
+			NewSessionModule(nil, nil, nil, &SessionNotes{Remove: func(id string) (error, bool) {
 				removed = append(removed, id)
 				return nil, id == "note"
 			}}),
@@ -64,9 +64,44 @@ func TestGatehouseSessionNoteRemove(t *testing.T) {
 	err, result = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (error/value (error/catch (session/notes/remove "note"))))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil)},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil)},
 	})
 	if err != nil || result.String() != `"session/notes/remove is unavailable"` {
 		t.Fatalf("Evaluate() unavailable session note remove = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseSessionFileCreate(t *testing.T) {
+	err, result := lisp.Evaluate(`(session/files/create "report.txt" "text/plain" (bytes/utf8/encode "Generated report"))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewSessionModule(nil, nil, func(name, mediaType string, contents []byte) (error, string) {
+				if name != "report.txt" || mediaType != "text/plain" || string(contents) != "Generated report" {
+					t.Fatalf("session file create = (%q, %q, %q)", name, mediaType, contents)
+				}
+				return nil, "file"
+			}, nil),
+			NewProjectModule(nil, nil, nil),
+			NewPolicyModule(nil),
+		},
+	})
+	if err != nil || result.String() != `"file"` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+
+	err, _ = lisp.Evaluate(`(session/files/create "" "text/plain" (bytes/utf8/encode "Generated report"))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, func(string, string, []byte) (error, string) { return nil, "file" }, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil)},
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires non-empty name and media_type") {
+		t.Fatalf("Evaluate() invalid session file create error = %v", err)
+	}
+
+	err, result = lisp.Evaluate(`(error/value (error/catch (session/files/create "report.txt" "text/plain" (bytes/utf8/encode "Generated report"))))`, lisp.EvalOptions{
+		Prelude:     agentPrelude,
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil)},
+	})
+	if err != nil || result.String() != `"session/files/create is unavailable"` {
+		t.Fatalf("Evaluate() unavailable session file create = (%s, %v)", result, err)
 	}
 }

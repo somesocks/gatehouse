@@ -165,9 +165,16 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 	return nil, files
 }
 
-func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string) (error, model.SessionFile, string) {
+func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string, principal model.PrincipalRef) (error, model.SessionFile, string) {
 	if !typed_id.Valid(typed_id.SessionFile, file.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, storageObjectID) || strings.TrimSpace(file.Name) == "" {
 		return fmt.Errorf("create session file: IDs or name are invalid"), model.SessionFile{}, ""
+	}
+	err, session := store.SessionGet(ctx, file.Ref.Session, principal)
+	if err != nil {
+		return err, model.SessionFile{}, ""
+	}
+	if session == nil {
+		return fmt.Errorf("create session file: session is unavailable"), model.SessionFile{}, ""
 	}
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {

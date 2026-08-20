@@ -103,7 +103,9 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES (?, TRUE)`, principalID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_principal, enabled, created_at) VALUES (?, 'ses_00000000000000000000000000', ?, TRUE, '2026-01-01 00:00:00')`, workspace.Id, principalID); err != nil {
+	principal := model.PrincipalRef{Id: principalID}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
 		t.Fatal(err)
 	}
 	fileID, err := typed_id.NewAt(typed_id.SessionFile, time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC))
@@ -114,8 +116,8 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file := model.SessionFile{Ref: model.SessionFileRef{Session: model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}, Id: fileID}, Name: "report.txt"}
-	err, storedFile, objectID := store.SessionFileCreate(ctx, file, objectID)
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: "report.txt"}
+	err, storedFile, objectID := store.SessionFileCreate(ctx, file, objectID, principal)
 	if err != nil {
 		t.Fatal(err)
 	}
