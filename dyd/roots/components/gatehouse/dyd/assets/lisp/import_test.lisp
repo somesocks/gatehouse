@@ -7,6 +7,13 @@
         (time @native:time/v1)
         (int? (time/now)))))
 
+  ; Apply accepts a data-built declaration list for special builtin imports.
+  (assert
+    (apply import
+      (list
+        (list 'time @native:time/v1)
+        '(int? (time/now)))))
+
   ; Restrict rejects available modules that are not on the allowlist.
   (assert
     (string/contains?

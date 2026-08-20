@@ -55,7 +55,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: mapValues},
 	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: filterValues},
 	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: foldValues},
-	{name: "apply", documentation: doc("(apply function arguments) -> Value", "Calls a function with the values in a proper argument list.", "(apply + (list 1 2 3))", "6"), leaky: true, call: applyValues},
+	{name: "apply", documentation: doc("(apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(apply + (list 1 2 3))", "6"), leaky: true, call: applyValues},
 	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: evaluate},
 	{name: "string?", documentation: doc("(string? value) -> Boolean", "Returns whether value is a String.", "(string? \"text\")", "#t"), call: pure(isString)},
 	{name: "string/length", documentation: doc("(string/length text) -> Integer", "Returns the Unicode code-point length of text.", "(string/length \"hello\")", "5"), call: pure(stringLength)},
@@ -485,6 +485,10 @@ func applyValues(evaluator *evaluator, env *environment, arguments []Expr) (erro
 	err, values := expressions(arguments[1])
 	if err != nil {
 		return expressionError("apply requires a proper argument list"), nil
+	}
+	base, _ := unwrap(arguments[0])
+	if builtin, ok := base.(*builtin); ok && builtin.special {
+		return builtin.call(evaluator, env, values)
 	}
 	return evaluator.call(arguments[0], env, values)
 }
