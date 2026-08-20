@@ -40,6 +40,23 @@ func TestAgentPreludeRequiresApprovalForProjectNoteCreate(t *testing.T) {
 	}
 }
 
+func TestAgentPreludeRequiresApprovalForProjectInfoSet(t *testing.T) {
+	err, result := lisp.Evaluate(`(error/value (error/catch (project/info/set "Roadmap" "Current priorities")))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewProjectModule(&ProjectInfo{CreatedAt: "2026-01-01T00:00:00.000Z", Set: func(string, string) (error, ProjectInfo) {
+				t.Fatal("project info set was called without approval")
+				return nil, ProjectInfo{}
+			}}, nil, nil),
+			NewSessionModule(nil, nil, nil),
+			NewPolicyModule(nil),
+		},
+	})
+	if err != nil || result.String() != `"policy/await-approval is unavailable"` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
 func TestAgentPreludeHidesPolicyWrappers(t *testing.T) {
 	approvals := 0
 	err, result := lisp.Evaluate(`(error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))`, lisp.EvalOptions{

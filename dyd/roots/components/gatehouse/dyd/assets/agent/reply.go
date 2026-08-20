@@ -501,6 +501,9 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	defer clearResourceValues(values)
 	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	if projectInfo != nil {
+		projectInfo.Set = runtime.projectInfoSet(ctx, input.Request.Ref.Session, input.Principal)
+	}
 	if projectNotes != nil {
 		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
 	}
@@ -588,6 +591,29 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectInfoSet(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectInfoSet {
+	return func(name, description string) (error, ProjectInfo) {
+		updated, err := dbos.RunAsStep(ctx, func(step context.Context) (model.Project, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil {
+				return model.Project{}, err
+			}
+			if project == nil {
+				return model.Project{}, fmt.Errorf("update project details: project is unavailable")
+			}
+			err, updated := runtime.store.ProjectDetailsSet(step, *project, principal, &name, &description)
+			if err != nil {
+				return model.Project{}, err
+			}
+			if updated == nil {
+				return model.Project{}, fmt.Errorf("update project details: project is unavailable")
+			}
+			return *updated, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-info-set"))
+		return err, ProjectInfo{Name: updated.Name, Description: updated.Description, CreatedAt: updated.CreatedAt}
 	}
 }
 
@@ -709,7 +735,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, and ` + "`session/notes/create`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info`" + `, which returns ` + "`null`" + ` when no authorized project is linked; its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, and ` + "`project/notes/create`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, and ` + "`session/notes/create`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, and ` + "`project/notes/create`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 

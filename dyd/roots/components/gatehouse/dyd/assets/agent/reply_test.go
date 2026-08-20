@@ -253,6 +253,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 		code                string
 		approvalDescription string
 		project             bool
+		projectUpdate       bool
 		decision            string
 		toolKind            string
 		notes               int
@@ -261,6 +262,8 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 		{name: "session rejected", code: `(session/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a session note", decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
 		{name: "project approved", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.approved", toolKind: "tool.success", notes: 1},
 		{name: "project rejected", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "project info approved", code: `(project/info/set "Roadmap" "Current priorities")`, approvalDescription: "Update project details", project: true, projectUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
+		{name: "project info rejected", code: `(project/info/set "Roadmap" "Current priorities")`, approvalDescription: "Update project details", project: true, projectUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var mutex sync.Mutex
@@ -414,6 +417,18 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 				noteCount = len(notes)
 				if err != nil || noteCount != test.notes {
 					t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
+				}
+			}
+			if test.projectUpdate {
+				err, updated := store.ProjectGet(ctx, *project, principal)
+				if err != nil || updated == nil {
+					t.Fatalf("ProjectGet() = (%#v, %v)", updated, err)
+				}
+				if test.decision == "approval.approved" && (updated.Name == nil || *updated.Name != "Roadmap" || updated.Description == nil || *updated.Description != "Current priorities") {
+					t.Fatalf("updated project = %#v", updated)
+				}
+				if test.decision == "approval.rejected" && (updated.Name != nil || updated.Description != nil) {
+					t.Fatalf("rejected project update = %#v", updated)
 				}
 			}
 			waitForAgentReply(t, ctx, store, session, message.Ref)

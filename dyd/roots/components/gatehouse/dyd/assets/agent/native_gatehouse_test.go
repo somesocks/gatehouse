@@ -12,7 +12,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 	mediaType := "text/plain"
 	authorName := "Ada"
 	err, result := lisp.Evaluate(`(list
-  (project/info)
+  (project/info/get)
   (session/files/list)
   (bytes/utf8/decode (session/files/read "report" 6 5))
   (project/notes/list)
