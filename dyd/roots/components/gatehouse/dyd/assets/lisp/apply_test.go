@@ -13,7 +13,7 @@ func TestApply(t *testing.T) {
 		{source: "(apply let '(((value 41)) (+ value 1)))", want: "42"},
 		{source: "(error? (error/catch (apply + 1)))", want: "#t"},
 		{source: "(error? (error/catch (apply + (pair 1 2))))", want: "#t"},
-		{source: "(error? (error/catch (apply if (list #t 1 2))))", want: "#t"},
+		{source: "(apply if (list #f '(error/throw \"unused\") 42))", want: "42"},
 		{source: "(secret? (apply list (secret/mark (list 1))))", want: "#t"},
 	} {
 		err, result := Run(test.source)

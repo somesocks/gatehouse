@@ -14,7 +14,6 @@ type evaluatorForm struct {
 
 var evaluatorForms = []evaluatorForm{
 	{name: "quote", documentation: doc("(quote expression) -> Value", "Returns expression without evaluating it.", "(quote (a b))", "(a b)")},
-	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1")},
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
 	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))")},
@@ -66,13 +65,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			}
 			if isSymbol(forms[0], "quote") {
 				return evaluateQuote(forms)
-			}
-			if isSymbol(forms[0], "if") {
-				err, expression = evaluator.evaluateIf(forms, env)
-				if err != nil {
-					return err, nil
-				}
-				continue
 			}
 			if isSymbol(forms[0], "and") {
 				return evaluator.evaluateAnd(forms, env)
@@ -208,10 +200,10 @@ func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environ
 }
 
 func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, Expr) {
-	if len(forms) != 4 {
+	if len(forms) != 3 {
 		return expressionError("if requires a condition, then expression, and else expression"), nil
 	}
-	err, condition := evaluator.eval(forms[1], env)
+	err, condition := evaluator.eval(forms[0], env)
 	if err != nil {
 		return err, nil
 	}
@@ -220,9 +212,9 @@ func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, E
 		return err, nil
 	}
 	if truth {
-		return nil, forms[2]
+		return nil, forms[1]
 	}
-	return nil, forms[3]
+	return nil, forms[2]
 }
 func (evaluator *evaluator) evaluateAnd(forms []Expr, env *environment) (error, Expr) {
 	for _, form := range forms[1:] {

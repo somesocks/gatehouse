@@ -48,6 +48,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "tail", documentation: doc("(tail pair) -> Value", "Returns the second value of a pair.", "(tail (pair 1 2))", "2"), leaky: true, call: pure(tail)},
 	{name: "list", documentation: doc("(list value...) -> List", "Creates a proper list from its arguments.", "(list 1 2 3)", "(1 2 3)"), leaky: true, call: pure(makeList)},
 	{name: "let", documentation: doc("(let ((name value) ...) body) -> Value", "Evaluates body with recursive lexical bindings.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
+	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1"), special: true, call: ifValues},
 	{name: "pair?", documentation: doc("(pair? value) -> Boolean", "Returns whether value is a pair.", "(pair? (pair 1 2))", "#t"), call: pure(isPair)},
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
@@ -503,6 +504,14 @@ func letValues(evaluator *evaluator, env *environment, arguments []Expr) (error,
 		return err, nil
 	}
 	return nil, callTailState{expression: expression, environment: environment}
+}
+
+func ifValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, expression := evaluator.evaluateIf(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callTailState{expression: expression}
 }
 
 func requireInteger(expr Expr) (error, int64) {
