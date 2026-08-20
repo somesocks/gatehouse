@@ -50,6 +50,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "let", documentation: doc("(let ((name value) ...) body) -> Value", "Evaluates body with recursive lexical bindings.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
 	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1"), special: true, call: ifValues},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2"), special: true, call: beginValues},
+	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))"), special: true, call: functionValues},
 	{name: "pair?", documentation: doc("(pair? value) -> Boolean", "Returns whether value is a pair.", "(pair? (pair 1 2))", "#t"), call: pure(isPair)},
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
@@ -521,6 +522,14 @@ func beginValues(evaluator *evaluator, env *environment, arguments []Expr) (erro
 		return err, nil
 	}
 	return nil, callTailState{expression: expression}
+}
+
+func functionValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, closure := evaluator.evaluateFunction(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callResult{value: closure}
 }
 
 func requireInteger(expr Expr) (error, int64) {

@@ -16,7 +16,6 @@ var evaluatorForms = []evaluatorForm{
 	{name: "quote", documentation: doc("(quote expression) -> Value", "Returns expression without evaluating it.", "(quote (a b))", "(a b)")},
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
-	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))")},
 }
 
 func evaluatorFormDocumentation(name string) (documentation, bool) {
@@ -70,9 +69,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			}
 			if isSymbol(forms[0], "or") {
 				return evaluator.evaluateOr(forms, env)
-			}
-			if isSymbol(forms[0], "fn") {
-				return evaluator.evaluateFunction(forms, env)
 			}
 			err, callee := evaluator.eval(forms[0], env)
 			if err != nil {
@@ -285,14 +281,14 @@ func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, 
 	return nil, forms[1], nextEnv
 }
 func (evaluator *evaluator) evaluateFunction(forms []Expr, env *environment) (error, Expr) {
-	if len(forms) != 3 {
+	if len(forms) != 2 {
 		return expressionError("fn requires parameters and one body expression"), nil
 	}
-	err, names, rest := functionParameters(forms[1])
+	err, names, rest := functionParameters(forms[0])
 	if err != nil {
 		return err, nil
 	}
-	return nil, &closure{parameters: names, restParameter: rest, body: forms[2], env: env}
+	return nil, &closure{parameters: names, restParameter: rest, body: forms[1], env: env}
 }
 
 func functionParameters(expression Expr) (error, []string, *string) {
