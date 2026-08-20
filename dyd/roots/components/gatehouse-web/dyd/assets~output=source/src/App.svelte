@@ -76,7 +76,7 @@
   type SessionEvent = {
     created_at: string
     kind: string
-    payload: { text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; files?: MessageFile[] }
+    payload: { text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; attachments?: MessageFile[] }
     ref: { id: string }
     parent?: { id: string }
     author_principal?: {
@@ -2448,6 +2448,17 @@
                         <Copy size={16} strokeWidth={2} />
                       </button>
                       <div class="chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
+                      {#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}
+                        <div class="message-files" aria-label="Attached files">
+                          {#each reply.event.payload.attachments as file (file.id)}
+                            <span class="message-file" title={file.fingerprint}>
+                              <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
+                              <span>{file.name}</span>
+                              <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
+                            </span>
+                          {/each}
+                        </div>
+                      {/if}
                     </article>
                   {/each}
                 {/if}

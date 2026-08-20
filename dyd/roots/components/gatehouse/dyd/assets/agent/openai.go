@@ -15,8 +15,21 @@ type openAICompatibleRequest struct {
 	Model             string                   `json:"model"`
 	Messages          []openAICompatibleMessage `json:"messages"`
 	Tools             []openAICompatibleTool    `json:"tools,omitempty"`
+	ResponseFormat    *openAIResponseFormat     `json:"response_format,omitempty"`
 	ParallelToolCalls bool                     `json:"parallel_tool_calls"`
 	ReasoningEffort   string                   `json:"reasoning_effort,omitempty"`
+}
+
+type openAIResponseFormat struct {
+	Type       string                 `json:"type"`
+	JSONSchema openAIJSONSchemaFormat `json:"json_schema"`
+}
+
+type openAIJSONSchemaFormat struct {
+	Type   string `json:"type,omitempty"`
+	Name   string `json:"name"`
+	Strict bool   `json:"strict"`
+	Schema any    `json:"schema"`
 }
 
 type openAICompatibleMessage struct {
@@ -55,8 +68,13 @@ type openAIResponsesRequest struct {
 	Instructions      string                    `json:"instructions,omitempty"`
 	Input             []json.RawMessage         `json:"input"`
 	Tools             []openAIResponsesTool     `json:"tools,omitempty"`
+	Text              *openAIResponsesText      `json:"text,omitempty"`
 	ParallelToolCalls bool                      `json:"parallel_tool_calls"`
 	Reasoning         *openAIResponsesReasoning `json:"reasoning,omitempty"`
+}
+
+type openAIResponsesText struct {
+	Format openAIJSONSchemaFormat `json:"format"`
 }
 
 type openAIResponsesReasoning struct {

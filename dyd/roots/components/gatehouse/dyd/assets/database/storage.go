@@ -54,12 +54,50 @@ type ProjectFileSummary struct {
 	Fingerprint string  `json:"fingerprint"`
 }
 
-func (store *Store) SessionFileSnapshots(ctx context.Context, transaction *sql.Tx, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
+func (store *Store) SessionFileReferencesGet(ctx context.Context, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session file references: %w", err), nil
+	}
+	defer transaction.Rollback()
+	return store.sessionFileReferencesGet(ctx, transaction, session, ids)
+}
+
+// SessionFileReferencesFilter returns available session-file references for valid IDs, preserving input order.
+func (store *Store) SessionFileReferencesFilter(ctx context.Context, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
+	err, available := store.SessionFilesGet(ctx, session)
+	if err != nil {
+		return err, nil
+	}
+	byID := make(map[string]SessionFileSummary, len(available))
+	for _, reference := range available {
+		byID[reference.ID] = reference
+	}
+	references := make([]SessionFileSummary, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		if !typed_id.Valid(typed_id.SessionFile, id) {
+			continue
+		}
+		if _, exists := seen[id]; exists {
+			continue
+		}
+		seen[id] = struct{}{}
+		reference, exists := byID[id]
+		if !exists {
+			continue
+		}
+		references = append(references, reference)
+	}
+	return nil, references
+}
+
+func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *sql.Tx, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
 	if len(ids) == 0 {
 		return nil, []SessionFileSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	snapshots := make([]SessionFileSummary, 0, len(ids))
+	references := make([]SessionFileSummary, 0, len(ids))
 	seen := make(map[string]struct{}, len(ids))
 	for _, id := range ids {
 		if !typed_id.Valid(typed_id.SessionFile, id) {
@@ -75,23 +113,23 @@ func (store *Store) SessionFileSnapshots(ctx context.Context, transaction *sql.T
 			JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 			WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND objects.state = 'success'
 		`, session.Workspace.Id, session.Id, id)
-		var snapshot SessionFileSummary
-		snapshot.ID = id
+		var reference SessionFileSummary
+		reference.ID = id
 		var digest []byte
 		var mediaType sql.NullString
-		if err := row.Scan(&snapshot.Name, &mediaType, &snapshot.Size, &digest); err != nil {
+		if err := row.Scan(&reference.Name, &mediaType, &reference.Size, &digest); err != nil {
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("session file %q is unavailable", id), nil
 			}
 			return fmt.Errorf("get session file %q: %w", id, err), nil
 		}
 		if mediaType.Valid {
-			snapshot.MediaType = &mediaType.String
+			reference.MediaType = &mediaType.String
 		}
-		snapshot.Fingerprint = "sha256:" + hex.EncodeToString(digest)
-		snapshots = append(snapshots, snapshot)
+		reference.Fingerprint = "sha256:" + hex.EncodeToString(digest)
+		references = append(references, reference)
 	}
-	return nil, snapshots
+	return nil, references
 }
 
 func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRef) (error, []SessionFileSummary) {

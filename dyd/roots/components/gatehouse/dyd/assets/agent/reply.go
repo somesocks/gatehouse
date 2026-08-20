@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"sort"
@@ -71,6 +72,11 @@ type sessionReplyPreparation struct {
 	Selected *database.WorkspaceAgentModel
 	Message  *model.SessionEvent
 	Messages []openAICompatibleMessage
+}
+
+type agentFinalReply struct {
+	Text        string
+	Attachments []string
 }
 
 type sessionNamePreparation struct {
@@ -314,6 +320,10 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		if err != nil {
 			return sessionReplyPreparation{}, err
 		}
+		err, events = runtime.store.SessionEventAttachmentsHydrate(step, input.Event.Session, events)
+		if err != nil {
+			return sessionReplyPreparation{}, err
+		}
 		err, messages := openAICompatibleMessages(events)
 		if err != nil {
 			return sessionReplyPreparation{}, err
@@ -341,14 +351,14 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	if len(messages) == 0 {
 		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: message has no text", input.Event.Id)
 	}
-	var text string
+	final := agentFinalReply{}
 	switch selected.Protocol {
 	case "builtin":
 		err, thinking := runtime.thinkingStart(ctx, input.Event, selected.Ref, 0)
 		if err != nil {
 			return model.SessionEvent{}, err
 		}
-		text, err = dbos.RunAsStep(ctx, func(context.Context) (string, error) {
+		final.Text, err = dbos.RunAsStep(ctx, func(context.Context) (string, error) {
 			err, text := BuiltinReply(selected.Model, selected.Parameters)
 			return text, err
 		}, dbos.WithStepName("gatehouse.session-event-reply-builtin"))
@@ -362,7 +372,7 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		if message.AuthorPrincipal == nil {
 			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
 		}
-		err, text = runtime.openAIReply(ctx, input.Event, selected, messages, message.AuthorPrincipal.Ref)
+		err, final = runtime.openAIReply(ctx, input.Event, selected, messages, message.AuthorPrincipal.Ref)
 	default:
 		err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
 	}
@@ -378,12 +388,31 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		}
 		return model.SessionEvent{}, err
 	}
+	if len(final.Attachments) > 0 {
+		final.Attachments, err = dbos.RunAsStep(ctx, func(step context.Context) ([]string, error) {
+			err, references := runtime.store.SessionFileReferencesFilter(step, input.Event.Session, final.Attachments)
+			if err != nil {
+				return nil, err
+			}
+			attachments := make([]string, len(references))
+			for index, reference := range references {
+				attachments[index] = reference.ID
+			}
+			return attachments, nil
+		}, dbos.WithStepName("gatehouse.session-event-reply-attachments"))
+		if err != nil {
+			return model.SessionEvent{}, fmt.Errorf("filter agent reply attachments: %w", err)
+		}
+	}
 	event := model.SessionEvent{
 		Ref:         model.SessionEventRef{Session: input.Event.Session},
 		Parent:      &input.Event,
 		Kind:        "message.text",
 		AuthorAgent: &selected.Ref,
-		Payload:     map[string]interface{}{"text": text},
+		Payload:     map[string]interface{}{"text": final.Text},
+	}
+	if len(final.Attachments) > 0 {
+		event.Payload["attachments"] = final.Attachments
 	}
 	err, stored := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
@@ -392,13 +421,13 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	return stored, nil
 }
 
-func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef) (error, string) {
+func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef) (error, agentFinalReply) {
 	if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
-		return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), ""
+		return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentFinalReply{}
 	}
 	err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
 	if err != nil {
-		return err, ""
+		return err, agentFinalReply{}
 	}
 	if selected.Protocol == "openai-responses" {
 		return runtime.openAIResponsesReply(ctx, parent, selected, messages, principal, reasoningEffort)
@@ -407,41 +436,41 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	callCount := 0
 	for round := 0; ; round++ {
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
 		if err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
-				Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ParallelToolCalls: true, ReasoningEffort: reasoningEffort,
+			Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort,
 			})
 		if err != nil {
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		if len(reply.ToolCalls) == 0 {
-			if strings.TrimSpace(reply.Content) == "" {
-				err := fmt.Errorf("OpenAI-compatible completion returned no message")
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			final, err := openAIFinalReply(reply.Content)
+			if err != nil {
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
 			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
-				return err, ""
+				return err, agentFinalReply{}
 			}
-			return nil, reply.Content
+			return nil, final
 		}
 		if round >= selected.MaxTurns {
 			err := fmt.Errorf("OpenAI-compatible completion exceeded turn limit")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		output, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		callCount += len(reply.ToolCalls)
 		requestMessages = append(requestMessages, reply)
@@ -756,6 +785,19 @@ func openAICompatibleLispArguments(call openAICompatibleToolCall) (string, strin
 	return arguments.Code, arguments.Reason, nil
 }
 
+func openAIFinalReply(contents string) (agentFinalReply, error) {
+	var reply struct {
+		Text        *string   `json:"text"`
+		Attachments *[]string `json:"attachments"`
+	}
+	decoder := json.NewDecoder(strings.NewReader(contents))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&reply); err != nil || decoder.Decode(&struct{}{}) != io.EOF || reply.Text == nil || reply.Attachments == nil || strings.TrimSpace(*reply.Text) == "" {
+		return agentFinalReply{}, fmt.Errorf("OpenAI-compatible completion returned an invalid structured reply")
+	}
+	return agentFinalReply{Text: *reply.Text, Attachments: *reply.Attachments}, nil
+}
+
 const openAISystemPrompt = `# Role
 
 You are an agent that completes user requests using authorized workspace capabilities. Use available tools and resources to perform the work, not merely describe how it could be done. Verify results before reporting completion, and continue working when verification shows the result is missing, invalid, or incomplete. Communicate clear user-facing results without mentioning your tools or implementation details.
@@ -778,7 +820,7 @@ Examples:
 
 # Instructions
 
-Treat tool failures as feedback. Correct and retry when the request remains answerable. Return unexecuted code only when the user explicitly asks for code rather than its result.`
+Treat tool failures as feedback. Correct and retry when the request remains answerable. Return unexecuted code only when the user explicitly asks for code rather than its result. When the work is complete, return the required structured response with user-facing text and the IDs of any session files to attach.`
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
 	if selected.SystemPrompt != nil {
@@ -795,7 +837,7 @@ func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []op
 	return append([]openAICompatibleMessage{{Role: "system", Content: prompt}}, messages...)
 }
 
-func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef, reasoningEffort string) (error, string) {
+func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, principal model.PrincipalRef, reasoningEffort string) (error, agentFinalReply) {
 	input := openAIResponsesInput(messages)
 	var reasoning *openAIResponsesReasoning
 	if reasoningEffort != "" {
@@ -804,17 +846,17 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 	callCount := 0
 	for round := 0; ; round++ {
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
 		if err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
-			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, ParallelToolCalls: true, Reasoning: reasoning,
+			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning,
 			})
 		if err != nil {
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		input = append(input, reply.Output...)
 		calls := make([]openAICompatibleToolCall, 0, 1)
@@ -823,7 +865,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
 			switch output.Type {
 			case "function_call":
@@ -840,28 +882,28 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			}
 		}
 		if len(calls) == 0 {
-			if strings.TrimSpace(text) == "" {
-				err := fmt.Errorf("OpenAI Responses returned no message")
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			final, err := openAIFinalReply(text)
+			if err != nil {
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
 			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
-				return err, ""
+				return err, agentFinalReply{}
 			}
-			return nil, text
+			return nil, final
 		}
 		if round >= selected.MaxTurns {
 			err := fmt.Errorf("OpenAI Responses exceeded turn limit")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), ""
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		outputs, err := runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
-			return err, ""
+			return err, agentFinalReply{}
 		}
 		callCount += len(calls)
 		for index, call := range calls {
@@ -971,6 +1013,25 @@ func openAICompatibleLispTool() openAICompatibleTool {
 		},
 	}
 	return tool
+}
+
+func openAIFinalReplyResponseFormat() *openAIResponseFormat {
+	return &openAIResponseFormat{Type: "json_schema", JSONSchema: openAIJSONSchemaFormat{Name: "gatehouse_agent_reply", Strict: true, Schema: openAIFinalReplySchema()}}
+}
+
+func openAIResponsesFinalReplyText() *openAIResponsesText {
+	return &openAIResponsesText{Format: openAIJSONSchemaFormat{Type: "json_schema", Name: "gatehouse_agent_reply", Strict: true, Schema: openAIFinalReplySchema()}}
+}
+
+func openAIFinalReplySchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"text", "attachments"},
+		"properties": map[string]any{
+			"text":        map[string]any{"type": "string", "description": "Final user-facing text."},
+			"attachments": map[string]any{"type": "array", "description": "Session file IDs to attach.", "items": map[string]any{"type": "string"}},
+		},
+	}
 }
 
 func openAIResponsesLispTool() openAIResponsesTool {

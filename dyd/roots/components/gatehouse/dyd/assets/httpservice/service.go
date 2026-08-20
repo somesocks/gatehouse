@@ -924,10 +924,15 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		err, hydrated := store.SessionEventAttachmentsHydrate(request.Context(), session, []model.SessionEvent{stored})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		if dispatcher != nil {
 			_ = dispatcher.Reconcile()
 		}
-		writeJSONStatus(response, http.StatusAccepted, stored)
+		writeJSONStatus(response, http.StatusAccepted, hydrated[0])
 	}
 }
 
@@ -1715,6 +1720,18 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		events := make([]model.SessionEvent, len(entries))
+		for index, entry := range entries {
+			events[index] = entry.Event
+		}
+		err, hydrated := store.SessionEventAttachmentsHydrate(request.Context(), session, events)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		for index := range entries {
+			entries[index].Event = hydrated[index]
 		}
 		writeJSON(response, sessionEventTrees(entries))
 	}

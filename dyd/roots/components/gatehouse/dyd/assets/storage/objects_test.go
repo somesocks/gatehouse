@@ -136,6 +136,14 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err := client.Finish(ctx, objectID); err != nil {
 		t.Fatal(err)
 	}
+	unavailableID, err := typed_id.New(typed_id.SessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, references := store.SessionFileReferencesFilter(ctx, file.Ref.Session, []string{"invalid", unavailableID, fileID, fileID})
+	if err != nil || len(references) != 1 || references[0].ID != fileID {
+		t.Fatalf("SessionFileReferencesFilter() = (%#v, %v)", references, err)
+	}
 	err, content := client.Get(ctx, objectID)
 	if err != nil {
 		t.Fatal(err)

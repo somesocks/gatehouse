@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -28,6 +29,20 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 				t.Fatalf("system prompt = %q, want empty prompt", got)
 			}
 		})
+	}
+}
+
+func TestOpenAIFinalReply(t *testing.T) {
+	arguments, err := json.Marshal(map[string]interface{}{"text": "Done.", "attachments": []string{"sfi_01arz3ndektsv4rrffq69g5fav"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := openAIFinalReply(string(arguments))
+	if err != nil || reply.Text != "Done." || len(reply.Attachments) != 1 || reply.Attachments[0] != "sfi_01arz3ndektsv4rrffq69g5fav" {
+		t.Fatalf("openAIFinalReply() = (%#v, %v)", reply, err)
+	}
+	if _, err := openAIFinalReply(`{"text":"Done.","attachments":null}`); err == nil {
+		t.Fatal("openAIFinalReply() accepted a null attachment list")
 	}
 }
 

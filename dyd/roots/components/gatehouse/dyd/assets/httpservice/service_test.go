@@ -464,9 +464,33 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if !ok || len(attachments) != 1 {
 		t.Fatalf("attachment message attachments = %#v", attachmentMessage.Payload["attachments"])
 	}
-	snapshot, ok := attachments[0].(map[string]interface{})
-	if !ok || snapshot["id"] != uploaded.File.Ref.Id || snapshot["name"] != "report.txt" || snapshot["media_type"] != "text/plain" || snapshot["size"] != float64(len("hello storage")) || snapshot["fingerprint"] == "" {
-		t.Fatalf("attachment message snapshot = %#v", attachments[0])
+	reference, ok := attachments[0].(map[string]interface{})
+	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
+		t.Fatalf("attachment message reference = %#v", attachments[0])
+	}
+	err, persisted := store.SessionEventGet(context.Background(), attachmentMessage.Ref)
+	if err != nil || persisted == nil {
+		t.Fatalf("SessionEventGet() = (%#v, %v)", persisted, err)
+	}
+	ids, ok := persisted.Payload["attachments"].([]interface{})
+	if !ok || len(ids) != 1 || ids[0] != uploaded.File.Ref.Id {
+		t.Fatalf("stored attachment IDs = %#v", persisted.Payload["attachments"])
+	}
+	loadedEvents := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events", "")
+	if loadedEvents.Code != http.StatusOK {
+		t.Fatalf("GET session events = status %d body %q", loadedEvents.Code, loadedEvents.Body.String())
+	}
+	var trees []*sessionEventTreeResponse
+	if err := json.Unmarshal(loadedEvents.Body.Bytes(), &trees); err != nil || len(trees) != 1 || trees[0].Event.Ref != attachmentMessage.Ref {
+		t.Fatalf("GET session events = (%#v, %v)", trees, err)
+	}
+	attachments, ok = trees[0].Event.Payload["attachments"].([]interface{})
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("loaded attachments = %#v", trees[0].Event.Payload["attachments"])
+	}
+	reference, ok = attachments[0].(map[string]interface{})
+	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
+		t.Fatalf("loaded attachment = %#v", attachments[0])
 	}
 	download := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
 	if download.Code != http.StatusTemporaryRedirect || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Location") == "" {

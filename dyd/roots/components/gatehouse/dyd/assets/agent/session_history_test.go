@@ -133,16 +133,18 @@ func TestOpenAICompatibleMessagesRejectsInvalidToolHistory(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleMessagesIncludesAttachmentSnapshots(t *testing.T) {
+func TestOpenAICompatibleMessagesIncludesAttachmentReferences(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
-	message := event(session, "user", "message.text", &principal, nil, map[string]interface{}{
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "amd_01arz3ndektsv4rrffq69g5fav"}}
+	userMessage := event(session, "user", "message.text", &principal, nil, map[string]interface{}{
 		"attachments": []interface{}{map[string]interface{}{
 			"id": "report", "name": "report.txt", "media_type": "text/plain", "size": float64(12), "fingerprint": "sha256:abcd",
 		}},
 	})
-	err, messages := openAICompatibleMessages([]model.SessionEvent{message})
-	if err != nil || len(messages) != 1 || messages[0].Role != "user" || messages[0].Content != "Attached session files:\n- report.txt (id: report, size: 12 bytes, fingerprint: sha256:abcd, media type: text/plain)" {
+	agentMessage := event(session, "agent", "message.text", nil, &agent, userMessage.Payload)
+	err, messages := openAICompatibleMessages([]model.SessionEvent{userMessage, agentMessage})
+	if err != nil || len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[0].Content != "Attached session files:\n- report.txt (id: report, size: 12 bytes, fingerprint: sha256:abcd, media type: text/plain)" || messages[1].Content != messages[0].Content {
 		t.Fatalf("attachment history = (%#v, %v)", messages, err)
 	}
 }

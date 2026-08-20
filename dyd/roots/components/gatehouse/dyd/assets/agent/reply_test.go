@@ -288,7 +288,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					_, _ = response.Write([]byte(fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":%q}}]}}]}`, string(arguments))))
 					return
 				}
-				_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Done."}}]}`))
+				_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"text\":\"Done.\",\"attachments\":[]}"}}]}`))
 			}))
 			defer server.Close()
 

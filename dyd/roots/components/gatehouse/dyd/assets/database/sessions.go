@@ -395,6 +395,82 @@ func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
 	return values, nil
 }
 
+// SessionEventAttachmentsHydrate replaces attachment IDs with current session-file references.
+func (store *Store) SessionEventAttachmentsHydrate(ctx context.Context, session model.SessionRef, events []model.SessionEvent) (error, []model.SessionEvent) {
+	ids := []string{}
+	seen := map[string]struct{}{}
+	for _, event := range events {
+		attachments, linked, err := sessionEventAttachmentIDs(event)
+		if err != nil {
+			return err, nil
+		}
+		if !linked {
+			continue
+		}
+		for _, id := range attachments {
+			if _, exists := seen[id]; exists {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+	}
+	err, references := store.SessionFileReferencesGet(ctx, session, ids)
+	if err != nil {
+		return err, nil
+	}
+	byID := make(map[string]SessionFileSummary, len(references))
+	for _, reference := range references {
+		byID[reference.ID] = reference
+	}
+	for index, event := range events {
+		attachments, linked, err := sessionEventAttachmentIDs(event)
+		if err != nil {
+			return err, nil
+		}
+		if !linked {
+			continue
+		}
+		references := make([]interface{}, 0, len(attachments))
+		for _, id := range attachments {
+			reference, exists := byID[id]
+			if !exists {
+				return fmt.Errorf("get session attachment %q: unavailable", id), nil
+			}
+			value := map[string]interface{}{"id": reference.ID, "name": reference.Name, "size": reference.Size, "fingerprint": reference.Fingerprint}
+			if reference.MediaType != nil {
+				value["media_type"] = *reference.MediaType
+			}
+			references = append(references, value)
+		}
+		events[index].Payload["attachments"] = references
+	}
+	return nil, events
+}
+
+func sessionEventAttachmentIDs(event model.SessionEvent) ([]string, bool, error) {
+	value, exists := event.Payload["attachments"]
+	if !exists {
+		return nil, false, nil
+	}
+	switch attachments := value.(type) {
+	case []string:
+		return attachments, true, nil
+	case []interface{}:
+		ids := make([]string, 0, len(attachments))
+		for _, attachment := range attachments {
+			id, ok := attachment.(string)
+			if !ok {
+				return nil, false, nil
+			}
+			ids = append(ids, id)
+		}
+		return ids, true, nil
+	default:
+		return nil, false, nil
+	}
+}
+
 func (store *Store) SessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent) (error, []model.SessionEvent) {
 	return store.sessionEventsCreateBatch(ctx, events, false, false)
 }
@@ -471,12 +547,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			if err != nil {
 				return err, nil
 			}
-			err, snapshots := store.SessionFileSnapshots(ctx, transaction, event.Ref.Session, attachments)
+			err, _ = store.sessionFileReferencesGet(ctx, transaction, event.Ref.Session, attachments)
 			if err != nil {
 				return fmt.Errorf("create session message: %w", err), nil
-			}
-			if len(snapshots) > 0 {
-				event.Payload["attachments"] = snapshots
 			}
 		}
 		payload, err := json.Marshal(event.Payload)
