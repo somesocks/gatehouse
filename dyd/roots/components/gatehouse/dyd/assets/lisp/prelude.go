@@ -51,6 +51,8 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1"), special: true, call: ifValues},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2"), special: true, call: beginValues},
 	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))"), special: true, call: functionValues},
+	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f"), special: true, call: andValues},
+	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t"), special: true, call: orValues},
 	{name: "pair?", documentation: doc("(pair? value) -> Boolean", "Returns whether value is a pair.", "(pair? (pair 1 2))", "#t"), call: pure(isPair)},
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
@@ -530,6 +532,22 @@ func functionValues(evaluator *evaluator, env *environment, arguments []Expr) (e
 		return err, nil
 	}
 	return nil, callResult{value: closure}
+}
+
+func andValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, value := evaluator.evaluateAnd(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callResult{value: value}
+}
+
+func orValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, value := evaluator.evaluateOr(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callResult{value: value}
 }
 
 func requireInteger(expr Expr) (error, int64) {

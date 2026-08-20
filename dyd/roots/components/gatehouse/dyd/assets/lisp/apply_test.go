@@ -16,6 +16,8 @@ func TestApply(t *testing.T) {
 		{source: "(apply if (list #f '(error/throw \"unused\") 42))", want: "42"},
 		{source: "(apply begin '((assert #t) (+ 1 2)))", want: "3"},
 		{source: "(let ((offset 1)) ((apply fn '((value) (+ value offset))) 41))", want: "42"},
+		{source: "(apply and (list #f '(error/throw \"unused\")))", want: "#f"},
+		{source: "(apply or (list #t '(error/throw \"unused\")))", want: "#t"},
 		{source: "(secret? (apply list (secret/mark (list 1))))", want: "#t"},
 	} {
 		err, result := Run(test.source)

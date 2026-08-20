@@ -14,8 +14,6 @@ type evaluatorForm struct {
 
 var evaluatorForms = []evaluatorForm{
 	{name: "quote", documentation: doc("(quote expression) -> Value", "Returns expression without evaluating it.", "(quote (a b))", "(a b)")},
-	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
-	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
 }
 
 func evaluatorFormDocumentation(name string) (documentation, bool) {
@@ -63,12 +61,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			}
 			if isSymbol(forms[0], "quote") {
 				return evaluateQuote(forms)
-			}
-			if isSymbol(forms[0], "and") {
-				return evaluator.evaluateAnd(forms, env)
-			}
-			if isSymbol(forms[0], "or") {
-				return evaluator.evaluateOr(forms, env)
 			}
 			err, callee := evaluator.eval(forms[0], env)
 			if err != nil {
@@ -205,7 +197,7 @@ func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, E
 	return nil, forms[2]
 }
 func (evaluator *evaluator) evaluateAnd(forms []Expr, env *environment) (error, Expr) {
-	for _, form := range forms[1:] {
+	for _, form := range forms {
 		err, value := evaluator.eval(form, env)
 		if err != nil {
 			return err, nil
@@ -221,7 +213,7 @@ func (evaluator *evaluator) evaluateAnd(forms []Expr, env *environment) (error, 
 	return nil, boolean(true)
 }
 func (evaluator *evaluator) evaluateOr(forms []Expr, env *environment) (error, Expr) {
-	for _, form := range forms[1:] {
+	for _, form := range forms {
 		err, value := evaluator.eval(form, env)
 		if err != nil {
 			return err, nil
