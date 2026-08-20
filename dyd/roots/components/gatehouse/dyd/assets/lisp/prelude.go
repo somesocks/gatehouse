@@ -53,6 +53,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))"), special: true, call: functionValues},
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f"), special: true, call: andValues},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t"), special: true, call: orValues},
+	{name: "quote", documentation: doc("(quote expression) -> Value", "Returns expression without evaluating it.", "(quote (a b))", "(a b)"), special: true, call: quoteValues},
 	{name: "pair?", documentation: doc("(pair? value) -> Boolean", "Returns whether value is a pair.", "(pair? (pair 1 2))", "#t"), call: pure(isPair)},
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
@@ -115,7 +116,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "assert", documentation: doc("(assert condition [value]) -> Null | Value", "Returns null or value when condition is true, otherwise raises an Error.", "(assert #t 7)", "7"), special: true, call: valueCall(assertValue)},
 	{name: "secret?", documentation: doc("(secret? value) -> Boolean", "Returns whether value is secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(isSecret)},
 	{name: "secret/mark", documentation: doc("(secret/mark value) -> Value", "Marks value as secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(markSecret)},
-	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding or evaluator form; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), call: valueCall(helpValue)},
+	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), call: valueCall(helpValue)},
 	{name: "help/document", documentation: doc("(help/document value text) -> Value", "Returns value with public help text attached.", "(help (help/document 1 \"count\"))", "\"count\""), call: pure(helpDocument)},
 	{name: "help/env", documentation: doc("(help/env term...) -> List", "Returns visible lexical binding names matching every term.", "(list? (help/env \"int?\"))", "#t"), call: valueCall(helpEnv)},
 	{name: "help/search", documentation: doc("(help/search term...) -> List", "Returns symbols for values and forms available in the environment with help text that matches every search term.", "(list? (help/search \"integer\"))", "#t"), call: valueCall(helpSearch)},
@@ -548,6 +549,13 @@ func orValues(evaluator *evaluator, env *environment, arguments []Expr) (error, 
 		return err, nil
 	}
 	return nil, callResult{value: value}
+}
+
+func quoteValues(_ *evaluator, _ *environment, arguments []Expr) (error, callOutcome) {
+	if len(arguments) != 1 {
+		return expressionError("quote requires one expression"), nil
+	}
+	return nil, callResult{value: arguments[0]}
 }
 
 func requireInteger(expr Expr) (error, int64) {

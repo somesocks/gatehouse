@@ -15,6 +15,16 @@ func TestReadBuildsLispData(t *testing.T) {
 	}
 }
 
+func TestQuoteEvaluatesReaderShorthand(t *testing.T) {
+	err, result := Run("'(alpha 2 \"three\")")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != `(alpha 2 "three")` {
+		t.Fatalf("reader shorthand = %s, want (alpha 2 \"three\")", got)
+	}
+}
+
 func TestReadBuildsDottedPairs(t *testing.T) {
 	for _, test := range []struct {
 		source string
@@ -497,8 +507,8 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(bindings) != len(preludeBuiltins)+len(evaluatorForms)+2 {
-		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+len(evaluatorForms)+2)
+	if len(bindings) != len(preludeBuiltins)+2 {
+		t.Fatalf("(help/search) returned %d bindings, want %d", len(bindings), len(preludeBuiltins)+2)
 	}
 	seen := make(map[string]struct{}, len(bindings))
 	for _, binding := range bindings {
@@ -519,11 +529,6 @@ func TestHelpSearchEnumeratesPreludeBindings(t *testing.T) {
 	}
 	if _, exists := seen["import/search"]; !exists {
 		t.Error("(help/search) did not return \"import/search\"")
-	}
-	for _, form := range evaluatorForms {
-		if _, exists := seen[form.name]; !exists {
-			t.Errorf("(help/search) did not return form %q", form.name)
-		}
 	}
 }
 

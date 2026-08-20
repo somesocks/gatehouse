@@ -7,23 +7,6 @@ type environment struct {
 
 type evaluator struct{}
 
-type evaluatorForm struct {
-	name          string
-	documentation documentation
-}
-
-var evaluatorForms = []evaluatorForm{
-	{name: "quote", documentation: doc("(quote expression) -> Value", "Returns expression without evaluating it.", "(quote (a b))", "(a b)")},
-}
-
-func evaluatorFormDocumentation(name string) (documentation, bool) {
-	for _, form := range evaluatorForms {
-		if form.name == name {
-			return form.documentation, true
-		}
-	}
-	return documentation{}, false
-}
 func Eval(expression Expr) (error, Expr) { return (&evaluator{}).eval(expression, prelude()) }
 func Run(source string) (error, Expr) {
 	err, expression := Read(source)
@@ -58,9 +41,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			}
 			if len(forms) == 0 {
 				return expressionError("cannot evaluate an empty call"), nil
-			}
-			if isSymbol(forms[0], "quote") {
-				return evaluateQuote(forms)
 			}
 			err, callee := evaluator.eval(forms[0], env)
 			if err != nil {
@@ -325,12 +305,6 @@ func (evaluator *evaluator) evaluateBegin(forms []Expr, env *environment) (error
 		}
 	}
 	return nil, forms[len(forms)-1]
-}
-func evaluateQuote(forms []Expr) (error, Expr) {
-	if len(forms) != 2 {
-		return expressionError("quote requires one expression"), nil
-	}
-	return nil, forms[1]
 }
 func bindClosure(closure *closure, arguments []Expr) (error, *environment) {
 	if closure.restParameter == nil && len(arguments) != len(closure.parameters) {

@@ -17,11 +17,6 @@ func helpSearch(_ *evaluator, env *environment, arguments []Expr) (error, Expr) 
 		return err, nil
 	}
 	bindings := env.matchingBindings(func(_ string, value Expr) bool { return helpOf(value) != "" && matchesTerms(helpOf(value), terms) })
-	for _, form := range evaluatorForms {
-		if _, exists := env.visibleValue(form.name); !exists && matchesTerms(form.documentation.text(), terms) {
-			bindings = append(bindings, form.name)
-		}
-	}
 	sort.Strings(bindings)
 	result := make([]Expr, len(bindings))
 	for index, binding := range bindings {
@@ -100,9 +95,6 @@ func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) stri
 		seenSymbols[symbol.value] = struct{}{}
 		if value, exists := env.visibleValue(symbol.value); exists {
 			return helpText(value, env, seenSymbols)
-		}
-		if documentation, exists := evaluatorFormDocumentation(symbol.value); exists {
-			return documentation.text()
 		}
 		return "symbol"
 	}

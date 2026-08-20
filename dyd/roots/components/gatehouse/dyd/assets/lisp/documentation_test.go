@@ -7,7 +7,7 @@ func TestDocumentationExamples(t *testing.T) {
 		name          string
 		documentation documentation
 		helpSource    string
-	}, 0, len(preludeBuiltins)+len(evaluatorForms)+6)
+	}, 0, len(preludeBuiltins)+6)
 	for _, definition := range preludeBuiltins {
 		tests = append(tests, struct {
 			name          string
@@ -17,17 +17,6 @@ func TestDocumentationExamples(t *testing.T) {
 			name:          definition.name,
 			documentation: definition.documentation,
 			helpSource:    "(help '" + definition.name + ")",
-		})
-	}
-	for _, form := range evaluatorForms {
-		tests = append(tests, struct {
-			name          string
-			documentation documentation
-			helpSource    string
-		}{
-			name:          form.name,
-			documentation: form.documentation,
-			helpSource:    "(help '" + form.name + ")",
 		})
 	}
 	tests = append(tests,

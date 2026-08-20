@@ -18,6 +18,7 @@ func TestApply(t *testing.T) {
 		{source: "(let ((offset 1)) ((apply fn '((value) (+ value offset))) 41))", want: "42"},
 		{source: "(apply and (list #f '(error/throw \"unused\")))", want: "#f"},
 		{source: "(apply or (list #t '(error/throw \"unused\")))", want: "#t"},
+		{source: "(apply quote (list '(+ 1 2)))", want: "(+ 1 2)"},
 		{source: "(secret? (apply list (secret/mark (list 1))))", want: "#t"},
 	} {
 		err, result := Run(test.source)
