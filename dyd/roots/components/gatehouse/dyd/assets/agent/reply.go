@@ -501,11 +501,13 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	defer clearResourceValues(values)
 	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	sessionNotes.Remove = runtime.sessionNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	if projectInfo != nil {
 		projectInfo.Set = runtime.projectInfoSet(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	if projectNotes != nil {
 		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+		projectNotes.Remove = runtime.projectNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
@@ -568,6 +570,16 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 	}
 }
 
+func (runtime *SessionEventReplyRuntime) sessionNoteRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			err, removed := runtime.store.SessionNoteRemove(step, model.SessionNoteRef{Session: session, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-remove"))
+		return err, removed
+	}
+}
+
 func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteCreate {
 	return func(title, description, body string) (error, ProjectNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
@@ -591,6 +603,23 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectNoteRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil {
+				return false, err
+			}
+			if project == nil {
+				return false, fmt.Errorf("remove project note: project is unavailable")
+			}
+			err, removed := runtime.store.ProjectNoteRemove(step, model.ProjectNoteRef{Project: *project, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-remove"))
+		return err, removed
 	}
 }
 
@@ -735,7 +764,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, and ` + "`session/notes/create`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, and ` + "`project/notes/create`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `, and shared session notes through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 

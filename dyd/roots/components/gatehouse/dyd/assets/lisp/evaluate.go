@@ -116,6 +116,7 @@ func Evaluate(source string, options EvalOptions) (error, Expr) {
 
 func String(value string) Expr { return stringValue(value) }
 func Bytes(value []byte) Expr  { return bytesValue(string(value)) }
+func Boolean(value bool) Expr  { return boolean(value) }
 func Integer(value int64) Expr { return integer(value) }
 func Null() Expr               { return null() }
 func List(values ...Expr) Expr { return list(values) }

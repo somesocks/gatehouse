@@ -17,6 +17,9 @@ type FileRead func(id string, offset, length int64) (error, []byte)
 // NoteCreate creates an authorized note.
 type NoteCreate func(title, description, body string) (error, ProjectNote)
 
+// NoteRemove removes an authorized note.
+type NoteRemove func(id string) (error, bool)
+
 // ProjectNote describes an authorized project or session note.
 type ProjectNote struct {
 	ID         string

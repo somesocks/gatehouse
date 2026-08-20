@@ -42,3 +42,31 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 		t.Fatalf("Evaluate() unavailable session note create = (%s, %v)", result, err)
 	}
 }
+
+func TestGatehouseSessionNoteRemove(t *testing.T) {
+	removed := []string{}
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (list
+    (session/notes/remove "note")
+    (session/notes/remove "missing")))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{
+			NewSessionModule(nil, nil, &SessionNotes{Remove: func(id string) (error, bool) {
+				removed = append(removed, id)
+				return nil, id == "note"
+			}}),
+		},
+	})
+	if err != nil || result.String() != `(#t #f)` || strings.Join(removed, ",") != "note,missing" {
+		t.Fatalf("Evaluate() = (%s, %v), removed = %#v", result, err, removed)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (error/value (error/catch (session/notes/remove "note"))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil)},
+	})
+	if err != nil || result.String() != `"session/notes/remove is unavailable"` {
+		t.Fatalf("Evaluate() unavailable session note remove = (%s, %v)", result, err)
+	}
+}

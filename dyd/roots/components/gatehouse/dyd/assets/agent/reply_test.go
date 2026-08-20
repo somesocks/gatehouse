@@ -249,23 +249,28 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 
 func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 	for _, test := range []struct {
-		name                string
-		code                string
-		approvalDescription string
-		project             bool
-		projectUpdate       bool
-		decision            string
-		toolKind            string
-		notes               int
+		name          string
+		code          string
+		project       bool
+		projectUpdate bool
+		noteRemove    bool
+		decision      string
+		toolKind      string
+		notes         int
 	}{
-		{name: "session approved", code: `(session/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a session note", decision: "approval.approved", toolKind: "tool.success", notes: 1},
-		{name: "session rejected", code: `(session/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a session note", decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
-		{name: "project approved", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.approved", toolKind: "tool.success", notes: 1},
-		{name: "project rejected", code: `(project/notes/create "Decision" "" "# Decision")`, approvalDescription: "Create a project note", project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
-		{name: "project info approved", code: `(project/info/set "Roadmap" "Current priorities")`, approvalDescription: "Update project details", project: true, projectUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
-		{name: "project info rejected", code: `(project/info/set "Roadmap" "Current priorities")`, approvalDescription: "Update project details", project: true, projectUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "session create approved", code: `(session/notes/create "Decision" "" "# Decision")`, decision: "approval.approved", toolKind: "tool.success", notes: 1},
+		{name: "session create rejected", code: `(session/notes/create "Decision" "" "# Decision")`, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "project create approved", code: `(project/notes/create "Decision" "" "# Decision")`, project: true, decision: "approval.approved", toolKind: "tool.success", notes: 1},
+		{name: "project create rejected", code: `(project/notes/create "Decision" "" "# Decision")`, project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "project info approved", code: `(project/info/set "Roadmap" "Current priorities")`, project: true, projectUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
+		{name: "project info rejected", code: `(project/info/set "Roadmap" "Current priorities")`, project: true, projectUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "session remove approved", noteRemove: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
+		{name: "session remove rejected", noteRemove: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 1},
+		{name: "project remove approved", project: true, noteRemove: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
+		{name: "project remove rejected", project: true, noteRemove: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
+			code := test.code
 			var mutex sync.Mutex
 			completions := 0
 			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
@@ -279,7 +284,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 				mutex.Unlock()
 				response.Header().Set("Content-Type", "application/json")
 				if completion == 1 {
-					arguments, _ := json.Marshal(map[string]string{"code": test.code, "reason": "Create the requested decision note."})
+					arguments, _ := json.Marshal(map[string]string{"code": code, "reason": "Perform the requested note operation."})
 					_, _ = response.Write([]byte(fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":%q}}]}}]}`, string(arguments))))
 					return
 				}
@@ -346,6 +351,27 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			if test.noteRemove {
+				if project != nil {
+					id, err := typed_id.New(typed_id.ProjectNote)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err, _ := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: *project, Id: id}, Title: "Decision", Body: "# Decision"}, principal); err != nil {
+						t.Fatal(err)
+					}
+					code = fmt.Sprintf(`(project/notes/remove "%s")`, id)
+				} else {
+					id, err := typed_id.New(typed_id.SessionNote)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err, _ := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: "Decision", Body: "# Decision"}, principal); err != nil {
+						t.Fatal(err)
+					}
+					code = fmt.Sprintf(`(session/notes/remove "%s")`, id)
+				}
+			}
 			message := model.SessionEvent{
 				Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{"text": "Create the decision note."},
 			}
@@ -370,21 +396,22 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			}
 
 			approval := waitForApprovalRequest(t, ctx, store, session)
-			if approval.Payload["description"] != test.approvalDescription {
-				t.Fatalf("approval description = %#v", approval.Payload["description"])
+			expectedBefore := 0
+			if test.noteRemove {
+				expectedBefore = 1
 			}
 			noteCount := 0
 			if project != nil {
 				err, notes := store.ProjectNotesGet(ctx, *project, principal)
 				noteCount = len(notes)
-				if err != nil || noteCount != 0 {
-					t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+				if err != nil || noteCount != expectedBefore {
+					t.Fatalf("notes before decision = (%#v, %v), want %d", notes, err, expectedBefore)
 				}
 			} else {
 				err, notes := store.SessionNotesGet(ctx, session, principal)
 				noteCount = len(notes)
-				if err != nil || noteCount != 0 {
-					t.Fatalf("notes before decision = (%#v, %v)", notes, err)
+				if err != nil || noteCount != expectedBefore {
+					t.Fatalf("notes before decision = (%#v, %v), want %d", notes, err, expectedBefore)
 				}
 			}
 			decisionID, err := typed_id.New(typed_id.SessionEvent)
