@@ -7,10 +7,7 @@ import (
 )
 
 func TestAgentPreludeRequiresApprovalForSessionNoteCreate(t *testing.T) {
-	err, result := lisp.Evaluate(`(list
-  (error/value (error/catch (policy/await-approval "Await an action")))
-  (error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))
-  (error/value (error/catch (session/notes/create "Decision" "" "# Decision"))))`, lisp.EvalOptions{
+	err, result := lisp.Evaluate(`(error/value (error/catch (session/notes/create "Decision" "" "# Decision")))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
 		HostModules: []lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
@@ -21,8 +18,23 @@ func TestAgentPreludeRequiresApprovalForSessionNoteCreate(t *testing.T) {
 			NewPolicyModule(nil),
 		},
 	})
-	if err != nil || result.String() != `("policy/await-approval is unavailable" "policy/await-approval is unavailable" "policy/await-approval is unavailable")` {
+	if err != nil || result.String() != `"policy/await-approval is unavailable"` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
+func TestAgentPreludeHidesPolicyWrappers(t *testing.T) {
+	approvals := 0
+	err, result := lisp.Evaluate(`(error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewProjectModule(nil, nil, nil),
+			NewSessionModule(nil, nil, nil),
+			NewPolicyModule(func(string) error { approvals++; return nil }),
+		},
+	})
+	if err != nil || result.String() == `3` || approvals != 0 {
+		t.Fatalf("Evaluate() = (%s, %v), approvals = %d", result, err, approvals)
 	}
 }
 
@@ -41,13 +53,12 @@ func TestGatehousePolicyModuleAwaitApprovalIsUnavailable(t *testing.T) {
 
 func TestGatehousePolicyModuleAwaitApprovalUsesCallback(t *testing.T) {
 	descriptions := []string{}
-	err, result := lisp.Evaluate(`(list
-  (policy/await-approval "Await an action")
-  ((policy/require-approval "Add numbers" +) 1 2))`, lisp.EvalOptions{
-		Prelude: agentPrelude,
+	err, result := lisp.Evaluate(`(import
+  (policy @native:gatehouse/policy/v1)
+  (list
+    (policy/await-approval "Await an action")
+    ((policy/require-approval "Add numbers" +) 1 2)))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
-			NewProjectModule(nil, nil, nil),
-			NewSessionModule(nil, nil, nil),
 			NewPolicyModule(func(description string) error {
 				descriptions = append(descriptions, description)
 				return nil

@@ -26,8 +26,10 @@ const agentPrelude = `(import/restrict
 	(policy @native:gatehouse/policy/v1)
 	(let ((raw-session-notes-create session/notes/create))
 	  (let ((session/notes/create (policy/require-approval "Create a session note" raw-session-notes-create)))
-        (let ((import null)
-              (import/restrict null)
-              (import/search null)
-              (raw-session-notes-create null))
-          (eval program))))))`
+	    (let ((import null)
+	          (import/restrict null)
+	          (import/search null)
+	          (policy/await-approval null)
+	          (policy/require-approval null)
+	          (raw-session-notes-create null))
+	      (eval program))))))`
