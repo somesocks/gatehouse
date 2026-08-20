@@ -1789,7 +1789,7 @@
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...(messageText.trim() === "" ? {} : { text: messageText }), ...(selectedAgent === "" ? {} : { agent: selectedAgent }), ...(fileIDs.length === 0 ? {} : { files: fileIDs }) }),
+        body: JSON.stringify({ ...(messageText.trim() === "" ? {} : { text: messageText }), ...(selectedAgent === "" ? {} : { agent: selectedAgent }), ...(fileIDs.length === 0 ? {} : { attachments: fileIDs }) }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -2335,7 +2335,7 @@
               <p class="chat-status">Send the first message to begin.</p>
             {:else}
               {#each events as tree (tree.event.ref.id)}
-                {#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.files !== undefined && tree.event.payload.files.length > 0))}
+                {#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0))}
                   <article class="chat-message message-own">
                     <p class="chat-message-author">{tree.event.author_principal?.name ?? "User"}</p>
                     {#if tree.event.payload.text !== undefined}
@@ -2344,9 +2344,9 @@
                       </button>
                       <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                     {/if}
-                    {#if tree.event.payload.files !== undefined && tree.event.payload.files.length > 0}
+                    {#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}
                       <div class="message-files" aria-label="Attached files">
-                        {#each tree.event.payload.files as file (file.id)}
+                        {#each tree.event.payload.attachments as file (file.id)}
                           <span class="message-file" title={file.fingerprint}>
                             <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
                             <span>{file.name}</span>

@@ -380,17 +380,17 @@ func (store *Store) SessionMessagesCreate(ctx context.Context, event model.Sessi
 	return nil, events[0]
 }
 
-func sessionMessageFileIDs(event model.SessionEvent) ([]string, error) {
+func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
 	if event.Kind != "message.text" {
 		return nil, fmt.Errorf("create session message: event kind must be message.text")
 	}
-	filesValue, exists := event.Payload["files"]
+	attachmentsValue, exists := event.Payload["attachments"]
 	if !exists {
 		return nil, nil
 	}
-	values, ok := filesValue.([]string)
+	values, ok := attachmentsValue.([]string)
 	if !ok {
-		return nil, fmt.Errorf("create session message: files must be string IDs")
+		return nil, fmt.Errorf("create session message: attachments must be string IDs")
 	}
 	return values, nil
 }
@@ -467,16 +467,16 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		}
 		event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 		if createReplyTasks {
-			files, err := sessionMessageFileIDs(event)
+			attachments, err := sessionMessageAttachmentIDs(event)
 			if err != nil {
 				return err, nil
 			}
-			err, snapshots := store.SessionFileSnapshots(ctx, transaction, event.Ref.Session, files)
+			err, snapshots := store.SessionFileSnapshots(ctx, transaction, event.Ref.Session, attachments)
 			if err != nil {
 				return fmt.Errorf("create session message: %w", err), nil
 			}
 			if len(snapshots) > 0 {
-				event.Payload["files"] = snapshots
+				event.Payload["attachments"] = snapshots
 			}
 		}
 		payload, err := json.Marshal(event.Payload)

@@ -1236,7 +1236,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 		switch event.Kind {
 		case "message.text":
 			text, ok := event.Payload["text"].(string)
-			attachments := openAICompatibleMessageAttachments(event.Payload["files"])
+			attachments := openAICompatibleMessageAttachments(event.Payload["attachments"])
 			if (!ok || strings.TrimSpace(text) == "") && attachments == "" {
 				continue
 			}

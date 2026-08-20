@@ -137,7 +137,7 @@ func TestOpenAICompatibleMessagesIncludesAttachmentSnapshots(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
 	message := event(session, "user", "message.text", &principal, nil, map[string]interface{}{
-		"files": []interface{}{map[string]interface{}{
+		"attachments": []interface{}{map[string]interface{}{
 			"id": "report", "name": "report.txt", "media_type": "text/plain", "size": float64(12), "fingerprint": "sha256:abcd",
 		}},
 	})

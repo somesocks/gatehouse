@@ -452,7 +452,7 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if finished.Code != http.StatusOK {
 		t.Fatalf("POST finish = status %d body %q", finished.Code, finished.Body.String())
 	}
-	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"files":["`+uploaded.File.Ref.Id+`"]}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"attachments":["`+uploaded.File.Ref.Id+`"]}`)
 	if message.Code != http.StatusAccepted {
 		t.Fatalf("POST attachment message = status %d body %q", message.Code, message.Body.String())
 	}
@@ -460,13 +460,13 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if err := json.Unmarshal(message.Body.Bytes(), &attachmentMessage); err != nil {
 		t.Fatal(err)
 	}
-	files, ok := attachmentMessage.Payload["files"].([]interface{})
-	if !ok || len(files) != 1 {
-		t.Fatalf("attachment message files = %#v", attachmentMessage.Payload["files"])
+	attachments, ok := attachmentMessage.Payload["attachments"].([]interface{})
+	if !ok || len(attachments) != 1 {
+		t.Fatalf("attachment message attachments = %#v", attachmentMessage.Payload["attachments"])
 	}
-	snapshot, ok := files[0].(map[string]interface{})
+	snapshot, ok := attachments[0].(map[string]interface{})
 	if !ok || snapshot["id"] != uploaded.File.Ref.Id || snapshot["name"] != "report.txt" || snapshot["media_type"] != "text/plain" || snapshot["size"] != float64(len("hello storage")) || snapshot["fingerprint"] == "" {
-		t.Fatalf("attachment message snapshot = %#v", files[0])
+		t.Fatalf("attachment message snapshot = %#v", attachments[0])
 	}
 	download := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
 	if download.Code != http.StatusTemporaryRedirect || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Location") == "" {

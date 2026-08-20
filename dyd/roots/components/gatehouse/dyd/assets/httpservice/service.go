@@ -313,9 +313,9 @@ type sessionProjectRequest struct {
 }
 
 type sessionMessageRequest struct {
-	Text  string `json:"text"`
-	Agent string `json:"agent"`
-	Files []string `json:"files"`
+	Text        string   `json:"text"`
+	Agent       string   `json:"agent"`
+	Attachments []string `json:"attachments"`
 }
 
 type sessionFileCreateRequest struct {
@@ -893,7 +893,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		var message sessionMessageRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
-		if err := decoder.Decode(&message); err != nil || (strings.TrimSpace(message.Text) == "" && len(message.Files) == 0) {
+		if err := decoder.Decode(&message); err != nil || (strings.TrimSpace(message.Text) == "" && len(message.Attachments) == 0) {
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
@@ -1522,8 +1522,8 @@ func messagePayload(message sessionMessageRequest) map[string]interface{} {
 	if message.Agent != "" {
 		payload["agent"] = message.Agent
 	}
-	if len(message.Files) > 0 {
-		payload["files"] = message.Files
+	if len(message.Attachments) > 0 {
+		payload["attachments"] = message.Attachments
 	}
 	return payload
 }
