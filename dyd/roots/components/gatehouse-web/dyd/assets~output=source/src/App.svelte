@@ -2171,13 +2171,17 @@
               <span>{activeSessionNote?.title ?? "New Note"}</span>
             {/if}
           </h1>
+          {#if activeSession !== null}
+            <nav class="session-tabs" aria-label="Session navigation">
+              <a class:active={!isSessionNotesRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>Chat</a>
+              <a class:active={isSessionNotesRoute()} href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
+            </nav>
+            <select class="session-tabs-select" aria-label="Session view" value={isSessionNotesRoute() ? "notes" : "chat"} onchange={(event) => { if (event.currentTarget.value === "notes") { void selectSessionNotes(activeSession) } else { void selectSessionChat(activeSession) } }}>
+              <option value="chat">Chat</option>
+              <option value="notes">Notes</option>
+            </select>
+          {/if}
       </header>
-      {#if activeSession !== null}
-        <nav class="session-tabs" aria-label="Session navigation">
-          <a class:active={!isSessionNotesRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>Chat</a>
-          <a class:active={isSessionNotesRoute()} href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
-        </nav>
-      {/if}
       {#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote}
         <section class="project-dashboard-heading">
           <div>

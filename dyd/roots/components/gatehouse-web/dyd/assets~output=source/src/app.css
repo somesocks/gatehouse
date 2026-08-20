@@ -488,24 +488,33 @@ body {
 
 .workspace-header {
   align-items: center;
-  border-bottom: 1px solid #4f5442;
+  border: 1px solid #596051;
+  border-radius: 0.85rem;
+  background: #242820;
+  box-shadow: 0 0.75rem 2rem rgb(0 0 0 / 18%);
   display: flex;
-  min-height: 2.25rem;
-  padding-bottom: 0.75rem;
+  gap: 0.75rem;
+  min-height: 3.75rem;
+  padding: 0.5rem 0.75rem;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .session-tabs {
-  border-bottom: 1px solid #4f5442;
+  align-items: center;
   display: flex;
   gap: 0.25rem;
+  margin-left: auto;
 }
 
 .session-tabs a {
-  border-bottom: 2px solid transparent;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
   color: #aeb3a3;
   font-size: 0.9rem;
   font-weight: 700;
-  padding: 0.7rem 0.8rem 0.55rem;
+  padding: 0.5rem 0.7rem;
   text-decoration: none;
 }
 
@@ -515,8 +524,13 @@ body {
 }
 
 .session-tabs a.active {
-  border-bottom-color: #b9db6f;
+  border-color: #718d3c;
+  background: #354325;
   color: #eff2e8;
+}
+
+.session-tabs-select {
+  display: none;
 }
 
 .mobile-menu-trigger,
@@ -532,6 +546,7 @@ body {
   margin: 0;
   min-width: 0;
   overflow: hidden;
+  flex: 1;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1398,6 +1413,35 @@ a.message-file:focus-visible {
     justify-content: center;
     margin-right: 0.5rem;
     padding: 0.35rem;
+  }
+
+  .workspace-header {
+    gap: 0.5rem;
+    min-height: 3.25rem;
+    padding: 0.35rem 0.5rem;
+  }
+
+  .session-tabs {
+    display: none;
+  }
+
+  .session-tabs-select {
+    border: 1px solid #596051;
+    border-radius: 0.55rem;
+    background: #30352a;
+    color: #eff2e8;
+    display: block;
+    flex: 0 0 auto;
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 700;
+    padding: 0.4rem 1.8rem 0.4rem 0.55rem;
+  }
+
+  .session-tabs-select:focus-visible {
+    border-color: #b9db6f;
+    box-shadow: 0 0 0 0.125em rgb(185 219 111 / 20%);
+    outline: 0;
   }
 
   .sidebar-nav {
