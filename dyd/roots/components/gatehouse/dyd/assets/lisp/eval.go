@@ -17,7 +17,6 @@ var evaluatorForms = []evaluatorForm{
 	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1")},
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
-	{name: "let", documentation: doc("(let ((name value) ...) body) -> Value", "Evaluates body with recursive lexical bindings.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120")},
 	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))")},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2")},
 }
@@ -41,8 +40,9 @@ func Run(source string) (error, Expr) {
 
 func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, result Expr) {
 	_, inputAnnotations := unwrap(expression)
+	tailSecret := false
 	defer func() {
-		if err == nil && inputAnnotations.secret {
+		if err == nil && (inputAnnotations.secret || tailSecret) {
 			result = withSecret(result)
 		}
 		if err == nil && inputAnnotations.help != "" {
@@ -80,13 +80,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			if isSymbol(forms[0], "or") {
 				return evaluator.evaluateOr(forms, env)
 			}
-			if isSymbol(forms[0], "let") {
-				err, expression, env = evaluator.evaluateLet(forms, env)
-				if err != nil {
-					return err, nil
-				}
-				continue
-			}
 			if isSymbol(forms[0], "fn") {
 				return evaluator.evaluateFunction(forms, env)
 			}
@@ -102,8 +95,38 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 				return err, nil
 			}
 			calleeBase, _ := unwrap(callee)
-			if builtin, ok := calleeBase.(*builtin); ok && builtin.special {
-				return builtin.call(evaluator, env, forms[1:])
+			if builtin, ok := calleeBase.(*builtin); ok {
+				arguments := forms[1:]
+				if !builtin.special {
+					arguments = make([]Expr, 0, len(forms)-1)
+					for _, form := range forms[1:] {
+						err, argument := evaluator.eval(form, env)
+						if err != nil {
+							return err, nil
+						}
+						arguments = append(arguments, argument)
+					}
+				}
+				err, outcome, leaky := evaluator.callBuiltin(builtin, env, arguments)
+				if err != nil {
+					return err, nil
+				}
+				switch outcome := outcome.(type) {
+				case callResult:
+					if leaky {
+						return nil, withSecret(outcome.value)
+					}
+					return nil, outcome.value
+				case callTailState:
+					tailSecret = tailSecret || leaky
+					expression = outcome.expression
+					if outcome.environment != nil {
+						env = outcome.environment
+					}
+					continue
+				default:
+					panic("invalid builtin call outcome")
+				}
 			}
 			arguments := make([]Expr, 0, len(forms)-1)
 			for _, form := range forms[1:] {
@@ -120,9 +143,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 				}
 				expression, env = closure.body, callEnv
 				continue
-			}
-			if builtin, ok := calleeBase.(*builtin); ok {
-				return evaluator.callBuiltin(builtin, env, arguments)
 			}
 			return expressionError("%s is not callable", callee.String()), nil
 		default:
@@ -141,28 +161,50 @@ func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr
 		}
 		return evaluator.eval(callee.body, env)
 	case *builtin:
-		if callee.special {
-			return expressionError("%s requires direct special-form invocation", callee.String()), nil
+		err, outcome, leaky := evaluator.callBuiltin(callee, env, arguments)
+		if err != nil {
+			return err, nil
 		}
-		return evaluator.callBuiltin(callee, env, arguments)
+		err, result := evaluator.resolveCallOutcome(outcome, env)
+		if err != nil {
+			return err, nil
+		}
+		if leaky {
+			result = withSecret(result)
+		}
+		return nil, result
 	default:
 		return expressionError("%s is not callable", callee.String()), nil
 	}
 }
 
-func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, arguments []Expr) (error, Expr) {
-	err, result := builtin.call(evaluator, env, arguments)
+func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, arguments []Expr) (error, callOutcome, bool) {
+	err, outcome := builtin.call(evaluator, env, arguments)
 	if err != nil {
-		return err, nil
+		return err, nil, false
 	}
 	if builtin.leaky {
 		for _, argument := range arguments {
 			if hasSecret(argument) {
-				return nil, withSecret(result)
+				return nil, outcome, true
 			}
 		}
 	}
-	return nil, result
+	return nil, outcome, false
+}
+
+func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environment) (error, Expr) {
+	switch outcome := outcome.(type) {
+	case callResult:
+		return nil, outcome.value
+	case callTailState:
+		if outcome.environment == nil {
+			outcome.environment = env
+		}
+		return evaluator.eval(outcome.expression, outcome.environment)
+	default:
+		panic("invalid builtin call outcome")
+	}
 }
 
 func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, Expr) {
@@ -216,10 +258,10 @@ func (evaluator *evaluator) evaluateOr(forms []Expr, env *environment) (error, E
 }
 
 func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, Expr, *environment) {
-	if len(forms) != 3 {
+	if len(forms) != 2 {
 		return expressionError("let requires bindings and one body expression"), nil, nil
 	}
-	err, bindings := expressions(forms[1])
+	err, bindings := expressions(forms[0])
 	if err != nil {
 		return err, nil, nil
 	}
@@ -256,7 +298,7 @@ func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, 
 		bound := value
 		nextEnv.values[binding.name] = &bound
 	}
-	return nil, forms[2], nextEnv
+	return nil, forms[1], nextEnv
 }
 func (evaluator *evaluator) evaluateFunction(forms []Expr, env *environment) (error, Expr) {
 	if len(forms) != 3 {

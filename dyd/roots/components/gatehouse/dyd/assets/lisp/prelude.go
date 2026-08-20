@@ -47,16 +47,17 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "head", documentation: doc("(head pair) -> Value", "Returns the first value of a pair.", "(head (pair 1 2))", "1"), leaky: true, call: pure(head)},
 	{name: "tail", documentation: doc("(tail pair) -> Value", "Returns the second value of a pair.", "(tail (pair 1 2))", "2"), leaky: true, call: pure(tail)},
 	{name: "list", documentation: doc("(list value...) -> List", "Creates a proper list from its arguments.", "(list 1 2 3)", "(1 2 3)"), leaky: true, call: pure(makeList)},
+	{name: "let", documentation: doc("(let ((name value) ...) body) -> Value", "Evaluates body with recursive lexical bindings.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
 	{name: "pair?", documentation: doc("(pair? value) -> Boolean", "Returns whether value is a pair.", "(pair? (pair 1 2))", "#t"), call: pure(isPair)},
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
 	{name: "list/length", documentation: doc("(list/length list) -> Integer", "Returns the number of values in a proper list.", "(list/length (list 1 2 3))", "3"), call: pure(listLength)},
 	{name: "list/concat", documentation: doc("(list/concat list...) -> List", "Concatenates proper lists.", "(list/concat (list 1 2) (list 3))", "(1 2 3)"), leaky: true, call: pure(concatLists)},
-	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: mapValues},
-	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: filterValues},
-	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: foldValues},
-	{name: "apply", documentation: doc("(apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(apply + (list 1 2 3))", "6"), leaky: true, call: applyValues},
-	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: evaluate},
+	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: valueCall(mapValues)},
+	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: valueCall(filterValues)},
+	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: valueCall(foldValues)},
+	{name: "apply", documentation: doc("(apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(apply + (list 1 2 3))", "6"), leaky: true, call: valueCall(applyValues)},
+	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: valueCall(evaluate)},
 	{name: "string?", documentation: doc("(string? value) -> Boolean", "Returns whether value is a String.", "(string? \"text\")", "#t"), call: pure(isString)},
 	{name: "string/length", documentation: doc("(string/length text) -> Integer", "Returns the Unicode code-point length of text.", "(string/length \"hello\")", "5"), call: pure(stringLength)},
 	{name: "bytes?", documentation: doc("(bytes? value) -> Boolean", "Returns whether value is Bytes.", "(bytes? (bytes/utf8/encode \"x\"))", "#t"), call: pure(isBytes)},
@@ -103,17 +104,17 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "string/join", documentation: doc("(string/join strings separator) -> String", "Joins a proper list of Strings with a separator.", "(string/join (list \"a\" \"b\") \",\")", "\"a,b\""), leaky: true, call: pure(stringJoin)},
 	{name: "string/replace", documentation: doc("(string/replace text old new) -> String", "Replaces every non-overlapping occurrence of old with new.", "(string/replace \"a-b-a\" \"a\" \"x\")", "\"x-b-x\""), leaky: true, call: pure(stringReplace)},
 	{name: "error/throw", documentation: doc("(error/throw value) -> Never", "Raises an Error carrying value.", "(error/value (error/catch (error/throw \"failure\")))", "\"failure\""), call: pure(throwError)},
-	{name: "error/catch", documentation: doc("(error/catch expression) -> Error", "Returns an Error raised while evaluating expression.", "(error? (error/catch (error/throw \"failure\")))", "#t"), special: true, call: catchError},
+	{name: "error/catch", documentation: doc("(error/catch expression) -> Error", "Returns an Error raised while evaluating expression.", "(error? (error/catch (error/throw \"failure\")))", "#t"), special: true, call: valueCall(catchError)},
 	{name: "error?", documentation: doc("(error? value) -> Boolean", "Returns whether value is an Error.", "(error? (error/catch (error/throw 1)))", "#t"), call: pure(isError)},
 	{name: "error/value", documentation: doc("(error/value error) -> Value", "Returns the value carried by an Error.", "(error/value (error/catch (error/throw 1)))", "1"), leaky: true, call: pure(errorValueOf)},
-	{name: "assert", documentation: doc("(assert condition [value]) -> Null | Value", "Returns null or value when condition is true, otherwise raises an Error.", "(assert #t 7)", "7"), special: true, call: assertValue},
+	{name: "assert", documentation: doc("(assert condition [value]) -> Null | Value", "Returns null or value when condition is true, otherwise raises an Error.", "(assert #t 7)", "7"), special: true, call: valueCall(assertValue)},
 	{name: "secret?", documentation: doc("(secret? value) -> Boolean", "Returns whether value is secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(isSecret)},
 	{name: "secret/mark", documentation: doc("(secret/mark value) -> Value", "Marks value as secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(markSecret)},
-	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding or evaluator form; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), call: helpValue},
+	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding or evaluator form; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), call: valueCall(helpValue)},
 	{name: "help/document", documentation: doc("(help/document value text) -> Value", "Returns value with public help text attached.", "(help (help/document 1 \"count\"))", "\"count\""), call: pure(helpDocument)},
-	{name: "help/env", documentation: doc("(help/env term...) -> List", "Returns visible lexical binding names matching every term.", "(list? (help/env \"int?\"))", "#t"), call: helpEnv},
-	{name: "help/search", documentation: doc("(help/search term...) -> List", "Returns symbols for values and forms available in the environment with help text that matches every search term.", "(list? (help/search \"integer\"))", "#t"), call: helpSearch},
-	{name: "import/restrict", documentation: doc("(import/restrict (@reference...) body) -> Value", "Evaluates body with imports limited to the listed module references.", "(import/restrict (@native:time/v1) (import/search))", "(@native:time/v1)"), special: true, call: importRestrict},
+	{name: "help/env", documentation: doc("(help/env term...) -> List", "Returns visible lexical binding names matching every term.", "(list? (help/env \"int?\"))", "#t"), call: valueCall(helpEnv)},
+	{name: "help/search", documentation: doc("(help/search term...) -> List", "Returns symbols for values and forms available in the environment with help text that matches every search term.", "(list? (help/search \"integer\"))", "#t"), call: valueCall(helpSearch)},
+	{name: "import/restrict", documentation: doc("(import/restrict (@reference...) body) -> Value", "Evaluates body with imports limited to the listed module references.", "(import/restrict (@native:time/v1) (import/search))", "(@native:time/v1)"), special: true, call: valueCall(importRestrict)},
 }
 
 func (env *environment) bind(name string, value Expr) {
@@ -486,10 +487,6 @@ func applyValues(evaluator *evaluator, env *environment, arguments []Expr) (erro
 	if err != nil {
 		return expressionError("apply requires a proper argument list"), nil
 	}
-	base, _ := unwrap(arguments[0])
-	if builtin, ok := base.(*builtin); ok && builtin.special {
-		return builtin.call(evaluator, env, values)
-	}
 	return evaluator.call(arguments[0], env, values)
 }
 
@@ -498,6 +495,14 @@ func evaluate(evaluator *evaluator, env *environment, arguments []Expr) (error, 
 		return expressionError("eval requires one expression"), nil
 	}
 	return evaluator.eval(arguments[0], env)
+}
+
+func letValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, expression, environment := evaluator.evaluateLet(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callTailState{expression: expression, environment: environment}
 }
 
 func requireInteger(expr Expr) (error, int64) {

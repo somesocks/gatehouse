@@ -43,7 +43,7 @@ func compileNativeSeq() Expr {
 			value = withHelp(&builtin{leaky: true, call: pure(nativeSeqBytesSplit)}, helpOf(value))
 		case "bytes/collect":
 			foundBytesCollect = true
-			value = withHelp(&builtin{leaky: true, call: nativeSeqBytesCollect}, helpOf(value))
+			value = withHelp(&builtin{leaky: true, call: valueCall(nativeSeqBytesCollect)}, helpOf(value))
 		}
 		values = append(values, pairValue(symbol(export.name), value))
 	}

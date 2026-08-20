@@ -47,6 +47,15 @@ type builtin struct {
 	call    builtinCall
 }
 
+type callOutcome interface{ callOutcome() }
+
+type callResult struct{ value Expr }
+
+type callTailState struct {
+	expression  Expr
+	environment *environment
+}
+
 type errorValue struct {
 	value Expr
 }
@@ -106,13 +115,27 @@ var (
 	nullValue  Expr = &nullExpr{}
 )
 
-type builtinCall func(*evaluator, *environment, []Expr) (error, Expr)
+type builtinCall func(*evaluator, *environment, []Expr) (error, callOutcome)
+type valueBuiltinCall func(*evaluator, *environment, []Expr) (error, Expr)
 type pureBuiltinCall func(*evaluator, []Expr) (error, Expr)
 
-func pure(call pureBuiltinCall) builtinCall {
-	return func(evaluator *evaluator, _ *environment, arguments []Expr) (error, Expr) {
-		return call(evaluator, arguments)
+func (callResult) callOutcome()    {}
+func (callTailState) callOutcome() {}
+
+func valueCall(call valueBuiltinCall) builtinCall {
+	return func(evaluator *evaluator, environment *environment, arguments []Expr) (error, callOutcome) {
+		err, result := call(evaluator, environment, arguments)
+		if err != nil {
+			return err, nil
+		}
+		return nil, callResult{value: result}
 	}
+}
+
+func pure(call pureBuiltinCall) builtinCall {
+	return valueCall(func(evaluator *evaluator, _ *environment, arguments []Expr) (error, Expr) {
+		return call(evaluator, arguments)
+	})
 }
 
 func boolean(value bool) Expr {

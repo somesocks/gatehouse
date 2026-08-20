@@ -143,9 +143,9 @@ func (loader *moduleLoader) moduleID(reference moduleReference) (error, string) 
 func importBuiltin(loader *moduleLoader) Expr {
 	return withHelp(&builtin{
 		special: true,
-		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+		call: valueCall(func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 			return importModules(loader, evaluator, env, forms)
-		},
+		}),
 	}, importDocumentation.text())
 }
 
@@ -191,7 +191,7 @@ func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}
 	importerBuiltin := base.(*builtin)
 	return withHelp(&builtin{
 		special: true,
-		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, callOutcome) {
 			if len(forms) < 2 {
 				return importerBuiltin.call(evaluator, env, forms)
 			}

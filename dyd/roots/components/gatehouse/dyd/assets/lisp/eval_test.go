@@ -21,3 +21,18 @@ func TestEvalLisp(t *testing.T) {
 		}
 	}
 }
+
+func TestLetTailRecursion(t *testing.T) {
+	err, result := Run(`(let ((count-down (fn (value)
+  (if (= value 0)
+    0
+    (let ((next (- value 1)))
+      (count-down next))))))
+  (count-down 100000))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "0" {
+		t.Fatalf("tail recursion = %s, want 0", got)
+	}
+}
