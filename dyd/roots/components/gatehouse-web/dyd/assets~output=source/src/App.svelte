@@ -215,12 +215,24 @@
         projectActionMenuElement.open = false
       }
     }
+    const copyCodeBlock = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) {
+        return
+      }
+      const button = event.target.closest<HTMLButtonElement>(".markdown-code-copy")
+      const code = button?.parentElement?.querySelector("pre > code")
+      if (code !== null && code !== undefined) {
+        void copyMarkdown(code.textContent ?? "")
+      }
+    }
     window.addEventListener("popstate", handlePopState)
     document.addEventListener("click", closeProjectActionMenu)
+    document.addEventListener("click", copyCodeBlock)
     void checkSession()
     return () => {
       window.removeEventListener("popstate", handlePopState)
       document.removeEventListener("click", closeProjectActionMenu)
+      document.removeEventListener("click", copyCodeBlock)
       stopActivityPolling()
     }
   })

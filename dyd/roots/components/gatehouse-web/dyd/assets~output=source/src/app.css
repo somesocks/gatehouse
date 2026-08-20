@@ -711,6 +711,39 @@ body {
 	padding: 0.8rem;
 }
 
+.markdown-code-block {
+  position: relative;
+}
+
+.markdown-code-block pre {
+  padding-right: 4.5rem;
+}
+
+.markdown-code-copy {
+  align-items: center;
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-radius: 0.3rem;
+  color: #edf3df;
+  cursor: pointer;
+  display: inline-flex;
+  height: 1.75rem;
+  justify-content: center;
+  padding: 0;
+  position: absolute;
+  right: 0.45rem;
+  top: 0.45rem;
+  transition: background 120ms ease, opacity 120ms ease;
+  width: 1.75rem;
+}
+
+.markdown-code-copy:hover,
+.markdown-code-copy:focus-visible {
+  background: rgb(240 242 233 / 15%);
+  outline: 0;
+}
+
 .workspace-empty {
   align-self: center;
   margin: auto;
