@@ -17,7 +17,6 @@ var evaluatorForms = []evaluatorForm{
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f")},
 	{name: "or", documentation: doc("(or condition...) -> Boolean", "Returns true at the first true condition and otherwise false.", "(or #f #t)", "#t")},
 	{name: "fn", documentation: doc("(fn parameters body) -> Function", "Creates a closure over its lexical environment. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))")},
-	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2")},
 }
 
 func evaluatorFormDocumentation(name string) (documentation, bool) {
@@ -74,13 +73,6 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			}
 			if isSymbol(forms[0], "fn") {
 				return evaluator.evaluateFunction(forms, env)
-			}
-			if isSymbol(forms[0], "begin") {
-				err, expression = evaluator.evaluateBegin(forms, env)
-				if err != nil {
-					return err, nil
-				}
-				continue
 			}
 			err, callee := evaluator.eval(forms[0], env)
 			if err != nil {
@@ -335,10 +327,10 @@ func functionParameters(expression Expr) (error, []string, *string) {
 	}
 }
 func (evaluator *evaluator) evaluateBegin(forms []Expr, env *environment) (error, Expr) {
-	if len(forms) < 2 {
+	if len(forms) == 0 {
 		return expressionError("begin requires at least one expression"), nil
 	}
-	for _, form := range forms[1 : len(forms)-1] {
+	for _, form := range forms[:len(forms)-1] {
 		err, _ := evaluator.eval(form, env)
 		if err != nil {
 			return err, nil
