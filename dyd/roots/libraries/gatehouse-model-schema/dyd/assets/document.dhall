@@ -575,6 +575,7 @@ let ProjectNote =
             , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note title" }
             , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note description" }
             , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Markdown note body" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the note body are marked sensitive" }
             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project note is available" }
             , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note creation timestamp" }
             }

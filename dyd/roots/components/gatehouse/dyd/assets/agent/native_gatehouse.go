@@ -14,14 +14,20 @@ type File struct {
 // FileRead reads an authorized byte range from a file or note.
 type FileRead func(id string, offset, length int64) (error, []byte)
 
+// NoteRead reads an authorized note byte range and reports whether it is sensitive.
+type NoteRead func(id string, offset, length int64) (error, []byte, bool)
+
+// ProjectNoteRead reads an authorized project note byte range and reports whether it is sensitive.
+type ProjectNoteRead = NoteRead
+
 // SessionNoteRead reads an authorized session note byte range and reports whether it is sensitive.
-type SessionNoteRead func(id string, offset, length int64) (error, []byte, bool)
+type SessionNoteRead = NoteRead
 
 // SessionFileCreate creates a file in the current session and returns its ID.
 type SessionFileCreate func(name, mediaType string, contents []byte) (error, string)
 
-// NoteCreate creates an authorized project note.
-type NoteCreate func(title, description, body string) (error, ProjectNote)
+// ProjectNoteCreate creates an authorized project note.
+type ProjectNoteCreate func(title, description, body string, sensitive bool) (error, ProjectNote)
 
 // SessionNoteCreate creates an authorized session note.
 type SessionNoteCreate func(title, description, body string, sensitive bool) (error, SessionNote)
@@ -34,6 +40,7 @@ type ProjectNote struct {
 	ID         string
 	Title      string
 	Description string
+	Sensitive  bool
 	AuthorID   string
 	AuthorName *string
 	CreatedAt  string
@@ -116,6 +123,7 @@ func noteValue(note ProjectNote, name string) (error, lisp.Expr) {
 		lisp.Pair("id", lisp.String(note.ID)),
 		lisp.Pair("title", lisp.String(note.Title)),
 		lisp.Pair("description", lisp.String(note.Description)),
+		lisp.Pair("sensitive", lisp.Boolean(note.Sensitive)),
 		lisp.Pair("author_id", lisp.String(note.AuthorID)),
 		lisp.Pair("author_name", authorName),
 		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
@@ -186,7 +194,7 @@ func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp
 	}
 }
 
-func sessionNoteReadFunction(read SessionNoteRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+func noteReadFunction(read NoteRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires id, offset, and length", name), nil

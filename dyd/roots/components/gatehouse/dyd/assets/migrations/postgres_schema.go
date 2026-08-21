@@ -561,6 +561,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				ALTER TABLE gatehouse_session_notes
 				ADD COLUMN sensitive BOOLEAN NOT NULL DEFAULT FALSE;
 			`),
+		}, {
+			Index:       19,
+			Description: "add_project_note_sensitivity",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_project_notes
+				ADD COLUMN sensitive BOOLEAN NOT NULL DEFAULT FALSE;
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

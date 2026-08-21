@@ -583,6 +583,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				ALTER TABLE gatehouse_session_notes
 				ADD COLUMN sensitive INTEGER NOT NULL DEFAULT FALSE CHECK (sensitive IN (0, 1));
 			`),
+		}, {
+			Index:       19,
+			Description: "add_project_note_sensitivity",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_project_notes
+				ADD COLUMN sensitive INTEGER NOT NULL DEFAULT FALSE CHECK (sensitive IN (0, 1));
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

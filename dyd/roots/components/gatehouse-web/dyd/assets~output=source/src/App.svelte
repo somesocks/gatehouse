@@ -50,6 +50,7 @@
     title: string
     description: string
     body?: string
+    sensitive: boolean
     author: { id: string; name?: string }
     created_at: string
   }
@@ -136,6 +137,7 @@
   let projectNoteTitle = $state("")
   let projectNoteDescription = $state("")
   let projectNoteBody = $state("")
+  let projectNoteSensitive = $state(false)
   let projectNoteError = $state("")
   let activeSessionNote = $state<SessionNote | null>(null)
   let creatingSessionNote = $state(false)
@@ -344,9 +346,17 @@
     return `${workspacePath(workspace)}/prj`
   }
 
+  function projectPath(workspace: Workspace, project: Project) {
+    return `${projectsPath(workspace)}/${encodeURIComponent(project.id)}`
+  }
+
+  function projectNotesPath(workspace: Workspace, project: Project) {
+    return `${projectPath(workspace, project)}/pnt`
+  }
+
   function projectNotePath(workspace: Workspace, project: Project, note: ProjectNote | string) {
     const id = typeof note === "string" ? note : note.id
-    return `${projectsPath(workspace)}/${encodeURIComponent(project.id)}/pnt/${encodeURIComponent(id)}`
+    return `${projectNotesPath(workspace, project)}/${encodeURIComponent(id)}`
   }
 
   function groupsPath(workspace: Workspace) {
@@ -372,6 +382,10 @@
 
   function isSessionNotesRoute() {
     return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes(?:\/[^/]+)?\/?$/.test(currentPath)
+  }
+
+  function isProjectNotesRoute() {
+    return /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/pnt(?:\/[^/]+)?\/?$/.test(currentPath)
   }
 
   function isProjectCollection() {
@@ -669,9 +683,21 @@
     projectFileError = ""
     projectNotes = []
     events = []
-    navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(project.id)}`, replace)
+    navigate(projectPath(activeWorkspace, project), replace)
     await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project)])
     startActivityPolling()
+  }
+
+  async function selectProjectNotes(project: Project) {
+    if (activeWorkspace === null || activeProject?.id !== project.id) {
+      return
+    }
+    activeProjectNote = null
+    creatingProjectNote = false
+    editingProjectNote = false
+    projectNoteError = ""
+    navigate(projectNotesPath(activeWorkspace, project), false)
+    await loadProjectNotes(project)
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -1489,6 +1515,7 @@
     projectNoteTitle = ""
     projectNoteDescription = ""
     projectNoteBody = ""
+    projectNoteSensitive = false
     projectNoteError = ""
     navigate(projectNotePath(activeWorkspace, activeProject, "new"), false)
   }
@@ -1500,6 +1527,7 @@
     projectNoteTitle = activeProjectNote.title
     projectNoteDescription = activeProjectNote.description
     projectNoteBody = activeProjectNote.body ?? ""
+    projectNoteSensitive = activeProjectNote.sensitive
     projectNoteError = ""
     editingProjectNote = true
   }
@@ -1535,7 +1563,7 @@
         method: creating ? "POST" : "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: projectNoteTitle, description: projectNoteDescription, body: projectNoteBody }),
+        body: JSON.stringify(creating ? { title: projectNoteTitle, description: projectNoteDescription, body: projectNoteBody, sensitive: projectNoteSensitive } : { title: projectNoteTitle, description: projectNoteDescription, body: projectNoteBody }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -2152,10 +2180,10 @@
               <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if activeSession === null && activeProjectNote === null && !creatingProjectNote}
+              {#if activeSession === null && activeProjectNote === null && !creatingProjectNote && !isProjectNotesRoute()}
                 <span>{activeProject.name ?? "New Project"}</span>
               {:else}
-                <a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(activeProject.id)}`} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
+                <a href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
               {/if}
             {/if}
             {#if activeSession !== null}
@@ -2171,9 +2199,17 @@
               {:else}
                 <span>{activeSession.name ?? "New Chat"}</span>
               {/if}
-            {:else if activeProjectNote !== null || creatingProjectNote}
+            {:else if activeProject !== null && (isProjectNotesRoute() || activeProjectNote !== null || creatingProjectNote)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>{activeProjectNote?.title ?? "New Note"}</span>
+              {#if activeProjectNote !== null || creatingProjectNote}
+                <a href={activeWorkspace !== null ? projectNotesPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNotes(activeProject) }}>Notes</a>
+              {:else}
+                <span>Notes</span>
+              {/if}
+              {#if activeProjectNote !== null || creatingProjectNote}
+                <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+                <span>{activeProjectNote?.title ?? "New Note"}</span>
+              {/if}
             {/if}
             {#if activeSession !== null && (activeSessionNote !== null || creatingSessionNote)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
@@ -2267,12 +2303,13 @@
               <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" autocomplete="off" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
               <div class="field"><label class="label" for="project-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="project-note-description" autocomplete="off" rows="3" maxlength="4096" bind:value={projectNoteDescription}></textarea></div></div>
               <div class="field"><label class="label" for="project-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" autocomplete="off" rows="18" maxlength="1048576" bind:value={projectNoteBody}></textarea></div></div>
+              {#if creatingProjectNote}<div class="field"><label class="checkbox"><input type="checkbox" autocomplete="off" bind:checked={projectNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>{/if}
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
               <div class="project-note-actions"><button class="button" type="button" disabled={savingProjectNote} onclick={cancelProjectNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectNote}>{savingProjectNote ? "Saving..." : "Save note"}</button></div>
             </form>
           {:else if activeProjectNote !== null}
             <article class="project-note-view">
-              <header class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{activeProjectNote.title}</h2>{#if activeProjectNote.description !== ""}<p>{activeProjectNote.description}</p>{/if}<small>By {activeProjectNote.author.name ?? activeProjectNote.author.id} on {createdAtLabel(activeProjectNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button></div></header>
+              <header class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2><span class="project-note-title">{activeProjectNote.title}{#if activeProjectNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeProjectNote.description !== ""}<p>{activeProjectNote.description}</p>{/if}<small>By {activeProjectNote.author.name ?? activeProjectNote.author.id} on {createdAtLabel(activeProjectNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button></div></header>
               {#if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
             </article>
@@ -2348,7 +2385,7 @@
               <p class="dashboard-empty">Notes could not be loaded.</p>
             {:else}
               {#each projectNotes as note (note.id)}
-                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
+                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNote(note) }}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
               {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
             {/if}
           </section>

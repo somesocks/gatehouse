@@ -22,6 +22,7 @@ type ProjectNoteSummary struct {
 	AuthorName      *string
 	Title           string
 	Description     string
+	Sensitive       bool
 	CreatedAt       string
 }
 
@@ -53,7 +54,7 @@ func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRe
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT notes.id, notes.author_principal, principals.name, notes.title, notes.description, notes.created_at
+		SELECT notes.id, notes.author_principal, principals.name, notes.title, notes.description, notes.sensitive, notes.created_at
 		FROM gatehouse_project_notes AS notes
 		JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.project = `+placeholder(2)+` AND notes.enabled = TRUE
@@ -68,7 +69,7 @@ func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRe
 		var note ProjectNoteSummary
 		var authorName sql.NullString
 		note.Ref.Project = project
-		if err := rows.Scan(&note.Ref.Id, &note.AuthorPrincipal.Id, &authorName, &note.Title, &note.Description, &note.CreatedAt); err != nil {
+		if err := rows.Scan(&note.Ref.Id, &note.AuthorPrincipal.Id, &authorName, &note.Title, &note.Description, &note.Sensitive, &note.CreatedAt); err != nil {
 			return fmt.Errorf("scan project note: %w", err), nil
 		}
 		if authorName.Valid {
@@ -93,14 +94,14 @@ func (store *Store) ProjectNoteGet(ctx context.Context, note model.ProjectNoteRe
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT notes.author_principal, principals.name, notes.title, notes.description, notes.body, notes.enabled, notes.created_at
+		SELECT notes.author_principal, principals.name, notes.title, notes.description, notes.body, notes.sensitive, notes.enabled, notes.created_at
 		FROM gatehouse_project_notes AS notes
 		JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.project = `+placeholder(2)+` AND notes.id = `+placeholder(3)+` AND notes.enabled = TRUE
 	`, note.Project.Workspace.Id, note.Project.Id, note.Id)
 	detail := &ProjectNoteDetail{Note: model.ProjectNote{Ref: note}}
 	var authorName sql.NullString
-	if err := row.Scan(&detail.Note.AuthorPrincipal.Id, &authorName, &detail.Note.Title, &detail.Note.Description, &detail.Note.Body, &detail.Note.Enabled, &detail.Note.CreatedAt); err != nil {
+	if err := row.Scan(&detail.Note.AuthorPrincipal.Id, &authorName, &detail.Note.Title, &detail.Note.Description, &detail.Note.Body, &detail.Note.Sensitive, &detail.Note.Enabled, &detail.Note.CreatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -138,9 +139,9 @@ func (store *Store) ProjectNoteCreate(ctx context.Context, note model.ProjectNot
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_notes (workspace, project, id, author_principal, title, description, body, enabled, created_at)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, TRUE, `+placeholder(8)+`)
-	`, note.Ref.Project.Workspace.Id, note.Ref.Project.Id, note.Ref.Id, note.AuthorPrincipal.Id, note.Title, note.Description, note.Body, note.CreatedAt); err != nil {
+		INSERT INTO gatehouse_project_notes (workspace, project, id, author_principal, title, description, body, sensitive, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, TRUE, `+placeholder(9)+`)
+	`, note.Ref.Project.Workspace.Id, note.Ref.Project.Id, note.Ref.Id, note.AuthorPrincipal.Id, note.Title, note.Description, note.Body, note.Sensitive, note.CreatedAt); err != nil {
 		return fmt.Errorf("insert project note: %w", err), model.ProjectNote{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{

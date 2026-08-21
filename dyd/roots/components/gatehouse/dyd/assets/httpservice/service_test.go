@@ -612,7 +612,7 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/notes"
 	created := request(http.MethodPost, base, `{"title":"Guide","description":"How to work on this project.","body":"# Guide\n\nFollow the checklist."}`)
 	var note projectNoteResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectNote, note.ID) || note.Title != "Guide" || note.Description != "How to work on this project." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Author.ID == "" || note.CreatedAt == "" {
+	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectNote, note.ID) || note.Title != "Guide" || note.Description != "How to work on this project." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.ID == "" || note.CreatedAt == "" {
 		t.Fatalf("POST project note = (%d, %#v, %v)", created.Code, note, err)
 	}
 	listed := request(http.MethodGet, base, "")
@@ -631,6 +631,13 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
 	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
 		t.Fatalf("POST empty project note = (%d, %#v, %v)", empty.Code, note, err)
+	}
+	sensitive := request(http.MethodPost, base, `{"title":"Credentials","body":"secret","sensitive":true}`)
+	if err := json.Unmarshal(sensitive.Body.Bytes(), &note); err != nil || sensitive.Code != http.StatusCreated || !note.Sensitive {
+		t.Fatalf("POST sensitive project note = (%d, %#v, %v)", sensitive.Code, note, err)
+	}
+	if updated := request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`); updated.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH sensitive project note = status %d", updated.Code)
 	}
 	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
 	if invalid.Code != http.StatusBadRequest {

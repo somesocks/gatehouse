@@ -346,6 +346,7 @@ type projectNoteRequest struct {
 	Title       *string `json:"title"`
 	Description *string `json:"description"`
 	Body        *string `json:"body"`
+	Sensitive   *bool   `json:"sensitive"`
 }
 
 type sessionNoteRequest struct {
@@ -365,6 +366,7 @@ type projectNoteResponse struct {
 	Title       string                    `json:"title"`
 	Description string                    `json:"description"`
 	Body        *string                   `json:"body,omitempty"`
+	Sensitive   bool                      `json:"sensitive"`
 	Author      projectNoteAuthorResponse `json:"author"`
 	CreatedAt   string                    `json:"created_at"`
 }
@@ -1141,13 +1143,14 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			if input.Body != nil {
 				body = *input.Body
 			}
-			note := model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: *input.Title, Description: description, Body: body}
+			sensitive := input.Sensitive != nil && *input.Sensitive
+			note := model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: *input.Title, Description: description, Body: body, Sensitive: sensitive}
 			err, stored := store.ProjectNoteCreate(request.Context(), note, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "project note could not be created", http.StatusBadRequest)
 				return
 			}
-			writeJSONStatus(response, http.StatusCreated, projectNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+			writeJSONStatus(response, http.StatusCreated, projectNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
 		default:
 			response.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -1907,6 +1910,9 @@ func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 	if required && input.Title == nil {
 		return false
 	}
+	if !required && input.Sensitive != nil {
+		return false
+	}
 	if !required && input.Title == nil && input.Description == nil && input.Body == nil {
 		return false
 	}
@@ -1921,12 +1927,12 @@ func validSessionNoteRequest(input sessionNoteRequest, required bool) bool {
 }
 
 func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
-	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNoteResponse {
 	note := detail.Note
-	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNoteResponse {
