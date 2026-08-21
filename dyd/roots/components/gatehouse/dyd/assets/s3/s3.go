@@ -2,10 +2,12 @@
 package s3
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/xml"
 	"fmt"
 	"hash"
 	"io"
@@ -20,6 +22,8 @@ import (
 )
 
 const streamingChunkSize = 64 * 1024
+const multipartPartSize = 5 * 1024 * 1024
+const multipartMaxParts = 10_000
 const emptySHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 const streamingPayloadSHA256 = "STREAMING-AWS4-HMAC-SHA256-PAYLOAD"
 
@@ -98,6 +102,196 @@ func Put(ctx context.Context, config Config, key string, source io.Reader, size 
 		return nil, fmt.Errorf("upload S3 object: unexpected status %s", response.Status)
 	}
 	return stream.hash.Sum(nil), nil
+}
+
+// PutUnknown streams an object with an unknown length. Small objects use a
+// normal PUT; larger objects use an internal multipart upload.
+func PutUnknown(ctx context.Context, config Config, key string, source io.Reader) (digest []byte, size int64, err error) {
+	buffer := make([]byte, multipartPartSize)
+	defer clear(buffer)
+	count, final, err := readMultipartPart(source, buffer)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read S3 upload: %w", err)
+	}
+	if final {
+		digest, err := Put(ctx, config, key, bytes.NewReader(buffer[:count]), int64(count))
+		return digest, int64(count), err
+	}
+
+	uploadID, err := startMultipartUpload(ctx, config, key)
+	if err != nil {
+		return nil, 0, err
+	}
+	completed := false
+	defer func() {
+		if completed {
+			return
+		}
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if abortErr := abortMultipartUpload(cleanupCtx, config, key, uploadID); abortErr != nil {
+			err = fmt.Errorf("%w; abort multipart upload: %v", err, abortErr)
+		}
+	}()
+
+	hash := sha256.New()
+	parts := make([]multipartPart, 0)
+	partNumber := 1
+	for {
+		if partNumber > multipartMaxParts {
+			return nil, 0, fmt.Errorf("upload S3 object: exceeds %d multipart parts", multipartMaxParts)
+		}
+		part := buffer[:count]
+		if _, err := hash.Write(part); err != nil {
+			return nil, 0, fmt.Errorf("hash S3 upload: %w", err)
+		}
+		size += int64(count)
+		etag, err := uploadMultipartPart(ctx, config, key, uploadID, partNumber, part)
+		if err != nil {
+			return nil, 0, err
+		}
+		parts = append(parts, multipartPart{number: partNumber, etag: etag})
+		if final {
+			break
+		}
+		count, final, err = readMultipartPart(source, buffer)
+		if err != nil {
+			return nil, 0, fmt.Errorf("read S3 upload: %w", err)
+		}
+		if count == 0 {
+			break
+		}
+		partNumber++
+	}
+	if err := completeMultipartUpload(ctx, config, key, uploadID, parts); err != nil {
+		return nil, 0, err
+	}
+	completed = true
+	return hash.Sum(nil), size, nil
+}
+
+type multipartPart struct {
+	number int
+	etag   string
+}
+
+func readMultipartPart(source io.Reader, buffer []byte) (int, bool, error) {
+	count, err := io.ReadFull(source, buffer)
+	switch err {
+	case nil:
+		return count, false, nil
+	case io.EOF:
+		return 0, true, nil
+	case io.ErrUnexpectedEOF:
+		if count > 0 {
+			return count, true, nil
+		}
+		return 0, false, err
+	default:
+		return 0, false, err
+	}
+}
+
+func startMultipartUpload(ctx context.Context, config Config, key string) (string, error) {
+	_, body, err := multipartRequest(ctx, config, http.MethodPost, key, url.Values{"uploads": {""}}, nil)
+	if err != nil {
+		return "", fmt.Errorf("start multipart upload: %w", err)
+	}
+	var result struct {
+		UploadID string `xml:"UploadId"`
+	}
+	if err := xml.Unmarshal(body, &result); err != nil || strings.TrimSpace(result.UploadID) == "" {
+		return "", fmt.Errorf("start multipart upload: response has no upload ID")
+	}
+	return result.UploadID, nil
+}
+
+func uploadMultipartPart(ctx context.Context, config Config, key, uploadID string, number int, part []byte) (string, error) {
+	headers, _, err := multipartRequest(ctx, config, http.MethodPut, key, url.Values{"partNumber": {strconv.Itoa(number)}, "uploadId": {uploadID}}, part)
+	if err != nil {
+		return "", fmt.Errorf("upload multipart part %d: %w", number, err)
+	}
+	etag := headers.Get("ETag")
+	if strings.TrimSpace(etag) == "" {
+		return "", fmt.Errorf("upload multipart part %d: response has no ETag", number)
+	}
+	return etag, nil
+}
+
+func completeMultipartUpload(ctx context.Context, config Config, key, uploadID string, parts []multipartPart) error {
+	type completedPart struct {
+		ETag   string `xml:"ETag"`
+		Number int    `xml:"PartNumber"`
+	}
+	body, err := xml.Marshal(struct {
+		XMLName xml.Name        `xml:"CompleteMultipartUpload"`
+		Parts   []completedPart `xml:"Part"`
+	}{
+		Parts: func() []completedPart {
+			result := make([]completedPart, 0, len(parts))
+			for _, part := range parts {
+				result = append(result, completedPart{ETag: part.etag, Number: part.number})
+			}
+			return result
+		}(),
+	})
+	if err != nil {
+		return fmt.Errorf("encode multipart completion: %w", err)
+	}
+	_, response, err := multipartRequest(ctx, config, http.MethodPost, key, url.Values{"uploadId": {uploadID}}, body)
+	if err != nil {
+		return fmt.Errorf("complete multipart upload: %w", err)
+	}
+	if len(bytes.TrimSpace(response)) == 0 {
+		return nil
+	}
+	var result struct {
+		XMLName xml.Name
+		Code    string `xml:"Code"`
+		Message string `xml:"Message"`
+	}
+	if err := xml.Unmarshal(response, &result); err != nil {
+		return fmt.Errorf("complete multipart upload: parse response: %w", err)
+	}
+	if result.XMLName.Local == "Error" {
+		return fmt.Errorf("complete multipart upload: %s: %s", result.Code, result.Message)
+	}
+	return nil
+}
+
+func abortMultipartUpload(ctx context.Context, config Config, key, uploadID string) error {
+	_, _, err := multipartRequest(ctx, config, http.MethodDelete, key, url.Values{"uploadId": {uploadID}}, nil)
+	return err
+}
+
+func multipartRequest(ctx context.Context, config Config, method, key string, query url.Values, body []byte) (http.Header, []byte, error) {
+	request, err := newRequest(ctx, config, method, key, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	request.URL.RawQuery = query.Encode()
+	request.ContentLength = int64(len(body))
+	payload := sha256.Sum256(body)
+	keyBytes, _, _, _, err := sign(request, config, hex.EncodeToString(payload[:]), time.Now().UTC())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer clear(keyBytes)
+	transport := operationTransport()
+	defer transport.CloseIdleConnections()
+	response, err := operationClient(transport).Do(request)
+	if err != nil {
+		return nil, nil, fmt.Errorf("request S3 object: %w", err)
+	}
+	defer response.Body.Close()
+	contents, readErr := io.ReadAll(response.Body)
+	if readErr != nil {
+		return nil, nil, fmt.Errorf("read S3 response: %w", readErr)
+	}
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		return nil, nil, fmt.Errorf("request S3 object: unexpected status %s", response.Status)
+	}
+	return response.Header, contents, nil
 }
 
 func newRequest(ctx context.Context, config Config, method, key string, body io.Reader) (*http.Request, error) {

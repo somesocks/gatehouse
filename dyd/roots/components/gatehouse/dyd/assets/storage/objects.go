@@ -28,6 +28,7 @@ func NewClient(store *database.Store, keyring *keychain.Keyring) *Client {
 	return &Client{store: store, keyring: keyring}
 }
 
+// Put uploads source. A negative size streams an unknown-length source.
 func (client *Client) Put(ctx context.Context, id string, source io.Reader, size int64) error {
 	err, provider := client.store.StorageObjectPendingGet(ctx, id)
 	if err != nil {
@@ -40,15 +41,17 @@ func (client *Client) Put(ctx context.Context, id string, source io.Reader, size
 	case "embedded":
 		return client.store.StorageObjectPutEmbedded(ctx, id, source)
 	case "s3":
-		if size < 0 {
-			return fmt.Errorf("upload S3 storage object: declared size is required")
-		}
 		err, configuration := client.s3Config(ctx, provider)
 		if err != nil {
 			return err
 		}
 		defer clear(configuration.SecretAccessKey)
-		digest, err := s3.Put(ctx, configuration, provider.Object.Object, source, size)
+		var digest []byte
+		if size < 0 {
+			digest, size, err = s3.PutUnknown(ctx, configuration, provider.Object.Object, source)
+		} else {
+			digest, err = s3.Put(ctx, configuration, provider.Object.Object, source, size)
+		}
 		if err != nil {
 			return fmt.Errorf("upload S3 storage object: %w", err)
 		}

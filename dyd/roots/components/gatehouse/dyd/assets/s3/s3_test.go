@@ -203,6 +203,77 @@ func TestPutStreamsPayloadAndClosesOperationTransport(t *testing.T) {
 	}
 }
 
+func TestPutUnknownStreamsMultipartPayload(t *testing.T) {
+	var parts [][]byte
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		switch {
+		case request.Method == http.MethodPost && query.Has("uploads"):
+			_, _ = response.Write([]byte(`<InitiateMultipartUploadResult><UploadId>upload</UploadId></InitiateMultipartUploadResult>`))
+		case request.Method == http.MethodPut && query.Get("uploadId") == "upload":
+			part, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts = append(parts, part)
+			response.Header().Set("ETag", `"part-`+query.Get("partNumber")+`"`)
+			response.WriteHeader(http.StatusOK)
+		case request.Method == http.MethodPost && query.Get("uploadId") == "upload":
+			completion, err := io.ReadAll(request.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(completion), `<PartNumber>1</PartNumber>`) || !strings.Contains(string(completion), `<PartNumber>2</PartNumber>`) {
+				t.Fatalf("completion = %q", completion)
+			}
+			_, _ = response.Write([]byte(`<CompleteMultipartUploadResult/>`))
+		default:
+			t.Fatalf("request = %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+	payload := append(bytes.Repeat([]byte("a"), multipartPartSize), []byte("tail")...)
+	digest, size, err := PutUnknown(context.Background(), testConfig(server.URL), "object", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parts) != 2 || len(parts[0]) != multipartPartSize || string(parts[1]) != "tail" {
+		t.Fatalf("parts = %d (%d, %q)", len(parts), len(parts[0]), parts[1])
+	}
+	want := sha256.Sum256(payload)
+	if size != int64(len(payload)) || hex.EncodeToString(digest) != hex.EncodeToString(want[:]) {
+		t.Fatalf("digest, size = (%x, %d)", digest, size)
+	}
+}
+
+func TestPutUnknownAbortsMultipartUploadOnSourceFailure(t *testing.T) {
+	aborted := false
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		switch {
+		case request.Method == http.MethodPost && query.Has("uploads"):
+			_, _ = response.Write([]byte(`<InitiateMultipartUploadResult><UploadId>upload</UploadId></InitiateMultipartUploadResult>`))
+		case request.Method == http.MethodPut && query.Get("uploadId") == "upload":
+			_, _ = io.Copy(io.Discard, request.Body)
+			response.Header().Set("ETag", `"part-1"`)
+			response.WriteHeader(http.StatusOK)
+		case request.Method == http.MethodDelete && query.Get("uploadId") == "upload":
+			aborted = true
+			response.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("request = %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+	_, _, err := PutUnknown(context.Background(), testConfig(server.URL), "object", io.MultiReader(bytes.NewReader(bytes.Repeat([]byte("a"), multipartPartSize)), failingReader{}))
+	if err == nil || !strings.Contains(err.Error(), "read S3 upload") {
+		t.Fatalf("PutUnknown() error = %v", err)
+	}
+	if !aborted {
+		t.Fatal("PutUnknown() did not abort the multipart upload")
+	}
+}
+
 func TestGetRejectsUnexpectedStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		response.WriteHeader(http.StatusForbidden)

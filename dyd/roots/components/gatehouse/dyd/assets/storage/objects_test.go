@@ -132,7 +132,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 		t.Fatalf("SessionFileCreate() storage object timestamp = %q, want ID timestamp", objectCreatedAt)
 	}
 	client := storage.NewClient(store, keyring)
-	if err := client.Put(ctx, objectID, &chunkReader{data: []byte("hello, S3 world"), limit: 3}, int64(len("hello, S3 world"))); err != nil {
+	if err := client.Put(ctx, objectID, &chunkReader{data: []byte("hello, S3 world"), limit: 3}, -1); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.Finish(ctx, objectID); err != nil {
