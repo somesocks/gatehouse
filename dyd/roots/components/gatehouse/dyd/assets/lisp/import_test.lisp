@@ -7,9 +7,9 @@
         (time @native:time/v1)
         (int? (time/now)))))
 
-  ; Apply accepts a data-built declaration list for special builtin imports.
+  ; fn/apply accepts a data-built declaration list for special builtin imports.
   (assert
-    (apply import
+    (fn/apply import
       (list
         (list 'time @native:time/v1)
         '(int? (time/now)))))

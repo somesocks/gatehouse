@@ -62,7 +62,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: valueCall(mapValues)},
 	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: valueCall(filterValues)},
 	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: valueCall(foldValues)},
-	{name: "apply", documentation: doc("(apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(apply + (list 1 2 3))", "6"), leaky: true, call: valueCall(applyValues)},
+	{name: "fn/apply", documentation: doc("(fn/apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(fn/apply + (list 1 2 3))", "6"), leaky: true, call: valueCall(fnApplyValues)},
 	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: valueCall(evaluate)},
 	{name: "string?", documentation: doc("(string? value) -> Boolean", "Returns whether value is a String.", "(string? \"text\")", "#t"), call: pure(isString)},
 	{name: "string/length", documentation: doc("(string/length text) -> Integer", "Returns the Unicode code-point length of text.", "(string/length \"hello\")", "5"), call: pure(stringLength)},
@@ -485,13 +485,13 @@ func foldValues(evaluator *evaluator, env *environment, arguments []Expr) (error
 	return nil, result
 }
 
-func applyValues(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+func fnApplyValues(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
 	if len(arguments) != 2 {
-		return expressionError("apply requires a function and argument list"), nil
+		return expressionError("fn/apply requires a function and argument list"), nil
 	}
 	err, values := expressions(arguments[1])
 	if err != nil {
-		return expressionError("apply requires a proper argument list"), nil
+		return expressionError("fn/apply requires a proper argument list"), nil
 	}
 	return evaluator.call(arguments[0], env, values)
 }

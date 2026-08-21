@@ -42,9 +42,9 @@
   (assert (= (let ((prefix 1)) ((fn (first . rest) (list prefix first rest)) 2 3)) (list 1 2 (list 3))))
   (assert (secret? ((fn rest rest) (secret/mark 1))))
 
-  ; Recursive variadic functions work through apply.
+  ; Recursive variadic functions work through fn/apply.
   (assert
-    (= (let ((collect (fn (first . rest) (if (null? rest) (list first) (pair first (apply collect rest))))))
+    (= (let ((collect (fn (first . rest) (if (null? rest) (list first) (pair first (fn/apply collect rest))))))
          (collect 1 2 3))
        (list 1 2 3)))
 

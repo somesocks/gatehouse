@@ -847,7 +847,7 @@ Examples:
 - ` + "`(help 'binding) ; Inspect a binding.`" + `
 - ` + "`(let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.`" + `
 - ` + "`(list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9).`" + `
-- ` + "`(apply + (list 1 2 3)) ; Calls a function with values from a list.`" + `
+- ` + "`(fn/apply + (list 1 2 3)) ; Calls a function with values from a list.`" + `
 
 # Instructions
 

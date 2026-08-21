@@ -14,7 +14,7 @@ func TestNativeJSON(t *testing.T) {
 		{`(import (json @native:json/v1) (json/decode "{}"))`, `(json/object)`},
 		{`(import (json @native:json/v1) (json/encode (json/decode "{\"name\":\"Gatehouse\",\"items\":[1,true,null,-2.5e+3]}")))`, `"{\"name\":\"Gatehouse\",\"items\":[1,true,null,-2.5e+3]}"`},
 		{`(import (json @native:json/v1) (json/encode (json/object (pair "name" (json/string "Gatehouse")) (pair "items" (json/array (json/number "1") (json/boolean #t) (json/null))))))`, `"{\"name\":\"Gatehouse\",\"items\":[1,true,null]}"`},
-		{`(import (json @native:json/v1) (json/encode (apply json/array (list/map json/string (list "first" "second")))))`, `"[\"first\",\"second\"]"`},
+		{`(import (json @native:json/v1) (json/encode (fn/apply json/array (list/map json/string (list "first" "second")))))`, `"[\"first\",\"second\"]"`},
 		{`(import (json @native:json/v1) (secret? (json/decode (secret/mark "{\"token\":\"secret\"}"))))`, `#t`},
 		{`(import (json @native:json/v1) (secret? (json/encode (secret/mark (json/string "secret")))))`, `#t`},
 		{`(import (json @native:json/v1) (error? (error/catch (json/decode "["))))`, `#t`},

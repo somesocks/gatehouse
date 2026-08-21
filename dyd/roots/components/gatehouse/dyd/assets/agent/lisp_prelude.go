@@ -2,7 +2,7 @@ package agent
 
 const agentPrelude = `(let
   (
-    ; Import declarations remain raw forms until apply invokes import.
+    ; Import declarations remain raw forms until fn/apply invokes import.
     (prelude/imports
       '(
         ; Standard library modules.
@@ -38,7 +38,7 @@ const agentPrelude = `(let
                     (head (tail operation))
                     (head (tail (tail operation)))))))
           )
-          (apply let
+          (fn/apply let
             (list
               (list/map prelude/operation-binding prelude/operations)
               '(let
@@ -54,4 +54,4 @@ const agentPrelude = `(let
       )
     )
   )
-  (apply import prelude/imports))`
+  (fn/apply import prelude/imports))`
