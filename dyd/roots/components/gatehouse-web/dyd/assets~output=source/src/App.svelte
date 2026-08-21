@@ -2062,13 +2062,13 @@
         <div class="field">
           <label class="label" for="identity">Username</label>
           <div class="control">
-            <input class="input" id="identity" name="identity" autocomplete="username" required bind:value={identity} />
+            <input class="input" id="identity" name="identity" autocomplete="off" required bind:value={identity} />
           </div>
         </div>
         <div class="field">
           <label class="label" for="password">Password</label>
           <div class="control">
-            <input class="input" id="password" name="password" type="password" autocomplete="current-password" required bind:value={password} />
+            <input class="input" id="password" name="password" type="password" autocomplete="off" required bind:value={password} />
           </div>
         </div>
         {#if loginError !== ""}
@@ -2162,6 +2162,12 @@
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               {#if isSessionNotesRoute()}
                 <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>{activeSession.name ?? "New Chat"}</a>
+                <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+                {#if activeSessionNote !== null || creatingSessionNote}
+                  <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
+                {:else}
+                  <span>Notes</span>
+                {/if}
               {:else}
                 <span>{activeSession.name ?? "New Chat"}</span>
               {/if}
@@ -2219,7 +2225,7 @@
         <section class="collection-page">
           <div class="collection-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
           <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitSessionSearch() }}>
-            <label><span>Search chats</span><input class="input" type="search" placeholder="Search chats" bind:value={chatSearch} /></label>
+            <label><span>Search chats</span><input class="input" type="search" autocomplete="off" placeholder="Search chats" bind:value={chatSearch} /></label>
             <button class="button" type="submit" aria-label="Search chats" title="Search chats"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
           </form>
           <div class="collection-list">
@@ -2233,7 +2239,7 @@
         <section class="collection-page">
           <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
           <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitProjectSearch() }}>
-            <label><span>Search projects</span><input class="input" type="search" placeholder="Search projects" bind:value={projectSearch} /></label>
+            <label><span>Search projects</span><input class="input" type="search" autocomplete="off" placeholder="Search projects" bind:value={projectSearch} /></label>
             <button class="button" type="submit" aria-label="Search projects" title="Search projects"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
           </form>
           <div class="collection-list">
@@ -2246,7 +2252,7 @@
       {:else if isGroupCollection()}
         <section class="collection-page">
           <div class="collection-heading"><h2>Groups</h2></div>
-          <div class="collection-search"><label><span>Search groups</span><input class="input" type="search" placeholder="Search groups" bind:value={groupSearch} /></label></div>
+          <div class="collection-search"><label><span>Search groups</span><input class="input" type="search" autocomplete="off" placeholder="Search groups" bind:value={groupSearch} /></label></div>
           <div class="collection-list">
             {#each ordered(groups.filter((group) => matchesSearch(group, groupSearch))) as group}
               <div class="dashboard-row"><span>{group.name ?? "New Group"}</span><small>{group.id}</small></div>
@@ -2258,9 +2264,9 @@
           {#if editingProjectNote}
             <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectNote() }}>
               <div class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{creatingProjectNote ? "New Note" : "Edit Note"}</h2></div></div>
-              <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
-              <div class="field"><label class="label" for="project-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="project-note-description" rows="3" maxlength="4096" bind:value={projectNoteDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="project-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" rows="18" maxlength="1048576" bind:value={projectNoteBody}></textarea></div></div>
+              <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" autocomplete="off" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
+              <div class="field"><label class="label" for="project-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="project-note-description" autocomplete="off" rows="3" maxlength="4096" bind:value={projectNoteDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="project-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" autocomplete="off" rows="18" maxlength="1048576" bind:value={projectNoteBody}></textarea></div></div>
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
               <div class="project-note-actions"><button class="button" type="button" disabled={savingProjectNote} onclick={cancelProjectNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectNote}>{savingProjectNote ? "Saving..." : "Save note"}</button></div>
             </form>
@@ -2277,10 +2283,10 @@
           {#if editingSessionNote}
             <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveSessionNote() }}>
               <div class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2>{creatingSessionNote ? "New Note" : "Edit Note"}</h2></div></div>
-              <div class="field"><label class="label" for="session-note-title">Title</label><div class="control"><input class="input" id="session-note-title" maxlength="256" required bind:value={sessionNoteTitle} /></div></div>
-              <div class="field"><label class="label" for="session-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="session-note-description" rows="3" maxlength="4096" bind:value={sessionNoteDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="session-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="session-note-body" rows="18" maxlength="1048576" bind:value={sessionNoteBody}></textarea></div></div>
-              {#if creatingSessionNote}<div class="field"><label class="checkbox"><input type="checkbox" bind:checked={sessionNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>{/if}
+              <div class="field"><label class="label" for="session-note-title">Title</label><div class="control"><input class="input" id="session-note-title" autocomplete="off" maxlength="256" required bind:value={sessionNoteTitle} /></div></div>
+              <div class="field"><label class="label" for="session-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="session-note-description" autocomplete="off" rows="3" maxlength="4096" bind:value={sessionNoteDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="session-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="session-note-body" autocomplete="off" rows="18" maxlength="1048576" bind:value={sessionNoteBody}></textarea></div></div>
+              {#if creatingSessionNote}<div class="field"><label class="checkbox"><input type="checkbox" autocomplete="off" bind:checked={sessionNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>{/if}
               {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
               <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionNote} onclick={cancelSessionNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionNote}>{savingSessionNote ? "Saving..." : "Save note"}</button></div>
             </form>
@@ -2316,7 +2322,7 @@
           </section>
           <section class="dashboard-widget dashboard-widget-wide project-files-widget">
             <div class="dashboard-widget-heading"><h2>Project Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
-            <input class="is-sr-only" type="file" multiple bind:this={projectFileInputElement} onchange={(event) => void uploadProjectFiles(event.currentTarget)} />
+            <input class="is-sr-only" type="file" autocomplete="off" multiple bind:this={projectFileInputElement} onchange={(event) => void uploadProjectFiles(event.currentTarget)} />
             {#if projectFileStatus === "checking"}
               <p class="dashboard-empty">Loading files...</p>
             {:else if projectFileStatus === "unavailable"}
@@ -2494,7 +2500,7 @@
           </div>
           <form class:sending={sendingMessage} class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
             <label class="is-sr-only" for="message">Message</label>
-            <input class="is-sr-only" id="files" type="file" multiple bind:this={fileInputElement} onchange={(event) => selectComposerFiles(event.currentTarget)} />
+            <input class="is-sr-only" id="files" type="file" autocomplete="off" multiple bind:this={fileInputElement} onchange={(event) => selectComposerFiles(event.currentTarget)} />
             {#if composerFiles.length > 0}
               <div class="composer-files" aria-label="Selected files">
                 {#each composerFiles as entry (entry.file)}
@@ -2547,11 +2553,11 @@
       <div class="project-edit-heading"><h2>Edit project</h2><button class="button is-ghost is-small" type="button" aria-label="Close" onclick={closeProjectEdit}><X size={18} strokeWidth={2} aria-hidden="true" /></button></div>
       <div class="field">
         <label class="label" for="project-edit-name">Name</label>
-        <div class="control"><input class="input" id="project-edit-name" maxlength="256" bind:value={projectEditName} /></div>
+        <div class="control"><input class="input" id="project-edit-name" autocomplete="off" maxlength="256" bind:value={projectEditName} /></div>
       </div>
       <div class="field">
         <label class="label" for="project-edit-description">Description</label>
-        <div class="control"><textarea class="textarea" id="project-edit-description" rows="4" maxlength="4096" bind:value={projectEditDescription}></textarea></div>
+        <div class="control"><textarea class="textarea" id="project-edit-description" autocomplete="off" rows="4" maxlength="4096" bind:value={projectEditDescription}></textarea></div>
       </div>
       {#if projectEditError !== ""}<p class="help is-danger" aria-live="polite">{projectEditError}</p>{/if}
       <div class="project-edit-actions"><button class="button" type="button" disabled={updatingProject} onclick={closeProjectEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={updatingProject}>{updatingProject ? "Saving..." : "Save changes"}</button></div>
