@@ -689,6 +689,24 @@ body {
 
 .project-note-page-heading h2 { font-size: 1.5rem; margin: 0; }
 
+.project-note-title {
+	align-items: center;
+	display: inline-flex;
+	gap: 0.35rem;
+}
+
+.sensitive-note-badge {
+	background: #5d4b21;
+	border-radius: 0.3rem;
+	color: #ffe08a;
+	font-size: 0.65em;
+	font-weight: 600;
+	letter-spacing: 0.04em;
+	line-height: 1;
+	padding: 0.3em 0.55em;
+	text-transform: uppercase;
+}
+
 .project-note-page-heading p { color: #c7c9bd; margin: 0.3rem 0 0; }
 
 .project-note-page-heading small { color: #9ea494; display: block; margin-top: 0.5rem; }

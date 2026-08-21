@@ -378,16 +378,28 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 			t.Fatal(err)
 		}
 		err, stored := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: "  " + title + "  ", Description: "  Description for " + title + ".  ", Body: "# " + title}, alice)
-		if err != nil || stored.AuthorPrincipal != alice || stored.Title != title || stored.Description != "Description for "+title+"." || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
+		if err != nil || stored.AuthorPrincipal != alice || stored.Title != title || stored.Description != "Description for "+title+"." || stored.Sensitive || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
 			t.Fatalf("SessionNoteCreate() = (%#v, %v)", stored, err)
 		}
 		return stored
 	}
 	older := create(time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC), "Guide")
 	newer := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "Architecture")
+	sensitiveID, err := typed_id.NewAt(typed_id.SessionNote, time.Date(2026, 1, 2, 3, 4, 6, 679_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, sensitive := store.SessionNoteCreate(ctx, model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: sensitiveID}, Title: "Credentials", Body: "secret", Sensitive: true}, alice)
+	if err != nil || !sensitive.Sensitive {
+		t.Fatalf("SessionNoteCreate() sensitive = (%#v, %v)", sensitive, err)
+	}
 	err, notes := store.SessionNotesGet(ctx, session, alice)
-	if err != nil || len(notes) != 2 || notes[0].Ref.Id != newer.Ref.Id || notes[0].Title != "Architecture" || notes[1].Ref.Id != older.Ref.Id {
+	if err != nil || len(notes) != 3 || notes[0].Ref.Id != sensitive.Ref.Id || !notes[0].Sensitive || notes[1].Ref.Id != newer.Ref.Id || notes[1].Title != "Architecture" || notes[2].Ref.Id != older.Ref.Id {
 		t.Fatalf("SessionNotesGet() = (%#v, %v)", notes, err)
+	}
+	err, sensitiveDetail := store.SessionNoteGet(ctx, sensitive.Ref, alice)
+	if err != nil || sensitiveDetail == nil || !sensitiveDetail.Note.Sensitive {
+		t.Fatalf("SessionNoteGet() sensitive = (%#v, %v)", sensitiveDetail, err)
 	}
 	err, denied := store.SessionNotesGet(ctx, session, bob)
 	if err != nil || len(denied) != 0 {
@@ -418,7 +430,7 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 		t.Fatalf("SessionNoteGet() after removal = (%#v, %v)", hidden, err)
 	}
 	err, notes = store.SessionNotesGet(ctx, session, alice)
-	if err != nil || len(notes) != 1 || notes[0].Ref.Id != older.Ref.Id {
+	if err != nil || len(notes) != 2 || notes[0].Ref.Id != sensitive.Ref.Id || !notes[0].Sensitive || notes[1].Ref.Id != older.Ref.Id {
 		t.Fatalf("SessionNotesGet() after removal = (%#v, %v)", notes, err)
 	}
 	oversizedID, err := typed_id.NewAt(typed_id.SessionNote, time.Date(2026, 1, 2, 3, 4, 7, 678_000_000, time.UTC))

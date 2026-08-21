@@ -553,6 +553,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 
 				CREATE INDEX gatehouse_session_approval_decisions_pending
 				ON gatehouse_session_approval_decisions (delivered, created_at, response);
+		`),
+		}, {
+			Index:       18,
+			Description: "add_session_note_sensitivity",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_session_notes
+				ADD COLUMN sensitive BOOLEAN NOT NULL DEFAULT FALSE;
 			`),
 		}},
 		Repeatable: []RepeatableMigration{

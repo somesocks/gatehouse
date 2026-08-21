@@ -139,3 +139,4 @@ func RequireBytes(expression Expr) (error, []byte) {
 }
 func Errorf(format string, args ...any) error       { return expressionError(format, args...) }
 func MarkSecret(expression Expr) Expr                { return withSecret(expression) }
+func IsSecret(expression Expr) bool                  { return hasSecret(expression) }

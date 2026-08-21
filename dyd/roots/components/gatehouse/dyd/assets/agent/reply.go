@@ -581,20 +581,20 @@ func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, input 
 	return execution.Output, nil
 }
 
-func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteCreate {
-	return func(title, description, body string) (error, ProjectNote) {
-		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
+func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) SessionNoteCreate {
+	return func(title, description, body string, sensitive bool) (error, SessionNote) {
+		note, err := dbos.RunAsStep(ctx, func(step context.Context) (SessionNote, error) {
 			id, err := typed_id.New(typed_id.SessionNote)
 			if err != nil {
-				return ProjectNote{}, fmt.Errorf("generate session note ID: %w", err)
+				return SessionNote{}, fmt.Errorf("generate session note ID: %w", err)
 			}
 			err, note := runtime.store.SessionNoteCreate(step, model.SessionNote{
-				Ref: model.SessionNoteRef{Session: session, Id: id}, Title: title, Description: description, Body: body,
+				Ref: model.SessionNoteRef{Session: session, Id: id}, Title: title, Description: description, Body: body, Sensitive: sensitive,
 			}, principal)
 			if err != nil {
-				return ProjectNote{}, err
+				return SessionNote{}, err
 			}
-			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
+			return SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
 		return err, note
 	}
@@ -1136,27 +1136,27 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		clearResourceValues(values)
 		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
-	sessionNotes := &SessionNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
+	sessionNotes := &SessionNotes{Notes: make([]SessionNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
-		sessionNotes.Notes = append(sessionNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+		sessionNotes.Notes = append(sessionNotes.Notes, SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
 	}
-	sessionNotes.Read = func(id string, offset, length int64) (error, []byte) {
+	sessionNotes.Read = func(id string, offset, length int64) (error, []byte, bool) {
 		err, detail := runtime.store.SessionNoteGet(ctx, model.SessionNoteRef{Session: session, Id: id}, principal)
 		if err != nil || detail == nil {
 			if err != nil {
-				return err, nil
+				return err, nil, false
 			}
-			return fmt.Errorf("read session note: unavailable"), nil
+			return fmt.Errorf("read session note: unavailable"), nil, false
 		}
 		body := []byte(detail.Note.Body)
 		if offset > int64(len(body)) {
-			return fmt.Errorf("read session note: offset is unavailable"), nil
+			return fmt.Errorf("read session note: offset is unavailable"), nil, false
 		}
 		end := offset + length
 		if end > int64(len(body)) {
 			end = int64(len(body))
 		}
-		return nil, append([]byte(nil), body[offset:end]...)
+		return nil, append([]byte(nil), body[offset:end]...), detail.Note.Sensitive
 	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {

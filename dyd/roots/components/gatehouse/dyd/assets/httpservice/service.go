@@ -348,6 +348,13 @@ type projectNoteRequest struct {
 	Body        *string `json:"body"`
 }
 
+type sessionNoteRequest struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Body        *string `json:"body"`
+	Sensitive   *bool   `json:"sensitive"`
+}
+
 type projectNoteAuthorResponse struct {
 	ID   string  `json:"id"`
 	Name *string `json:"name,omitempty"`
@@ -362,7 +369,15 @@ type projectNoteResponse struct {
 	CreatedAt   string                    `json:"created_at"`
 }
 
-type sessionNoteResponse = projectNoteResponse
+type sessionNoteResponse struct {
+	ID          string                    `json:"id"`
+	Title       string                    `json:"title"`
+	Description string                    `json:"description"`
+	Body        *string                   `json:"body,omitempty"`
+	Sensitive   bool                      `json:"sensitive"`
+	Author      projectNoteAuthorResponse `json:"author"`
+	CreatedAt   string                    `json:"created_at"`
+}
 
 type sessionEventTreeResponse struct {
 	Event    model.SessionEvent           `json:"event"`
@@ -1232,10 +1247,10 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			}
 			writeJSON(response, result)
 		case http.MethodPost:
-			var input projectNoteRequest
+			var input sessionNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, true) {
+			if err := decoder.Decode(&input); err != nil || !validSessionNoteRequest(input, true) {
 				http.Error(response, "invalid session note", http.StatusBadRequest)
 				return
 			}
@@ -1251,13 +1266,14 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			if input.Body != nil {
 				body = *input.Body
 			}
-			note := model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: *input.Title, Description: description, Body: body}
+			sensitive := input.Sensitive != nil && *input.Sensitive
+			note := model.SessionNote{Ref: model.SessionNoteRef{Session: session, Id: id}, Title: *input.Title, Description: description, Body: body, Sensitive: sensitive}
 			err, stored := store.SessionNoteCreate(request.Context(), note, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "session note could not be created", http.StatusBadRequest)
 				return
 			}
-			writeJSONStatus(response, http.StatusCreated, sessionNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+			writeJSONStatus(response, http.StatusCreated, sessionNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
 		default:
 			response.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -1291,10 +1307,10 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 		case http.MethodGet:
 			writeJSON(response, sessionNoteResponseFromDetail(*current))
 		case http.MethodPatch:
-			var input projectNoteRequest
+			var input sessionNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
-			if err := decoder.Decode(&input); err != nil || !validProjectNoteRequest(input, false) {
+			if err := decoder.Decode(&input); err != nil || !validSessionNoteRequest(input, false) {
 				http.Error(response, "invalid session note", http.StatusBadRequest)
 				return
 			}
@@ -1897,6 +1913,13 @@ func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 	return (input.Title == nil || len(*input.Title) <= 256) && (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Body == nil || len(*input.Body) <= 1024*1024)
 }
 
+func validSessionNoteRequest(input sessionNoteRequest, required bool) bool {
+	if !required && input.Sensitive != nil {
+		return false
+	}
+	return validProjectNoteRequest(projectNoteRequest{Title: input.Title, Description: input.Description, Body: input.Body}, required)
+}
+
 func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
 	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
 }
@@ -1907,12 +1930,12 @@ func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNot
 }
 
 func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNoteResponse {
-	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func sessionNoteResponseFromDetail(detail database.SessionNoteDetail) sessionNoteResponse {
 	note := detail.Note
-	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
 }
 
 func authorizedProjectFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.ProjectFile, *database.StorageObject, bool) {

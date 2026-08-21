@@ -54,7 +54,7 @@
     created_at: string
   }
 
-  type SessionNote = ProjectNote
+  type SessionNote = ProjectNote & { sensitive: boolean }
 
   type SessionSearchResponse = {
     sessions: Session[]
@@ -145,6 +145,7 @@
   let sessionNoteTitle = $state("")
   let sessionNoteDescription = $state("")
   let sessionNoteBody = $state("")
+  let sessionNoteSensitive = $state(false)
   let sessionNoteError = $state("")
   let creatingProject = $state(false)
   let updatingProject = $state(false)
@@ -1625,6 +1626,7 @@
     sessionNoteTitle = ""
     sessionNoteDescription = ""
     sessionNoteBody = ""
+    sessionNoteSensitive = false
     sessionNoteError = ""
     if (navigateRoute) {
       navigate(sessionNotePath(activeWorkspace, activeSession, "new"), false)
@@ -1638,6 +1640,7 @@
     sessionNoteTitle = activeSessionNote.title
     sessionNoteDescription = activeSessionNote.description
     sessionNoteBody = activeSessionNote.body ?? ""
+    sessionNoteSensitive = activeSessionNote.sensitive
     sessionNoteError = ""
     editingSessionNote = true
   }
@@ -1674,7 +1677,7 @@
         method: creating ? "POST" : "PATCH",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: sessionNoteTitle, description: sessionNoteDescription, body: sessionNoteBody }),
+        body: JSON.stringify(creating ? { title: sessionNoteTitle, description: sessionNoteDescription, body: sessionNoteBody, sensitive: sessionNoteSensitive } : { title: sessionNoteTitle, description: sessionNoteDescription, body: sessionNoteBody }),
       })
       if (response.status === 401) {
         signInRequired()
@@ -2277,12 +2280,13 @@
               <div class="field"><label class="label" for="session-note-title">Title</label><div class="control"><input class="input" id="session-note-title" maxlength="256" required bind:value={sessionNoteTitle} /></div></div>
               <div class="field"><label class="label" for="session-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="session-note-description" rows="3" maxlength="4096" bind:value={sessionNoteDescription}></textarea></div></div>
               <div class="field"><label class="label" for="session-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="session-note-body" rows="18" maxlength="1048576" bind:value={sessionNoteBody}></textarea></div></div>
+              {#if creatingSessionNote}<div class="field"><label class="checkbox"><input type="checkbox" bind:checked={sessionNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>{/if}
               {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
               <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionNote} onclick={cancelSessionNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionNote}>{savingSessionNote ? "Saving..." : "Save note"}</button></div>
             </form>
           {:else if activeSessionNote !== null}
             <article class="project-note-view">
-              <header class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2>{activeSessionNote.title}</h2>{#if activeSessionNote.description !== ""}<p>{activeSessionNote.description}</p>{/if}<small>By {activeSessionNote.author.name ?? activeSessionNote.author.id} on {createdAtLabel(activeSessionNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startSessionNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingSessionNote} onclick={() => void removeSessionNote()}>{deletingSessionNote ? "Removing..." : "Remove"}</button></div></header>
+              <header class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2><span class="project-note-title">{activeSessionNote.title}{#if activeSessionNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeSessionNote.description !== ""}<p>{activeSessionNote.description}</p>{/if}<small>By {activeSessionNote.author.name ?? activeSessionNote.author.id} on {createdAtLabel(activeSessionNote.created_at)}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startSessionNoteEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingSessionNote} onclick={() => void removeSessionNote()}>{deletingSessionNote ? "Removing..." : "Remove"}</button></div></header>
               {#if activeSessionNote.body !== undefined && activeSessionNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeSessionNote.body)}</div>{/if}
               {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
             </article>
@@ -2295,7 +2299,7 @@
                 <p class="dashboard-empty">Notes could not be loaded.</p>
               {:else}
                 {#each sessionNotes as note (note.id)}
-                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionNotePath(activeWorkspace, activeSession, note) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNote(note) }}><span class="dashboard-row-content"><span>{note.title}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><span>{note.author.name ?? note.author.id}</span><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
+                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionNotePath(activeWorkspace, activeSession, note) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNote(note) }}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><span>{note.author.name ?? note.author.id}</span><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
                 {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
               {/if}
             </div>

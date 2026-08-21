@@ -14,11 +14,17 @@ type File struct {
 // FileRead reads an authorized byte range from a file or note.
 type FileRead func(id string, offset, length int64) (error, []byte)
 
+// SessionNoteRead reads an authorized session note byte range and reports whether it is sensitive.
+type SessionNoteRead func(id string, offset, length int64) (error, []byte, bool)
+
 // SessionFileCreate creates a file in the current session and returns its ID.
 type SessionFileCreate func(name, mediaType string, contents []byte) (error, string)
 
-// NoteCreate creates an authorized note.
+// NoteCreate creates an authorized project note.
 type NoteCreate func(title, description, body string) (error, ProjectNote)
+
+// SessionNoteCreate creates an authorized session note.
+type SessionNoteCreate func(title, description, body string, sensitive bool) (error, SessionNote)
 
 // NoteRemove removes an authorized note.
 type NoteRemove func(id string) (error, bool)
@@ -31,6 +37,17 @@ type ProjectNote struct {
 	AuthorID   string
 	AuthorName *string
 	CreatedAt  string
+}
+
+// SessionNote describes an authorized session note.
+type SessionNote struct {
+	ID          string
+	Title       string
+	Description string
+	Sensitive   bool
+	AuthorID    string
+	AuthorName  *string
+	CreatedAt   string
 }
 
 type capabilityDocumentation struct {
@@ -105,6 +122,42 @@ func noteValue(note ProjectNote, name string) (error, lisp.Expr) {
 	)
 }
 
+func sessionNoteListFunction(notes []SessionNote, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 0 {
+			return lisp.Errorf("%s requires no arguments", name), nil
+		}
+		values := make([]lisp.Expr, 0, len(notes))
+		for _, note := range notes {
+			err, value := sessionNoteValue(note, name)
+			if err != nil {
+				return err, nil
+			}
+			values = append(values, value)
+		}
+		return nil, lisp.List(values...)
+	}
+}
+
+func sessionNoteValue(note SessionNote, name string) (error, lisp.Expr) {
+	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
+		return lisp.Errorf("%s has invalid note metadata", name), nil
+	}
+	authorName := lisp.Null()
+	if note.AuthorName != nil {
+		authorName = lisp.String(*note.AuthorName)
+	}
+	return nil, lisp.List(
+		lisp.Pair("id", lisp.String(note.ID)),
+		lisp.Pair("title", lisp.String(note.Title)),
+		lisp.Pair("description", lisp.String(note.Description)),
+		lisp.Pair("sensitive", lisp.Boolean(note.Sensitive)),
+		lisp.Pair("author_id", lisp.String(note.AuthorID)),
+		lisp.Pair("author_name", authorName),
+		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
+	)
+}
+
 func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
@@ -130,6 +183,38 @@ func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp
 			return lisp.Errorf("%s failed", name), nil
 		}
 		return nil, lisp.Bytes(value)
+	}
+}
+
+func sessionNoteReadFunction(read SessionNoteRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 3 {
+			return lisp.Errorf("%s requires id, offset, and length", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		err, offset := lisp.RequireInteger(arguments[1])
+		if err != nil {
+			return err, nil
+		}
+		err, length := lisp.RequireInteger(arguments[2])
+		if err != nil {
+			return err, nil
+		}
+		if id == "" || offset < 0 || length < 1 || length > 64*1024 {
+			return lisp.Errorf("%s requires a non-empty id, non-negative offset, and length from 1 through 65536", name), nil
+		}
+		err, value, sensitive := read(id, offset, length)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		result := lisp.Bytes(value)
+		if sensitive {
+			result = lisp.MarkSecret(result)
+		}
+		return nil, result
 	}
 }
 

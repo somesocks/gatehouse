@@ -575,6 +575,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 
 				CREATE INDEX gatehouse_session_approval_decisions_pending
 				ON gatehouse_session_approval_decisions (delivered, created_at, response);
+		`),
+		}, {
+			Index:       18,
+			Description: "add_session_note_sensitivity",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_session_notes
+				ADD COLUMN sensitive INTEGER NOT NULL DEFAULT FALSE CHECK (sensitive IN (0, 1));
 			`),
 		}},
 		Repeatable: []RepeatableMigration{

@@ -670,7 +670,7 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + session.ID + "/notes"
 	created := request(http.MethodPost, base, `{"title":"Guide","description":"How to work in this session.","body":"# Guide\n\nFollow the checklist."}`)
 	var note sessionNoteResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionNote, note.ID) || note.Title != "Guide" || note.Description != "How to work in this session." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Author.ID == "" || note.CreatedAt == "" {
+	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionNote, note.ID) || note.Title != "Guide" || note.Description != "How to work in this session." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.ID == "" || note.CreatedAt == "" {
 		t.Fatalf("POST session note = (%d, %#v, %v)", created.Code, note, err)
 	}
 	listed := request(http.MethodGet, base, "")
@@ -689,6 +689,13 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
 	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
 		t.Fatalf("POST empty session note = (%d, %#v, %v)", empty.Code, note, err)
+	}
+	sensitive := request(http.MethodPost, base, `{"title":"Credentials","body":"secret","sensitive":true}`)
+	if err := json.Unmarshal(sensitive.Body.Bytes(), &note); err != nil || sensitive.Code != http.StatusCreated || !note.Sensitive {
+		t.Fatalf("POST sensitive session note = (%d, %#v, %v)", sensitive.Code, note, err)
+	}
+	if updated := request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`); updated.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH sensitive session note = status %d", updated.Code)
 	}
 	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
 	if invalid.Code != http.StatusBadRequest {

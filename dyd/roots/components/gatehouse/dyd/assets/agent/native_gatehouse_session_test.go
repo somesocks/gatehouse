@@ -12,22 +12,22 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
   (session @native:gatehouse/session/v1)
   (session/notes/create "Decision" "" "# Decision"))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
-			NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(title, description, body string) (error, ProjectNote) {
-				if title != "Decision" || description != "" || body != "# Decision" {
-					t.Fatalf("session note create = (%q, %q, %q)", title, description, body)
+			NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(title, description, body string, sensitive bool) (error, SessionNote) {
+				if title != "Decision" || description != "" || body != "# Decision" || sensitive {
+					t.Fatalf("session note create = (%q, %q, %q, %t)", title, description, body, sensitive)
 				}
-				return nil, ProjectNote{ID: "note", Title: title, Description: description, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+				return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
 			}}),
 		},
 	})
-	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 
 	err, _ = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (session/notes/create "Decision" ""))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(string, string, string) (error, ProjectNote) { return nil, ProjectNote{} }})},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(string, string, string, bool) (error, SessionNote) { return nil, SessionNote{} }})},
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires title, description, and body") {
 		t.Fatalf("Evaluate() invalid session note create error = %v", err)
@@ -40,6 +40,66 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 	})
 	if err != nil || result.String() != `"session/notes/create is unavailable"` {
 		t.Fatalf("Evaluate() unavailable session note create = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/create "Decision" "" body))`, lisp.EvalOptions{
+		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSecret(lisp.String("# Decision"))}},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(title, description, body string, sensitive bool) (error, SessionNote) {
+			if title != "Decision" || description != "" || body != "# Decision" || !sensitive {
+				t.Fatalf("sensitive session note create = (%q, %q, %q, %t)", title, description, body, sensitive)
+			}
+			return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+	}})},
+	})
+	if err != nil || result.String() != "#<secret>" {
+		t.Fatalf("Evaluate() sensitive note = (%s, %v)", result, err)
+	}
+
+	err, _ = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/create title "" "# Decision"))`, lisp.EvalOptions{
+		Bindings:    []lisp.Binding{{Name: "title", Value: lisp.MarkSecret(lisp.String("Decision"))}},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(string, string, string, bool) (error, SessionNote) { return nil, SessionNote{} }})},
+	})
+	if err == nil || !strings.Contains(err.Error(), "title and description must not be sensitive") {
+		t.Fatalf("Evaluate() sensitive note metadata error = %v", err)
+	}
+}
+
+func TestGatehouseSessionNoteReadMarksSensitiveBytes(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/read "credentials" 0 6))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Read: func(id string, offset, length int64) (error, []byte, bool) {
+			if id != "credentials" || offset != 0 || length != 6 {
+				t.Fatalf("session note read = (%q, %d, %d)", id, offset, length)
+			}
+			return nil, []byte("secret"), true
+		}})},
+	})
+	if err != nil || !lisp.IsSecret(result) {
+		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSecret(result))
+	}
+	bytesErr, bytes := lisp.RequireBytes(result)
+	if bytesErr != nil || string(bytes) != "secret" {
+		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/read "guide" 0 5))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Read: func(string, int64, int64) (error, []byte, bool) {
+			return nil, []byte("guide"), false
+		}})},
+	})
+	if err != nil || lisp.IsSecret(result) {
+		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSecret(result))
+	}
+	bytesErr, bytes = lisp.RequireBytes(result)
+	if bytesErr != nil || string(bytes) != "guide" {
+		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
 	}
 }
 
