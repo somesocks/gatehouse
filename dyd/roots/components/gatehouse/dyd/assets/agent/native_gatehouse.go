@@ -1,6 +1,10 @@
 package agent
 
-import "gatehouse/lisp"
+import (
+	"io"
+
+	"gatehouse/lisp"
+)
 
 // File describes a file that an agent is authorized to inspect.
 type File struct {
@@ -24,7 +28,7 @@ type ProjectNoteRead = NoteRead
 type SessionNoteRead = NoteRead
 
 // SessionFileCreate creates a file in the current session and returns its ID.
-type SessionFileCreate func(name, mediaType string, contents []byte) (error, string)
+type SessionFileCreate func(name, mediaType string, source io.Reader) (error, string)
 
 // ProjectNoteCreate creates an authorized project note.
 type ProjectNoteCreate func(title, description, body string, sensitive bool) (error, ProjectNote)

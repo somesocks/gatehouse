@@ -1,6 +1,9 @@
 package lisp
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 type EvalOptions struct {
 	Prelude       string
@@ -128,6 +131,52 @@ func Function(call func([]Expr) (error, Expr)) Expr {
 		return call(arguments)
 	})}
 }
+
+// FunctionWithContext creates a host function that can synchronously call Lisp values.
+func FunctionWithContext(call func(*FunctionContext, []Expr) (error, Expr)) Expr {
+	return &builtin{leaky: true, call: valueCall(func(evaluator *evaluator, environment *environment, arguments []Expr) (error, Expr) {
+		context := &FunctionContext{evaluator: evaluator, environment: environment, active: true}
+		defer context.close()
+		return call(context, arguments)
+	})}
+}
+
+// FunctionContext invokes Lisp values while a context-aware host function runs.
+type FunctionContext struct {
+	mutex                  sync.Mutex
+	evaluator              *evaluator
+	environment            *environment
+	active                 bool
+}
+
+func (context *FunctionContext) Call(callee Expr, arguments ...Expr) (error, Expr) {
+	context.mutex.Lock()
+	defer context.mutex.Unlock()
+	if !context.active {
+		return expressionError("function context is no longer active"), nil
+	}
+	return context.evaluator.call(callee, context.environment, arguments)
+}
+
+func (context *FunctionContext) close() {
+	context.mutex.Lock()
+	defer context.mutex.Unlock()
+	context.active = false
+}
+
+// IsNull reports whether expression is the Null value.
+func IsNull(expression Expr) bool { return isNullValue(expression) }
+
+// DeconstructPair returns a pair's first and rest values.
+func DeconstructPair(expression Expr) (Expr, Expr, bool) {
+	base, _ := unwrap(expression)
+	pair, ok := base.(*pair)
+	if !ok {
+		return nil, nil, false
+	}
+	return pair.first, pair.rest, true
+}
+
 func Document(expression Expr, signature, description, example, result string) Expr {
 	return withHelp(expression, doc(signature, description, example, result).text())
 }

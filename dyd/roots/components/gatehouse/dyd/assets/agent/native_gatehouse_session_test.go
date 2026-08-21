@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -132,12 +133,13 @@ func TestGatehouseSessionNoteRemove(t *testing.T) {
 }
 
 func TestGatehouseSessionFileCreate(t *testing.T) {
-	err, result := lisp.Evaluate(`(session/files/create "report.txt" "text/plain" (bytes/utf8/encode "Generated report"))`, lisp.EvalOptions{
+	err, result := lisp.Evaluate(`(session/files/create "report.txt" "text/plain" (seq/from (bytes/utf8/encode "Generated ") (bytes/utf8/encode "report")))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
 		HostModules: []lisp.HostModule{
-			NewSessionModule(nil, nil, func(name, mediaType string, contents []byte) (error, string) {
-				if name != "report.txt" || mediaType != "text/plain" || string(contents) != "Generated report" {
-					t.Fatalf("session file create = (%q, %q, %q)", name, mediaType, contents)
+			NewSessionModule(nil, nil, func(name, mediaType string, source io.Reader) (error, string) {
+				contents, err := io.ReadAll(source)
+				if err != nil || name != "report.txt" || mediaType != "text/plain" || string(contents) != "Generated report" {
+					t.Fatalf("session file create = (%q, %q, %q, %v)", name, mediaType, contents, err)
 				}
 				return nil, "file"
 			}, nil),
@@ -149,15 +151,15 @@ func TestGatehouseSessionFileCreate(t *testing.T) {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 
-	err, _ = lisp.Evaluate(`(session/files/create "" "text/plain" (bytes/utf8/encode "Generated report"))`, lisp.EvalOptions{
+	err, _ = lisp.Evaluate(`(session/files/create "" "text/plain" (seq/from (bytes/utf8/encode "Generated report")))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, func(string, string, []byte) (error, string) { return nil, "file" }, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil)},
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, func(string, string, io.Reader) (error, string) { return nil, "file" }, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires non-empty name and media_type") {
 		t.Fatalf("Evaluate() invalid session file create error = %v", err)
 	}
 
-	err, result = lisp.Evaluate(`(error/value (error/catch (session/files/create "report.txt" "text/plain" (bytes/utf8/encode "Generated report"))))`, lisp.EvalOptions{
+	err, result = lisp.Evaluate(`(error/value (error/catch (session/files/create "report.txt" "text/plain" (seq/from (bytes/utf8/encode "Generated report")))))`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
 		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil)},
 	})

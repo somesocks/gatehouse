@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -601,7 +600,7 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 }
 
 func (runtime *SessionEventReplyRuntime) sessionFileCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) SessionFileCreate {
-	return func(name, mediaType string, contents []byte) (error, string) {
+	return func(name, mediaType string, source io.Reader) (error, string) {
 		id, err := dbos.RunAsStep(ctx, func(step context.Context) (string, error) {
 			fileID, err := typed_id.New(typed_id.SessionFile)
 			if err != nil {
@@ -618,7 +617,7 @@ func (runtime *SessionEventReplyRuntime) sessionFileCreate(ctx dbos.Context, ses
 			if err != nil {
 				return "", err
 			}
-			if err := runtime.storage.Put(step, objectID, bytes.NewReader(contents), int64(len(contents))); err != nil {
+			if err := runtime.storage.Put(step, objectID, source, -1); err != nil {
 				return "", err
 			}
 			if err := runtime.storage.Finish(step, objectID); err != nil {
@@ -837,7 +836,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `. Create a file with ` + "`session/files/create`" + ` using its name, media type, and bytes; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + ` and project capabilities from ` + "`@native:gatehouse/project/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + ` and ` + "`session/files/read`" + `. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + ` and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
