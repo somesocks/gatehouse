@@ -41,6 +41,19 @@ SOURCE_DIR="$DYD_STEM/dyd/assets/source"
 TESTS_DIR="$DYD_STEM/dyd/assets/tests"
 MANIFEST="$DYD_STEM/dyd/assets/tests.manifest"
 
+timing=false
+first=true
+for argument do
+	if [ "$first" = true ]; then
+		set --
+		first=false
+	fi
+	case "$argument" in
+		--timing) timing=true ;;
+		*) set -- "$@" "$argument" ;;
+	esac
+done
+
 while IFS="$(printf '\t')" read -r package test_name; do
 	case "$package" in
 		gatehouse) package_dir="$SOURCE_DIR" ;;
@@ -50,10 +63,21 @@ while IFS="$(printf '\t')" read -r package test_name; do
 			exit 1
 			;;
 	esac
-	(
-		cd "$package_dir"
-		exec "$TESTS_DIR/$test_name" "$@"
-	)
+	if [ "$timing" = true ]; then
+		started=$(date +%s)
+		printf '=== RUN   %s\n' "$package"
+		(
+			cd "$package_dir"
+			exec "$TESTS_DIR/$test_name" -test.v "$@"
+		)
+		finished=$(date +%s)
+		printf '=== PASS  %s (%ss)\n' "$package" "$((finished - started))"
+	else
+		(
+			cd "$package_dir"
+			exec "$TESTS_DIR/$test_name" "$@"
+		)
+	fi
 done < "$MANIFEST"
 EOF
 chmod +x "$DEST_DIR/dyd/commands/dyd-stem-run"

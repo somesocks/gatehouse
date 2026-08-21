@@ -1,9 +1,11 @@
 package agent_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -248,6 +250,107 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 }
 
 func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	aliceName := "Alice"
+	var completionMutex sync.Mutex
+	completionCodes := make(map[string]string)
+	completionCounts := make(map[string]int)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
+			http.Error(response, "unexpected completion request", http.StatusBadRequest)
+			return
+		}
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			http.Error(response, "could not read completion request", http.StatusBadRequest)
+			return
+		}
+		completionMutex.Lock()
+		message := ""
+		code := ""
+		for candidate, candidateCode := range completionCodes {
+			if bytes.Contains(body, []byte(candidate)) {
+				message = candidate
+				code = candidateCode
+				break
+			}
+		}
+		if message == "" {
+			completionMutex.Unlock()
+			http.Error(response, "unexpected completion message", http.StatusBadRequest)
+			return
+		}
+		completionCounts[message]++
+		completion := completionCounts[message]
+		completionMutex.Unlock()
+		response.Header().Set("Content-Type", "application/json")
+		if completion == 1 {
+			arguments, _ := json.Marshal(map[string]string{"code": code, "reason": "Perform the requested note operation."})
+			_, _ = response.Write([]byte(fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":%q}}]}}]}`, string(arguments))))
+			return
+		}
+		_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"text\":\"Done.\",\"attachments\":[]}"}}]}`))
+	}))
+	defer server.Close()
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	t.Setenv("APPROVAL_TEST_KEYCHAIN", "passphrase")
+	t.Setenv("APPROVAL_TEST_API_KEY", "test-key")
+	baseURL := server.URL + "/v1"
+	keychainID := "default"
+	state := config.State{
+		Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:APPROVAL_TEST_KEYCHAIN"}}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
+		AgentProviders: []config.AgentProvider{{
+			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
+		}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
+	}
+	keyringErr, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
+	if keyringErr != nil {
+		t.Fatal(keyringErr)
+	}
+	defer keyring.Close()
+	buildErr, set := migrations.Build(configuration, state, keyring)
+	if buildErr != nil {
+		t.Fatal(buildErr)
+	}
+	if err := migrations.Run(ctx, store, set); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	principal := principalRef(t, ctx, store, "alice")
+	principalRecord := model.Principal{Ref: principal, Name: &aliceName, Enabled: true}
+	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-agent-approval-test", SQLiteSystemDB: store.DB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+	if runtimeErr != nil {
+		t.Fatal(runtimeErr)
+	}
+	if err := dbos.Launch(dbosContext); err != nil {
+		t.Fatal(err)
+	}
+	defer dbos.Shutdown(dbosContext, time.Second)
+	type approvalCase struct {
+		name          string
+		project       *model.ProjectRef
+		projectUpdate bool
+		decision      string
+		toolKind      string
+		notes         int
+		session       model.SessionRef
+		message       model.SessionEvent
+	}
+	cases := make([]approvalCase, 0, 10)
+
 	for _, test := range []struct {
 		name          string
 		code          string
@@ -271,66 +374,11 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			code := test.code
-			var mutex sync.Mutex
-			completions := 0
-			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
-				if request.Method != http.MethodPost || request.URL.Path != "/v1/chat/completions" {
-					http.Error(response, "unexpected completion request", http.StatusBadRequest)
-					return
-				}
-				mutex.Lock()
-				completions++
-				completion := completions
-				mutex.Unlock()
-				response.Header().Set("Content-Type", "application/json")
-				if completion == 1 {
-					arguments, _ := json.Marshal(map[string]string{"code": code, "reason": "Perform the requested note operation."})
-					_, _ = response.Write([]byte(fmt.Sprintf(`{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call-1","type":"function","function":{"name":"lisp","arguments":%q}}]}}]}`, string(arguments))))
-					return
-				}
-				_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"{\"text\":\"Done.\",\"attachments\":[]}"}}]}`))
-			}))
-			defer server.Close()
-
-			ctx := context.Background()
-			configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-			err, store := database.Open(ctx, configuration)
+			sessionID, err := typed_id.New(typed_id.Session)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer store.Close()
-			t.Setenv("APPROVAL_TEST_KEYCHAIN", "passphrase")
-			t.Setenv("APPROVAL_TEST_API_KEY", "test-key")
-			baseURL := server.URL + "/v1"
-			keychainID := "default"
-			aliceName := "Alice"
-			state := config.State{
-				Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:APPROVAL_TEST_KEYCHAIN"}}},
-				Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-				Principals: []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
-				AgentProviders: []config.AgentProvider{{
-					Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
-				}},
-				AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Enabled: true}},
-				WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
-			}
-			keyringErr, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
-			if keyringErr != nil {
-				t.Fatal(keyringErr)
-			}
-			defer keyring.Close()
-			buildErr, set := migrations.Build(configuration, state, keyring)
-			if buildErr != nil {
-				t.Fatal(buildErr)
-			}
-			if err := migrations.Run(ctx, store, set); err != nil {
-				t.Fatal(err)
-			}
-
-			workspace := workspaceRef(t, ctx, store, "engineering")
-			principal := principalRef(t, ctx, store, "alice")
-			principalRecord := model.Principal{Ref: principal, Name: &aliceName, Enabled: true}
-			session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+			session := model.SessionRef{Workspace: workspace, Id: sessionID}
 			if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
 				t.Fatal(err)
 			}
@@ -372,25 +420,19 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					code = fmt.Sprintf(`(session/notes/remove "%s")`, id)
 				}
 			}
-			message := model.SessionEvent{
-				Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{"text": "Create the decision note."},
-			}
-			if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
-				t.Fatal(err)
-			}
-
-			dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-agent-approval-test", SQLiteSystemDB: store.DB})
+			messageID, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {
 				t.Fatal(err)
 			}
-			runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
-			if runtimeErr != nil {
-				t.Fatal(runtimeErr)
-			}
-			if err := dbos.Launch(dbosContext); err != nil {
+			messageText := "Create the decision note " + sessionID
+			completionMutex.Lock()
+			completionCodes[messageText] = code
+			completionCounts[messageText] = 0
+			completionMutex.Unlock()
+			message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: messageID}, Kind: "message.text", AuthorPrincipal: &principalRecord, Payload: map[string]interface{}{"text": messageText}}
+			if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 				t.Fatal(err)
 			}
-			defer dbos.Shutdown(dbosContext, time.Second)
 			if err := runtime.Reconcile(); err != nil {
 				t.Fatal(err)
 			}
@@ -424,30 +466,35 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			if err, _ := store.SessionApprovalResponseCreate(ctx, decision); err != nil {
 				t.Fatal(err)
 			}
-			if err := runtime.Reconcile(); err != nil {
-				t.Fatal(err)
-			}
-
-			result := waitForToolResult(t, ctx, store, session, test.toolKind)
+			cases = append(cases, approvalCase{name: test.name, project: project, projectUpdate: test.projectUpdate, decision: test.decision, toolKind: test.toolKind, notes: test.notes, session: session, message: message})
+		})
+	}
+	// All tool calls are waiting on independent approvals, so deliver their decisions together.
+	if err := runtime.Reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range cases {
+		t.Run(test.name+" result", func(t *testing.T) {
+			result := waitForToolResult(t, ctx, store, test.session, test.toolKind)
 			if result.Parent == nil {
 				t.Fatalf("tool result has no parent: %#v", result)
 			}
-			noteCount = 0
-			if project != nil {
-				err, notes := store.ProjectNotesGet(ctx, *project, principal)
+			noteCount := 0
+			if test.project != nil {
+				err, notes := store.ProjectNotesGet(ctx, *test.project, principal)
 				noteCount = len(notes)
 				if err != nil || noteCount != test.notes {
 					t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
 				}
 			} else {
-				err, notes := store.SessionNotesGet(ctx, session, principal)
+				err, notes := store.SessionNotesGet(ctx, test.session, principal)
 				noteCount = len(notes)
 				if err != nil || noteCount != test.notes {
 					t.Fatalf("notes after decision = (%#v, %v), want %d", notes, err, test.notes)
 				}
 			}
 			if test.projectUpdate {
-				err, updated := store.ProjectGet(ctx, *project, principal)
+				err, updated := store.ProjectGet(ctx, *test.project, principal)
 				if err != nil || updated == nil {
 					t.Fatalf("ProjectGet() = (%#v, %v)", updated, err)
 				}
@@ -458,7 +505,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					t.Fatalf("rejected project update = %#v", updated)
 				}
 			}
-			waitForAgentReply(t, ctx, store, session, message.Ref)
+			waitForAgentReply(t, ctx, store, test.session, test.message.Ref)
 			err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
 			if err != nil || len(tasks) != 0 {
 				t.Fatalf("approval decision tasks = (%#v, %v)", tasks, err)

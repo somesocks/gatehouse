@@ -3,4 +3,4 @@
 set -eu
 
 dryad roots build --scope="$DYD_SCOPE"
-exec dryad sprouts run --scope=none --include='~test=true' --include='~output=tests' --join-stdout --join-stderr "$@"
+exec dryad sprouts run --scope=none --include='~test=true' --include='~output=tests' --join-stdout --join-stderr -- "$@"
