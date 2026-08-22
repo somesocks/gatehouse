@@ -325,22 +325,42 @@
                                                   'match
                                                   (pair (head length) (head distance)))))))))))))
                     (d/next (d/block value)))))))
-     (output-page
-      (fn (value count pieces)
-        (if (= count 1024)
-            (pair value (reverse pieces))
-            (let ((next (d/next value)))
-              (if (null? next)
-                  (if (null? pieces)
-                      null
-                      (pair value (reverse pieces)))
-                  (output-page
-                    (tail next)
-                    (+ count 1)
-                    (pair (bytes/uint/le/encode (head next) 1) pieces)))))))
+      (output-page
+       (fn (value count word width pieces)
+         (if (= count 1024)
+             (pair
+               value
+               (reverse
+                 (if (= width 0)
+                     pieces
+                     (pair (bytes/uint/le/encode word width) pieces))))
+             (let ((next (d/next value)))
+               (if (null? next)
+                   (if (and (= width 0) (null? pieces))
+                       null
+                       (pair
+                         value
+                         (reverse
+                           (if (= width 0)
+                               pieces
+                               (pair (bytes/uint/le/encode word width) pieces)))))
+                   (let ((next-word (int/or word (int/shl (head next) (* width 8)))))
+                     (if (= width 6)
+                         (output-page
+                           (tail next)
+                           (+ count 1)
+                           0
+                           0
+                           (pair (bytes/uint/le/encode next-word 7) pieces))
+                         (output-page
+                           (tail next)
+                           (+ count 1)
+                           next-word
+                           (+ width 1)
+                            pieces))))))))
      (sequence
       (fn (value)
-        (let ((output (output-page value 0 null)))
+         (let ((output (output-page value 0 0 0 null)))
           (if (null? output)
               null
               (pair

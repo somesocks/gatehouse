@@ -25,6 +25,19 @@
           null
           "fixed Huffman back-reference across blocks")
 
+        ; Google Wuffs artificial-deflate/distance-32768.deflate.
+        ; MIT OR Apache-2.0; this exercises the maximum DEFLATE history distance.
+        ; Keep a generous initial limit while establishing the correctness baseline.
+        (assert
+          (= 32781 (bytes/length
+               (assert/timing
+                 120000
+                 (decode
+                   (bytes/base64/decode "S0xKTklNS88wMDQyNjE1Mx+lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpkUgD7/8HKgHe/w+6/h8A")))
+              ))
+          null
+          "maximum-distance back-reference")
+
         ; Google Wuffs artificial-deflate/degenerate-huffman.deflate.
         ; MIT OR Apache-2.0; this exercises a dynamic code-length tree.
         (assert
