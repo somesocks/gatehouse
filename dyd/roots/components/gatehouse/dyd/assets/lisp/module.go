@@ -50,6 +50,7 @@ func newModuleCache() *moduleCache {
 			nativeRandomID:             nativeRandomModule(),
 			nativeSeqID:                nativeSeqModule(),
 			nativeTimeID:               nativeTimeModule(),
+			nativeVectorID:             nativeVectorModule(),
 		},
 	}
 }

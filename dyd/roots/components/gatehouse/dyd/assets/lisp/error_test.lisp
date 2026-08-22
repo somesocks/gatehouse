@@ -71,26 +71,39 @@
   ; Assert returns opaque values without changing them.
   (assert (bytes? (assert #t (bytes/hex/decode "ff"))))
 
-  ; A false assertion does not evaluate its optional value.
+  ; A false assertion does not evaluate its success value.
   (assert (= (error/value (error/catch (assert #f missing))) "assertion failed"))
+
+  ; A false assertion evaluates its failure value instead of its success value.
+  (assert (= (error/value (error/catch (assert #f missing "required value"))) "required value"))
+
+  ; A true assertion does not evaluate its failure value.
+  (assert (= (assert #t 7 missing) 7))
+
+  ; A failure Error value is raised without an extra Error wrapper.
+  (assert
+    (= (error/value
+         (error/catch
+           (assert #f null (error/catch (error/throw "required value")))))
+       "required value"))
 
   ; Assert reports its signature and runnable example.
   (assert
     (and
-      (string/contains? (help assert) "(assert condition [value]) -> Null | Value")
-      (string/contains? (help assert) "Example: (assert #t 7) => 7.")))
+      (string/contains? (help assert) "(assert condition [value [failure]]) -> Null | Value")
+      (string/contains? (help assert) "Example: (assert #t 7 \"required value\") => 7.")))
 
-  ; Assert requires a condition and optional value.
+  ; Assert requires a condition and at most two optional values.
   (assert
     (string/contains?
       (error/value (error/catch (assert)))
-      "requires a condition and optional value"))
+      "requires a condition and optional value and failure"))
 
-  ; Assert rejects more than one optional value.
+  ; Assert rejects more than two optional values.
   (assert
     (string/contains?
-      (error/value (error/catch (assert #t 1 2)))
-      "requires a condition and optional value"))
+      (error/value (error/catch (assert #t 1 2 3)))
+      "requires a condition and optional value and failure"))
 
   ; Assert requires a Boolean condition.
   (assert

@@ -58,8 +58,8 @@ func throwError(_ *evaluator, arguments []Expr) (error, Expr) {
 }
 
 func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
-	if len(forms) < 1 || len(forms) > 2 {
-		return expressionError("assert requires a condition and optional value"), nil
+	if len(forms) < 1 || len(forms) > 3 {
+		return expressionError("assert requires a condition and optional value and failure"), nil
 	}
 	err, condition := evaluator.eval(forms[0], env)
 	if err != nil {
@@ -70,6 +70,17 @@ func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, E
 		return err, nil
 	}
 	if !valid {
+		if len(forms) == 3 {
+			err, value := evaluator.eval(forms[2], env)
+			if err != nil {
+				return err, nil
+			}
+			base, _ := unwrap(value)
+			if _, ok := base.(*errorValue); !ok {
+				value = errorExpression(value)
+			}
+			return &raisedError{value: value}, nil
+		}
 		return &raisedError{value: errorExpression(stringValue("assertion failed"))}, nil
 	}
 	if len(forms) == 1 {
