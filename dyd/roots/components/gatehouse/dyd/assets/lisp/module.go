@@ -40,6 +40,7 @@ func newModuleCache() *moduleCache {
 		aliases: make(map[string]string),
 		modules: map[string]Expr{
 			nativeJSONID:               nativeJSONModule(),
+			nativeCryptoDigestCRC32ID:  nativeCryptoDigestCRC32Module(),
 			nativeNetHTTPID:            nativeNetHTTPModule(),
 			nativeCryptoCipherAES128ID: nativeCryptoCipherAES128Module(),
 			nativeCryptoCipherCBCID:    nativeCryptoCipherCBCModule(),
