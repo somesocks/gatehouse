@@ -1,6 +1,9 @@
 package lisp
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type Error struct {
 	Message string
@@ -87,6 +90,34 @@ func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, E
 		return nil, null()
 	}
 	return evaluator.eval(forms[1], env)
+}
+
+func assertTiming(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+	if len(forms) != 2 {
+		return expressionError("assert/timing requires maximum milliseconds and one expression"), nil
+	}
+	err, maximum := evaluator.eval(forms[0], env)
+	if err != nil {
+		return err, nil
+	}
+	err, milliseconds := requireInteger(maximum)
+	if err != nil {
+		return err, nil
+	}
+	if milliseconds < 0 {
+		return expressionError("assert/timing requires non-negative maximum milliseconds"), nil
+	}
+
+	started := time.Now()
+	err, result := evaluator.eval(forms[1], env)
+	if err != nil {
+		return err, nil
+	}
+	elapsed := time.Since(started).Milliseconds()
+	if elapsed > milliseconds {
+		return expressionError("assert/timing exceeded %d milliseconds (actual %d milliseconds)", milliseconds, elapsed), nil
+	}
+	return nil, result
 }
 
 func isError(_ *evaluator, arguments []Expr) (error, Expr) {

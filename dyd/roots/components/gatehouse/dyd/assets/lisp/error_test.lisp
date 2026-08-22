@@ -71,6 +71,28 @@
   ; Assert returns opaque values without changing them.
   (assert (bytes? (assert #t (bytes/hex/decode "ff"))))
 
+  ; Timing assertions return their expression value when within the limit.
+  (assert (= (assert/timing 1000 (+ 2 5)) 7))
+
+  ; Timing assertions report their signature and runnable example.
+  (assert
+    (and
+      (string/contains? (help assert/timing) "(assert/timing maximum-milliseconds expression) -> Value")
+      (string/contains? (help assert/timing) "Example: (assert/timing 1000 (+ 1 2)) => 3.")))
+
+  ; Timing assertions require an integer, non-negative maximum and one expression.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (assert/timing)))
+        "requires maximum milliseconds and one expression")
+      (string/contains?
+        (error/value (error/catch (assert/timing -1 null)))
+        "requires non-negative maximum milliseconds")
+      (string/contains?
+        (error/value (error/catch (assert/timing "fast" null)))
+        "expected an integer")))
+
   ; A false assertion does not evaluate its success value.
   (assert (= (error/value (error/catch (assert #f missing))) "assertion failed"))
 
