@@ -67,18 +67,11 @@
         (let ((low (r/byte value)))
           (let ((high (r/byte (tail low))))
             (pair (+ (head low) (* 256 (head high))) (tail high))))))
-     ; Canonical Huffman tables are lists of (symbol bit-count code) entries.
-     (h/entry (fn (symbol width code) (list symbol width code)))
-     (h/symbol (fn (entry) (head entry)))
-     (h/width (fn (entry) (second entry)))
-     (h/code (fn (entry) (third entry)))
-     (h/find
-      (fn (table width code)
-        (if (null? table)
-            null
-            (if (and (= (h/width (head table)) width) (= (h/code (head table)) code))
-                (head table)
-                (h/find (tail table) width code)))))
+      ; Canonical Huffman codes are compiled into immutable bit-prefix tries.
+      (h/node (fn (symbol left right) (list symbol left right)))
+      (h/symbol (fn (node) (head node)))
+      (h/left (fn (node) (second node)))
+      (h/right (fn (node) (third node)))
      (h/count
       (fn (lengths index counts)
         (if (= index (vector/length lengths))
@@ -96,36 +89,59 @@
             result
             (let ((next (* 2 (+ code (vector/get counts (- width 1))))))
               (h/next counts (+ width 1) next (vector/set result width next))))))
-     (h/assign
-      (fn (lengths index next table)
-        (if (= index (vector/length lengths))
-            table
-            (let ((width (vector/get lengths index)))
-              (if (= width 0)
-                  (h/assign lengths (+ index 1) next table)
-                  (let ((code (vector/get next width)))
-                    (h/assign
-                      lengths
-                      (+ index 1)
-                      (vector/set next width (+ code 1))
-                      (pair (h/entry index width code) table))))))))
+      (h/assign
+       (fn (lengths index next table)
+         (if (= index (vector/length lengths))
+             table
+             (let ((width (vector/get lengths index)))
+               (if (= width 0)
+                   (h/assign lengths (+ index 1) next table)
+                   (if (> width 15)
+                       (error/throw "DEFLATE Huffman code length exceeds 15 bits")
+                       (let ((code (vector/get next width)))
+                         (h/assign
+                           lengths
+                           (+ index 1)
+                           (vector/set next width (+ code 1))
+                           (h/insert table code width index 0)))))))))
+      (h/insert
+       (fn (tree code width symbol depth)
+         (if (= depth width)
+             (if (null? tree)
+                 (h/node symbol null null)
+                 (error/throw "DEFLATE Huffman tree has overlapping codes"))
+             (let ((node (if (null? tree) (h/node null null null) tree)))
+               (if (not (null? (h/symbol node)))
+                   (error/throw "DEFLATE Huffman tree has a prefix code")
+                   (let ((bit (int/and (int/shr code (- width depth 1)) 1)))
+                     (if (= bit 0)
+                         (h/node
+                           null
+                           (h/insert (h/left node) code width symbol (+ depth 1))
+                           (h/right node))
+                         (h/node
+                           null
+                           (h/left node)
+                           (h/insert (h/right node) code width symbol (+ depth 1))))))))))
      (h/build
       (fn (lengths)
         (let ((zeroes (vector/from 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)))
           (let ((counts (h/count lengths 0 zeroes)))
             (h/assign lengths 0 (h/next counts 1 0 zeroes) null)))))
-     (h/decode-at
-      (fn (table source code width)
-        (if (> width 15)
-            (error/throw "invalid DEFLATE Huffman code")
-            (let ((bit (r/bits source 1)))
-              (let ((next-code (+ (* code 2) (head bit)))
-                    (next-width (+ width 1)))
-                (let ((entry (h/find table next-width next-code)))
-                  (if (null? entry)
-                      (h/decode-at table (tail bit) next-code next-width)
-                      (pair (h/symbol entry) (tail bit)))))))))
-     (h/decode (fn (table source) (h/decode-at table source 0 0)))
+      (h/decode-at
+       (fn (tree source depth)
+         (if (null? tree)
+             (error/throw "invalid DEFLATE Huffman code")
+             (if (not (null? (h/symbol tree)))
+                 (pair (h/symbol tree) source)
+                 (if (= depth 15)
+                     (error/throw "invalid DEFLATE Huffman code")
+                     (let ((bit (r/bits source 1)))
+                       (h/decode-at
+                         (if (= (head bit) 0) (h/left tree) (h/right tree))
+                         (tail bit)
+                         (+ depth 1))))))))
+      (h/decode (fn (tree source) (h/decode-at tree source 0)))
      (list/vector (fn (values) (fn/apply vector/from values)))
      (list/take
       (fn (count values)
