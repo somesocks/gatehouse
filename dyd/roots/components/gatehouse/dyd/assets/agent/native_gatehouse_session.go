@@ -19,6 +19,7 @@ type SessionNotes struct {
 
 var (
 	fileListDocumentation          = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileInfoDocumentation          = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata by ID, or null when the file is unavailable.", "(session/files/info \"example-file-id\")", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	fileReadDocumentation          = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
 	fileCreateDocumentation        = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
 	sessionNoteListDocumentation   = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, sensitivity, author_id, optional author_name, and created_at.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
@@ -57,6 +58,7 @@ func NewSessionModule(files []File, read FileRead, create SessionFileCreate, not
 
 	return lisp.HostModule{ID: gatehouseSessionModuleID, Exports: []lisp.HostExport{
 		{Name: "files/list", Value: document(lisp.Function(fileListFunction(files, "session/files/list")), fileListDocumentation)},
+		{Name: "files/info", Value: document(lisp.Function(fileInfoFunction(files, "session/files/info")), fileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},

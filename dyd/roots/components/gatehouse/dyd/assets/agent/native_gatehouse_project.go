@@ -31,6 +31,7 @@ type ProjectNotes struct {
 
 var (
 	projectFileListDocumentation = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with id, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectFileInfoDocumentation = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata by ID, or null when the file is unavailable.", "(project/files/info \"example-file-id\")", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	projectInfoGetDocumentation  = capabilityDocumentation{"(project/info/get) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info/get)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectInfoSetDocumentation  = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
@@ -49,9 +50,10 @@ func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		infoSet = projectInfoSetFunction(info.Set)
 	}
 
-	filesList, fileRead := fileListFunction(nil, "project/files/list"), unavailableRead("project/files/read")
+	filesList, filesInfo, fileRead := fileListFunction(nil, "project/files/list"), fileInfoFunction(nil, "project/files/info"), unavailableRead("project/files/read")
 	if files != nil {
 		filesList = fileListFunction(files.Files, "project/files/list")
+		filesInfo = fileInfoFunction(files.Files, "project/files/info")
 		if files.Read != nil {
 			fileRead = fileReadFunction(files.Read, "project/files/read")
 		}
@@ -76,6 +78,7 @@ func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)},
 		{Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)},
 		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
+		{Name: "files/info", Value: document(lisp.Function(filesInfo), projectFileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},

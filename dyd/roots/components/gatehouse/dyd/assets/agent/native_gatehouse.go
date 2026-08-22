@@ -79,23 +79,52 @@ func fileListFunction(files []File, name string) func([]lisp.Expr) (error, lisp.
 		}
 		values := make([]lisp.Expr, 0, len(files))
 		for _, file := range files {
-			if file.ID == "" || file.Name == "" || file.Size < 0 || file.Fingerprint == "" {
-				return lisp.Errorf("%s has invalid file metadata", name), nil
+			err, value := fileValue(file, name)
+			if err != nil {
+				return err, nil
 			}
-			mediaType := lisp.Null()
-			if file.MediaType != nil {
-				mediaType = lisp.String(*file.MediaType)
-			}
-			values = append(values, lisp.List(
-				lisp.Pair("id", lisp.String(file.ID)),
-				lisp.Pair("name", lisp.String(file.Name)),
-				lisp.Pair("media_type", mediaType),
-				lisp.Pair("size", lisp.Integer(file.Size)),
-				lisp.Pair("fingerprint", lisp.String(file.Fingerprint)),
-			))
+			values = append(values, value)
 		}
 		return nil, lisp.List(values...)
 	}
+}
+
+func fileInfoFunction(files []File, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 1 {
+			return lisp.Errorf("%s requires an id", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if id == "" {
+			return lisp.Errorf("%s requires a non-empty id", name), nil
+		}
+		for _, file := range files {
+			if file.ID == id {
+				return fileValue(file, name)
+			}
+		}
+		return nil, lisp.Null()
+	}
+}
+
+func fileValue(file File, name string) (error, lisp.Expr) {
+	if file.ID == "" || file.Name == "" || file.Size < 0 || file.Fingerprint == "" {
+		return lisp.Errorf("%s has invalid file metadata", name), nil
+	}
+	mediaType := lisp.Null()
+	if file.MediaType != nil {
+		mediaType = lisp.String(*file.MediaType)
+	}
+	return nil, lisp.List(
+		lisp.Pair("id", lisp.String(file.ID)),
+		lisp.Pair("name", lisp.String(file.Name)),
+		lisp.Pair("media_type", mediaType),
+		lisp.Pair("size", lisp.Integer(file.Size)),
+		lisp.Pair("fingerprint", lisp.String(file.Fingerprint)),
+	)
 }
 
 func noteListFunction(notes []ProjectNote, name string) func([]lisp.Expr) (error, lisp.Expr) {

@@ -39,6 +39,42 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 	}
 }
 
+func TestGatehouseFileInfoReturnsAuthorizedMetadata(t *testing.T) {
+	mediaType := "text/plain"
+	err, result := lisp.Evaluate(`(list
+  (session/files/info "session-file")
+  (session/files/info "missing")
+  (project/files/info "project-file")
+  (project/files/info "missing"))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewSessionModule([]File{{ID: "session-file", Name: "session.txt", MediaType: &mediaType, Size: 12, Fingerprint: "sha256:session"}}, nil, nil, nil),
+			NewProjectModule(nil, &ProjectFiles{Files: []File{{ID: "project-file", Name: "project.txt", Size: 34, Fingerprint: "sha256:project"}}}, nil),
+			NewPolicyModule(nil),
+		},
+	})
+	if err != nil || result.String() != `(((id . "session-file") (name . "session.txt") (media_type . "text/plain") (size . 12) (fingerprint . "sha256:session")) null ((id . "project-file") (name . "project.txt") (media_type) (size . 34) (fingerprint . "sha256:project")) null)` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseFileInfoValidatesID(t *testing.T) {
+	err, result := lisp.Evaluate(`(list
+  (error/value (error/catch (session/files/info "")))
+  (error/value (error/catch (project/files/info "")))
+  (error/value (error/catch (session/files/info))))`, lisp.EvalOptions{
+		Prelude: agentPrelude,
+		HostModules: []lisp.HostModule{
+			NewSessionModule(nil, nil, nil, nil),
+			NewProjectModule(nil, nil, nil),
+			NewPolicyModule(nil),
+		},
+	})
+	if err != nil || result.String() != `("session/files/info requires a non-empty id" "project/files/info requires a non-empty id" "session/files/info requires an id")` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
 func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 	err, _ := lisp.Evaluate(`(session/files/read "file" 0 65537)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,

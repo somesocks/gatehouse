@@ -13,6 +13,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
   (list
     (project/info/get)
     (project/files/list)
+    (project/files/info "guide")
     (project/notes/list)
     (error/value (error/catch (project/files/read "guide" 0 1)))
     (error/value (error/catch (project/notes/read "guide" 0 1)))
@@ -21,7 +22,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
     (error/value (error/catch (project/info/set "Roadmap" "Current priorities")))))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil)},
 	})
-	if err != nil || result.String() != `(null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/info/set is unavailable")` {
+	if err != nil || result.String() != `(null null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/info/set is unavailable")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }

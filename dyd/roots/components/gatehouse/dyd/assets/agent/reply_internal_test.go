@@ -60,7 +60,7 @@ func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
 }
 
 func TestOpenAISystemPromptDocumentsSessionAndProjectCapabilities(t *testing.T) {
-	for _, binding := range []string{"@native:gatehouse/session/v1", "@native:gatehouse/project/v1", "session/files/list", "session/files/read", "session/files/create", "session/notes/list", "session/notes/read", "session/notes/create", "session/notes/remove", "project/info/get", "project/info/set", "project/files/list", "project/files/read", "project/notes/list", "project/notes/read", "project/notes/create", "project/notes/remove"} {
+	for _, binding := range []string{"@native:gatehouse/session/v1", "@native:gatehouse/project/v1", "session/files/list", "session/files/info", "session/files/read", "session/files/create", "session/notes/list", "session/notes/read", "session/notes/create", "session/notes/remove", "project/info/get", "project/info/set", "project/files/list", "project/files/info", "project/files/read", "project/notes/list", "project/notes/read", "project/notes/create", "project/notes/remove"} {
 		if !strings.Contains(openAISystemPrompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}
