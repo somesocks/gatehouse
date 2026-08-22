@@ -27,11 +27,11 @@
 
         ; Google Wuffs artificial-deflate/distance-32768.deflate.
         ; MIT OR Apache-2.0; this exercises the maximum DEFLATE history distance.
-        ; Decoding the complete maximum-distance stream must remain within 40 seconds.
+        ; Decoding the complete maximum-distance stream must remain within 10 seconds.
         (assert
           (= 32781 (bytes/length
                (assert/timing
-                 40000
+                 10000
                  (decode
                    (bytes/base64/decode "S0xKTklNS88wMDQyNjE1Mx+lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpUXqUHqVH6VF6lB6lR+lRepQepUfpkUgD7/8HKgHe/w+6/h8A")))
               ))

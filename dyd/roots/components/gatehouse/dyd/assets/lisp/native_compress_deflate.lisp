@@ -236,55 +236,88 @@
       (history (fn (pages page) (pair pages page)))
       (history/pages (fn (value) (head value)))
       (history/page (fn (value) (tail value)))
+      (history/append
+       (fn (value write bytes)
+         (if (= (bytes/length bytes) 0)
+             value
+             (let ((page (history/page value)))
+               (let ((space (- 256 (bytes/length page))))
+                 (let ((count (if (< (bytes/length bytes) space) (bytes/length bytes) space)))
+                   (let ((next-page (bytes/concat page (bytes/slice bytes 0 count))))
+                     (let ((complete (= (bytes/length next-page) 256)))
+                       (let ((pages (history/pages value)))
+                         (history/append
+                           (history
+                             (if complete
+                                 (if (< (vector/length pages) 128)
+                                     (vector/tail/push pages next-page)
+                                     (vector/set pages (int/div write 256) next-page))
+                                 pages)
+                             (if complete (bytes/concat) next-page))
+                           (int/rem (+ write count) 32768)
+                           (bytes/slice bytes count (bytes/length bytes))))))))))))
+      (history/page-at
+       (fn (value write index)
+         (let ((page (history/page value)))
+           (if (and
+                 (= (int/div index 256) (int/div write 256))
+                 (< (int/rem index 256) (bytes/length page)))
+               page
+               (vector/get (history/pages value) (int/div index 256))))))
+      (history/read
+       (fn (value write index remaining pieces)
+         (if (= remaining 0)
+             (fn/apply bytes/concat (reverse pieces))
+             (let ((page (history/page-at value write index)))
+               (let ((offset (int/rem index 256)))
+                 (let ((available (- (bytes/length page) offset)))
+                   (let ((count (if (< remaining available) remaining available)))
+                     (history/read
+                       value
+                       write
+                       (int/rem (+ index count) 32768)
+                       (- remaining count)
+                       (pair (bytes/slice page offset (+ offset count)) pieces)))))))))
+      (history/repeat
+       (fn (value count)
+         (if (= (bytes/length value) count)
+             value
+             (let ((remaining (- count (bytes/length value))))
+               (history/repeat
+                 (bytes/concat
+                   value
+                   (bytes/slice value 0 (if (< remaining (bytes/length value)) remaining (bytes/length value))))
+                 count)))))
+      (d/match-bytes
+       (fn (value distance count)
+         (let ((index (if (< (d/length value) 32768)
+                          (- (d/write value) distance)
+                          (int/rem (+ (d/write value) 32768 (- distance)) 32768))))
+           (let ((seed-length (if (< count distance) count distance)))
+             (history/repeat
+               (history/read (d/history value) (d/write value) index seed-length null)
+               count)))))
       (d/emit
-       (fn (value byte)
-         (let ((length (d/length value))
-               (write (d/write value))
-               (previous (d/history value))
-               (page (vector/tail/push (history/page previous) byte))
-               (complete (= (vector/length page) 256))
-               (pages (history/pages previous)))
+       (fn (value bytes)
+         (let ((length (d/length value)) (write (d/write value)))
            (pair
-             byte
+             bytes
              (d/with
                value
                (d/source value)
-               (history
-                 (if complete
-                     (if (< (vector/length pages) 128)
-                         (vector/tail/push pages page)
-                         (vector/set pages (int/div write 256) page))
-                     pages)
-                 (if complete (vector/from) page))
-               (int/rem (+ write 1) 32768)
-               (if (< length 32768) (+ length 1) 32768)
+               (history/append (d/history value) write bytes)
+               (int/rem (+ write (bytes/length bytes)) 32768)
+               (if (< (+ length (bytes/length bytes)) 32768) (+ length (bytes/length bytes)) 32768)
                (d/final value)
                (d/trees value)
                (d/mode value)
-               (d/data value))))))
+                (d/data value))))))
      (d/with-source
       (fn (value source)
         (d/with value source (d/history value) (d/write value) (d/length value) (d/final value) (d/trees value) (d/mode value) (d/data value))))
      (d/with-mode
       (fn (value final trees mode data)
         (d/with value (d/source value) (d/history value) (d/write value) (d/length value) final trees mode data)))
-      (d/history-byte
-       (fn (value distance)
-         (if (or (< distance 1) (> distance (d/length value)))
-             (error/throw "DEFLATE distance exceeds output history")
-             (let ((index (if (< (d/length value) 32768)
-                              (- (d/write value) distance)
-                              (int/rem (+ (d/write value) 32768 (- distance)) 32768))))
-               (let ((page-index (int/div index 256)) (page-offset (int/rem index 256)))
-                 (let ((history (d/history value)))
-                   (let ((page (history/page history)))
-                     (vector/get
-                       (if (and
-                             (= page-index (int/div (d/write value) 256))
-                             (< page-offset (vector/length page)))
-                           page
-                           (vector/get (history/pages history) page-index))
-                        page-offset))))))))
      (d/block
       (fn (value)
         (let ((final (r/bits (d/source value) 1)))
@@ -309,22 +342,24 @@
                 (if (= (d/final value) 1)
                     null
                     (d/next (d/with-mode value 0 null 'block null)))
-                (let ((byte (r/byte (d/source value))))
-                  (d/emit
-                    (d/with-mode (d/with-source value (tail byte)) (d/final value) null 'stored (- (d/data value) 1))
-                    (head byte))))
-            (if (= (d/mode value) 'match)
-                (if (= (head (d/data value)) 0)
-                    (d/next (d/with-mode value (d/final value) (d/trees value) 'huffman null))
-                    (let ((byte (d/history-byte value (tail (d/data value)))))
-                      (d/emit
-                        (d/with-mode value (d/final value) (d/trees value) 'match (pair (- (head (d/data value)) 1) (tail (d/data value))))
-                        byte)))
-                (if (= (d/mode value) 'huffman)
+                 (let ((byte (r/byte (d/source value))))
+                   (d/emit
+                     (d/with-mode (d/with-source value (tail byte)) (d/final value) null 'stored (- (d/data value) 1))
+                     (bytes/uint/le/encode (head byte) 1))))
+             (if (= (d/mode value) 'match)
+                 (if (= (head (d/data value)) 0)
+                     (d/next (d/with-mode value (d/final value) (d/trees value) 'huffman null))
+                     (let ((count (head (d/data value))) (distance (tail (d/data value))))
+                       (d/emit
+                         (d/with-mode value (d/final value) (d/trees value) 'match (pair 0 distance))
+                         (if (or (< distance 1) (> distance (d/length value)))
+                             (error/throw "DEFLATE distance exceeds output history")
+                             (d/match-bytes value distance count)))))
+                 (if (= (d/mode value) 'huffman)
                     (let ((decoded (h/decode (head (d/trees value)) (d/source value))))
                       (let ((symbol (head decoded)) (source (tail decoded)))
-                        (if (< symbol 256)
-                            (d/emit (d/with-source value source) symbol)
+                         (if (< symbol 256)
+                             (d/emit (d/with-source value source) (bytes/uint/le/encode symbol 1))
                             (if (= symbol 256)
                                 (if (= (d/final value) 1)
                                     null
@@ -344,50 +379,43 @@
                                                   'match
                                                   (pair (head length) (head distance)))))))))))))
                     (d/next (d/block value)))))))
+      (output-state (fn (decoder pending) (pair decoder pending)))
+      (o/decoder (fn (value) (head value)))
+      (o/pending (fn (value) (tail value)))
       (output-page
-       (fn (value count word width pieces)
+       (fn (value count pieces)
          (if (= count 1024)
-             (pair
-               value
-               (reverse
-                 (if (= width 0)
-                     pieces
-                     (pair (bytes/uint/le/encode word width) pieces))))
-             (let ((next (d/next value)))
-               (if (null? next)
-                   (if (and (= width 0) (null? pieces))
-                       null
-                       (pair
-                         value
-                         (reverse
-                           (if (= width 0)
-                               pieces
-                               (pair (bytes/uint/le/encode word width) pieces)))))
-                   (let ((next-word (int/or word (int/shl (head next) (* width 8)))))
-                     (if (= width 6)
-                         (output-page
-                           (tail next)
-                           (+ count 1)
-                           0
-                           0
-                           (pair (bytes/uint/le/encode next-word 7) pieces))
-                         (output-page
-                           (tail next)
-                           (+ count 1)
-                           next-word
-                           (+ width 1)
-                            pieces))))))))
-     (sequence
-      (fn (value)
-         (let ((output (output-page value 0 0 0 null)))
-          (if (null? output)
-              null
-              (pair
-                (fn/apply bytes/concat (tail output))
-                (fn () (sequence (head output))))))))
+             (pair value (fn/apply bytes/concat (reverse pieces)))
+             (let ((pending (o/pending value)))
+               (let ((next (if (= (bytes/length pending) 0)
+                               (d/next (o/decoder value))
+                               (pair pending (o/decoder value)))))
+                 (if (null? next)
+                     (if (null? pieces)
+                         null
+                         (pair value (fn/apply bytes/concat (reverse pieces))))
+                     (let ((bytes (head next)) (decoder (tail next)))
+                       (let ((remaining (- 1024 count)))
+                         (if (<= (bytes/length bytes) remaining)
+                             (output-page
+                               (output-state decoder (bytes/concat))
+                               (+ count (bytes/length bytes))
+                               (pair bytes pieces))
+                             (output-page
+                               (output-state decoder (bytes/slice bytes remaining (bytes/length bytes)))
+                               1024
+                               (pair (bytes/slice bytes 0 remaining) pieces)))))))))))
+      (sequence
+       (fn (value)
+          (let ((output (output-page value 0 null)))
+           (if (null? output)
+               null
+               (pair
+                 (tail output)
+                 (fn () (sequence (head output))))))))
       (decode
        (fn (input)
-         (sequence (decoder (reader input (bytes/concat) 0 0 0) (history (vector/from) (vector/from)) 0 0 0 null 'block null))))
+         (sequence (output-state (decoder (reader input (bytes/concat) 0 0 0) (history (vector/from) (bytes/concat)) 0 0 0 null 'block null) (bytes/concat)))))
      )
     (list
       ; (deflate/decode compressed-pages) -> Sequence[Bytes]
