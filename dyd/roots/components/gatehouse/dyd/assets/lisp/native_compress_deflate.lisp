@@ -220,52 +220,70 @@
                     (let ((literal-lengths (list/vector (list/take (+ 257 (head hlit)) (tail expanded))))
                           (distance-lengths (list/vector (list/drop (+ 257 (head hlit)) (tail expanded)))))
                       (pair (head expanded) (pair (h/build literal-lengths) (h/build distance-lengths))))))))))))
-     ; Decoder state: reader, history, write index, history length, final flag, trees, mode, mode data.
-     (decoder (fn (source history write length final trees mode data) (list source history write length final trees mode data)))
-     (d/source (fn (value) (head value)))
-     (d/history (fn (value) (second value)))
+      ; Decoder state: reader, history pages plus active page, write index, history length, final flag, trees, mode, mode data.
+      (decoder (fn (source history write length final trees mode data) (list source history write length final trees mode data)))
+      (d/source (fn (value) (head value)))
+      (d/history (fn (value) (second value)))
      (d/write (fn (value) (third value)))
      (d/length (fn (value) (fourth value)))
      (d/final (fn (value) (fifth value)))
      (d/trees (fn (value) (sixth value)))
      (d/mode (fn (value) (seventh value)))
-     (d/data (fn (value) (eighth value)))
-     (d/with
-      (fn (value source history write length final trees mode data)
-        (decoder source history write length final trees mode data)))
-     (d/emit
-      (fn (value byte)
-        (let ((length (d/length value)) (write (d/write value)))
-          (let ((history (if (< length 32768)
-                             (vector/tail/push (d/history value) byte)
-                             (vector/set (d/history value) write byte))))
-            (pair
-              byte
-              (d/with
-                value
-                (d/source value)
-                history
-                (int/rem (+ write 1) 32768)
-                (if (< length 32768) (+ length 1) 32768)
-                (d/final value)
-                (d/trees value)
-                (d/mode value)
-                (d/data value)))))))
+      (d/data (fn (value) (eighth value)))
+      (d/with
+       (fn (value source history write length final trees mode data)
+         (decoder source history write length final trees mode data)))
+      (history (fn (pages page) (pair pages page)))
+      (history/pages (fn (value) (head value)))
+      (history/page (fn (value) (tail value)))
+      (d/emit
+       (fn (value byte)
+         (let ((length (d/length value)) (write (d/write value)))
+           (let ((previous (d/history value)))
+             (let ((page (vector/tail/push (history/page previous) byte)))
+               (let ((complete (= (vector/length page) 256)))
+                 (let ((pages (history/pages previous)))
+                   (pair
+                     byte
+                     (d/with
+                       value
+                       (d/source value)
+                       (history
+                         (if complete
+                             (if (< (vector/length pages) 128)
+                                 (vector/tail/push pages page)
+                                 (vector/set pages (int/div write 256) page))
+                             pages)
+                         (if complete (vector/from) page))
+                       (int/rem (+ write 1) 32768)
+                       (if (< length 32768) (+ length 1) 32768)
+                       (d/final value)
+                       (d/trees value)
+                       (d/mode value)
+                       (d/data value))))))))))
      (d/with-source
       (fn (value source)
         (d/with value source (d/history value) (d/write value) (d/length value) (d/final value) (d/trees value) (d/mode value) (d/data value))))
      (d/with-mode
       (fn (value final trees mode data)
         (d/with value (d/source value) (d/history value) (d/write value) (d/length value) final trees mode data)))
-     (d/history-byte
-      (fn (value distance)
-        (if (or (< distance 1) (> distance (d/length value)))
-            (error/throw "DEFLATE distance exceeds output history")
-            (vector/get
-              (d/history value)
-              (if (< (d/length value) 32768)
-                  (- (d/write value) distance)
-                  (int/rem (+ (d/write value) 32768 (- distance)) 32768))))))
+      (d/history-byte
+       (fn (value distance)
+         (if (or (< distance 1) (> distance (d/length value)))
+             (error/throw "DEFLATE distance exceeds output history")
+             (let ((index (if (< (d/length value) 32768)
+                              (- (d/write value) distance)
+                              (int/rem (+ (d/write value) 32768 (- distance)) 32768))))
+               (let ((page-index (int/div index 256)) (page-offset (int/rem index 256)))
+                 (let ((history (d/history value)))
+                   (let ((page (history/page history)))
+                     (vector/get
+                       (if (and
+                             (= page-index (int/div (d/write value) 256))
+                             (< page-offset (vector/length page)))
+                           page
+                           (vector/get (history/pages history) page-index))
+                        page-offset))))))))
      (d/block
       (fn (value)
         (let ((final (r/bits (d/source value) 1)))
@@ -366,9 +384,9 @@
               (pair
                 (fn/apply bytes/concat (tail output))
                 (fn () (sequence (head output))))))))
-     (decode
-      (fn (input)
-        (sequence (decoder (reader input (bytes/concat) 0 0 0) (vector/from) 0 0 0 null 'block null))))
+      (decode
+       (fn (input)
+         (sequence (decoder (reader input (bytes/concat) 0 0 0) (history (vector/from) (vector/from)) 0 0 0 null 'block null))))
      )
     (list
       ; (deflate/decode compressed-pages) -> Sequence[Bytes]
