@@ -238,29 +238,30 @@
       (history/page (fn (value) (tail value)))
       (d/emit
        (fn (value byte)
-         (let ((length (d/length value)) (write (d/write value)))
-           (let ((previous (d/history value)))
-             (let ((page (vector/tail/push (history/page previous) byte)))
-               (let ((complete (= (vector/length page) 256)))
-                 (let ((pages (history/pages previous)))
-                   (pair
-                     byte
-                     (d/with
-                       value
-                       (d/source value)
-                       (history
-                         (if complete
-                             (if (< (vector/length pages) 128)
-                                 (vector/tail/push pages page)
-                                 (vector/set pages (int/div write 256) page))
-                             pages)
-                         (if complete (vector/from) page))
-                       (int/rem (+ write 1) 32768)
-                       (if (< length 32768) (+ length 1) 32768)
-                       (d/final value)
-                       (d/trees value)
-                       (d/mode value)
-                       (d/data value))))))))))
+         (let ((length (d/length value))
+               (write (d/write value))
+               (previous (d/history value))
+               (page (vector/tail/push (history/page previous) byte))
+               (complete (= (vector/length page) 256))
+               (pages (history/pages previous)))
+           (pair
+             byte
+             (d/with
+               value
+               (d/source value)
+               (history
+                 (if complete
+                     (if (< (vector/length pages) 128)
+                         (vector/tail/push pages page)
+                         (vector/set pages (int/div write 256) page))
+                     pages)
+                 (if complete (vector/from) page))
+               (int/rem (+ write 1) 32768)
+               (if (< length 32768) (+ length 1) 32768)
+               (d/final value)
+               (d/trees value)
+               (d/mode value)
+               (d/data value))))))
      (d/with-source
       (fn (value source)
         (d/with value source (d/history value) (d/write value) (d/length value) (d/final value) (d/trees value) (d/mode value) (d/data value))))
