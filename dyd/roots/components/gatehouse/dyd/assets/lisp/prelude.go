@@ -34,6 +34,12 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "symbol?", documentation: doc("(symbol? value) -> Boolean", "Returns whether value is a Symbol.", "(symbol? 'name)", "#t"), call: pure(isSymbolValue)},
 	{name: "int/div", documentation: doc("(int/div dividend divisor) -> Integer", "Divides integers with truncation toward zero. Requires a non-zero divisor.", "(int/div 7 3)", "2"), leaky: true, call: pure(integerDivide)},
 	{name: "int/rem", documentation: doc("(int/rem dividend divisor) -> Integer", "Returns the signed remainder of integer division. Requires a non-zero divisor.", "(int/rem 7 3)", "1"), leaky: true, call: pure(integerRemainder)},
+	{name: "int/and", documentation: doc("(int/and left right) -> Integer", "Returns the bitwise AND of two signed 64-bit integers.", "(int/and 12 10)", "8"), leaky: true, call: pure(integerAnd)},
+	{name: "int/or", documentation: doc("(int/or left right) -> Integer", "Returns the bitwise OR of two signed 64-bit integers.", "(int/or 12 10)", "14"), leaky: true, call: pure(integerOr)},
+	{name: "int/xor", documentation: doc("(int/xor left right) -> Integer", "Returns the bitwise XOR of two signed 64-bit integers.", "(int/xor 12 10)", "6"), leaky: true, call: pure(integerXor)},
+	{name: "int/not", documentation: doc("(int/not integer) -> Integer", "Returns the two's-complement bitwise complement of a signed 64-bit integer.", "(int/not 0)", "-1"), leaky: true, call: pure(integerNot)},
+	{name: "int/shl", documentation: doc("(int/shl integer count) -> Integer", "Shifts an integer left by count bits. Count must be from 0 through 63 and the result must fit in an Integer.", "(int/shl 3 4)", "48"), leaky: true, call: pure(integerShiftLeft)},
+	{name: "int/shr", documentation: doc("(int/shr integer count) -> Integer", "Arithmetic-shifts an integer right by count bits. Count must be from 0 through 63.", "(int/shr -8 2)", "-2"), leaky: true, call: pure(integerShiftRight)},
 	{name: "int/abs", documentation: doc("(int/abs integer) -> Integer", "Returns the non-negative magnitude of an integer.", "(int/abs -4)", "4"), leaky: true, call: pure(integerAbsolute)},
 	{name: "int/min", documentation: doc("(int/min integer...) -> Integer", "Returns the smallest supplied integer.", "(int/min 3 1 2)", "1"), leaky: true, call: pure(integerMinimum)},
 	{name: "int/max", documentation: doc("(int/max integer...) -> Integer", "Returns the largest supplied integer.", "(int/max 3 1 2)", "3"), leaky: true, call: pure(integerMaximum)},
@@ -250,6 +256,66 @@ func integerRemainder(_ *evaluator, arguments []Expr) (error, Expr) {
 		return expressionError("int/rem requires a non-zero divisor"), nil
 	}
 	return nil, integer(dividend % divisor)
+}
+
+func integerAnd(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, left, right := integerOperands(arguments, "int/and")
+	if err != nil {
+		return err, nil
+	}
+	return nil, integer(left & right)
+}
+
+func integerOr(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, left, right := integerOperands(arguments, "int/or")
+	if err != nil {
+		return err, nil
+	}
+	return nil, integer(left | right)
+}
+
+func integerXor(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, left, right := integerOperands(arguments, "int/xor")
+	if err != nil {
+		return err, nil
+	}
+	return nil, integer(left ^ right)
+}
+
+func integerNot(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("int/not requires one integer"), nil
+	}
+	err, value := requireInteger(arguments[0])
+	if err != nil {
+		return err, nil
+	}
+	return nil, integer(^value)
+}
+
+func integerShiftLeft(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, count := integerOperands(arguments, "int/shl")
+	if err != nil {
+		return err, nil
+	}
+	if count < 0 || count >= 64 {
+		return expressionError("int/shl requires a shift count from 0 through 63"), nil
+	}
+	if value > math.MaxInt64>>count || value < math.MinInt64>>count {
+		return expressionError("integer overflow"), nil
+	}
+	return nil, integer(value << count)
+}
+
+func integerShiftRight(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, value, count := integerOperands(arguments, "int/shr")
+	if err != nil {
+		return err, nil
+	}
+	if count < 0 || count >= 64 {
+		return expressionError("int/shr requires a shift count from 0 through 63"), nil
+	}
+	return nil, integer(value >> count)
 }
 
 func integerAbsolute(_ *evaluator, arguments []Expr) (error, Expr) {

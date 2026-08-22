@@ -9,6 +9,7 @@ const agentPrelude = `(let
         (json @native:json/v1)
         (seq @native:seq/v1)
         (vector @native:vector/v1)
+        (deflate @native:compress/deflate/v1)
         (crypto/digest/sha256 @native:crypto/digest/sha256/v1)
         (crypto/mac/hmac/sha256 @native:crypto/mac/hmac/sha256/v1)
         (crypto/cipher/aes/128 @native:crypto/cipher/aes/128/v1)

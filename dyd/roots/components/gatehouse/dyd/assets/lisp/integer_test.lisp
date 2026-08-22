@@ -41,6 +41,23 @@
   ; Remainder remains negative for a negative dividend and divisor.
   (assert (= (int/rem -5 -2) -1))
 
+  ; Bitwise operations use signed 64-bit two's-complement values.
+  (assert
+    (and
+      (= (int/and 12 10) 8)
+      (= (int/or 12 10) 14)
+      (= (int/xor 12 10) 6)
+      (= (int/not 0) -1)
+      (= (int/not -1) 0)))
+
+  ; Shifts preserve signed values while requiring bounded counts.
+  (assert
+    (and
+      (= (int/shl 3 4) 48)
+      (= (int/shl -1 63) -9223372036854775808)
+      (= (int/shr 48 4) 3)
+      (= (int/shr -8 2) -2)))
+
   ; The minimum integer remainder avoids division overflow.
   (assert (= (int/rem -9223372036854775808 -1) 0))
 
@@ -103,6 +120,20 @@
     (string/contains?
       (error/value (error/catch (int/rem 1 "2")))
       "expected an integer"))
+
+  ; Bitwise operations require their documented integer arities.
+  (assert
+    (and
+      (string/contains? (error/value (error/catch (int/and 1))) "requires two integers")
+      (string/contains? (error/value (error/catch (int/not))) "requires one integer")
+      (string/contains? (error/value (error/catch (int/xor 1 "2"))) "expected an integer")))
+
+  ; Shifts reject invalid counts and left-shift overflow.
+  (assert
+    (and
+      (string/contains? (error/value (error/catch (int/shl 1 -1))) "count from 0 through 63")
+      (string/contains? (error/value (error/catch (int/shr 1 64))) "count from 0 through 63")
+      (string/contains? (error/value (error/catch (int/shl 1 63))) "integer overflow")))
 
   ; Absolute value rejects the minimum integer overflow.
   (assert

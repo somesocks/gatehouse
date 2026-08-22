@@ -47,6 +47,7 @@ func newModuleCache() *moduleCache {
 			nativeCryptoHMACSHA256ID:   nativeCryptoHMACSHA256Module(),
 			nativeCryptoPaddingPKCS7ID: nativeCryptoPaddingPKCS7Module(),
 			nativeCryptoSHA256ID:       nativeCryptoSHA256Module(),
+			nativeCompressDeflateID:    nativeCompressDeflateModule(),
 			nativeRandomID:             nativeRandomModule(),
 			nativeSeqID:                nativeSeqModule(),
 			nativeTimeID:               nativeTimeModule(),
