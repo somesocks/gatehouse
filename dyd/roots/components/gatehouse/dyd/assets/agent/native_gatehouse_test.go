@@ -32,6 +32,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 				return nil, []byte("# Guide"), false
 			}}),
 			NewPolicyModule(nil),
+			NewWebModule(),
 		},
 	})
 	if err != nil || !strings.Contains(result.String(), `(name . "report.txt")`) || !strings.Contains(result.String(), `(author_name . "Ada")`) || !strings.HasSuffix(result.String(), `"# Guide")`) {
@@ -51,6 +52,7 @@ func TestGatehouseFileInfoReturnsAuthorizedMetadata(t *testing.T) {
 			NewSessionModule([]File{{ID: "session-file", Name: "session.txt", MediaType: &mediaType, Size: 12, Fingerprint: "sha256:session"}}, nil, nil, nil),
 			NewProjectModule(nil, &ProjectFiles{Files: []File{{ID: "project-file", Name: "project.txt", Size: 34, Fingerprint: "sha256:project"}}}, nil),
 			NewPolicyModule(nil),
+			NewWebModule(),
 		},
 	})
 	if err != nil || result.String() != `(((id . "session-file") (name . "session.txt") (media_type . "text/plain") (size . 12) (fingerprint . "sha256:session")) null ((id . "project-file") (name . "project.txt") (media_type) (size . 34) (fingerprint . "sha256:project")) null)` {
@@ -68,6 +70,7 @@ func TestGatehouseFileInfoValidatesID(t *testing.T) {
 			NewSessionModule(nil, nil, nil, nil),
 			NewProjectModule(nil, nil, nil),
 			NewPolicyModule(nil),
+			NewWebModule(),
 		},
 	})
 	if err != nil || result.String() != `("session/files/info requires a non-empty id" "project/files/info requires a non-empty id" "session/files/info requires an id")` {
@@ -78,7 +81,7 @@ func TestGatehouseFileInfoValidatesID(t *testing.T) {
 func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 	err, _ := lisp.Evaluate(`(session/files/read "file" 0 65537)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil, nil), NewPolicyModule(nil)},
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil), NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return nil, nil }, nil, nil), NewPolicyModule(nil), NewWebModule()},
 	})
 	if err == nil || !strings.Contains(err.Error(), "length from 1 through 65536") {
 		t.Fatalf("Evaluate() oversized read error = %v", err)
@@ -90,6 +93,7 @@ func TestGatehouseCapabilityReadsValidateAndHideFailures(t *testing.T) {
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, func(string, int64, int64) (error, []byte) { return errors.New("storage unavailable"), nil }, nil, nil),
 			NewPolicyModule(nil),
+			NewWebModule(),
 		},
 	})
 	if err != nil || result.String() != `"session/files/read failed"` {
@@ -107,6 +111,7 @@ func TestAgentPreludeHidesImportBindings(t *testing.T) {
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, nil, nil, nil),
 			NewPolicyModule(nil),
+			NewWebModule(),
 		},
 	})
 	if err != nil || result.String() != "(#t #t #t)" {

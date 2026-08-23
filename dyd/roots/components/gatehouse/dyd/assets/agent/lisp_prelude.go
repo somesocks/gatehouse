@@ -22,6 +22,7 @@ const agentPrelude = `(let
         (project @native:gatehouse/project/v1)
         (session @native:gatehouse/session/v1)
         (policy @native:gatehouse/policy/v1)
+        (web @native:gatehouse/web/v1)
 
         (let
           (

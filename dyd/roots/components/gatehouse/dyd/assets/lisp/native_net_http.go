@@ -2,8 +2,12 @@ package lisp
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"sort"
 	"strings"
@@ -14,7 +18,130 @@ const (
 	nativeNetHTTPID              = "native:net/http/v1"
 	nativeNetHTTPTimeout         = 10 * time.Second
 	nativeNetHTTPMaximumBodySize = 10 << 20
+	publicHTTPMaximumRedirects   = 5
 )
+
+var publicHTTPReservedPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("10.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("127.0.0.0/8"),
+	netip.MustParsePrefix("169.254.0.0/16"),
+	netip.MustParsePrefix("172.16.0.0/12"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.168.0.0/16"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("224.0.0.0/4"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("::/128"),
+	netip.MustParsePrefix("::1/128"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("fc00::/7"),
+	netip.MustParsePrefix("fe80::/10"),
+	netip.MustParsePrefix("ff00::/8"),
+}
+
+type publicHTTPResolver interface {
+	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
+}
+
+type publicHTTPDialContext func(context.Context, string, string) (net.Conn, error)
+
+// PublicHTTPSClient returns an HTTP client that only connects to public HTTPS origins.
+func PublicHTTPSClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{Timeout: timeout, KeepAlive: 30 * time.Second}
+	return newPublicHTTPSClient(timeout, net.DefaultResolver, dialer.DialContext)
+}
+
+// ValidatePublicHTTPSURL rejects URLs which could access local or reserved network addresses.
+func ValidatePublicHTTPSURL(ctx context.Context, rawURL string) error {
+	return validatePublicHTTPSURL(ctx, rawURL, net.DefaultResolver)
+}
+
+func newPublicHTTPSClient(timeout time.Duration, resolver publicHTTPResolver, dial publicHTTPDialContext) *http.Client {
+	transport := &http.Transport{
+		Proxy:               nil,
+		DialContext:         publicHTTPDialContextFor(resolver, dial),
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	return &http.Client{
+		Timeout:   timeout,
+		Transport: transport,
+		CheckRedirect: func(request *http.Request, previous []*http.Request) error {
+			if len(previous) >= publicHTTPMaximumRedirects {
+				return fmt.Errorf("too many redirects")
+			}
+			return validatePublicHTTPSURL(request.Context(), request.URL.String(), resolver)
+		},
+	}
+}
+
+func publicHTTPDialContextFor(resolver publicHTTPResolver, dial publicHTTPDialContext) publicHTTPDialContext {
+	return func(ctx context.Context, network, address string) (net.Conn, error) {
+		host, port, err := net.SplitHostPort(address)
+		if err != nil {
+			return nil, fmt.Errorf("split destination: %w", err)
+		}
+		addresses, err := publicHTTPAddresses(ctx, host, resolver)
+		if err != nil {
+			return nil, err
+		}
+		var lastErr error
+		for _, ip := range addresses {
+			connection, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+			if err == nil {
+				return connection, nil
+			}
+			lastErr = err
+		}
+		return nil, fmt.Errorf("connect to public destination: %w", lastErr)
+	}
+}
+
+func validatePublicHTTPSURL(ctx context.Context, rawURL string, resolver publicHTTPResolver) error {
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("requires an absolute HTTPS URL without credentials")
+	}
+	_, err = publicHTTPAddresses(ctx, parsed.Hostname(), resolver)
+	return err
+}
+
+func publicHTTPAddresses(ctx context.Context, host string, resolver publicHTTPResolver) ([]netip.Addr, error) {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if !publicHTTPAddress(ip) {
+			return nil, fmt.Errorf("destination is not publicly routable")
+		}
+		return []netip.Addr{ip.Unmap()}, nil
+	}
+	addresses, err := resolver.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(addresses) == 0 {
+		return nil, fmt.Errorf("resolve destination")
+	}
+	for _, ip := range addresses {
+		if !publicHTTPAddress(ip) {
+			return nil, fmt.Errorf("destination is not publicly routable")
+		}
+	}
+	return addresses, nil
+}
+
+func publicHTTPAddress(ip netip.Addr) bool {
+	ip = ip.Unmap()
+	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	for _, prefix := range publicHTTPReservedPrefixes {
+		if prefix.Contains(ip) {
+			return false
+		}
+	}
+	return true
+}
 
 type nativeNetHTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)

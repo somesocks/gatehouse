@@ -1,18 +1,30 @@
 package lisp
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 type nativeNetHTTPTestDoer func(*http.Request) (*http.Response, error)
 
 func (doer nativeNetHTTPTestDoer) Do(request *http.Request) (*http.Response, error) {
 	return doer(request)
+}
+
+type nativeNetHTTPTestResolver func(context.Context, string, string) ([]netip.Addr, error)
+
+func (resolver nativeNetHTTPTestResolver) LookupNetIP(ctx context.Context, network, host string) ([]netip.Addr, error) {
+	return resolver(ctx, network, host)
 }
 
 func TestNativeNetHTTPRequest(t *testing.T) {
@@ -159,6 +171,65 @@ func TestNativeNetHTTPRejectsOversizedBodies(t *testing.T) {
 	}
 	if got, want := result.String(), `"http/request response body exceeds 10485760 bytes"`; got != want {
 		t.Fatalf("result = %s, want %s", got, want)
+	}
+}
+
+func TestPublicHTTPSURLValidation(t *testing.T) {
+	resolver := nativeNetHTTPTestResolver(func(_ context.Context, network, host string) ([]netip.Addr, error) {
+		if network != "ip" || host == "unresolvable.example.test" {
+			return nil, errors.New("unresolvable")
+		}
+		if host == "mixed.example.test" {
+			return []netip.Addr{netip.MustParseAddr("8.8.8.8"), netip.MustParseAddr("127.0.0.1")}, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+	})
+	for _, test := range []struct {
+		url  string
+		want bool
+	}{
+		{"https://example.test", true},
+		{"https://8.8.8.8", true},
+		{"http://example.test", false},
+		{"https://user:pass@example.test", false},
+		{"https://127.0.0.1", false},
+		{"https://mixed.example.test", false},
+		{"https://unresolvable.example.test", false},
+	} {
+		t.Run(test.url, func(t *testing.T) {
+			err := validatePublicHTTPSURL(context.Background(), test.url, resolver)
+			if (err == nil) != test.want {
+				t.Fatalf("validatePublicHTTPSURL() = %v, want success %t", err, test.want)
+			}
+		})
+	}
+}
+
+func TestPublicHTTPSClientRevalidatesConnectionsAndRedirects(t *testing.T) {
+	resolver := nativeNetHTTPTestResolver(func(_ context.Context, _ string, host string) ([]netip.Addr, error) {
+		if host == "redirect.example.test" {
+			return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+		}
+		return []netip.Addr{netip.MustParseAddr("8.8.8.8")}, nil
+	})
+	dialed := ""
+	client := newPublicHTTPSClient(time.Second, resolver, func(_ context.Context, _ string, address string) (net.Conn, error) {
+		dialed = address
+		return nil, errors.New("unavailable")
+	})
+	_, err := client.Transport.(*http.Transport).DialContext(context.Background(), "tcp", "example.test:443")
+	if err == nil || dialed != "8.8.8.8:443" {
+		t.Fatalf("DialContext() = %v, dialed %q", err, dialed)
+	}
+	redirectURL, err := url.Parse("https://redirect.example.test/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.CheckRedirect(&http.Request{URL: redirectURL}, []*http.Request{{}}); err == nil {
+		t.Fatal("CheckRedirect() accepted a private destination")
+	}
+	if err := client.CheckRedirect(&http.Request{URL: redirectURL}, make([]*http.Request, publicHTTPMaximumRedirects)); err == nil || !strings.Contains(err.Error(), "too many redirects") {
+		t.Fatalf("CheckRedirect() = %v", err)
 	}
 }
 
