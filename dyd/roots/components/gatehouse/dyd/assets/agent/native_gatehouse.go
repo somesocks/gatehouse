@@ -30,6 +30,9 @@ type SessionNoteRead = NoteRead
 // SessionFileCreate creates a file in the current session and returns its ID.
 type SessionFileCreate func(name, mediaType string, source io.Reader) (error, string)
 
+// SessionEventRead reads an authorized byte range from a current-session event.
+type SessionEventRead func(id string, offset, length int64) (error, []byte)
+
 // ProjectNoteCreate creates an authorized project note.
 type ProjectNoteCreate func(title, description, body string, sensitive bool) (error, ProjectNote)
 
@@ -41,13 +44,13 @@ type NoteRemove func(id string) (error, bool)
 
 // ProjectNote describes an authorized project or session note.
 type ProjectNote struct {
-	ID         string
-	Title      string
+	ID          string
+	Title       string
 	Description string
-	Sensitive  bool
-	AuthorID   string
-	AuthorName *string
-	CreatedAt  string
+	Sensitive   bool
+	AuthorID    string
+	AuthorName  *string
+	CreatedAt   string
 }
 
 // SessionNote describes an authorized session note.

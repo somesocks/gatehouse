@@ -182,7 +182,7 @@ workspaces:
 	}
 }
 
-func TestResolveWorkspaceAgentsContextCompactionTokens(t *testing.T) {
+func TestResolveWorkspaceAgentsProviderLimits(t *testing.T) {
 	for name, contents := range map[string]string{
 		"default": `
 api_version: v1
@@ -223,7 +223,6 @@ workspaces:
         priority: 1
         max_input_tokens: 12000
         max_output_tokens: 2000
-        summary_tokens: 1000
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -239,13 +238,13 @@ workspaces:
 			if err != nil || len(state.WorkspaceAgents) != 1 {
 				t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
 			}
-			wantInput, wantOutput, wantSummary := DefaultWorkspaceAgentMaxInputTokens, DefaultWorkspaceAgentMaxOutputTokens, DefaultWorkspaceAgentSummaryTokens
+			wantInput, wantOutput := DefaultWorkspaceAgentMaxInputTokens, DefaultWorkspaceAgentMaxOutputTokens
 			if name == "configured" {
-				wantInput, wantOutput, wantSummary = 12000, 2000, 1000
+				wantInput, wantOutput = 12000, 2000
 			}
 			agent := state.WorkspaceAgents[0]
-			if agent.MaxInputTokens != wantInput || agent.MaxOutputTokens != wantOutput || agent.SummaryTokens != wantSummary {
-				t.Fatalf("context compaction tokens = (%d, %d, %d), want (%d, %d, %d)", agent.MaxInputTokens, agent.MaxOutputTokens, agent.SummaryTokens, wantInput, wantOutput, wantSummary)
+			if agent.MaxInputTokens != wantInput || agent.MaxOutputTokens != wantOutput {
+				t.Fatalf("provider limits = (%d, %d), want (%d, %d)", agent.MaxInputTokens, agent.MaxOutputTokens, wantInput, wantOutput)
 			}
 		})
 	}
@@ -416,13 +415,11 @@ workspaces:
 	}
 }
 
-func TestValidateFileRejectsInvalidWorkspaceAgentContextCompactionTokens(t *testing.T) {
+func TestValidateFileRejectsInvalidWorkspaceAgentProviderLimits(t *testing.T) {
 	for name, agent := range map[string]string{
-		"nonpositive input":  "max_input_tokens: 0",
-		"nonpositive output": "max_output_tokens: -1",
-		"nonpositive summary": "summary_tokens: 0",
-		"summary equals input": "max_input_tokens: 1000\n        summary_tokens: 1000",
-		"summary exceeds input": "max_input_tokens: 1000\n        summary_tokens: 1001",
+		"nonpositive input":      "max_input_tokens: 0",
+		"nonpositive output":     "max_output_tokens: -1",
+		"removed summary tokens": "summary_tokens: 1000",
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
@@ -450,7 +447,7 @@ workspaces:
 				t.Fatal(err)
 			}
 			if err, _ := ValidateFile(path); err == nil {
-				t.Fatal("configuration accepted invalid workspace agent context compaction tokens")
+				t.Fatal("configuration accepted invalid workspace agent provider limits")
 			}
 		})
 	}

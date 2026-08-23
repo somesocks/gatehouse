@@ -1095,7 +1095,6 @@ type WorkspaceAgentModel struct {
 	MaxTurns        int
 	MaxInputTokens  int
 	MaxOutputTokens int
-	SummaryTokens   int
 	SystemPrompt    *string
 }
 
@@ -1142,7 +1141,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns, bindings.max_input_tokens, bindings.max_output_tokens, bindings.summary_tokens, bindings.system_prompt
+		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns, bindings.max_input_tokens, bindings.max_output_tokens, bindings.system_prompt
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1157,7 +1156,7 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	selected.Ref.Workspace = workspace
 	var baseURL, keychainID, apiKey, systemPrompt sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.MaxTurns, &selected.MaxInputTokens, &selected.MaxOutputTokens, &selected.SummaryTokens, &systemPrompt); err != nil {
+	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.MaxTurns, &selected.MaxInputTokens, &selected.MaxOutputTokens, &systemPrompt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

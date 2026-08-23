@@ -570,16 +570,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			`),
 		}, {
 			Index:       20,
-			Description: "add_workspace_agent_context_compaction_tokens",
+			Description: "add_workspace_agent_provider_limits",
 			Builder: staticMigrationBuilder(`
 				ALTER TABLE gatehouse_workspace_agents
 				ADD COLUMN max_input_tokens BIGINT NOT NULL DEFAULT 120000 CHECK (max_input_tokens > 0);
 
 				ALTER TABLE gatehouse_workspace_agents
 				ADD COLUMN max_output_tokens BIGINT NOT NULL DEFAULT 16000 CHECK (max_output_tokens > 0);
-
-				ALTER TABLE gatehouse_workspace_agents
-				ADD COLUMN summary_tokens BIGINT NOT NULL DEFAULT 8000 CHECK (summary_tokens > 0 AND summary_tokens < max_input_tokens);
 			`),
 		}},
 		Repeatable: []RepeatableMigration{

@@ -44,6 +44,30 @@ func TestOpenAIFinalReply(t *testing.T) {
 	if _, err := openAIFinalReply(`{"text":"Done.","attachments":null}`); err == nil {
 		t.Fatal("openAIFinalReply() accepted a null attachment list")
 	}
+	if reply, err := openAIFinalReply(`{"text":"","attachments":[]}`); err != nil || reply.Text != "" || len(reply.Attachments) != 0 {
+		t.Fatalf("openAIFinalReply() empty reply = (%#v, %v)", reply, err)
+	}
+}
+
+func TestOpenAIResponsesFinalReply(t *testing.T) {
+	valid := openAIResponsesOutput{Type: "message", Status: "completed", Content: []openAIResponsesOutputContent{{Type: "output_text", Text: `{"text":"Done.","attachments":[]}`}}}
+	reply, err := openAIResponsesFinalReply([]openAIResponsesOutput{{Type: "reasoning"}, valid})
+	if err != nil || reply.Text != "Done." || len(reply.Attachments) != 0 {
+		t.Fatalf("openAIResponsesFinalReply() = (%#v, %v)", reply, err)
+	}
+	later := openAIResponsesOutput{Type: "message", Status: "completed", Content: []openAIResponsesOutputContent{{Type: "output_text", Text: `{"text":"Later.","attachments":[]}`}}}
+	reply, err = openAIResponsesFinalReply([]openAIResponsesOutput{valid, later})
+	if err != nil || reply.Text != "Done." {
+		t.Fatalf("openAIResponsesFinalReply() first valid output = (%#v, %v)", reply, err)
+	}
+	invalid := openAIResponsesOutput{Type: "message", Status: "completed", Content: []openAIResponsesOutputContent{{Type: "output_text", Text: `not JSON`}}}
+	reply, err = openAIResponsesFinalReply([]openAIResponsesOutput{invalid, later})
+	if err != nil || reply.Text != "Later." {
+		t.Fatalf("openAIResponsesFinalReply() later valid output = (%#v, %v)", reply, err)
+	}
+	if _, err := openAIResponsesFinalReply([]openAIResponsesOutput{invalid}); err == nil {
+		t.Fatal("openAIResponsesFinalReply() accepted no valid output text")
+	}
 }
 
 func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
@@ -60,7 +84,7 @@ func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
 }
 
 func TestOpenAISystemPromptDocumentsSessionProjectAndWebCapabilities(t *testing.T) {
-	for _, binding := range []string{"@native:gatehouse/session/v1", "@native:gatehouse/project/v1", "@native:gatehouse/web/v1", "session/files/list", "session/files/info", "session/files/read", "session/files/create", "session/notes/list", "session/notes/read", "session/notes/create", "session/notes/remove", "project/info/get", "project/info/set", "project/files/list", "project/files/info", "project/files/read", "project/notes/list", "project/notes/read", "project/notes/create", "project/notes/remove", "web/search", "web/fetch"} {
+	for _, binding := range []string{"@native:gatehouse/session/v1", "@native:gatehouse/project/v1", "@native:gatehouse/web/v1", "session/files/list", "session/files/info", "session/files/read", "session/events/read", "session/files/create", "session/notes/list", "session/notes/read", "session/notes/create", "session/notes/remove", "project/info/get", "project/info/set", "project/files/list", "project/files/info", "project/files/read", "project/notes/list", "project/notes/read", "project/notes/create", "project/notes/remove", "web/search", "web/fetch"} {
 		if !strings.Contains(openAISystemPrompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}

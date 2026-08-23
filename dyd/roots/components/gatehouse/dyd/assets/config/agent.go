@@ -45,7 +45,6 @@ type WorkspaceAgent struct {
 	MaxTurns        int
 	MaxInputTokens  int
 	MaxOutputTokens int
-	SummaryTokens   int
 	Label           *string
 	SystemPrompt    *string
 	Enabled         bool
@@ -55,7 +54,6 @@ const (
 	DefaultWorkspaceAgentMaxTurns        = 127
 	DefaultWorkspaceAgentMaxInputTokens  = 120000
 	DefaultWorkspaceAgentMaxOutputTokens = 16000
-	DefaultWorkspaceAgentSummaryTokens   = 8000
 )
 
 func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []AgentProvider) {
@@ -237,22 +235,12 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if maxOutputTokens <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d].max_output_tokens must be positive", workspaceIndex, agentIndex), nil
 			}
-			summaryTokens := DefaultWorkspaceAgentSummaryTokens
-			if configured.SummaryTokens != nil {
-				summaryTokens = *configured.SummaryTokens
-			}
-			if summaryTokens <= 0 {
-				return fmt.Errorf("workspaces[%d].agents[%d].summary_tokens must be positive", workspaceIndex, agentIndex), nil
-			}
-			if summaryTokens >= maxInputTokens {
-				return fmt.Errorf("workspaces[%d].agents[%d].summary_tokens must be less than max_input_tokens", workspaceIndex, agentIndex), nil
-			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, MaxInputTokens: maxInputTokens, MaxOutputTokens: maxOutputTokens, SummaryTokens: summaryTokens, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, MaxInputTokens: maxInputTokens, MaxOutputTokens: maxOutputTokens, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

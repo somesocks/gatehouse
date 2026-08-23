@@ -648,9 +648,9 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "first", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SummaryTokens: 1000, SystemPrompt: &firstPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "second", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SummaryTokens: 1000, SystemPrompt: &emptyPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "lower", Priority: 1, MaxTurns: 2, MaxInputTokens: 12000, MaxOutputTokens: 2000, SummaryTokens: 1000, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "first", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SystemPrompt: &firstPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "second", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SystemPrompt: &emptyPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "lower", Priority: 1, MaxTurns: 2, MaxInputTokens: 12000, MaxOutputTokens: 2000, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -675,8 +675,8 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		if selected.MaxTurns != 3 {
 			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
 		}
-		if selected.MaxInputTokens != 12000 || selected.MaxOutputTokens != 2000 || selected.SummaryTokens != 1000 {
-			t.Fatalf("WorkspaceAgentModelSelect() context compaction tokens = (%d, %d, %d), want (12000, 2000, 1000)", selected.MaxInputTokens, selected.MaxOutputTokens, selected.SummaryTokens)
+		if selected.MaxInputTokens != 12000 || selected.MaxOutputTokens != 2000 {
+			t.Fatalf("WorkspaceAgentModelSelect() provider limits = (%d, %d), want (12000, 2000)", selected.MaxInputTokens, selected.MaxOutputTokens)
 		}
 		if selected.Ref.Model.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)

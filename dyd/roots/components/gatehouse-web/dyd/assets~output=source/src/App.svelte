@@ -1215,7 +1215,7 @@
   }
 
   function renderedActivityEvents(tree: SessionEventTree) {
-    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.request" || activity.event.kind === "thinking.started" || activity.event.kind === "context.compaction.started")
+    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.request" || activity.event.kind === "thinking.started")
   }
 
   function displayedActivityEvents(tree: SessionEventTree) {
@@ -1252,10 +1252,6 @@
     return activityStatus(tree, "thinking.completed", "thinking.failed")
   }
 
-  function compactionStatus(tree: SessionEventTree) {
-    return activityStatus(tree, "context.compaction.completed", "context.compaction.failed")
-  }
-
   function activityStatus(tree: SessionEventTree, completedKind: string, failedKind: string) {
     if (tree.children.some((child) => child.event.kind === failedKind)) {
       return "failed"
@@ -1288,10 +1284,6 @@
 
   function thinkingDuration(tree: SessionEventTree) {
     return activityDuration(tree, "thinking.completed", "thinking.failed")
-  }
-
-  function compactionDuration(tree: SessionEventTree) {
-    return activityDuration(tree, "context.compaction.completed", "context.compaction.failed")
   }
 
   function activityDuration(tree: SessionEventTree, completedKind: string, failedKind: string) {
@@ -2504,20 +2496,6 @@
                                   <span class="tool-call-duration">{thinkingDuration(activity)}</span>
                                 {/if}
                               </p>
-                            {:else if activity.event.kind === "context.compaction.started"}
-                              <p class:tool-call-failed={compactionStatus(activity) === "failed"} class:tool-call-succeeded={compactionStatus(activity) === "succeeded"} class="tool-call">
-                                {#if compactionStatus(activity) === "working"}
-                                  <span class="tool-status tool-status-working" aria-hidden="true"></span>
-                                {:else if compactionStatus(activity) === "succeeded"}
-                                  <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {:else}
-                                  <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {/if}
-                                {compactionStatus(activity) === "working" ? "Summarizing earlier conversation" : compactionStatus(activity) === "succeeded" ? "Summarized earlier conversation" : "Summarizing earlier conversation failed after"}
-                                {#if compactionDuration(activity) !== ""}
-                                  <span class="tool-call-duration">{compactionDuration(activity)}</span>
-                                {/if}
-                              </p>
                             {/if}
                           {/each}
                           {#if renderedActivityEvents(tree).length > 5 && expandedActivity.has(tree.event.ref.id)}
@@ -2533,10 +2511,14 @@
                   {#each finalReplies(tree) as reply (reply.event.ref.id)}
                     <article class="chat-message">
                       <p class="chat-message-author">{reply.event.author_agent === undefined ? "Gatehouse" : agentLabel(reply.event.author_agent.model.id)}</p>
-                      <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
-                        <Copy size={16} strokeWidth={2} />
-                      </button>
-                      <div class="chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
+                      {#if reply.event.payload.text !== ""}
+                        <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
+                          <Copy size={16} strokeWidth={2} />
+                        </button>
+                        <div class="chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
+                      {:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}
+                        <div class="chat-message-text"><em>No reply.</em></div>
+                      {/if}
                       {#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}
                         <div class="message-files" aria-label="Attached files">
                           {#each reply.event.payload.attachments as file (file.id)}

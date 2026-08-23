@@ -89,9 +89,9 @@ type sessionReplyCancelled struct{}
 func (sessionReplyCancelled) Error() string { return "reply cancelled" }
 
 type SessionEventReplyRuntime struct {
-	store *database.Store
-	keyring *keychain.Keyring
-	storage *storage.Client
+	store      *database.Store
+	keyring    *keychain.Keyring
+	storage    *storage.Client
 	dbos       dbos.Context
 	dataSource *dbos.DataSource
 	queue      dbos.Queue
@@ -255,7 +255,7 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
 		}
 		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
-			Model: selected.Model,
+			Model:    selected.Model,
 			Messages: []openAICompatibleMessage{{Role: "system", Content: sessionNamePrompt}, {Role: "user", Content: text}},
 		})
 		if err != nil || len(reply.ToolCalls) != 0 || strings.TrimSpace(reply.Content) == "" {
@@ -431,13 +431,14 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 		}
 		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
 			Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
-			})
+		})
 		if err != nil {
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		if len(reply.ToolCalls) == 0 {
 			final, err := openAIFinalReply(reply.Content)
 			if err != nil {
+				logInvalidOpenAIFinalReply(selected.ProviderID, parent, reply.Content)
 				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
 			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
@@ -559,9 +560,19 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		}
 		return runtime.storage.Read(ctx, file.StorageObject.Id, offset, length)
 	}
+	sessionEventRead := func(id string, offset, length int64) (error, []byte) {
+		err, event := runtime.store.SessionEventGet(ctx, model.SessionEventRef{Session: input.Request.Ref.Session, Id: id})
+		if err != nil || event == nil {
+			if err != nil {
+				return err, nil
+			}
+			return fmt.Errorf("read session event: unavailable"), nil
+		}
+		return sessionEventReadRange(*event, offset, length)
+	}
 	modules := []lisp.HostModule{
 		NewProjectModule(projectInfo, projectFiles, projectNotes),
-		NewSessionModule(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes),
+		NewSessionModule(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionEventRead),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
@@ -574,6 +585,29 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		execution = sessionToolCallExecution{Kind: "tool.success", Output: result.String()}
 	}
 	return runtime.toolCallFinish(ctx, input, execution)
+}
+
+func sessionEventReadRange(event model.SessionEvent, offset, length int64) (error, []byte) {
+	var output string
+	var available bool
+	switch event.Kind {
+	case "message.text":
+		output, available = event.Payload["text"].(string)
+	case "tool.success", "tool.failure":
+		output, available = event.Payload["output"].(string)
+	}
+	if !available {
+		return fmt.Errorf("read session event: unavailable"), nil
+	}
+	contents := []byte(output)
+	if offset > int64(len(contents)) {
+		return fmt.Errorf("read session event: unavailable"), nil
+	}
+	end := offset + length
+	if end > int64(len(contents)) {
+		end = int64(len(contents))
+	}
+	return nil, append([]byte(nil), contents[offset:end]...)
 }
 
 func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, input SessionToolCallInput, execution sessionToolCallExecution) (string, error) {
@@ -830,10 +864,38 @@ func openAIFinalReply(contents string) (agentFinalReply, error) {
 	}
 	decoder := json.NewDecoder(strings.NewReader(contents))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&reply); err != nil || decoder.Decode(&struct{}{}) != io.EOF || reply.Text == nil || reply.Attachments == nil || strings.TrimSpace(*reply.Text) == "" {
+	if err := decoder.Decode(&reply); err != nil || decoder.Decode(&struct{}{}) != io.EOF || reply.Text == nil || reply.Attachments == nil {
 		return agentFinalReply{}, fmt.Errorf("OpenAI-compatible completion returned an invalid structured reply")
 	}
 	return agentFinalReply{Text: *reply.Text, Attachments: *reply.Attachments}, nil
+}
+
+func logInvalidOpenAIFinalReply(providerID string, parent model.SessionEventRef, contents string) {
+	fmt.Fprintf(os.Stderr, "gatehouse: invalid OpenAI final reply provider=%q parent_event=%q content=%q\n", providerID, parent.Id, contents)
+}
+
+func openAIResponsesFinalReply(outputs []openAIResponsesOutput) (agentFinalReply, error) {
+	for _, output := range outputs {
+		if output.Type != "message" || output.Status != "completed" {
+			continue
+		}
+		for _, content := range output.Content {
+			if content.Type != "output_text" {
+				continue
+			}
+			final, err := openAIFinalReply(content.Text)
+			if err == nil {
+				return final, nil
+			}
+		}
+	}
+	return agentFinalReply{}, fmt.Errorf("OpenAI Responses returned no valid final output text")
+}
+
+func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.SessionEventRef, input, outputs []json.RawMessage) {
+	encodedInput, _ := json.Marshal(input)
+	encodedOutput, _ := json.Marshal(outputs)
+	fmt.Fprintf(os.Stderr, "gatehouse: invalid OpenAI Responses final reply provider=%q parent_event=%q input=%s output=%s\n", providerID, parent.Id, encodedInput, encodedOutput)
 }
 
 const openAISystemPrompt = `# Role
@@ -844,7 +906,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text or tool output by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Examples:
 
@@ -896,35 +958,32 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		}
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
 			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
-			})
+		})
 		if err != nil {
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		calls := make([]openAICompatibleToolCall, 0, 1)
-		text := ""
-		for _, raw := range reply.Output {
+		outputs := make([]openAIResponsesOutput, len(reply.Output))
+		for index, raw := range reply.Output {
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
+				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
 				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
+			outputs[index] = output
 			switch output.Type {
 			case "function_call":
 				call := openAICompatibleToolCall{ID: output.CallID, Type: "function"}
 				call.Function.Name = output.Name
 				call.Function.Arguments = output.Arguments
 				calls = append(calls, call)
-			case "message":
-				for _, content := range output.Content {
-					if content.Type == "output_text" {
-						text += content.Text
-					}
-				}
 			}
 		}
 		if len(calls) == 0 {
-			final, err := openAIFinalReply(text)
+			final, err := openAIResponsesFinalReply(outputs)
 			if err != nil {
+				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
 				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
 			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
@@ -1046,7 +1105,7 @@ func openAICompatibleLispTool() openAICompatibleTool {
 		"type": "object", "additionalProperties": false,
 		"required": []string{"code", "reason"},
 		"properties": map[string]any{
-			"code": map[string]any{"type": "string", "description": "Lisp expression to evaluate."},
+			"code":   map[string]any{"type": "string", "description": "Lisp expression to evaluate."},
 			"reason": map[string]any{"type": "string", "description": "Why this evaluation is needed."},
 		},
 	}
@@ -1303,6 +1362,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 		calls []struct {
 			position int
 			call     openAICompatibleToolCall
+			event    model.SessionEvent
 		}
 		emitted bool
 	}
@@ -1327,28 +1387,22 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			batches[key].calls = append(batches[key].calls, struct {
 				position int
 				call     openAICompatibleToolCall
-			}{position: int(position), call: call})
+				event    model.SessionEvent
+			}{position: int(position), call: call, event: event})
 			callBatches[event.Ref.Id] = key
 		}
 	}
 	for _, event := range events {
 		switch event.Kind {
 		case "message.text":
-			text, ok := event.Payload["text"].(string)
-			attachments := openAICompatibleMessageAttachments(event.Payload["attachments"])
-			if (!ok || strings.TrimSpace(text) == "") && attachments == "" {
+			message, text, ok := transcriptMessageContent(event)
+			if !ok {
 				continue
 			}
-			if attachments != "" {
-				if strings.TrimSpace(text) != "" {
-					text += "\n\n"
-				}
-				text += attachments
-			}
 			if event.AuthorPrincipal != nil {
-				messages = append(messages, openAICompatibleMessage{Role: "user", Content: text})
+				messages = append(messages, openAICompatibleMessage{Role: "user", Content: text, Message: message})
 			} else if event.AuthorAgent != nil {
-				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text})
+				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text, Message: message})
 			}
 		case "tool.request":
 			if event.AuthorAgent == nil {
@@ -1364,13 +1418,17 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 					return current.calls[left].position < current.calls[right].position
 				})
 				batchCalls := make([]openAICompatibleToolCall, len(current.calls))
+				events := make([]string, len(current.calls))
 				for index, entry := range current.calls {
 					batchCalls[index] = entry.call
+					events[index] = transcriptToolCallEvent(entry.event, entry.call.ID)
 				}
+				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: transcriptEvents(events...)})
 				messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: batchCalls})
 				current.emitted = true
 				continue
 			}
+			messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: transcriptEvents(transcriptToolCallEvent(event, call.ID))})
 			messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call}})
 		case "tool.success", "tool.failure":
 			if event.AuthorAgent == nil || event.Parent == nil {
@@ -1384,41 +1442,14 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			if !ok {
 				return fmt.Errorf("session tool output %q has no text output", event.Ref.Id), nil
 			}
-			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output})
+			status := "success"
+			if event.Kind == "tool.failure" {
+				status = "failure"
+			}
+			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output, ToolOutput: &transcriptToolOutput{Event: event, Status: status}})
 		}
 	}
 	return nil, messages
-}
-
-func openAICompatibleMessageAttachments(value any) string {
-	files, ok := value.([]interface{})
-	if !ok || len(files) == 0 {
-		return ""
-	}
-	lines := make([]string, 0, len(files)+1)
-	lines = append(lines, "Attached session files:")
-	for _, value := range files {
-		file, ok := value.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		id, idOK := file["id"].(string)
-		name, nameOK := file["name"].(string)
-		size, sizeOK := file["size"].(float64)
-		fingerprint, fingerprintOK := file["fingerprint"].(string)
-		if !idOK || !nameOK || !sizeOK || !fingerprintOK {
-			continue
-		}
-		line := fmt.Sprintf("- %s (id: %s, size: %.0f bytes, fingerprint: %s", name, id, size, fingerprint)
-		if mediaType, ok := file["media_type"].(string); ok && mediaType != "" {
-			line += ", media type: " + mediaType
-		}
-		lines = append(lines, line+")")
-	}
-	if len(lines) == 1 {
-		return ""
-	}
-	return strings.Join(lines, "\n")
 }
 
 func openAICompatibleStoredToolCall(event model.SessionEvent) (openAICompatibleToolCall, error) {

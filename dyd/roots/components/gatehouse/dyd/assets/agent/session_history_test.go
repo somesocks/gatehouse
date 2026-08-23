@@ -26,33 +26,37 @@ func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 7 {
-		t.Fatalf("message count = %d, want 7", len(messages))
+	if len(messages) != 9 {
+		t.Fatalf("message count = %d, want 9", len(messages))
 	}
-	if messages[0].Role != "user" || messages[0].Content != "Find the report." {
+	if messages[0].Role != "user" || messages[0].Message == nil || messages[0].Content != "Find the report." {
 		t.Fatalf("user message = %#v", messages[0])
 	}
-	if messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 1 || messages[1].ToolCalls[0].ID != "call-1" || messages[1].ToolCalls[0].Function.Name != "lisp" {
+	if messages[1].Role != "assistant" || messages[1].Content != "<events><event id=\"call\" kind=\"tool-call\" call-id=\"call-1\" /></events>" {
+		t.Fatalf("tool call event = %#v", messages[1])
+	}
+	if messages[2].Role != "assistant" || len(messages[2].ToolCalls) != 1 || messages[2].ToolCalls[0].ID != "call-1" || messages[2].ToolCalls[0].Function.Name != "lisp" {
 		t.Fatalf("tool call = %#v", messages[1])
 	}
 	var arguments map[string]string
-	if err := json.Unmarshal([]byte(messages[1].ToolCalls[0].Function.Arguments), &arguments); err != nil || arguments["code"] != "(report/find)" || arguments["reason"] != "Find the requested report." {
-		t.Fatalf("tool call arguments = %q, %v", messages[1].ToolCalls[0].Function.Arguments, err)
+	if err := json.Unmarshal([]byte(messages[2].ToolCalls[0].Function.Arguments), &arguments); err != nil || arguments["code"] != "(report/find)" || arguments["reason"] != "Find the requested report." {
+		t.Fatalf("tool call arguments = %q, %v", messages[2].ToolCalls[0].Function.Arguments, err)
 	}
-	if messages[2].Role != "tool" || messages[2].ToolCallID != "call-1" || messages[2].Content != "report-42" {
-		t.Fatalf("tool result = %#v", messages[2])
+	messages = renderTranscriptMessages(messages)
+	if messages[3].Role != "tool" || messages[3].ToolCallID != "call-1" || messages[3].Content != "<events><event id=\"result\" parent-id=\"call\" kind=\"tool-result\" status=\"success\"><output>report-42</output></event></events>" {
+		t.Fatalf("tool result = %#v", messages[3])
 	}
-	if messages[3].Role != "assistant" || messages[3].Content != "I found it." {
-		t.Fatalf("assistant message = %#v", messages[3])
+	if messages[4].Role != "assistant" || messages[4].Content != "<events><event id=\"reply\" kind=\"message\"><text>I found it.</text></event></events>" {
+		t.Fatalf("assistant message = %#v", messages[4])
 	}
-	if messages[4].Role != "assistant" || len(messages[4].ToolCalls) != 1 || messages[4].ToolCalls[0].ID != "call-2" {
-		t.Fatalf("failed tool call = %#v", messages[4])
+	if messages[6].Role != "assistant" || len(messages[6].ToolCalls) != 1 || messages[6].ToolCalls[0].ID != "call-2" {
+		t.Fatalf("failed tool call = %#v", messages[6])
 	}
-	if messages[5].Role != "tool" || messages[5].ToolCallID != "call-2" || messages[5].Content != "permission denied" {
-		t.Fatalf("failed tool output = %#v", messages[5])
+	if messages[7].Role != "tool" || messages[7].ToolCallID != "call-2" || messages[7].Content != "<events><event id=\"failed\" parent-id=\"failed-call\" kind=\"tool-result\" status=\"failure\"><output>permission denied</output></event></events>" {
+		t.Fatalf("failed tool output = %#v", messages[7])
 	}
-	if messages[6].Role != "user" || messages[6].Content != "What happened next?" {
-		t.Fatalf("next user message = %#v", messages[6])
+	if messages[8].Role != "user" || messages[8].Content != "<events><event id=\"next-user\" kind=\"message\"><text>What happened next?</text></event></events>" {
+		t.Fatalf("next user message = %#v", messages[8])
 	}
 
 	input := openAIResponsesInput(messages)
@@ -65,7 +69,7 @@ func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 		Name      string `json:"name"`
 		Arguments string `json:"arguments"`
 	}
-	if err := json.Unmarshal(input[1], &historicalCall); err != nil || historicalCall.Type != "function_call" || historicalCall.CallID != "call-1" || historicalCall.Name != "lisp" || historicalCall.Arguments != messages[1].ToolCalls[0].Function.Arguments {
+	if err := json.Unmarshal(input[2], &historicalCall); err != nil || historicalCall.Type != "function_call" || historicalCall.CallID != "call-1" || historicalCall.Name != "lisp" || historicalCall.Arguments != messages[2].ToolCalls[0].Function.Arguments {
 		t.Fatalf("Responses function call = %#v, %v", historicalCall, err)
 	}
 	var historicalOutput struct {
@@ -73,7 +77,7 @@ func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 		CallID string `json:"call_id"`
 		Output string `json:"output"`
 	}
-	if err := json.Unmarshal(input[5], &historicalOutput); err != nil || historicalOutput.Type != "function_call_output" || historicalOutput.CallID != "call-2" || historicalOutput.Output != "permission denied" {
+	if err := json.Unmarshal(input[7], &historicalOutput); err != nil || historicalOutput.Type != "function_call_output" || historicalOutput.CallID != "call-2" || historicalOutput.Output != messages[7].Content {
 		t.Fatalf("Responses function output = %#v, %v", historicalOutput, err)
 	}
 }
@@ -109,17 +113,21 @@ func TestOpenAICompatibleMessagesReplaysToolBatch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 4 {
-		t.Fatalf("message count = %d, want 4", len(messages))
+	if len(messages) != 5 {
+		t.Fatalf("message count = %d, want 5", len(messages))
 	}
-	if messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 2 || messages[1].ToolCalls[0].ID != "call-2" || messages[1].ToolCalls[1].ID != "call-1" {
-		t.Fatalf("batched calls = %#v", messages[1])
+	if messages[1].Role != "assistant" || messages[1].Content != "<events><event id=\"second\" parent-id=\"user\" kind=\"tool-call\" call-id=\"call-2\" /><event id=\"first\" parent-id=\"user\" kind=\"tool-call\" call-id=\"call-1\" /></events>" {
+		t.Fatalf("batched call events = %#v", messages[1])
 	}
-	if messages[2].Role != "tool" || messages[2].ToolCallID != "call-1" || messages[2].Content != "first" {
-		t.Fatalf("first output = %#v", messages[2])
+	if messages[2].Role != "assistant" || len(messages[2].ToolCalls) != 2 || messages[2].ToolCalls[0].ID != "call-2" || messages[2].ToolCalls[1].ID != "call-1" {
+		t.Fatalf("batched calls = %#v", messages[2])
 	}
-	if messages[3].Role != "tool" || messages[3].ToolCallID != "call-2" || messages[3].Content != "not found" {
-		t.Fatalf("second output = %#v", messages[3])
+	messages = renderTranscriptMessages(messages)
+	if messages[3].Role != "tool" || messages[3].ToolCallID != "call-1" || messages[3].Content != "<events><event id=\"first-output\" parent-id=\"first\" kind=\"tool-result\" status=\"success\"><output>first</output></event></events>" {
+		t.Fatalf("first output = %#v", messages[3])
+	}
+	if messages[4].Role != "tool" || messages[4].ToolCallID != "call-2" || messages[4].Content != "<events><event id=\"second-output\" parent-id=\"second\" kind=\"tool-result\" status=\"failure\"><output>not found</output></event></events>" {
+		t.Fatalf("second output = %#v", messages[4])
 	}
 }
 
@@ -144,7 +152,8 @@ func TestOpenAICompatibleMessagesIncludesAttachmentReferences(t *testing.T) {
 	})
 	agentMessage := event(session, "agent", "message.text", nil, &agent, userMessage.Payload)
 	err, messages := openAICompatibleMessages([]model.SessionEvent{userMessage, agentMessage})
-	if err != nil || len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[0].Content != "Attached session files:\n- report.txt (id: report, size: 12 bytes, fingerprint: sha256:abcd, media type: text/plain)" || messages[1].Content != messages[0].Content {
+	messages = renderTranscriptMessages(messages)
+	if err != nil || len(messages) != 2 || messages[0].Role != "user" || messages[1].Role != "assistant" || messages[0].Content != "<events><event id=\"user\" kind=\"message\"><attachment id=\"report\" name=\"report.txt\" media-type=\"text/plain\" size-bytes=\"12\" /></event></events>" || messages[1].Content != "<events><event id=\"agent\" kind=\"message\"><attachment id=\"report\" name=\"report.txt\" media-type=\"text/plain\" size-bytes=\"12\" /></event></events>" {
 		t.Fatalf("attachment history = (%#v, %v)", messages, err)
 	}
 }

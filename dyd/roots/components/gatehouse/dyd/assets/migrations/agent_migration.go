@@ -130,16 +130,13 @@ func workspaceAgentMigrationBuilder(agents []config.WorkspaceAgent) MigrationBui
 		if values[index].MaxOutputTokens == 0 {
 			values[index].MaxOutputTokens = config.DefaultWorkspaceAgentMaxOutputTokens
 		}
-		if values[index].SummaryTokens == 0 {
-			values[index].SummaryTokens = config.DefaultWorkspaceAgentSummaryTokens
-		}
 	}
 	return templateMigrationBuilder(`
 		SELECT 1;
 		{{ range . }}
-		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, max_input_tokens, max_output_tokens, summary_tokens, label, system_prompt, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxInputTokens }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlLiteral .SummaryTokens }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
-		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, max_input_tokens = excluded.max_input_tokens, max_output_tokens = excluded.max_output_tokens, summary_tokens = excluded.summary_tokens, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, max_input_tokens, max_output_tokens, label, system_prompt, enabled)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxInputTokens }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
+		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, max_input_tokens = excluded.max_input_tokens, max_output_tokens = excluded.max_output_tokens, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
 		{{ end }}
 	`, values)
 }

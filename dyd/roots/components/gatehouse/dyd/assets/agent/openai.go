@@ -40,6 +40,8 @@ type openAICompatibleMessage struct {
 	Content    string                     `json:"content"`
 	ToolCallID string                     `json:"tool_call_id,omitempty"`
 	ToolCalls  []openAICompatibleToolCall `json:"tool_calls,omitempty"`
+	Message    *transcriptMessage         `json:"-"`
+	ToolOutput *transcriptToolOutput      `json:"-"`
 }
 
 type openAICompatibleTool struct {
@@ -102,10 +104,13 @@ type openAIResponsesOutput struct {
 	CallID    string `json:"call_id"`
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
-	Content   []struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
-	} `json:"content"`
+	Status    string `json:"status"`
+	Content   []openAIResponsesOutputContent `json:"content"`
+}
+
+type openAIResponsesOutputContent struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 type openAIRetryableError struct {
