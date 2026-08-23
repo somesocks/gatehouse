@@ -29,11 +29,17 @@ func nativeJSONModule() Expr {
 	encode := withHelp(&builtin{leaky: true, call: pure(nativeJSONEncode)}, nativeJSONEncodeDocumentation.text())
 	exports := list([]Expr{
 		pairValue(symbol("null"), withHelp(&builtin{leaky: true, call: pure(nativeJSONNull)}, doc("(json/null) -> JSON", "Creates the JSON null value.", "(json/null)", "(json/null)").text())),
+		pairValue(symbol("null?"), withHelp(&builtin{call: pure(nativeJSONNullQ)}, doc("(json/null? value) -> Boolean", "Returns whether value is a JSON Null.", "(json/null? (json/null))", "#t").text())),
 		pairValue(symbol("boolean"), withHelp(&builtin{leaky: true, call: pure(nativeJSONBoolean)}, doc("(json/boolean boolean) -> JSON", "Creates a JSON Boolean value.", "(json/boolean #t)", "(json/boolean #t)").text())),
+		pairValue(symbol("boolean?"), withHelp(&builtin{call: pure(nativeJSONBooleanQ)}, doc("(json/boolean? value) -> Boolean", "Returns whether value is a JSON Boolean.", "(json/boolean? (json/boolean #t))", "#t").text())),
 		pairValue(symbol("string"), withHelp(&builtin{leaky: true, call: pure(nativeJSONString)}, doc("(json/string text) -> JSON", "Creates a JSON String value.", "(json/string \"Gatehouse\")", "(json/string \"Gatehouse\")").text())),
+		pairValue(symbol("string?"), withHelp(&builtin{call: pure(nativeJSONStringQ)}, doc("(json/string? value) -> Boolean", "Returns whether value is a JSON String.", "(json/string? (json/string \"Gatehouse\"))", "#t").text())),
 		pairValue(symbol("number"), withHelp(&builtin{leaky: true, call: pure(nativeJSONNumber)}, doc("(json/number text) -> JSON", "Creates a JSON Number from valid JSON number text.", "(json/number \"1.25\")", "(json/number \"1.25\")").text())),
+		pairValue(symbol("number?"), withHelp(&builtin{call: pure(nativeJSONNumberQ)}, doc("(json/number? value) -> Boolean", "Returns whether value is a JSON Number.", "(json/number? (json/number \"1.25\"))", "#t").text())),
 		pairValue(symbol("array"), withHelp(&builtin{leaky: true, call: pure(nativeJSONArray)}, doc("(json/array json...) -> JSON", "Creates a JSON Array from JSON values.", "(json/array (json/string \"a\") (json/null))", "(json/array (json/string \"a\") (json/null))").text())),
+		pairValue(symbol("array?"), withHelp(&builtin{call: pure(nativeJSONArrayQ)}, doc("(json/array? value) -> Boolean", "Returns whether value is a JSON Array.", "(json/array? (json/array))", "#t").text())),
 		pairValue(symbol("object"), withHelp(&builtin{leaky: true, call: pure(nativeJSONObject)}, doc("(json/object (pair text json)...) -> JSON", "Creates a JSON Object from String-keyed JSON value pairs.", "(json/object (pair \"name\" (json/string \"Gatehouse\")))", "(json/object (\"name\" . (json/string \"Gatehouse\")))").text())),
+		pairValue(symbol("object?"), withHelp(&builtin{call: pure(nativeJSONObjectQ)}, doc("(json/object? value) -> Boolean", "Returns whether value is a JSON Object.", "(json/object? (json/object))", "#t").text())),
 		pairValue(symbol("decode"), decode),
 		pairValue(symbol("encode"), encode),
 	})
@@ -47,6 +53,10 @@ func nativeJSONNull(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, list([]Expr{symbol("json/null")})
 }
 
+func nativeJSONNullQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/null", "json/null?")
+}
+
 func nativeJSONBoolean(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
 		return expressionError("json/boolean requires one Boolean"), nil
@@ -58,6 +68,10 @@ func nativeJSONBoolean(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, list([]Expr{symbol("json/boolean"), boolean(value)})
 }
 
+func nativeJSONBooleanQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/boolean", "json/boolean?")
+}
+
 func nativeJSONString(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
 		return expressionError("json/string requires one String"), nil
@@ -67,6 +81,10 @@ func nativeJSONString(_ *evaluator, arguments []Expr) (error, Expr) {
 		return err, nil
 	}
 	return nil, list([]Expr{symbol("json/string"), stringValue(value)})
+}
+
+func nativeJSONStringQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/string", "json/string?")
 }
 
 func nativeJSONNumber(_ *evaluator, arguments []Expr) (error, Expr) {
@@ -83,6 +101,10 @@ func nativeJSONNumber(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, list([]Expr{symbol("json/number"), stringValue(value)})
 }
 
+func nativeJSONNumberQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/number", "json/number?")
+}
+
 func nativeJSONArray(_ *evaluator, arguments []Expr) (error, Expr) {
 	values := []Expr{symbol("json/array")}
 	for _, value := range arguments {
@@ -94,6 +116,10 @@ func nativeJSONArray(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, list(values)
 }
 
+func nativeJSONArrayQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/array", "json/array?")
+}
+
 func nativeJSONObject(_ *evaluator, arguments []Expr) (error, Expr) {
 	values := []Expr{symbol("json/object")}
 	for _, member := range arguments {
@@ -103,6 +129,24 @@ func nativeJSONObject(_ *evaluator, arguments []Expr) (error, Expr) {
 		values = append(values, member)
 	}
 	return nil, list(values)
+}
+
+func nativeJSONObjectQ(_ *evaluator, arguments []Expr) (error, Expr) {
+	return nativeJSONTypeQ(arguments, "json/object", "json/object?")
+}
+
+func nativeJSONTypeQ(arguments []Expr, tag string, name string) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("%s requires one argument", name), nil
+	}
+	err, values := expressions(arguments[0])
+	if err != nil || len(values) == 0 || !isSymbol(values[0], tag) {
+		return nil, boolean(false)
+	}
+	if err, _ := nativeJSONEncodeValue(arguments[0]); err != nil {
+		return nil, boolean(false)
+	}
+	return nil, boolean(true)
 }
 
 func nativeJSONDecode(_ *evaluator, arguments []Expr) (error, Expr) {
