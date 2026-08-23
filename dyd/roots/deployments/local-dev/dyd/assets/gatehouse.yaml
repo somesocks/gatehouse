@@ -31,10 +31,16 @@ workspaces:
         label: GPT 5.6 Luna Low
         priority: 1
         max_turns: 127
+        max_input_tokens: 120000
+        max_output_tokens: 16000
+        summary_tokens: 8000
       - model: openai-luna-medium
         label: GPT 5.6 Luna Med
         priority: 1
         max_turns: 127
+        max_input_tokens: 120000
+        max_output_tokens: 16000
+        summary_tokens: 8000
     groups:
       - alias: members
         name: Members

@@ -238,7 +238,10 @@ let WorkspaceAgent =
         , optional = toMap
              { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" }
              , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
+             , max_input_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum input tokens before context compaction" }
+             , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum output tokens reserved for each model completion" }
              , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+             , summary_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tokens reserved for a compacted context summary" }
              , system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete system prompt for the agent" }
              }
         }

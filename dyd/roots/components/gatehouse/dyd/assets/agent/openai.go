@@ -8,7 +8,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type openAICompatibleRequest struct {
@@ -18,6 +20,7 @@ type openAICompatibleRequest struct {
 	ResponseFormat    *openAIResponseFormat     `json:"response_format,omitempty"`
 	ParallelToolCalls bool                     `json:"parallel_tool_calls"`
 	ReasoningEffort   string                   `json:"reasoning_effort,omitempty"`
+	MaxTokens         int                      `json:"max_tokens,omitempty"`
 }
 
 type openAIResponseFormat struct {
@@ -71,6 +74,7 @@ type openAIResponsesRequest struct {
 	Text              *openAIResponsesText      `json:"text,omitempty"`
 	ParallelToolCalls bool                      `json:"parallel_tool_calls"`
 	Reasoning         *openAIResponsesReasoning `json:"reasoning,omitempty"`
+	MaxOutputTokens   int                       `json:"max_output_tokens,omitempty"`
 }
 
 type openAIResponsesText struct {
@@ -103,6 +107,15 @@ type openAIResponsesOutput struct {
 		Text string `json:"text"`
 	} `json:"content"`
 }
+
+type openAIRetryableError struct {
+	message    string
+	retryAfter time.Duration
+}
+
+func (err *openAIRetryableError) Error() string { return err.message }
+
+func (err *openAIRetryableError) RetryAfter() time.Duration { return err.retryAfter }
 
 func OpenAICompatibleReply(ctx context.Context, client *http.Client, baseURL, apiKey, model string, messages []openAICompatibleMessage) (error, string) {
 	err, message := OpenAICompatibleComplete(ctx, client, baseURL, apiKey, openAICompatibleRequest{Model: model, Messages: messages})
@@ -141,7 +154,7 @@ func OpenAICompatibleComplete(ctx context.Context, client *http.Client, baseURL,
 		return fmt.Errorf("read OpenAI-compatible response: %w", err), openAICompatibleMessage{}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("OpenAI-compatible completion returned %s: %s", response.Status, strings.TrimSpace(string(contents))), openAICompatibleMessage{}
+		return openAICompletionError("OpenAI-compatible completion", response, contents), openAICompatibleMessage{}
 	}
 	var decoded openAICompatibleResponse
 	if err := json.Unmarshal(contents, &decoded); err != nil {
@@ -179,13 +192,49 @@ func OpenAIResponsesComplete(ctx context.Context, client *http.Client, baseURL, 
 		return fmt.Errorf("read OpenAI Responses response: %w", err), openAIResponsesResponse{}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return fmt.Errorf("OpenAI Responses returned %s: %s", response.Status, strings.TrimSpace(string(contents))), openAIResponsesResponse{}
+		return openAICompletionError("OpenAI Responses", response, contents), openAIResponsesResponse{}
 	}
 	var decoded openAIResponsesResponse
 	if err := json.Unmarshal(contents, &decoded); err != nil {
 		return fmt.Errorf("decode OpenAI Responses response: %w", err), openAIResponsesResponse{}
 	}
 	return nil, decoded
+}
+
+func openAICompletionError(name string, response *http.Response, contents []byte) error {
+	message := fmt.Sprintf("%s returned %s: %s", name, response.Status, strings.TrimSpace(string(contents)))
+	if response.StatusCode != http.StatusTooManyRequests {
+		return fmt.Errorf("%s", message)
+	}
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(contents, &payload) != nil || payload.Error.Code != "rate_limit_exceeded" {
+		return fmt.Errorf("%s", message)
+	}
+	retryAfter, ok := openAIRetryAfter(response.Header)
+	if !ok {
+		return fmt.Errorf("%s", message)
+	}
+	return &openAIRetryableError{message: message, retryAfter: retryAfter}
+}
+
+func openAIRetryAfter(headers http.Header) (time.Duration, bool) {
+	if milliseconds, err := strconv.ParseInt(headers.Get("retry-after-ms"), 10, 64); err == nil && milliseconds > 0 {
+		return time.Duration(milliseconds) * time.Millisecond, true
+	}
+	value := headers.Get("Retry-After")
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second, true
+	}
+	deadline, err := http.ParseTime(value)
+	if err != nil {
+		return 0, false
+	}
+	duration := time.Until(deadline)
+	return duration, duration > 0
 }
 
 func openAIResponsesMessage(role, content string) json.RawMessage {

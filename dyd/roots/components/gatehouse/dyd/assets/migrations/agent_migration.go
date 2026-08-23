@@ -121,14 +121,27 @@ type agentModelMigrationValue struct {
 }
 
 func workspaceAgentMigrationBuilder(agents []config.WorkspaceAgent) MigrationBuilder {
+	values := make([]config.WorkspaceAgent, len(agents))
+	copy(values, agents)
+	for index := range values {
+		if values[index].MaxInputTokens == 0 {
+			values[index].MaxInputTokens = config.DefaultWorkspaceAgentMaxInputTokens
+		}
+		if values[index].MaxOutputTokens == 0 {
+			values[index].MaxOutputTokens = config.DefaultWorkspaceAgentMaxOutputTokens
+		}
+		if values[index].SummaryTokens == 0 {
+			values[index].SummaryTokens = config.DefaultWorkspaceAgentSummaryTokens
+		}
+	}
 	return templateMigrationBuilder(`
 		SELECT 1;
 		{{ range . }}
-		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, label, system_prompt, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
-		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, max_input_tokens, max_output_tokens, summary_tokens, label, system_prompt, enabled)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxInputTokens }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlLiteral .SummaryTokens }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
+		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, max_input_tokens = excluded.max_input_tokens, max_output_tokens = excluded.max_output_tokens, summary_tokens = excluded.summary_tokens, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
 		{{ end }}
-	`, agents)
+	`, values)
 }
 
 type agentProviderIDAndRevision struct {

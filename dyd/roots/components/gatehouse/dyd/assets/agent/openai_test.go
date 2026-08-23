@@ -3,9 +3,11 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestOpenAICompatibleReply(t *testing.T) {
@@ -63,7 +65,7 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 			t.Fatal(err)
 		}
-		if body.Model != "test-model" || body.Instructions != "test instructions" || body.Reasoning == nil || body.Reasoning.Effort != "low" || len(body.Input) != 1 || len(body.Tools) != 1 || body.Tools[0].Name != "lisp" || !body.Tools[0].Strict || !body.ParallelToolCalls {
+		if body.Model != "test-model" || body.Instructions != "test instructions" || body.Reasoning == nil || body.Reasoning.Effort != "low" || body.MaxOutputTokens != 123 || len(body.Input) != 1 || len(body.Tools) != 1 || body.Tools[0].Name != "lisp" || !body.Tools[0].Strict || !body.ParallelToolCalls {
 			t.Fatalf("request body = %#v", body)
 		}
 		response.Header().Set("Content-Type", "application/json")
@@ -72,9 +74,38 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 	defer server.Close()
 
 	err, response := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+"/v1", "test-key", openAIResponsesRequest{
-		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, ParallelToolCalls: true, Reasoning: &openAIResponsesReasoning{Effort: "low"},
+		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, ParallelToolCalls: true, Reasoning: &openAIResponsesReasoning{Effort: "low"}, MaxOutputTokens: 123,
 	})
 	if err != nil || len(response.Output) != 1 {
 		t.Fatalf("OpenAIResponsesComplete() = (%#v, %v)", response, err)
+	}
+}
+
+func TestOpenAIResponsesCompleteClassifiesRetryableRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Retry-After", "2")
+		response.WriteHeader(http.StatusTooManyRequests)
+		_, _ = response.Write([]byte(`{"error":{"code":"rate_limit_exceeded"}}`))
+	}))
+	defer server.Close()
+
+	err, _ := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL, "test-key", openAIResponsesRequest{Model: "test-model"})
+	var retryable *openAIRetryableError
+	if !errors.As(err, &retryable) || retryable.RetryAfter() != 2*time.Second {
+		t.Fatalf("OpenAIResponsesComplete() error = %#v, want retryable rate limit", err)
+	}
+}
+
+func TestOpenAIResponsesCompleteDoesNotRetryUnspecifiedRateLimit(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusTooManyRequests)
+		_, _ = response.Write([]byte(`{"error":{"code":"rate_limit_exceeded"}}`))
+	}))
+	defer server.Close()
+
+	err, _ := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL, "test-key", openAIResponsesRequest{Model: "test-model"})
+	var retryable *openAIRetryableError
+	if err == nil || errors.As(err, &retryable) {
+		t.Fatalf("OpenAIResponsesComplete() error = %#v, want non-retryable error", err)
 	}
 }

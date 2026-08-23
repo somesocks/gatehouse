@@ -39,16 +39,24 @@ type AgentModel struct {
 }
 
 type WorkspaceAgent struct {
-	WorkspaceID string
-	ModelAlias  string
-	Priority    int
-	MaxTurns    int
-	Label       *string
-	SystemPrompt *string
-	Enabled     bool
+	WorkspaceID     string
+	ModelAlias      string
+	Priority        int
+	MaxTurns        int
+	MaxInputTokens  int
+	MaxOutputTokens int
+	SummaryTokens   int
+	Label           *string
+	SystemPrompt    *string
+	Enabled         bool
 }
 
-const DefaultWorkspaceAgentMaxTurns = 127
+const (
+	DefaultWorkspaceAgentMaxTurns        = 127
+	DefaultWorkspaceAgentMaxInputTokens  = 120000
+	DefaultWorkspaceAgentMaxOutputTokens = 16000
+	DefaultWorkspaceAgentSummaryTokens   = 8000
+)
 
 func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []AgentProvider) {
 	if document.AgentProviders == nil {
@@ -215,12 +223,36 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if maxTurns <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d].max_turns must be positive", workspaceIndex, agentIndex), nil
 			}
+			maxInputTokens := DefaultWorkspaceAgentMaxInputTokens
+			if configured.MaxInputTokens != nil {
+				maxInputTokens = *configured.MaxInputTokens
+			}
+			if maxInputTokens <= 0 {
+				return fmt.Errorf("workspaces[%d].agents[%d].max_input_tokens must be positive", workspaceIndex, agentIndex), nil
+			}
+			maxOutputTokens := DefaultWorkspaceAgentMaxOutputTokens
+			if configured.MaxOutputTokens != nil {
+				maxOutputTokens = *configured.MaxOutputTokens
+			}
+			if maxOutputTokens <= 0 {
+				return fmt.Errorf("workspaces[%d].agents[%d].max_output_tokens must be positive", workspaceIndex, agentIndex), nil
+			}
+			summaryTokens := DefaultWorkspaceAgentSummaryTokens
+			if configured.SummaryTokens != nil {
+				summaryTokens = *configured.SummaryTokens
+			}
+			if summaryTokens <= 0 {
+				return fmt.Errorf("workspaces[%d].agents[%d].summary_tokens must be positive", workspaceIndex, agentIndex), nil
+			}
+			if summaryTokens >= maxInputTokens {
+				return fmt.Errorf("workspaces[%d].agents[%d].summary_tokens must be less than max_input_tokens", workspaceIndex, agentIndex), nil
+			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, MaxInputTokens: maxInputTokens, MaxOutputTokens: maxOutputTokens, SummaryTokens: summaryTokens, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {
