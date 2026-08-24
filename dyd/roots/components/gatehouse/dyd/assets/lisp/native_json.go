@@ -42,9 +42,15 @@ func nativeJSONModule() Expr {
 		pairValue(symbol("array"), withHelp(&builtin{leaky: true, call: pure(nativeJSONArray)}, doc("(json/array json...) -> JSON", "Creates a JSON Array from JSON values.", "(json/array (json/string \"a\") (json/null))", "(json/array (json/string \"a\") (json/null))").text())),
 		pairValue(symbol("array?"), withHelp(&builtin{call: pure(nativeJSONArrayQ)}, doc("(json/array? value) -> Boolean", "Returns whether value is a JSON Array.", "(json/array? (json/array))", "#t").text())),
 		pairValue(symbol("array/values"), withHelp(&builtin{leaky: true, call: pure(nativeJSONArrayValues)}, doc("(json/array/values json) -> List", "Returns the JSON values in a JSON Array.", "(json/array/values (json/array (json/string \"a\") (json/null)))", "((json/string \"a\") (json/null))").text())),
+		pairValue(symbol("array/get"), withHelp(&builtin{leaky: true, call: pure(nativeJSONArrayGet)}, doc("(json/array/get json index) -> JSON", "Returns the JSON value at a zero-based index in a JSON Array.", "(json/array/get (json/array (json/string \"a\") (json/null)) 1)", "(json/null)").text())),
+		pairValue(symbol("array/map"), withHelp(&builtin{leaky: true, call: valueCall(nativeJSONArrayMap)}, doc("(json/array/map function json) -> JSON", "Calls function with each JSON value and its zero-based index, returning a JSON Array of the mapped values in source order.", "(json/array/map (fn (value index) (if (= index 0) (json/null) value)) (json/array (json/string \"a\") (json/string \"b\")))", "(json/array (json/null) (json/string \"b\"))").text())),
+		pairValue(symbol("array/filter"), withHelp(&builtin{leaky: true, call: valueCall(nativeJSONArrayFilter)}, doc("(json/array/filter predicate json) -> JSON", "Calls predicate with each JSON value and its zero-based index, returning a JSON Array of values for which it returns true in source order.", "(json/array/filter (fn (value index) (= index 1)) (json/array (json/string \"a\") (json/string \"b\")))", "(json/array (json/string \"b\"))").text())),
 		pairValue(symbol("object"), withHelp(&builtin{leaky: true, call: pure(nativeJSONObject)}, doc("(json/object (pair text json)...) -> JSON", "Creates a JSON Object from String-keyed JSON value pairs.", "(json/object (pair \"name\" (json/string \"Gatehouse\")))", "(json/object (\"name\" json/string \"Gatehouse\"))").text())),
 		pairValue(symbol("object?"), withHelp(&builtin{call: pure(nativeJSONObjectQ)}, doc("(json/object? value) -> Boolean", "Returns whether value is a JSON Object.", "(json/object? (json/object))", "#t").text())),
 		pairValue(symbol("object/values"), withHelp(&builtin{leaky: true, call: pure(nativeJSONObjectValues)}, doc("(json/object/values json) -> List", "Returns the String-keyed JSON value pairs in a JSON Object.", "(json/object/values (json/object (pair \"name\" (json/string \"Gatehouse\"))))", "((\"name\" json/string \"Gatehouse\"))").text())),
+		pairValue(symbol("object/get"), withHelp(&builtin{leaky: true, call: pure(nativeJSONObjectGet)}, doc("(json/object/get json key) -> JSON | Null", "Returns the first JSON value for key in a JSON Object, or null when key is absent.", "(json/object/get (json/object (pair \"name\" (json/string \"Gatehouse\"))) \"name\")", "(json/string \"Gatehouse\")").text())),
+		pairValue(symbol("object/map"), withHelp(&builtin{leaky: true, call: valueCall(nativeJSONObjectMap)}, doc("(json/object/map function json) -> JSON", "Calls function with each JSON value and its String key, returning a JSON Object of mapped values with keys and source order preserved.", "(json/object/map (fn (value key) (if (= key \"name\") (json/string \"Dryad\") value)) (json/object (pair \"name\" (json/string \"Gatehouse\"))))", "(json/object (\"name\" json/string \"Dryad\"))").text())),
+		pairValue(symbol("object/filter"), withHelp(&builtin{leaky: true, call: valueCall(nativeJSONObjectFilter)}, doc("(json/object/filter predicate json) -> JSON", "Calls predicate with each JSON value and its String key, returning a JSON Object of members for which it returns true in source order.", "(json/object/filter (fn (value key) (= key \"name\")) (json/object (pair \"name\" (json/string \"Gatehouse\")) (pair \"enabled\" (json/boolean #t))))", "(json/object (\"name\" json/string \"Gatehouse\"))").text())),
 		pairValue(symbol("decode"), decode),
 		pairValue(symbol("encode"), encode),
 	})
@@ -157,6 +163,79 @@ func nativeJSONArrayValues(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, nativeJSONExtract(arguments[0], list(values[1:]))
 }
 
+func nativeJSONArrayGet(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/array/get requires a JSON Array and an Integer index"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[:1], "json/array", "Array", "json/array/get")
+	if err != nil {
+		return err, nil
+	}
+	err, index := requireInteger(arguments[1])
+	if err != nil {
+		return expressionError("json/array/get requires an Integer index"), nil
+	}
+	if index < 0 || index >= int64(len(values)-1) {
+		return expressionError("json/array/get index is out of range"), nil
+	}
+	return nil, nativeJSONExtract(arguments[0], values[int(index)+1])
+}
+
+func nativeJSONArrayMap(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/array/map requires a function and JSON Array"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[1:], "json/array", "Array", "json/array/map")
+	if err != nil {
+		return err, nil
+	}
+	mapped := make([]Expr, 0, len(values)-1)
+	for index, value := range values[1:] {
+		err, result := evaluator.call(arguments[0], env, []Expr{value, integer(int64(index))})
+		if err != nil {
+			return err, nil
+		}
+		if err, _ := nativeJSONEncodeValue(result); err != nil {
+			return expressionError("json/array/map function requires JSON values"), nil
+		}
+		mapped = append(mapped, result)
+	}
+	err, result := nativeJSONArray(nil, mapped)
+	if err != nil {
+		return err, nil
+	}
+	return nil, nativeJSONExtract(arguments[1], result)
+}
+
+func nativeJSONArrayFilter(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/array/filter requires a predicate and JSON Array"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[1:], "json/array", "Array", "json/array/filter")
+	if err != nil {
+		return err, nil
+	}
+	filtered := make([]Expr, 0, len(values)-1)
+	for index, value := range values[1:] {
+		err, keep := evaluator.call(arguments[0], env, []Expr{value, integer(int64(index))})
+		if err != nil {
+			return err, nil
+		}
+		err, include := requireBoolean(keep)
+		if err != nil {
+			return expressionError("json/array/filter predicate requires Boolean results"), nil
+		}
+		if include {
+			filtered = append(filtered, value)
+		}
+	}
+	err, result := nativeJSONArray(nil, filtered)
+	if err != nil {
+		return err, nil
+	}
+	return nil, nativeJSONExtract(arguments[1], result)
+}
+
 func nativeJSONObject(_ *evaluator, arguments []Expr) (error, Expr) {
 	values := []Expr{symbol("json/object")}
 	for _, member := range arguments {
@@ -178,6 +257,93 @@ func nativeJSONObjectValues(_ *evaluator, arguments []Expr) (error, Expr) {
 		return err, nil
 	}
 	return nil, nativeJSONExtract(arguments[0], list(values[1:]))
+}
+
+func nativeJSONObjectGet(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/object/get requires a JSON Object and a String key"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[:1], "json/object", "Object", "json/object/get")
+	if err != nil {
+		return err, nil
+	}
+	err, key := requireString(arguments[1])
+	if err != nil {
+		return expressionError("json/object/get requires a String key"), nil
+	}
+	for _, member := range values[1:] {
+		err, memberKey, value := nativeJSONObjectMemberValues(member)
+		if err != nil {
+			return err, nil
+		}
+		if memberKey == key {
+			return nil, nativeJSONExtract(arguments[0], value)
+		}
+	}
+	return nil, nativeJSONExtract(arguments[0], null())
+}
+
+func nativeJSONObjectMap(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/object/map requires a function and JSON Object"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[1:], "json/object", "Object", "json/object/map")
+	if err != nil {
+		return err, nil
+	}
+	mapped := make([]Expr, 0, len(values)-1)
+	for _, member := range values[1:] {
+		err, key, value := nativeJSONObjectMemberValues(member)
+		if err != nil {
+			return err, nil
+		}
+		err, result := evaluator.call(arguments[0], env, []Expr{value, stringValue(key)})
+		if err != nil {
+			return err, nil
+		}
+		if err, _ := nativeJSONEncodeValue(result); err != nil {
+			return expressionError("json/object/map function requires JSON values"), nil
+		}
+		mapped = append(mapped, pairValue(stringValue(key), result))
+	}
+	err, result := nativeJSONObject(nil, mapped)
+	if err != nil {
+		return err, nil
+	}
+	return nil, nativeJSONExtract(arguments[1], result)
+}
+
+func nativeJSONObjectFilter(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("json/object/filter requires a predicate and JSON Object"), nil
+	}
+	err, values := nativeJSONRequireType(arguments[1:], "json/object", "Object", "json/object/filter")
+	if err != nil {
+		return err, nil
+	}
+	filtered := make([]Expr, 0, len(values)-1)
+	for _, member := range values[1:] {
+		err, key, value := nativeJSONObjectMemberValues(member)
+		if err != nil {
+			return err, nil
+		}
+		err, keep := evaluator.call(arguments[0], env, []Expr{value, stringValue(key)})
+		if err != nil {
+			return err, nil
+		}
+		err, include := requireBoolean(keep)
+		if err != nil {
+			return expressionError("json/object/filter predicate requires Boolean results"), nil
+		}
+		if include {
+			filtered = append(filtered, member)
+		}
+	}
+	err, result := nativeJSONObject(nil, filtered)
+	if err != nil {
+		return err, nil
+	}
+	return nil, nativeJSONExtract(arguments[1], result)
 }
 
 func nativeJSONTypeQ(arguments []Expr, tag string, name string) (error, Expr) {
