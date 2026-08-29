@@ -77,7 +77,7 @@
   type SessionEvent = {
     created_at: string
     kind: string
-    payload: { text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; attachments?: MessageFile[] }
+    payload: { agent?: string; text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; attachments?: MessageFile[] }
     ref: { id: string }
     parent?: { id: string }
     author_principal?: {
@@ -1244,6 +1244,18 @@
       return ""
     }
     return elapsedDuration(tree.event.created_at, replies[replies.length - 1].event.created_at)
+  }
+
+  function activityAgentLabel(tree: SessionEventTree) {
+    if (tree.event.payload.agent !== undefined) {
+      return agentLabel(tree.event.payload.agent)
+    }
+    const activity = activityEvents(tree).find((child) => child.event.author_agent !== undefined)
+    if (activity?.event.author_agent !== undefined) {
+      return agentLabel(activity.event.author_agent.model.id)
+    }
+    const reply = finalReplies(tree)[0]
+    return reply?.event.author_agent === undefined ? "Agent" : agentLabel(reply.event.author_agent.model.id)
   }
 
   function workingReplyDuration(tree: SessionEventTree) {
@@ -2432,7 +2444,7 @@
                   {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id) || replyCanBeCancelled(tree)}
                     <section class="agent-activity-section">
                       <p class="agent-activity-heading">
-                        {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
+                        {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? `${activityAgentLabel(tree)} is working` : activityAgentLabel(tree)}
                         {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
                           <span class="agent-activity-duration">{replyDuration(tree)}</span>
                         {/if}
