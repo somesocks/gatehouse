@@ -12,27 +12,27 @@ agent_providers:
         - env:OPENAI_API_KEY
 agent_models:
   - alias: openai-luna-low
-    revision: 3
+    revision: 4
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: low
     compaction:
       algorithm: mcmtr
-      history_bytes: 98304
-      buffer_bytes: 12288
+      history_bytes: 196608
+      buffer_bytes: 24576
     max_turns: 127
     max_output_tokens: 16000
   - alias: openai-luna-medium
-    revision: 3
+    revision: 4
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: medium
     compaction:
       algorithm: mcmtr
-      history_bytes: 98304
-      buffer_bytes: 12288
+      history_bytes: 196608
+      buffer_bytes: 24576
     max_turns: 127
     max_output_tokens: 16000
 workspaces:
