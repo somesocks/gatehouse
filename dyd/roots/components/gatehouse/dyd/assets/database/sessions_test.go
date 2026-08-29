@@ -770,6 +770,18 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 	call := create("sev_00000000000000000000000002", "tool.request", &root.Ref)
 	result := create("sev_00000000000000000000000003", "tool.success", &call.Ref)
 	text := create("sev_00000000000000000000000004", "message.text", &root.Ref)
+	err, newest := store.SessionEventsTailPageGet(ctx, session, "", 2)
+	if err != nil || len(newest) != 2 || newest[0].Ref != result.Ref || newest[1].Ref != text.Ref {
+		t.Fatalf("SessionEventsTailPageGet(newest) = (%#v, %v)", newest, err)
+	}
+	err, older := store.SessionEventsTailPageGet(ctx, session, newest[0].Ref.Id, 2)
+	if err != nil || len(older) != 2 || older[0].Ref != reasoning.Ref || older[1].Ref != call.Ref {
+		t.Fatalf("SessionEventsTailPageGet(older) = (%#v, %v)", older, err)
+	}
+	err, oldest := store.SessionEventsTailPageGet(ctx, session, older[0].Ref.Id, 2)
+	if err != nil || len(oldest) != 1 || oldest[0].Ref != root.Ref {
+		t.Fatalf("SessionEventsTailPageGet(oldest) = (%#v, %v)", oldest, err)
+	}
 
 	err, events := store.SessionEventsGet(ctx, session)
 	if err != nil {

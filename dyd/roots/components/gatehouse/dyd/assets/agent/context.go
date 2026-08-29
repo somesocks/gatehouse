@@ -16,7 +16,7 @@ import (
 const (
 	contextMaximumBytes  = 96 * 1024
 	contextBufferBytes   = 16 * 1024
-	contextEventLimit = 128
+	contextEventPageSize = 128
 )
 
 type mcmtrProfile struct {
@@ -82,29 +82,7 @@ func (runtime *SessionEventReplyRuntime) agentContext(ctx dbos.Context, parent m
 				return nil, fmt.Errorf("decode MCMTR state for session event %q: %w", parent.Id, err)
 			}
 		}
-		err, events := runtime.store.SessionEventsTailGet(step, parent.Session, contextEventLimit)
-		if err != nil {
-			return nil, err
-		}
-		active := false
-		for _, event := range events {
-			if event.Ref == parent {
-				active = true
-				break
-			}
-		}
-		if !active {
-			err, event := runtime.store.SessionEventGet(step, parent)
-			if err != nil || event == nil {
-				if err != nil {
-					return nil, err
-				}
-				return nil, fmt.Errorf("reply to session event %q: active user message is unavailable", parent.Id)
-			}
-			events = append(events, *event)
-		}
-		sort.Slice(events, func(left, right int) bool { return events[left].Ref.Id < events[right].Ref.Id })
-		return events, nil
+		return runtime.mcmtrContextEvents(step, parent, profile, state)
 	}, dbos.WithStepName("gatehouse.session-event-context-load"))
 	if err != nil {
 		return err, nil
@@ -124,6 +102,100 @@ func (runtime *SessionEventReplyRuntime) agentContext(ctx dbos.Context, parent m
 		return err, nil
 	}
 	return nil, messages
+}
+
+func (runtime *SessionEventReplyRuntime) mcmtrContextEvents(ctx context.Context, parent model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]model.SessionEvent, error) {
+	err, active := runtime.store.SessionEventGet(ctx, parent)
+	if err != nil {
+		return nil, err
+	}
+	if active == nil {
+		return nil, fmt.Errorf("reply to session event %q: active user message is unavailable", parent.Id)
+	}
+	beforeID := ""
+	events := make([]model.SessionEvent, 0, contextEventPageSize)
+	for {
+		err, page := runtime.store.SessionEventsTailPageGet(ctx, parent.Session, beforeID, contextEventPageSize)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) == 0 {
+			return mcmtrContextEventsWithActive(events, *active), nil
+		}
+		events = append(events, page...)
+		contextEvents := mcmtrContextEventsWithActive(events, *active)
+		_, _, shared, err := compileMCMTRContextWithShared(contextEvents, parent, profile, state)
+		if err != nil {
+			return nil, err
+		}
+		oldestID := page[0].Ref.Id
+		needOlder, err := mcmtrHighTiersNeedOlder(contextEvents, profile, state, oldestID)
+		if err != nil {
+			return nil, err
+		}
+		if len(page) < contextEventPageSize || (shared == 0 && !needOlder) {
+			return contextEvents, nil
+		}
+		beforeID = oldestID
+	}
+}
+
+func mcmtrContextEventsWithActive(events []model.SessionEvent, active model.SessionEvent) []model.SessionEvent {
+	result := append([]model.SessionEvent(nil), events...)
+	for _, event := range result {
+		if event.Ref == active.Ref {
+			sort.Slice(result, func(left, right int) bool { return result[left].Ref.Id < result[right].Ref.Id })
+			return result
+		}
+	}
+	result = append(result, active)
+	sort.Slice(result, func(left, right int) bool { return result[left].Ref.Id < result[right].Ref.Id })
+	return result
+}
+
+func mcmtrHighTiersNeedOlder(events []model.SessionEvent, profile mcmtrProfile, state mcmtrContextState, oldestID string) (bool, error) {
+	used := map[string]int{"user": 0, "agent": 0, "tool": 0}
+	events = mcmtrAnnotateRoots(events)
+	for _, event := range events {
+		record, include, err := mcmtrRecordFor(event)
+		if err != nil {
+			return false, err
+		}
+		if !include {
+			continue
+		}
+		record.stream = mcmtrChannel(event)
+		checkpoint := mcmtrHighCheckpoint(state, record.stream)
+		if checkpoint == "" || record.event.Ref.Id >= checkpoint {
+			used[record.stream] += mcmtrRecordCost(record)
+		}
+	}
+	for _, stream := range []string{"user", "agent", "tool"} {
+		checkpoint := mcmtrHighCheckpoint(state, stream)
+		if checkpoint != "" {
+			if oldestID > checkpoint {
+				return true, nil
+			}
+			continue
+		}
+		if used[stream] <= profile.BufferBytes {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func mcmtrHighCheckpoint(state mcmtrContextState, stream string) string {
+	switch stream {
+	case "user":
+		return state.UserHighFrom
+	case "agent":
+		return state.AgentHighFrom
+	case "tool":
+		return state.ToolHighFrom
+	default:
+		return ""
+	}
 }
 
 func selectedMCMTRProfile(selected *database.WorkspaceAgentModel) (mcmtrProfile, error) {

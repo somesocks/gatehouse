@@ -744,31 +744,45 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 
 // SessionEventsTailGet returns a bounded creation-order suffix for cold context construction.
 func (store *Store) SessionEventsTailGet(ctx context.Context, session model.SessionRef, limit int) (error, []model.SessionEvent) {
+	return store.SessionEventsTailPageGet(ctx, session, "", limit)
+}
+
+// SessionEventsTailPageGet returns one creation-order page immediately before beforeID.
+// An empty beforeID selects the newest page.
+func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.SessionRef, beforeID string, limit int) (error, []model.SessionEvent) {
 	if limit <= 0 {
-		return fmt.Errorf("get session event tail: limit must be positive"), nil
+		return fmt.Errorf("get session event tail page: limit must be positive"), nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `
+	query := `
 		SELECT id
 		FROM gatehouse_session_events
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
+	`
+	arguments := []any{session.Workspace.Id, session.Id}
+	if beforeID != "" {
+		query += ` AND id < ` + placeholder(3)
+		arguments = append(arguments, beforeID)
+	}
+	query += `
 		ORDER BY id DESC
-		LIMIT `+placeholder(3)+`
-	`, session.Workspace.Id, session.Id, limit)
+		LIMIT ` + placeholder(len(arguments)+1)
+	arguments = append(arguments, limit)
+	rows, err := store.QueryContext(ctx, query, arguments...)
 	if err != nil {
-		return fmt.Errorf("get session event tail: %w", err), nil
+		return fmt.Errorf("get session event tail page: %w", err), nil
 	}
 	defer rows.Close()
 	ids := []string{}
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("scan session event tail: %w", err), nil
+			return fmt.Errorf("scan session event tail page: %w", err), nil
 		}
 		ids = append(ids, id)
 	}
 	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate session event tail: %w", err), nil
+		return fmt.Errorf("iterate session event tail page: %w", err), nil
 	}
 	events := make([]model.SessionEvent, 0, len(ids))
 	for index := len(ids) - 1; index >= 0; index-- {

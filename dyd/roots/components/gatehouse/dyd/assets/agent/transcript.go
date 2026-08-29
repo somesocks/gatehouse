@@ -239,6 +239,11 @@ type mcmtrRecord struct {
 // messages. MCMTR controls which records and previews fit; it does not combine
 // historical records into a mutable transcript message.
 func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]openAICompatibleMessage, mcmtrContextState, error) {
+	messages, next, _, err := compileMCMTRContextWithShared(events, active, profile, state)
+	return messages, next, err
+}
+
+func compileMCMTRContextWithShared(events []model.SessionEvent, active model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]openAICompatibleMessage, mcmtrContextState, int, error) {
 	events = mcmtrAnnotateRoots(events)
 	byID := make(map[string]model.SessionEvent, len(events))
 	for _, event := range events {
@@ -246,14 +251,14 @@ func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventR
 	}
 	activeEvent, ok := byID[active.Id]
 	if !ok || activeEvent.Ref.Session != active.Session || activeEvent.Kind != "message.text" || activeEvent.AuthorPrincipal == nil {
-		return nil, state, fmt.Errorf("reply to session event %q: active user message is unavailable", active.Id)
+		return nil, state, 0, fmt.Errorf("reply to session event %q: active user message is unavailable", active.Id)
 	}
 
 	all := make([]mcmtrRecord, 0, len(events))
 	for _, event := range events {
 		record, include, err := mcmtrRecordFor(event)
 		if err != nil {
-			return nil, state, err
+			return nil, state, 0, err
 		}
 		if !include {
 			continue
@@ -313,7 +318,7 @@ func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventR
 	messages := mcmtrRecordMessages(before)
 	messages = append(messages, openAICompatibleMessage{Role: "user", Content: activeRendered})
 	messages = append(messages, mcmtrRecordMessages(after)...)
-	return messages, state, nil
+	return messages, state, shared, nil
 }
 
 func mcmtrSplitActiveRecords(records []mcmtrRecord, activeID string) ([]mcmtrRecord, []mcmtrRecord) {
