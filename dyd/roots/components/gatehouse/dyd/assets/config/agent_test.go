@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -174,6 +175,25 @@ agent_models:
 	}
 }
 
+func TestDefaultAgentModelCompaction(t *testing.T) {
+	for model, want := range map[string]AgentModelCompaction{
+		"gpt-5.6-luna":                   {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
+		"openai/gpt-5.3-codex":           {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
+		"anthropic/claude-sonnet-5":      {Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 80 * 1024},
+		"google/gemini-3.1-pro-preview": {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024},
+		"x-ai/grok-4.6":                  {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024},
+		"unknown":                        {Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes},
+	} {
+		got, err := resolveAgentModelCompaction(model, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Fatalf("resolveAgentModelCompaction(%q, nil) = %#v, want %#v", model, got, want)
+		}
+	}
+}
+
 func TestResolveAgentModelCompaction(t *testing.T) {
 	for name, contents := range map[string]string{
 		"default": `
@@ -189,7 +209,7 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-`,
+		`,
 		"configured MCMTR": `
 api_version: v1
 agent_providers:
@@ -207,11 +227,11 @@ agent_models:
       algorithm: mcmtr
       history_bytes: 1000
       buffer_bytes: 100
-`,
+		`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
-			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+			if err := os.WriteFile(path, []byte(strings.TrimSpace(contents)), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			err, document := ValidateFile(path)

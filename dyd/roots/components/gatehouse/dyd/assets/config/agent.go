@@ -63,6 +63,20 @@ const (
 	DefaultAgentModelBufferBytes     = 16 * 1024
 )
 
+func defaultAgentModelCompaction(model string) AgentModelCompaction {
+	// Known reasoning models receive profiles tuned for their context and pricing.
+	switch model {
+	case "gpt-5.6", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "openai/gpt-5.6", "openai/gpt-5.6-luna", "openai/gpt-5.6-terra", "openai/gpt-5.6-sol", "gpt-5.3-codex", "openai/gpt-5.3-codex":
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024}
+	case "claude-sonnet-5", "claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-opus-5":
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 80 * 1024}
+	case "gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview", "grok-4.6", "x-ai/grok-4.6":
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024}
+	default:
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+	}
+}
+
 func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []AgentProvider) {
 	if document.AgentProviders == nil {
 		return nil, []AgentProvider{}
@@ -164,7 +178,7 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 		if err != nil {
 			return fmt.Errorf("encode agent_models[%d].parameters: %w", index, err), nil
 		}
-		compaction, err := resolveAgentModelCompaction(configured.Compaction)
+		compaction, err := resolveAgentModelCompaction(configured.Model, configured.Compaction)
 		if err != nil {
 			return fmt.Errorf("agent_models[%d].compaction: %w", index, err), nil
 		}
@@ -190,8 +204,8 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 	return nil, models
 }
 
-func resolveAgentModelCompaction(configured *configschema.GatehouseConfigAgentModelsValuesCompaction) (AgentModelCompaction, error) {
-	compaction := AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+func resolveAgentModelCompaction(model string, configured *configschema.GatehouseConfigAgentModelsValuesCompaction) (AgentModelCompaction, error) {
+	compaction := defaultAgentModelCompaction(model)
 	if configured == nil {
 		return compaction, nil
 	}
