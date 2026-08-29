@@ -638,6 +638,40 @@ let SessionEventRef =
         }
         s.record.meta::{ name = Some "SessionEventRef", description = Some "The stable identity of a session event." }
 
+let SessionEventMetrics =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { request_ms =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider request duration in milliseconds" }
+              , input_tokens =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider-reported input token count" }
+              , cached_input_tokens =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider-reported cached input token count" }
+              , output_tokens =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider-reported output token count" }
+              , reasoning_tokens =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider-reported reasoning token count" }
+              , total_tokens =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "provider-reported total token count" }
+              }
+        }
+        s.record.meta::{ name = Some "SessionEventMetrics", description = Some "Optional provider metrics recorded with a session event." }
+
 let SessionEvent =
       s.record.from
         s.record.props::{
@@ -678,11 +712,15 @@ let SessionEvent =
                   s.reference.from
                     s.reference.props::{ to = "WorkspaceAgentRef" }
                     s.reference.meta::{ description = Some "workspace agent event author" }
-              , author_gateway =
-                  s.reference.from
-                    s.reference.props::{ to = "GatewayRef" }
-                    s.reference.meta::{ description = Some "gateway event author" }
-              }
+               , author_gateway =
+                   s.reference.from
+                     s.reference.props::{ to = "GatewayRef" }
+                     s.reference.meta::{ description = Some "gateway event author" }
+               , metrics =
+                   s.reference.from
+                     s.reference.props::{ to = "SessionEventMetrics" }
+                     s.reference.meta::{ description = Some "optional event metrics" }
+               }
         }
         s.record.meta::{ name = Some "SessionEvent", description = Some "An immutable event in a durable workspace session." }
 
@@ -1042,9 +1080,10 @@ in  Document::{
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
             , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
             , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
-            , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
-            , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
-            , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
+             , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
+             , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
+             , s.root.from SessionEventMetrics s.root.meta::{ name = "SessionEventMetrics" }
+             , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
           , s.root.from ActivityEventRef s.root.meta::{ name = "ActivityEventRef" }
           , s.root.from ActivityEvent s.root.meta::{ name = "ActivityEvent" }
           , s.root.from ActivityCursor s.root.meta::{ name = "ActivityCursor" }

@@ -180,6 +180,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
+	requestMS, inputTokens, cachedInputTokens, outputTokens, reasoningTokens, totalTokens := 1840, 4218, 3072, 611, 384, 4829
 	err, stored := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice)
 	if err != nil {
 		t.Fatal(err)
@@ -201,6 +202,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello"},
+		Metrics:         &model.SessionEventMetrics{RequestMs: &requestMS, InputTokens: &inputTokens, CachedInputTokens: &cachedInputTokens, OutputTokens: &outputTokens, ReasoningTokens: &reasoningTokens, TotalTokens: &totalTokens},
 	}
 	err, storedEvent := store.SessionEventsCreate(ctx, event)
 	if err != nil {
@@ -220,7 +222,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Ref != event.Ref || events[0].Kind != event.Kind || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != alice || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != aliceName || events[0].AuthorAgent != nil || events[0].AuthorGateway != nil || !reflect.DeepEqual(events[0].Payload, event.Payload) || events[0].CreatedAt == "" || events[1].Ref != preciselyTimedEvent.Ref || events[1].CreatedAt != preciselyTimedEvent.CreatedAt {
+	if len(events) != 2 || events[0].Ref != event.Ref || events[0].Kind != event.Kind || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != alice || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != aliceName || events[0].AuthorAgent != nil || events[0].AuthorGateway != nil || !reflect.DeepEqual(events[0].Payload, event.Payload) || !reflect.DeepEqual(events[0].Metrics, event.Metrics) || events[0].CreatedAt == "" || events[1].Ref != preciselyTimedEvent.Ref || !reflect.DeepEqual(events[1].Metrics, preciselyTimedEvent.Metrics) || events[1].CreatedAt != preciselyTimedEvent.CreatedAt {
 		t.Fatalf("SessionEventsGet() = %#v", events)
 	}
 	if _, err := store.ExecContext(ctx, `

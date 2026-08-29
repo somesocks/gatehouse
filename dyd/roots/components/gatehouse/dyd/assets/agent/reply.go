@@ -254,10 +254,11 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
 		}
-		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
 			Model:    selected.Model,
 			Messages: []openAICompatibleMessage{{Role: "system", Content: sessionNamePrompt}, {Role: "user", Content: text}},
 		})
+		reply := completion.Message
 		if err != nil || len(reply.ToolCalls) != 0 || strings.TrimSpace(reply.Content) == "" {
 			if err == nil {
 				err = fmt.Errorf("session name completion returned no title")
@@ -450,28 +451,29 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 		if err != nil {
 			return err, agentFinalReply{}
 		}
-		reply, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
 			Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
 		})
 		if err != nil {
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
+		reply := completion.Message
 		if len(reply.ToolCalls) == 0 {
 			final, err := openAIFinalReply(reply.Content)
 			if err != nil {
 				logInvalidOpenAIFinalReply(selected.ProviderID, parent, reply.Content)
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, completion.Metrics), agentFinalReply{}
 			}
-			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, completion.Metrics); err != nil {
 				return err, agentFinalReply{}
 			}
 			return nil, final
 		}
 		if round >= selected.MaxTurns {
 			err := fmt.Errorf("OpenAI-compatible completion exceeded turn limit")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, completion.Metrics), agentFinalReply{}
 		}
-		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, completion.Metrics); err != nil {
 			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
@@ -489,12 +491,12 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleMessage, error) {
+func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleCompletion, error) {
 	for {
-		reply, err := dbos.RunAsStep(ctx, func(step context.Context) (openAICompatibleMessage, error) {
+		reply, err := dbos.RunAsStep(ctx, func(step context.Context) (openAICompatibleCompletion, error) {
 			err, apiKey := runtime.openAIAPIKey(step, selected)
 			if err != nil {
-				return openAICompatibleMessage{}, err
+				return openAICompatibleCompletion{}, err
 			}
 			defer clear(apiKey)
 			err, reply := OpenAICompatibleComplete(step, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
@@ -508,7 +510,7 @@ func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Conte
 			return reply, err
 		}
 		if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
-			return openAICompatibleMessage{}, err
+			return openAICompatibleCompletion{}, err
 		}
 	}
 }
@@ -1012,7 +1014,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
 				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
 			}
 			outputs[index] = output
 			switch output.Type {
@@ -1027,18 +1029,18 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			final, err := openAIResponsesFinalReply(outputs)
 			if err != nil {
 				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
 			}
-			if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, reply.Metrics); err != nil {
 				return err, agentFinalReply{}
 			}
 			return nil, final
 		}
 		if round >= selected.MaxTurns {
 			err := fmt.Errorf("OpenAI Responses exceeded turn limit")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
 		}
-		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, reply.Metrics); err != nil {
 			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
@@ -1130,9 +1132,13 @@ func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent 
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error) error {
+	return runtime.thinkingFinishWithMetrics(ctx, started, kind, completionErr, nil)
+}
+
+func (runtime *SessionEventReplyRuntime) thinkingFinishWithMetrics(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error, metrics *model.SessionEventMetrics) error {
 	event := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
-		Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
+		Payload: map[string]interface{}{}, Metrics: metrics, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
 	}
 	err, _ := runtime.persistAgentEvent(ctx, event)
 	if completionErr != nil && err != nil {

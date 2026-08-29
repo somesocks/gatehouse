@@ -335,15 +335,19 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 	if err != nil {
 		return fmt.Errorf("encode session event payload: %w", err), model.SessionEvent{}
 	}
+	metrics, err := sessionEventMetricsValue(event.Metrics)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
 	row := transaction.QueryRow(ctx, `
 		INSERT INTO gatehouse_session_events (
-			workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at
+			workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at
 		) VALUES (
 			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`,
-			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`
+			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`
 		)
 		RETURNING created_at
-	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, parent, event.Kind, principal, agent, gateway, string(payload), event.CreatedAt)
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, parent, event.Kind, principal, agent, gateway, string(payload), metrics, event.CreatedAt)
 	if err := row.Scan(&event.CreatedAt); err != nil {
 		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
 	}
@@ -490,6 +494,7 @@ type sessionEventInsert struct {
 	parent, principal, agent any
 	gateway                  any
 	payload                  string
+	metrics                  any
 }
 
 func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks, createApprovalResponse bool) (error, []model.SessionEvent) {
@@ -557,7 +562,11 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if err != nil {
 			return fmt.Errorf("encode session event payload: %w", err), nil
 		}
-		inserts = append(inserts, sessionEventInsert{event: event, parent: parent, principal: principal, agent: agent, gateway: gateway, payload: string(payload)})
+		metrics, err := sessionEventMetricsValue(event.Metrics)
+		if err != nil {
+			return err, nil
+		}
+		inserts = append(inserts, sessionEventInsert{event: event, parent: parent, principal: principal, agent: agent, gateway: gateway, payload: string(payload), metrics: metrics})
 		seen[event.Ref] = struct{}{}
 	}
 	for _, insert := range inserts {
@@ -566,13 +575,13 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		}
 		row := transaction.QueryRowContext(ctx, `
 			INSERT INTO gatehouse_session_events (
-				workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at
+				workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at
 			) VALUES (
 				`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`,
-				`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`
+				`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`
 			)
 			RETURNING created_at
-		`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.parent, insert.event.Kind, insert.principal, insert.agent, insert.gateway, insert.payload, insert.event.CreatedAt)
+		`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.parent, insert.event.Kind, insert.principal, insert.agent, insert.gateway, insert.payload, insert.metrics, insert.event.CreatedAt)
 		if err := row.Scan(&insert.event.CreatedAt); err != nil {
 			return fmt.Errorf("insert session event: %w", err), nil
 		}
@@ -660,7 +669,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	query := `
-		SELECT events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.created_at
+		SELECT events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
 		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
@@ -681,6 +690,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	events := []model.SessionEvent{}
 	for rows.Next() {
 		var id, kind, payload, createdAt string
+		var metrics sql.NullString
 		var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
 		var principalEnabled sql.NullBool
 		if err := rows.Scan(
@@ -694,6 +704,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 			&agent,
 			&gateway,
 			&payload,
+			&metrics,
 			&createdAt,
 		); err != nil {
 			return fmt.Errorf("scan session event: %w", err), nil
@@ -701,6 +712,10 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 		decoded := map[string]interface{}{}
 		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 			return fmt.Errorf("decode session event payload: %w", err), nil
+		}
+		decodedMetrics, err := sessionEventMetricsFromValue(metrics)
+		if err != nil {
+			return err, nil
 		}
 		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 		if err != nil {
@@ -713,6 +728,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 			AuthorAgent:     authorAgent,
 			AuthorGateway:   authorGateway,
 			Payload:         decoded,
+			Metrics:         decodedMetrics,
 			CreatedAt:       createdAt,
 		}
 		if parent.Valid {
@@ -841,7 +857,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 	rows, err := store.QueryContext(ctx, `
 		WITH RECURSIVE
 		roots AS (
-			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at,
+			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at,
 				0 AS depth, id AS display_path
 			FROM gatehouse_session_events
 			WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
@@ -851,17 +867,17 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 			LIMIT `+placeholder(4)+`
 		),
 		tree AS (
-			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, created_at, depth, display_path
+			SELECT workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at, depth, display_path
 			FROM roots
 
 			UNION ALL
 
-			SELECT child.workspace, child.session, child.id, child.parent, child.kind, child.author_principal, child.author_agent, child.author_gateway, child.payload, child.created_at,
+			SELECT child.workspace, child.session, child.id, child.parent, child.kind, child.author_principal, child.author_agent, child.author_gateway, child.payload, child.metrics, child.created_at,
 				tree.depth + 1, tree.display_path || '/' || child.id
 			FROM gatehouse_session_events AS child
 			JOIN tree ON child.workspace = tree.workspace AND child.session = tree.session AND child.parent = tree.id
 		)
-		SELECT tree.id, tree.parent, tree.kind, tree.author_principal, principals.alias, principals.name, principals.enabled, tree.author_agent, tree.author_gateway, tree.payload, tree.created_at, tree.depth
+		SELECT tree.id, tree.parent, tree.kind, tree.author_principal, principals.alias, principals.name, principals.enabled, tree.author_agent, tree.author_gateway, tree.payload, tree.metrics, tree.created_at, tree.depth
 		FROM tree
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = tree.author_principal
 		ORDER BY display_path
@@ -875,6 +891,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 	for rows.Next() {
 		var entry SessionEventTreeEntry
 		var id, kind, payload, createdAt string
+		var metrics sql.NullString
 		var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
 		var principalEnabled sql.NullBool
 		if err := rows.Scan(
@@ -888,6 +905,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 			&agent,
 			&gateway,
 			&payload,
+			&metrics,
 			&createdAt,
 			&entry.Depth,
 		); err != nil {
@@ -896,6 +914,10 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 		decoded := map[string]interface{}{}
 		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 			return fmt.Errorf("decode session event payload: %w", err), nil
+		}
+		decodedMetrics, err := sessionEventMetricsFromValue(metrics)
+		if err != nil {
+			return err, nil
 		}
 		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 		if err != nil {
@@ -908,6 +930,7 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 			AuthorAgent:     authorAgent,
 			AuthorGateway:   authorGateway,
 			Payload:         decoded,
+			Metrics:         decodedMetrics,
 			CreatedAt:       createdAt,
 		}
 		if parent.Valid {
@@ -947,7 +970,7 @@ func (store *Store) SessionEventsTreeTailGet(ctx context.Context, session model.
 func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEventRef) (error, *model.SessionEvent) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.created_at
+		SELECT events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
 		WHERE events.workspace = `+placeholder(1)+` AND events.session = `+placeholder(2)+` AND events.id = `+placeholder(3)+`
@@ -955,9 +978,10 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	var stored model.SessionEvent
 	stored.Ref = event
 	var payload, createdAt string
+	var metrics sql.NullString
 	var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
 	var principalEnabled sql.NullBool
-	if err := row.Scan(&parent, &stored.Kind, &principal, &principalAlias, &principalName, &principalEnabled, &agent, &gateway, &payload, &createdAt); err != nil {
+	if err := row.Scan(&parent, &stored.Kind, &principal, &principalAlias, &principalName, &principalEnabled, &agent, &gateway, &payload, &metrics, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -967,6 +991,10 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
 		return fmt.Errorf("decode session event payload: %w", err), nil
 	}
+	decodedMetrics, err := sessionEventMetricsFromValue(metrics)
+	if err != nil {
+		return err, nil
+	}
 	authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(event.Session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
 	if err != nil {
 		return err, nil
@@ -975,6 +1003,7 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	stored.AuthorAgent = authorAgent
 	stored.AuthorGateway = authorGateway
 	stored.Payload = decoded
+	stored.Metrics = decodedMetrics
 	stored.CreatedAt = createdAt
 	if parent.Valid {
 		stored.Parent = &model.SessionEventRef{Session: event.Session, Id: parent.String}
@@ -1313,6 +1342,42 @@ func sessionEventParentValue(event model.SessionEvent) (any, error) {
 		return nil, fmt.Errorf("create session event: parent is invalid")
 	}
 	return event.Parent.Id, nil
+}
+
+func sessionEventMetricsValue(metrics *model.SessionEventMetrics) (any, error) {
+	if metrics == nil {
+		return nil, nil
+	}
+	for name, value := range map[string]*int{
+		"request_ms": metrics.RequestMs, "input_tokens": metrics.InputTokens, "cached_input_tokens": metrics.CachedInputTokens,
+		"output_tokens": metrics.OutputTokens, "reasoning_tokens": metrics.ReasoningTokens, "total_tokens": metrics.TotalTokens,
+	} {
+		if value != nil && *value < 0 {
+			return nil, fmt.Errorf("create session event: metrics.%s must not be negative", name)
+		}
+	}
+	if metrics.CachedInputTokens != nil && metrics.InputTokens != nil && *metrics.CachedInputTokens > *metrics.InputTokens {
+		return nil, fmt.Errorf("create session event: cached input tokens exceed input tokens")
+	}
+	encoded, err := json.Marshal(metrics)
+	if err != nil {
+		return nil, fmt.Errorf("encode session event metrics: %w", err)
+	}
+	return string(encoded), nil
+}
+
+func sessionEventMetricsFromValue(value sql.NullString) (*model.SessionEventMetrics, error) {
+	if !value.Valid {
+		return nil, nil
+	}
+	metrics := model.SessionEventMetrics{}
+	if err := json.Unmarshal([]byte(value.String), &metrics); err != nil {
+		return nil, fmt.Errorf("decode session event metrics: %w", err)
+	}
+	if _, err := sessionEventMetricsValue(&metrics); err != nil {
+		return nil, err
+	}
+	return &metrics, nil
 }
 
 func sessionEventAuthorValues(event model.SessionEvent) (any, any, any, error) {

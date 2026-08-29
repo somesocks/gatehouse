@@ -235,8 +235,9 @@ type mcmtrRecord struct {
 	contents mcmtrText
 }
 
-// compileMCMTRContext projects durable session events into one compact transcript,
-// one active user message, and (when available) one native completed tool batch.
+// compileMCMTRContext projects durable session events into individual provider
+// messages. MCMTR controls which records and previews fit; it does not combine
+// historical records into a mutable transcript message.
 func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]openAICompatibleMessage, mcmtrContextState, error) {
 	events = mcmtrAnnotateRoots(events)
 	byID := make(map[string]model.SessionEvent, len(events))
@@ -246,18 +247,6 @@ func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventR
 	activeEvent, ok := byID[active.Id]
 	if !ok || activeEvent.Ref.Session != active.Session || activeEvent.Kind != "message.text" || activeEvent.AuthorPrincipal == nil {
 		return nil, state, fmt.Errorf("reply to session event %q: active user message is unavailable", active.Id)
-	}
-
-	nativeCalls, nativeResults, err := mcmtrNativeToolBatch(events, active)
-	if err != nil {
-		return nil, state, err
-	}
-	nativeEventIDs := make(map[string]bool, len(nativeCalls)+len(nativeResults))
-	for _, call := range nativeCalls {
-		nativeEventIDs[call.Event.Ref.Id] = true
-	}
-	for _, result := range nativeResults {
-		nativeEventIDs[result.event.Ref.Id] = true
 	}
 
 	all := make([]mcmtrRecord, 0, len(events))
@@ -288,35 +277,16 @@ func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventR
 	}
 	userRemaining = max(0, userRemaining-len(activeRendered))
 
-	if mcmtrNativeMinimumBytes(nativeCalls, nativeResults) > profile.BufferBytes {
-		return nil, state, fmt.Errorf("newest resolved tool batch exceeds MCMTR tool high-tier buffer")
-	}
-	toolRemaining := profile.BufferBytes
-	for index := range nativeCalls {
-		contents := mcmtrLimitText(nativeCalls[index].Arguments, max(0, toolRemaining-512))
-		nativeCalls[index].Arguments = contents.value
-		nativeCalls[index].Truncated = contents.truncated
-		nativeCalls[index].Omitted = contents.omitted
-		nativeCalls[index].SizeBytes = contents.sizeBytes
-		nativeCalls[index].ShownBytes = contents.shownBytes
-		toolRemaining = max(0, toolRemaining-len(nativeCalls[index].call().Function.Arguments))
-	}
-	for index := range nativeResults {
-		nativeResults[index].contents = mcmtrLimitText(nativeResults[index].contents.value, max(0, toolRemaining-512))
-		rendered := transcriptToolResultEvent(transcriptToolOutput{Event: nativeResults[index].event, Status: nativeResults[index].status, Truncated: nativeResults[index].contents.truncated, Omitted: nativeResults[index].contents.omitted, SizeBytes: nativeResults[index].contents.sizeBytes, ShownBytes: nativeResults[index].contents.shownBytes}, nativeResults[index].contents.value)
-		toolRemaining = max(0, toolRemaining-len(rendered))
-	}
-
 	highRecords := make([]mcmtrRecord, 0, len(all))
 	lowerRecords := make([]mcmtrRecord, 0, len(all))
-	remaining := map[string]int{"user": userRemaining, "agent": profile.BufferBytes, "tool": toolRemaining}
+	remaining := map[string]int{"user": userRemaining, "agent": profile.BufferBytes, "tool": profile.BufferBytes}
 	for _, record := range all {
-		if record.event.Ref.Id == active.Id || nativeEventIDs[record.event.Ref.Id] {
+		if record.event.Ref.Id == active.Id {
 			continue
 		}
 		if high[record.event.Ref.Id] {
 			record.contents = mcmtrLimitText(record.contents.value, max(0, remaining[record.stream]-512))
-			remaining[record.stream] = max(0, remaining[record.stream]-len(record.render()))
+			remaining[record.stream] = max(0, remaining[record.stream]-mcmtrRecordCost(record))
 			highRecords = append(highRecords, record)
 			continue
 		}
@@ -324,54 +294,154 @@ func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventR
 	}
 
 	fixed := len(activeRendered)
-	for _, call := range nativeCalls {
-		fixed += len(call.call().Function.Arguments)
-	}
-	for _, result := range nativeResults {
-		fixed += len(transcriptToolResultEvent(transcriptToolOutput{Event: result.event, Status: result.status, Truncated: result.contents.truncated, Omitted: result.contents.omitted, SizeBytes: result.contents.sizeBytes, ShownBytes: result.contents.shownBytes}, result.contents.value))
-	}
 	for _, record := range highRecords {
-		fixed += len(record.render())
+		fixed += mcmtrRecordCost(record)
 	}
-	shared := max(0, profile.HistoryBytes-fixed-len("<session-transcript></session-transcript>"))
+	shared := max(0, profile.HistoryBytes-fixed)
 	selected := append([]mcmtrRecord(nil), highRecords...)
 	for index := len(lowerRecords) - 1; index >= 0; index-- {
 		record := lowerRecords[index]
 		record.contents = mcmtrLimitText(record.contents.value, max(0, min(1024, shared-512)))
-		rendered := record.render()
-		if len(rendered) > shared {
+		if mcmtrRecordCost(record) > shared {
 			continue
 		}
-		shared -= len(rendered)
+		shared -= mcmtrRecordCost(record)
 		selected = append(selected, record)
 	}
 	sort.Slice(selected, func(left, right int) bool { return selected[left].event.Ref.Id < selected[right].event.Ref.Id })
-	parts := make([]string, 0, len(selected))
-	for _, record := range selected {
-		parts = append(parts, record.render())
-	}
-	transcript := ""
-	if len(parts) > 0 {
-		transcript = "<session-transcript>" + strings.Join(parts, "") + "</session-transcript>"
-	}
-	messages := make([]openAICompatibleMessage, 0, 2+len(nativeResults))
-	if transcript != "" {
-		messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: transcript})
-	}
+	before, after := mcmtrSplitActiveRecords(selected, active.Id)
+	messages := mcmtrRecordMessages(before)
 	messages = append(messages, openAICompatibleMessage{Role: "user", Content: activeRendered})
-	if len(nativeCalls) > 0 {
-		calls := make([]openAICompatibleToolCall, len(nativeCalls))
-		for index, call := range nativeCalls {
-			calls[index] = call.call()
-		}
-		messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: calls})
-	}
-	for _, result := range nativeResults {
-		messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: result.callID, Content: transcriptToolResultEvent(transcriptToolOutput{
-			Event: result.event, Status: result.status, Truncated: result.contents.truncated, Omitted: result.contents.omitted, SizeBytes: result.contents.sizeBytes, ShownBytes: result.contents.shownBytes,
-		}, result.contents.value)})
-	}
+	messages = append(messages, mcmtrRecordMessages(after)...)
 	return messages, state, nil
+}
+
+func mcmtrSplitActiveRecords(records []mcmtrRecord, activeID string) ([]mcmtrRecord, []mcmtrRecord) {
+	before := make([]mcmtrRecord, 0, len(records))
+	after := make([]mcmtrRecord, 0, len(records))
+	for _, record := range records {
+		root, _ := record.event.Payload["_mcmtr_root"].(string)
+		if root == activeID {
+			after = append(after, record)
+			continue
+		}
+		before = append(before, record)
+	}
+	return before, after
+}
+
+type mcmtrNativeBatch struct {
+	callIDs       map[string]bool
+	resultCallIDs map[string]string
+	leaderID      string
+	ordered       []openAICompatibleToolCall
+}
+
+func mcmtrRecordMessages(records []mcmtrRecord) []openAICompatibleMessage {
+	batches := mcmtrNativeBatches(records)
+	callBatches := map[string]mcmtrNativeBatch{}
+	resultBatches := map[string]mcmtrNativeBatch{}
+	for _, batch := range batches {
+		for callID := range batch.callIDs {
+			callBatches[callID] = batch
+		}
+		for resultID := range batch.resultCallIDs {
+			resultBatches[resultID] = batch
+		}
+	}
+	messages := make([]openAICompatibleMessage, 0, len(records))
+	for _, record := range records {
+		if batch, ok := callBatches[record.event.Ref.Id]; ok {
+			if record.event.Ref.Id == batch.leaderID {
+				messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: batch.ordered})
+			}
+			continue
+		}
+		if batch, ok := resultBatches[record.event.Ref.Id]; ok {
+			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: batch.resultCallIDs[record.event.Ref.Id], Content: transcriptToolResultEvent(transcriptToolOutput{Event: record.event, Status: record.status}, record.contents.value)})
+			continue
+		}
+		messages = append(messages, mcmtrHistoryMessage(record))
+	}
+	return messages
+}
+
+func mcmtrNativeBatches(records []mcmtrRecord) []mcmtrNativeBatch {
+	type candidateCall struct {
+		record   mcmtrRecord
+		position int
+	}
+	type candidate struct {
+		calls []candidateCall
+	}
+	results := map[string]mcmtrRecord{}
+	candidates := map[string]*candidate{}
+	for _, record := range records {
+		switch record.kind {
+		case "tool-call":
+			if record.contents.truncated || record.contents.omitted || record.event.Parent == nil {
+				continue
+			}
+			batch, batchOK := record.event.Payload["batch"].(float64)
+			position, positionOK := record.event.Payload["position"].(float64)
+			if !batchOK || !positionOK {
+				continue
+			}
+			key := record.event.Parent.Id + "\x00" + fmt.Sprintf("%.0f", batch)
+			if candidates[key] == nil {
+				candidates[key] = &candidate{}
+			}
+			candidates[key].calls = append(candidates[key].calls, candidateCall{record: record, position: int(position)})
+		case "tool-result":
+			if !record.contents.truncated && !record.contents.omitted && record.event.Parent != nil {
+				results[record.event.Parent.Id] = record
+			}
+		}
+	}
+	batches := make([]mcmtrNativeBatch, 0, len(candidates))
+	for _, candidate := range candidates {
+		batch := mcmtrNativeBatch{callIDs: map[string]bool{}, resultCallIDs: map[string]string{}}
+		for _, call := range candidate.calls {
+			if _, ok := results[call.record.event.Ref.Id]; !ok {
+				batch = mcmtrNativeBatch{}
+				break
+			}
+		}
+		if batch.callIDs == nil {
+			continue
+		}
+		sort.Slice(candidate.calls, func(left, right int) bool { return candidate.calls[left].position < candidate.calls[right].position })
+		for _, call := range candidate.calls {
+			stored, err := openAICompatibleStoredToolCall(call.record.event)
+			if err != nil {
+				batch = mcmtrNativeBatch{}
+				break
+			}
+			if batch.leaderID == "" || call.record.event.Ref.Id < batch.leaderID {
+				batch.leaderID = call.record.event.Ref.Id
+			}
+			result := results[call.record.event.Ref.Id]
+			batch.callIDs[call.record.event.Ref.Id] = true
+			batch.resultCallIDs[result.event.Ref.Id] = stored.ID
+			batch.ordered = append(batch.ordered, stored)
+		}
+		if batch.callIDs != nil {
+			batches = append(batches, batch)
+		}
+	}
+	return batches
+}
+
+func mcmtrHistoryMessage(record mcmtrRecord) openAICompatibleMessage {
+	role := "assistant"
+	if record.kind == "message" && record.event.AuthorPrincipal != nil {
+		role = "user"
+	}
+	return openAICompatibleMessage{Role: role, Content: record.render()}
+}
+
+func mcmtrRecordCost(record mcmtrRecord) int {
+	return len(record.render())
 }
 
 func mcmtrAnnotateRoots(events []model.SessionEvent) []model.SessionEvent {
@@ -494,18 +564,6 @@ func mcmtrLimitText(value string, limit int) mcmtrText {
 	return content
 }
 
-func mcmtrNativeMinimumBytes(calls []transcriptToolCall, results []mcmtrRecord) int {
-	used := 0
-	for _, call := range calls {
-		call.Arguments, call.Omitted, call.Truncated, call.SizeBytes, call.ShownBytes = "", true, false, len(call.Arguments), 0
-		used += len(call.call().Function.Arguments)
-	}
-	for _, result := range results {
-		used += len(transcriptOmittedEvent(result.event, "tool-result", result.status, "", len(result.contents.value)))
-	}
-	return used
-}
-
 // mcmtrNativeCallsFit rejects a tool batch before it can create durable events
 // when even its smallest recoverable native representation cannot fit.
 func mcmtrNativeCallsFit(calls []openAICompatibleToolCall, buffer int) bool {
@@ -534,7 +592,7 @@ func mcmtrSelectText(value string, schedule contextSchedule, used *int) mcmtrTex
 }
 
 func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
-	if strings.HasPrefix(event.Kind, "thinking.") {
+	if strings.HasPrefix(event.Kind, "thinking.") || strings.HasPrefix(event.Kind, "approval.") {
 		return mcmtrRecord{}, false, nil
 	}
 	record := mcmtrRecord{event: event, kind: event.Kind, channel: agentContextSchedule}
@@ -646,73 +704,6 @@ func (content transcriptToolCall) call() openAICompatibleToolCall {
 	}{Code: preview, Reason: fmt.Sprintf("MCMTR preview of session event %q arguments; truncated=%t size-bytes=%d shown-bytes=%d. Use session/events/read to recover the full arguments.", content.Event.Ref.Id, true, content.SizeBytes, content.ShownBytes)})
 	call.Function.Arguments = string(arguments)
 	return call
-}
-
-func mcmtrNativeToolBatch(events []model.SessionEvent, active model.SessionEventRef) ([]transcriptToolCall, []mcmtrRecord, error) {
-	type batch struct {
-		number int
-		calls  []transcriptToolCall
-	}
-	batches := map[int]*batch{}
-	results := map[string]mcmtrRecord{}
-	for _, event := range events {
-		if event.Kind == "tool.success" || event.Kind == "tool.failure" {
-			record, include, err := mcmtrRecordFor(event)
-			if err != nil {
-				return nil, nil, err
-			}
-			if include && event.Parent != nil {
-				results[event.Parent.Id] = record
-			}
-			continue
-		}
-		if event.Kind != "tool.request" || event.Parent == nil || *event.Parent != active || event.AuthorAgent == nil {
-			continue
-		}
-		batchValue, batchOK := event.Payload["batch"].(float64)
-		position, positionOK := event.Payload["position"].(float64)
-		if !batchOK || !positionOK {
-			continue
-		}
-		call, err := openAICompatibleStoredToolCall(event)
-		if err != nil {
-			return nil, nil, err
-		}
-		current := batches[int(batchValue)]
-		if current == nil {
-			current = &batch{number: int(batchValue)}
-			batches[int(batchValue)] = current
-		}
-		current.calls = append(current.calls, transcriptToolCall{Event: event, CallID: call.ID, Arguments: call.Function.Arguments, ShownBytes: int(position)})
-	}
-	var selected *batch
-	for _, candidate := range batches {
-		resolved := len(candidate.calls) > 0
-		for _, call := range candidate.calls {
-			if _, ok := results[call.Event.Ref.Id]; !ok {
-				resolved = false
-				break
-			}
-		}
-		if resolved && (selected == nil || candidate.number > selected.number) {
-			selected = candidate
-		}
-	}
-	if selected == nil {
-		return nil, nil, nil
-	}
-	sort.Slice(selected.calls, func(left, right int) bool { return selected.calls[left].ShownBytes < selected.calls[right].ShownBytes })
-	for index := range selected.calls {
-		selected.calls[index].ShownBytes = len(selected.calls[index].Arguments)
-		selected.calls[index].SizeBytes = len(selected.calls[index].Arguments)
-	}
-	outputs := make([]mcmtrRecord, 0, len(selected.calls))
-	for _, call := range selected.calls {
-		output := results[call.Event.Ref.Id]
-		output.callID = call.CallID
-		outputs = append(outputs, output)
-	}
-	return selected.calls, outputs, nil
 }
 
 type contextSchedule struct {

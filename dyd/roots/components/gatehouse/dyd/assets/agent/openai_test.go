@@ -36,6 +36,19 @@ func TestOpenAICompatibleReply(t *testing.T) {
 	}
 }
 
+func TestOpenAICompatibleCompleteNormalizesUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"Hello."}}],"usage":{"prompt_tokens":120,"completion_tokens":30,"total_tokens":150,"prompt_tokens_details":{"cached_tokens":80},"completion_tokens_details":{"reasoning_tokens":20}}}`))
+	}))
+	defer server.Close()
+
+	err, completion := OpenAICompatibleComplete(context.Background(), server.Client(), server.URL, "test-key", openAICompatibleRequest{Model: "test-model"})
+	if err != nil || completion.Message.Content != "Hello." || completion.Metrics == nil || completion.Metrics.InputTokens == nil || *completion.Metrics.InputTokens != 120 || completion.Metrics.CachedInputTokens == nil || *completion.Metrics.CachedInputTokens != 80 || completion.Metrics.OutputTokens == nil || *completion.Metrics.OutputTokens != 30 || completion.Metrics.ReasoningTokens == nil || *completion.Metrics.ReasoningTokens != 20 || completion.Metrics.TotalTokens == nil || *completion.Metrics.TotalTokens != 150 || completion.Metrics.RequestMs == nil || *completion.Metrics.RequestMs < 0 {
+		t.Fatalf("OpenAICompatibleComplete() = (%#v, %v)", completion, err)
+	}
+}
+
 func TestOpenAICompatibleReasoningEffort(t *testing.T) {
 	for _, test := range []struct {
 		parameters string
@@ -69,14 +82,14 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 			t.Fatalf("request body = %#v", body)
 		}
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(+ 1 2)\",\"reason\":\"test\"}"}]}`))
+		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(+ 1 2)\",\"reason\":\"test\"}"}],"usage":{"input_tokens":120,"output_tokens":30,"total_tokens":150,"input_tokens_details":{"cached_tokens":80},"output_tokens_details":{"reasoning_tokens":20}}}`))
 	}))
 	defer server.Close()
 
 	err, response := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+"/v1", "test-key", openAIResponsesRequest{
 		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, ParallelToolCalls: true, Reasoning: &openAIResponsesReasoning{Effort: "low"}, MaxOutputTokens: 123,
 	})
-	if err != nil || len(response.Output) != 1 {
+	if err != nil || len(response.Output) != 1 || response.Metrics == nil || response.Metrics.InputTokens == nil || *response.Metrics.InputTokens != 120 || response.Metrics.CachedInputTokens == nil || *response.Metrics.CachedInputTokens != 80 || response.Metrics.OutputTokens == nil || *response.Metrics.OutputTokens != 30 || response.Metrics.ReasoningTokens == nil || *response.Metrics.ReasoningTokens != 20 || response.Metrics.TotalTokens == nil || *response.Metrics.TotalTokens != 150 || response.Metrics.RequestMs == nil || *response.Metrics.RequestMs < 0 {
 		t.Fatalf("OpenAIResponsesComplete() = (%#v, %v)", response, err)
 	}
 }

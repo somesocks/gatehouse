@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"gatehouse/model"
 )
 
 type openAICompatibleRequest struct {
@@ -66,6 +68,20 @@ type openAICompatibleResponse struct {
 	Choices []struct {
 		Message openAICompatibleMessage `json:"message"`
 	} `json:"choices"`
+	Usage *openAICompatibleUsage `json:"usage"`
+}
+
+type openAICompatibleUsage struct {
+	PromptTokens            *int `json:"prompt_tokens"`
+	CompletionTokens        *int `json:"completion_tokens"`
+	TotalTokens             *int `json:"total_tokens"`
+	PromptTokensDetails     struct{ CachedTokens *int `json:"cached_tokens"` } `json:"prompt_tokens_details"`
+	CompletionTokensDetails struct{ ReasoningTokens *int `json:"reasoning_tokens"` } `json:"completion_tokens_details"`
+}
+
+type openAICompatibleCompletion struct {
+	Message openAICompatibleMessage
+	Metrics *model.SessionEventMetrics
 }
 
 type openAIResponsesRequest struct {
@@ -97,6 +113,20 @@ type openAIResponsesTool struct {
 
 type openAIResponsesResponse struct {
 	Output []json.RawMessage `json:"output"`
+	Metrics *model.SessionEventMetrics `json:"-"`
+}
+
+type openAIResponsesAPIResponse struct {
+	Output []json.RawMessage `json:"output"`
+	Usage *openAIResponsesUsage `json:"usage"`
+}
+
+type openAIResponsesUsage struct {
+	InputTokens         *int `json:"input_tokens"`
+	OutputTokens        *int `json:"output_tokens"`
+	TotalTokens         *int `json:"total_tokens"`
+	InputTokensDetails  struct{ CachedTokens *int `json:"cached_tokens"` } `json:"input_tokens_details"`
+	OutputTokensDetails struct{ ReasoningTokens *int `json:"reasoning_tokens"` } `json:"output_tokens_details"`
 }
 
 type openAIResponsesOutput struct {
@@ -123,52 +153,53 @@ func (err *openAIRetryableError) Error() string { return err.message }
 func (err *openAIRetryableError) RetryAfter() time.Duration { return err.retryAfter }
 
 func OpenAICompatibleReply(ctx context.Context, client *http.Client, baseURL, apiKey, model string, messages []openAICompatibleMessage) (error, string) {
-	err, message := OpenAICompatibleComplete(ctx, client, baseURL, apiKey, openAICompatibleRequest{Model: model, Messages: messages})
+	err, completion := OpenAICompatibleComplete(ctx, client, baseURL, apiKey, openAICompatibleRequest{Model: model, Messages: messages})
 	if err != nil {
 		return err, ""
 	}
-	if len(message.ToolCalls) != 0 || strings.TrimSpace(message.Content) == "" {
+	if len(completion.Message.ToolCalls) != 0 || strings.TrimSpace(completion.Message.Content) == "" {
 		return fmt.Errorf("OpenAI-compatible completion returned no message"), ""
 	}
-	return nil, message.Content
+	return nil, completion.Message.Content
 }
 
-func OpenAICompatibleComplete(ctx context.Context, client *http.Client, baseURL, apiKey string, completion openAICompatibleRequest) (error, openAICompatibleMessage) {
+func OpenAICompatibleComplete(ctx context.Context, client *http.Client, baseURL, apiKey string, completion openAICompatibleRequest) (error, openAICompatibleCompletion) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
-		return fmt.Errorf("parse OpenAI-compatible base URL: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("parse OpenAI-compatible base URL: %w", err), openAICompatibleCompletion{}
 	}
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/chat/completions"
 	payload, err := json.Marshal(completion)
 	if err != nil {
-		return fmt.Errorf("encode OpenAI-compatible request: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("encode OpenAI-compatible request: %w", err), openAICompatibleCompletion{}
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("create OpenAI-compatible request: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("create OpenAI-compatible request: %w", err), openAICompatibleCompletion{}
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
+	started := time.Now()
 	response, err := client.Do(request)
 	if err != nil {
-		return fmt.Errorf("request OpenAI-compatible completion: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("request OpenAI-compatible completion: %w", err), openAICompatibleCompletion{}
 	}
 	defer response.Body.Close()
 	contents, err := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if err != nil {
-		return fmt.Errorf("read OpenAI-compatible response: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("read OpenAI-compatible response: %w", err), openAICompatibleCompletion{}
 	}
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-		return openAICompletionError("OpenAI-compatible completion", response, contents), openAICompatibleMessage{}
+		return openAICompletionError("OpenAI-compatible completion", response, contents), openAICompatibleCompletion{}
 	}
 	var decoded openAICompatibleResponse
 	if err := json.Unmarshal(contents, &decoded); err != nil {
-		return fmt.Errorf("decode OpenAI-compatible response: %w", err), openAICompatibleMessage{}
+		return fmt.Errorf("decode OpenAI-compatible response: %w", err), openAICompatibleCompletion{}
 	}
 	if len(decoded.Choices) == 0 {
-		return fmt.Errorf("OpenAI-compatible completion returned no choices"), openAICompatibleMessage{}
+		return fmt.Errorf("OpenAI-compatible completion returned no choices"), openAICompatibleCompletion{}
 	}
-	return nil, decoded.Choices[0].Message
+	return nil, openAICompatibleCompletion{Message: decoded.Choices[0].Message, Metrics: openAICompatibleMetrics(decoded.Usage, time.Since(started))}
 }
 
 func OpenAIResponsesComplete(ctx context.Context, client *http.Client, baseURL, apiKey string, completion openAIResponsesRequest) (error, openAIResponsesResponse) {
@@ -187,6 +218,7 @@ func OpenAIResponsesComplete(ctx context.Context, client *http.Client, baseURL, 
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
+	started := time.Now()
 	response, err := client.Do(request)
 	if err != nil {
 		return fmt.Errorf("request OpenAI Responses: %w", err), openAIResponsesResponse{}
@@ -199,11 +231,36 @@ func OpenAIResponsesComplete(ctx context.Context, client *http.Client, baseURL, 
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return openAICompletionError("OpenAI Responses", response, contents), openAIResponsesResponse{}
 	}
-	var decoded openAIResponsesResponse
+	var decoded openAIResponsesAPIResponse
 	if err := json.Unmarshal(contents, &decoded); err != nil {
 		return fmt.Errorf("decode OpenAI Responses response: %w", err), openAIResponsesResponse{}
 	}
-	return nil, decoded
+	return nil, openAIResponsesResponse{Output: decoded.Output, Metrics: openAIResponsesMetrics(decoded.Usage, time.Since(started))}
+}
+
+func openAICompatibleMetrics(usage *openAICompatibleUsage, duration time.Duration) *model.SessionEventMetrics {
+	metrics := openAIRequestMetrics(duration)
+	if usage == nil {
+		return metrics
+	}
+	metrics.InputTokens, metrics.CachedInputTokens = usage.PromptTokens, usage.PromptTokensDetails.CachedTokens
+	metrics.OutputTokens, metrics.ReasoningTokens, metrics.TotalTokens = usage.CompletionTokens, usage.CompletionTokensDetails.ReasoningTokens, usage.TotalTokens
+	return metrics
+}
+
+func openAIResponsesMetrics(usage *openAIResponsesUsage, duration time.Duration) *model.SessionEventMetrics {
+	metrics := openAIRequestMetrics(duration)
+	if usage == nil {
+		return metrics
+	}
+	metrics.InputTokens, metrics.CachedInputTokens = usage.InputTokens, usage.InputTokensDetails.CachedTokens
+	metrics.OutputTokens, metrics.ReasoningTokens, metrics.TotalTokens = usage.OutputTokens, usage.OutputTokensDetails.ReasoningTokens, usage.TotalTokens
+	return metrics
+}
+
+func openAIRequestMetrics(duration time.Duration) *model.SessionEventMetrics {
+	milliseconds := int(duration.Milliseconds())
+	return &model.SessionEventMetrics{RequestMs: &milliseconds}
 }
 
 func openAICompletionError(name string, response *http.Response, contents []byte) error {

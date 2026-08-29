@@ -643,6 +643,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				SET compaction = '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":16384}'
 				WHERE compaction = '{"algorithm":"mcmtr","history_bytes":81920,"buffer_bytes":16384}';
 			`),
+		}, {
+			Index:       25,
+			Description: "add_session_event_metrics",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_session_events
+				ADD COLUMN metrics TEXT CHECK (metrics IS NULL OR (json_valid(metrics) AND json_type(metrics) = 'object'));
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

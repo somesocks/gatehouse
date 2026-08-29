@@ -621,6 +621,13 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				SET compaction = '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":16384}'::JSONB
 				WHERE compaction = '{"algorithm":"mcmtr","history_bytes":81920,"buffer_bytes":16384}'::JSONB;
 			`),
+		}, {
+			Index:       25,
+			Description: "add_session_event_metrics",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_session_events
+				ADD COLUMN metrics JSONB CHECK (metrics IS NULL OR jsonb_typeof(metrics) = 'object');
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

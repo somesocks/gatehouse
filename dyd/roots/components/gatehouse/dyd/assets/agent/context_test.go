@@ -2,13 +2,14 @@ package agent
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
 	"gatehouse/model"
 )
 
-func TestCompileMCMTRContextKeepsOnlyNewestActiveToolBatchNative(t *testing.T) {
+func TestCompileMCMTRContextReplaysActiveToolBatchesNatively(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
@@ -29,31 +30,31 @@ func TestCompileMCMTRContextKeepsOnlyNewestActiveToolBatchNative(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 4 || messages[0].Role != "assistant" || messages[1].Role != "user" || messages[2].Role != "assistant" || messages[3].Role != "tool" {
+	if len(messages) != 7 || messages[0].Role != "user" || messages[1].Role != "user" || messages[2].Role != "assistant" || messages[3].Role != "tool" || messages[4].Role != "assistant" || messages[5].Role != "assistant" || messages[6].Role != "tool" {
 		t.Fatalf("messages = %#v", messages)
 	}
-	if !strings.HasPrefix(messages[0].Content, "<session-transcript>") || strings.Contains(messages[0].Content, "<events>") || !strings.Contains(messages[0].Content, `id="historical-user"`) || !strings.Contains(messages[0].Content, `id="first-call"`) || !strings.Contains(messages[0].Content, `id="first-result"`) || !strings.Contains(messages[0].Content, `id="intermediate"`) || strings.Contains(messages[0].Content, `id="last-call"`) || strings.Contains(messages[0].Content, `id="last-result"`) {
-		t.Fatalf("transcript = %q", messages[0].Content)
+	if !strings.Contains(messages[0].Content, `id="historical-user"`) || strings.Contains(messages[0].Content, "session-transcript") {
+		t.Fatalf("historical user = %q", messages[0].Content)
 	}
 	if !strings.Contains(messages[1].Content, `root-id="active"`) || !strings.Contains(messages[1].Content, `author="principal:user"`) || !strings.Contains(messages[1].Content, `<text>Current request.</text>`) {
 		t.Fatalf("active user = %#v", messages[1])
 	}
-	if len(messages[2].ToolCalls) != 1 || messages[2].ToolCalls[0].ID != "call-2" || messages[2].ToolCalls[0].Function.Arguments != `{"code":"(last)","reason":"Last pass."}` {
-		t.Fatalf("native calls = %#v", messages[2])
+	if len(messages[2].ToolCalls) != 1 || messages[2].ToolCalls[0].ID != "call-1" || messages[2].ToolCalls[0].Function.Arguments != `{"code":"(first)","reason":"First pass."}` || messages[3].ToolCallID != "call-1" || !strings.Contains(messages[3].Content, `<output>first output</output>`) {
+		t.Fatalf("first native batch = %#v, %#v", messages[2], messages[3])
 	}
-	if messages[3].ToolCallID != "call-2" || !strings.Contains(messages[3].Content, `root-id="active"`) || !strings.Contains(messages[3].Content, `author="agent:agent"`) || !strings.Contains(messages[3].Content, `<output>last output</output>`) {
-		t.Fatalf("native output = %#v", messages[3])
+	if !strings.Contains(messages[4].Content, `id="intermediate"`) || len(messages[5].ToolCalls) != 1 || messages[5].ToolCalls[0].ID != "call-2" || messages[6].ToolCallID != "call-2" || !strings.Contains(messages[6].Content, `<output>last output</output>`) {
+		t.Fatalf("later records = %#v, %#v, %#v", messages[4], messages[5], messages[6])
 	}
 	encoded, err := json.Marshal(openAICompatibleRequest{Model: "test", Messages: messages})
 	if err != nil {
 		t.Fatal(err)
 	}
 	var chat openAICompatibleRequest
-	if err := json.Unmarshal(encoded, &chat); err != nil || len(chat.Messages) != 4 || chat.Messages[1].Role != "user" || len(chat.Messages[2].ToolCalls) != 1 || chat.Messages[3].ToolCallID != "call-2" {
+	if err := json.Unmarshal(encoded, &chat); err != nil || len(chat.Messages) != 7 || chat.Messages[1].Role != "user" || len(chat.Messages[2].ToolCalls) != 1 || chat.Messages[3].ToolCallID != "call-1" || len(chat.Messages[5].ToolCalls) != 1 || chat.Messages[6].ToolCallID != "call-2" {
 		t.Fatalf("Chat Completions messages = %#v, %v", chat.Messages, err)
 	}
 	input := openAIResponsesInput(messages)
-	if len(input) != 4 || !strings.Contains(string(input[0]), "session-transcript") || !strings.Contains(string(input[1]), "Current request") || !strings.Contains(string(input[2]), `"type":"function_call"`) || !strings.Contains(string(input[3]), `"type":"function_call_output"`) {
+	if len(input) != 7 || !strings.Contains(string(input[0]), "Earlier request") || !strings.Contains(string(input[1]), "Current request") || !strings.Contains(string(input[2]), `"type":"function_call"`) || !strings.Contains(string(input[3]), `"type":"function_call_output"`) || !strings.Contains(string(input[5]), `"type":"function_call"`) || !strings.Contains(string(input[6]), `"type":"function_call_output"`) {
 		t.Fatalf("Responses input = %s", input)
 	}
 }
@@ -72,19 +73,61 @@ func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(messages) != 3 || !strings.Contains(messages[0].Content, `truncated="true"`) || len(messages[1].ToolCalls) != 1 || !strings.Contains(messages[2].Content, `truncated="true"`) {
+	if len(messages) != 3 || !strings.Contains(messages[0].Content, `truncated="true"`) || messages[1].Role != "assistant" || len(messages[1].ToolCalls) != 0 || !strings.Contains(messages[1].Content, `kind="tool-call"`) || messages[2].Role != "assistant" || !strings.Contains(messages[2].Content, `kind="tool-result"`) {
 		t.Fatalf("messages = %#v", messages)
-	}
-	var arguments struct {
-		Code   string `json:"code"`
-		Reason string `json:"reason"`
-	}
-	if err := json.Unmarshal([]byte(messages[1].ToolCalls[0].Function.Arguments), &arguments); err != nil || !strings.Contains(arguments.Reason, `event "call"`) || !strings.Contains(arguments.Reason, "size-bytes=") {
-		t.Fatalf("native truncated arguments = %q, %v", messages[1].ToolCalls[0].Function.Arguments, err)
 	}
 	err, contents := sessionEventReadRange(call, 0, 1<<20)
 	if err != nil || !strings.Contains(string(contents), strings.Repeat("c", 20*1024)) {
 		t.Fatalf("sessionEventReadRange() = (%q, %v)", contents, err)
+	}
+}
+
+func TestCompileMCMTRContextAppendsResolvedToolBatches(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	active := event(session, "active", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
+	firstCall := event(session, "first-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(first)", "reason": "First pass.", "batch": float64(0), "position": float64(0)})
+	firstCall.Parent = &active.Ref
+	firstResult := event(session, "first-result", "tool.success", nil, &agent, map[string]interface{}{"output": "first output"})
+	firstResult.Parent = &firstCall.Ref
+	secondCall := event(session, "second-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(second)", "reason": "Second pass.", "batch": float64(1), "position": float64(0)})
+	secondCall.Parent = &active.Ref
+	secondResult := event(session, "second-result", "tool.success", nil, &agent, map[string]interface{}{"output": "second output"})
+	secondResult.Parent = &secondCall.Ref
+	profile := mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: contextBufferBytes}
+
+	first, state, err := compileMCMTRContext([]model.SessionEvent{active, firstCall, firstResult}, active.Ref, profile, mcmtrContextState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := compileMCMTRContext([]model.SessionEvent{active, firstCall, firstResult, secondCall, secondResult}, active.Ref, profile, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != len(first)+2 || !reflect.DeepEqual(second[:len(first)], first) {
+		t.Fatalf("second context did not append first=%#v second=%#v", first, second)
+	}
+}
+
+func TestMCMTRRecordMessagesRendersUnpairedResultAsHistory(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(read)", "reason": "Read the value.", "batch": float64(0), "position": float64(0)})
+	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"output": "value"})
+	result.Parent = &call.Ref
+	callRecord, included, err := mcmtrRecordFor(call)
+	if err != nil || !included {
+		t.Fatalf("mcmtrRecordFor(call) = (%#v, %t, %v)", callRecord, included, err)
+	}
+	resultRecord, included, err := mcmtrRecordFor(result)
+	if err != nil || !included {
+		t.Fatalf("mcmtrRecordFor(result) = (%#v, %t, %v)", resultRecord, included, err)
+	}
+	callRecord.contents = mcmtrText{omitted: true, sizeBytes: len(callRecord.contents.value)}
+	messages := mcmtrRecordMessages([]mcmtrRecord{callRecord, resultRecord})
+	if len(messages) != 2 || messages[0].Role != "assistant" || len(messages[0].ToolCalls) != 0 || messages[1].Role != "assistant" || messages[1].ToolCallID != "" || !strings.Contains(messages[1].Content, `kind="tool-result"`) || !strings.Contains(messages[1].Content, `<output>value</output>`) {
+		t.Fatalf("messages = %#v", messages)
 	}
 }
 
