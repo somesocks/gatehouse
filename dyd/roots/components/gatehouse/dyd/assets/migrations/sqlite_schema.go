@@ -600,6 +600,49 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				ALTER TABLE gatehouse_workspace_agents
 				ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 16000 CHECK (max_output_tokens > 0);
 			`),
+		}, {
+			Index:       21,
+			Description: "add_agent_model_compaction",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_agent_models
+				ADD COLUMN compaction TEXT NOT NULL DEFAULT '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":16384}'
+					CHECK (json_valid(compaction)) CHECK (json_type(compaction) = 'object');
+			`),
+		}, {
+			Index:       22,
+			Description: "add_agent_model_execution_limits",
+			Builder: staticMigrationBuilder(`
+				ALTER TABLE gatehouse_agent_models
+				ADD COLUMN max_turns INTEGER NOT NULL DEFAULT 127 CHECK (max_turns > 0);
+
+				ALTER TABLE gatehouse_agent_models
+				ADD COLUMN max_output_tokens INTEGER NOT NULL DEFAULT 16000 CHECK (max_output_tokens > 0);
+			`),
+		}, {
+			Index:       23,
+			Description: "add_agent_contexts",
+			Builder: staticMigrationBuilder(`
+				CREATE TABLE gatehouse_agent_contexts (
+					workspace TEXT NOT NULL,
+					session TEXT NOT NULL,
+					root TEXT NOT NULL,
+					model TEXT NOT NULL,
+					profile TEXT NOT NULL CHECK (length(trim(profile)) > 0),
+					state TEXT NOT NULL CHECK (json_valid(state)) CHECK (json_type(state) = 'object'),
+					updated_at TEXT NOT NULL,
+					PRIMARY KEY (workspace, session, root),
+					FOREIGN KEY (workspace, session, root) REFERENCES gatehouse_session_events (workspace, session, id),
+					FOREIGN KEY (workspace, model) REFERENCES gatehouse_workspace_agents (workspace_id, model_id)
+				) STRICT;
+			`),
+		}, {
+			Index:       24,
+			Description: "increase_default_agent_model_context_window",
+			Builder: staticMigrationBuilder(`
+				UPDATE gatehouse_agent_models
+				SET compaction = '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":16384}'
+				WHERE compaction = '{"algorithm":"mcmtr","history_bytes":81920,"buffer_bytes":16384}';
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

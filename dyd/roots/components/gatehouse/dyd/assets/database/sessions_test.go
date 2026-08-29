@@ -643,14 +643,14 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
-			{Alias: "first", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, Enabled: true},
-			{Alias: "second", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Second"}`, Enabled: true},
-			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, Enabled: true},
+			{Alias: "first", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"First"}`, MaxTurns: 3, MaxOutputTokens: 2000, Enabled: true},
+			{Alias: "second", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Second"}`, MaxTurns: 3, MaxOutputTokens: 2000, Enabled: true},
+			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, MaxTurns: 2, MaxOutputTokens: 2000, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "first", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SystemPrompt: &firstPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "second", Priority: 2, MaxTurns: 3, MaxInputTokens: 12000, MaxOutputTokens: 2000, SystemPrompt: &emptyPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "lower", Priority: 1, MaxTurns: 2, MaxInputTokens: 12000, MaxOutputTokens: 2000, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "first", Priority: 2, SystemPrompt: &firstPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "second", Priority: 2, SystemPrompt: &emptyPrompt, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "lower", Priority: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -675,8 +675,8 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		if selected.MaxTurns != 3 {
 			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
 		}
-		if selected.MaxInputTokens != 12000 || selected.MaxOutputTokens != 2000 {
-			t.Fatalf("WorkspaceAgentModelSelect() provider limits = (%d, %d), want (12000, 2000)", selected.MaxInputTokens, selected.MaxOutputTokens)
+		if selected.MaxOutputTokens != 2000 {
+			t.Fatalf("WorkspaceAgentModelSelect() max output tokens = %d, want 2000", selected.MaxOutputTokens)
 		}
 		if selected.Ref.Model.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
@@ -699,12 +699,12 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
-			{Alias: "automatic", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, Enabled: true},
-			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, Enabled: true},
+			{Alias: "automatic", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Automatic"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
+			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "automatic", Priority: 2, MaxTurns: 1, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "requested", Priority: 1, MaxTurns: 1, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "automatic", Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "requested", Priority: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -915,8 +915,8 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
+		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)

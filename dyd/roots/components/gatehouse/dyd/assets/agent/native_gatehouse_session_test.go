@@ -132,7 +132,7 @@ func TestSessionEventReadRange(t *testing.T) {
 		{name: "message UTF-8 bytes", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "aéz"}}, offset: 1, length: 2, output: "é"},
 		{name: "tool success", event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "done"}}, offset: 0, length: 4096, output: "done"},
 		{name: "tool failure", event: model.SessionEvent{Kind: "tool.failure", Payload: map[string]interface{}{"output": "failure"}}, offset: 2, length: 8, output: "ilure"},
-		{name: "other kind", event: model.SessionEvent{Kind: "thinking.completed", Payload: map[string]interface{}{}}, offset: 0, length: 1, fails: true},
+		{name: "other kind", event: model.SessionEvent{Kind: "thinking.completed", Payload: map[string]interface{}{}}, offset: 0, length: 1, output: "{"},
 		{name: "missing payload", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{}}, offset: 0, length: 1, fails: true},
 		{name: "unavailable offset", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "hello"}}, offset: 6, length: 1, fails: true},
 	} {

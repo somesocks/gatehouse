@@ -236,12 +236,9 @@ let WorkspaceAgent =
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }
         , optional = toMap
-             { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" }
-             , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
-             , max_input_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum input tokens accepted by the provider" }
-             , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum output tokens accepted by the provider" }
-              , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
-             , system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete system prompt for the agent" }
+              { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" }
+              , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
+              , system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete system prompt for the agent" }
              }
         }
         s.record.meta::{ name = Some "WorkspaceAgent" }
@@ -438,6 +435,28 @@ let AgentProviders =
       s.list.from s.list.props::{ values = AgentProvider }
         s.list.meta::{ description = Some "configured agent providers" }
 
+let AgentModelCompaction =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { algorithm =
+                s.text.from
+                  s.text.props::{ variant = s.text.variants.literal "mcmtr" }
+                  s.text.meta::{ description = Some "named transcript compaction algorithm" }
+            }
+        , optional = toMap
+            { history_bytes =
+                s.number.from
+                  s.number.props::{ variant = s.number.variants.integer }
+                  s.number.meta::{ description = Some "usable rendered transcript capacity in bytes" }
+            , buffer_bytes =
+                s.number.from
+                  s.number.props::{ variant = s.number.variants.integer }
+                   s.number.meta::{ description = Some "per-channel high-tier rendered transcript buffer before compaction in bytes" }
+            }
+        }
+        s.record.meta::{ name = Some "AgentModelCompaction" }
+
 let AgentModel =
       s.record.from
         s.record.props::{
@@ -449,7 +468,11 @@ let AgentModel =
             , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
             }
         , optional = toMap
-            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" } }
+            { compaction = AgentModelCompaction
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
+            , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum model output tokens per request" }
+            , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+            }
         }
         s.record.meta::{ name = Some "AgentModel" }
 

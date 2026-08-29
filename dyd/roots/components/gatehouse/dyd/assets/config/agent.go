@@ -30,30 +30,37 @@ type AgentProvider struct {
 type AgentProviderAPIKeySource string
 
 type AgentModel struct {
-	Alias      string
-	Revision   int
+	Alias         string
+	Revision      int
 	ProviderAlias string
-	Model      string
-	Parameters string
-	Enabled    bool
+	Model         string
+	Parameters    string
+	Compaction    AgentModelCompaction
+	MaxTurns      int
+	MaxOutputTokens int
+	Enabled       bool
+}
+
+type AgentModelCompaction struct {
+	Algorithm    string `json:"algorithm"`
+	HistoryBytes int    `json:"history_bytes"`
+	BufferBytes  int    `json:"buffer_bytes"`
 }
 
 type WorkspaceAgent struct {
 	WorkspaceID     string
 	ModelAlias      string
 	Priority        int
-	MaxTurns        int
-	MaxInputTokens  int
-	MaxOutputTokens int
 	Label           *string
 	SystemPrompt    *string
 	Enabled         bool
 }
 
 const (
-	DefaultWorkspaceAgentMaxTurns        = 127
-	DefaultWorkspaceAgentMaxInputTokens  = 120000
-	DefaultWorkspaceAgentMaxOutputTokens = 16000
+	DefaultAgentModelMaxTurns        = 127
+	DefaultAgentModelMaxOutputTokens = 16000
+	DefaultAgentModelHistoryBytes    = 96 * 1024
+	DefaultAgentModelBufferBytes     = 16 * 1024
 )
 
 func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []AgentProvider) {
@@ -157,12 +164,54 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 		if err != nil {
 			return fmt.Errorf("encode agent_models[%d].parameters: %w", index, err), nil
 		}
+		compaction, err := resolveAgentModelCompaction(configured.Compaction)
+		if err != nil {
+			return fmt.Errorf("agent_models[%d].compaction: %w", index, err), nil
+		}
+		maxTurns := DefaultAgentModelMaxTurns
+		if configured.MaxTurns != nil {
+			maxTurns = *configured.MaxTurns
+		}
+		if maxTurns <= 0 {
+			return fmt.Errorf("agent_models[%d].max_turns must be positive", index), nil
+		}
+		maxOutputTokens := DefaultAgentModelMaxOutputTokens
+		if configured.MaxOutputTokens != nil {
+			maxOutputTokens = *configured.MaxOutputTokens
+		}
+		if maxOutputTokens <= 0 {
+			return fmt.Errorf("agent_models[%d].max_output_tokens must be positive", index), nil
+		}
 		enabled := configured.Enabled == nil || *configured.Enabled
 		aliases[configured.Alias] = struct{}{}
-		models = append(models, AgentModel{Alias: configured.Alias, Revision: configured.Revision, ProviderAlias: configured.Provider, Model: configured.Model, Parameters: string(encoded), Enabled: enabled})
+		models = append(models, AgentModel{Alias: configured.Alias, Revision: configured.Revision, ProviderAlias: configured.Provider, Model: configured.Model, Parameters: string(encoded), Compaction: compaction, MaxTurns: maxTurns, MaxOutputTokens: maxOutputTokens, Enabled: enabled})
 	}
 	sort.Slice(models, func(left, right int) bool { return models[left].Alias < models[right].Alias })
 	return nil, models
+}
+
+func resolveAgentModelCompaction(configured *configschema.GatehouseConfigAgentModelsValuesCompaction) (AgentModelCompaction, error) {
+	compaction := AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+	if configured == nil {
+		return compaction, nil
+	}
+	compaction.Algorithm = configured.Algorithm
+	if configured.HistoryBytes != nil {
+		compaction.HistoryBytes = *configured.HistoryBytes
+	}
+	if configured.BufferBytes != nil {
+		compaction.BufferBytes = *configured.BufferBytes
+	}
+	if compaction.Algorithm != "mcmtr" {
+		return AgentModelCompaction{}, fmt.Errorf("algorithm %q is unsupported", compaction.Algorithm)
+	}
+	if compaction.HistoryBytes <= 0 {
+		return AgentModelCompaction{}, fmt.Errorf("history_bytes must be positive")
+	}
+	if compaction.BufferBytes <= 0 || compaction.BufferBytes > compaction.HistoryBytes/6 {
+		return AgentModelCompaction{}, fmt.Errorf("buffer_bytes must be positive and at most one sixth of history_bytes")
+	}
+	return compaction, nil
 }
 
 func validateOpenAIModelParameters(protocol string, parameters map[string]any) error {
@@ -214,33 +263,12 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if !exists || configured.Priority <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d] is invalid", workspaceIndex, agentIndex), nil
 			}
-			maxTurns := DefaultWorkspaceAgentMaxTurns
-			if configured.MaxTurns != nil {
-				maxTurns = *configured.MaxTurns
-			}
-			if maxTurns <= 0 {
-				return fmt.Errorf("workspaces[%d].agents[%d].max_turns must be positive", workspaceIndex, agentIndex), nil
-			}
-			maxInputTokens := DefaultWorkspaceAgentMaxInputTokens
-			if configured.MaxInputTokens != nil {
-				maxInputTokens = *configured.MaxInputTokens
-			}
-			if maxInputTokens <= 0 {
-				return fmt.Errorf("workspaces[%d].agents[%d].max_input_tokens must be positive", workspaceIndex, agentIndex), nil
-			}
-			maxOutputTokens := DefaultWorkspaceAgentMaxOutputTokens
-			if configured.MaxOutputTokens != nil {
-				maxOutputTokens = *configured.MaxOutputTokens
-			}
-			if maxOutputTokens <= 0 {
-				return fmt.Errorf("workspaces[%d].agents[%d].max_output_tokens must be positive", workspaceIndex, agentIndex), nil
-			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, MaxTurns: maxTurns, MaxInputTokens: maxInputTokens, MaxOutputTokens: maxOutputTokens, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

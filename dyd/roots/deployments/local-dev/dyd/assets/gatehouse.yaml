@@ -17,12 +17,20 @@ agent_models:
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: low
+    compaction:
+      algorithm: mcmtr
+    max_turns: 127
+    max_output_tokens: 16000
   - alias: openai-luna-medium
     revision: 1
     provider: openai
     model: gpt-5.6-luna
     parameters:
       reasoning_effort: medium
+    compaction:
+      algorithm: mcmtr
+    max_turns: 127
+    max_output_tokens: 16000
 workspaces:
   - alias: development
     name: Development
@@ -30,15 +38,9 @@ workspaces:
       - model: openai-luna-low
         label: GPT 5.6 Luna Low
         priority: 1
-        max_turns: 127
-        max_input_tokens: 120000
-        max_output_tokens: 16000
       - model: openai-luna-medium
         label: GPT 5.6 Luna Med
         priority: 1
-        max_turns: 127
-        max_input_tokens: 120000
-        max_output_tokens: 16000
     groups:
       - alias: members
         name: Members

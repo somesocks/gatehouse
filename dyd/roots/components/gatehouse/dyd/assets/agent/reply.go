@@ -150,7 +150,7 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 			dbos.WithRunInstance(runtime),
 			dbos.WithWorkflowID(sessionEventReplyWorkflowID(task.Event)),
 			dbos.WithQueue(runtime.queue),
-			dbos.WithQueuePartitionKey(sessionEventReplyPartition(task.Event.Session)),
+			dbos.WithQueuePartitionKey(sessionEventReplyTaskPartition(task.Event)),
 		)
 		if err != nil {
 			return fmt.Errorf("enqueue session event reply %q: %w", task.Event.Id, err)
@@ -322,6 +322,9 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
+				return model.SessionEvent{}, finishErr
+			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
@@ -361,12 +364,18 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	if err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
+				return model.SessionEvent{}, finishErr
+			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
+			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
+				return model.SessionEvent{}, finishErr
+			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
@@ -401,12 +410,24 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	if err != nil {
 		return model.SessionEvent{}, err
 	}
+	if selected.Protocol == "openai-chat-completions" || selected.Protocol == "openai-responses" {
+		if err := runtime.mcmtrContextFinish(ctx, input.Event); err != nil {
+			return model.SessionEvent{}, err
+		}
+	}
 	return stored, nil
 }
 
 func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentFinalReply) {
 	if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
 		return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentFinalReply{}
+	}
+	if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
+		return err, agentFinalReply{}
+	}
+	profile, err := selectedMCMTRProfile(selected)
+	if err != nil {
+		return err, agentFinalReply{}
 	}
 	err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
 	if err != nil {
@@ -455,6 +476,10 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
 			return err, agentFinalReply{}
+		}
+		if !mcmtrNativeCallsFit(reply.ToolCalls, profile.BufferBytes) {
+			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		_, err = runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
@@ -593,8 +618,18 @@ func sessionEventReadRange(event model.SessionEvent, offset, length int64) (erro
 	switch event.Kind {
 	case "message.text":
 		output, available = event.Payload["text"].(string)
+	case "tool.request":
+		call, err := openAICompatibleStoredToolCall(event)
+		if err == nil {
+			output, available = call.Function.Arguments, true
+		}
 	case "tool.success", "tool.failure":
 		output, available = event.Payload["output"].(string)
+	default:
+		encoded, err := json.Marshal(event.Payload)
+		if err == nil {
+			output, available = string(encoded), true
+		}
 	}
 	if !available {
 		return fmt.Errorf("read session event: unavailable"), nil
@@ -906,7 +941,7 @@ You are an agent that completes user requests using authorized workspace capabil
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text or tool output by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text, tool-call arguments, tool output, or other event payloads by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 ## Large Tool Results
 
@@ -942,6 +977,10 @@ func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []op
 }
 
 func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, reasoningEffort string) (error, agentFinalReply) {
+	profile, err := selectedMCMTRProfile(selected)
+	if err != nil {
+		return err, agentFinalReply{}
+	}
 	var reasoning *openAIResponsesReasoning
 	if reasoningEffort != "" {
 		reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
@@ -1004,6 +1043,10 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
 			return err, agentFinalReply{}
+		}
+		if !mcmtrNativeCallsFit(calls, profile.BufferBytes) {
+			err := fmt.Errorf("OpenAI Responses requested a tool batch that exceeds the MCMTR tool high-tier buffer")
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
 		_, err = runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
 		if err != nil {
@@ -1530,4 +1573,8 @@ func sessionApprovalWorkflowID(request model.SessionEventRef) string {
 
 func sessionEventReplyPartition(session model.SessionRef) string {
 	return session.Workspace.Id + "/" + session.Id
+}
+
+func sessionEventReplyTaskPartition(event model.SessionEventRef) string {
+	return sessionEventReplyPartition(event.Session) + "/" + event.Id
 }

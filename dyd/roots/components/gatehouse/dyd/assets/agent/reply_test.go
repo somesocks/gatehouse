@@ -24,6 +24,12 @@ import (
 	"gatehouse/typed_id"
 )
 
+var defaultAgentModelCompaction = config.AgentModelCompaction{
+	Algorithm:    "mcmtr",
+	HistoryBytes: config.DefaultAgentModelHistoryBytes,
+	BufferBytes:  config.DefaultAgentModelBufferBytes,
+}
+
 func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -38,12 +44,12 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		Principals:     []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{
-			{Alias: "automatic", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Automatic reply."}`, Enabled: true},
-			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Requested reply."}`, Enabled: true},
+			{Alias: "automatic", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Automatic reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
+			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Requested reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "automatic", Priority: 2, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "requested", Priority: 1, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "automatic", Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", ModelAlias: "requested", Priority: 1, Enabled: true},
 		},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
@@ -165,9 +171,9 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		Principals:     []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels: []config.AgentModel{{
-			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Enabled: true,
+			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "fallback", Priority: 1, MaxTurns: config.DefaultWorkspaceAgentMaxTurns, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "fallback", Priority: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -309,8 +315,8 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 		AgentProviders: []config.AgentProvider{{
 			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
 		}},
-		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, MaxTurns: 1, Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Compaction: defaultAgentModelCompaction, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {

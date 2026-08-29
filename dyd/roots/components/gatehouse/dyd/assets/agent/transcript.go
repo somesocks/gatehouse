@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"encoding/json"
 	"encoding/xml"
+	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -28,6 +31,16 @@ type transcriptAttachment struct {
 type transcriptToolOutput struct {
 	Event      model.SessionEvent
 	Status     string
+	Truncated  bool
+	Omitted    bool
+	SizeBytes  int
+	ShownBytes int
+}
+
+type transcriptToolCall struct {
+	Event      model.SessionEvent
+	CallID     string
+	Arguments  string
 	Truncated  bool
 	Omitted    bool
 	SizeBytes  int
@@ -84,6 +97,7 @@ func transcriptEvent(event model.SessionEvent, kind, status, callID, contents st
 	if event.Parent != nil {
 		transcriptAttribute(&result, "parent-id", event.Parent.Id)
 	}
+	transcriptMCMTRTreeAttributes(&result, event)
 	transcriptAttribute(&result, "kind", kind)
 	if status != "" {
 		transcriptAttribute(&result, "status", status)
@@ -130,6 +144,19 @@ func transcriptToolCallEvent(event model.SessionEvent, callID string) string {
 	return transcriptEvent(event, "tool-call", "", callID, "")
 }
 
+func transcriptToolCallArgumentsEvent(content transcriptToolCall) string {
+	if content.Omitted {
+		return transcriptOmittedEvent(content.Event, "tool-call", "", content.CallID, content.SizeBytes)
+	}
+	var body strings.Builder
+	body.WriteString("<arguments")
+	transcriptTruncationAttributes(&body, content.Truncated, content.SizeBytes, content.ShownBytes)
+	body.WriteString(">")
+	body.WriteString(transcriptEscape(content.Arguments))
+	body.WriteString("</arguments>")
+	return transcriptEvent(content.Event, "tool-call", "", content.CallID, body.String())
+}
+
 func transcriptToolResultEvent(content transcriptToolOutput, output string) string {
 	if content.Omitted {
 		return transcriptOmittedEvent(content.Event, "tool-result", content.Status, "", content.SizeBytes)
@@ -150,6 +177,7 @@ func transcriptOmittedEvent(event model.SessionEvent, kind, status, callID strin
 	if event.Parent != nil {
 		transcriptAttribute(&result, "parent-id", event.Parent.Id)
 	}
+	transcriptMCMTRTreeAttributes(&result, event)
 	transcriptAttribute(&result, "kind", kind)
 	if status != "" {
 		transcriptAttribute(&result, "status", status)
@@ -164,6 +192,529 @@ func transcriptOmittedEvent(event model.SessionEvent, kind, status, callID strin
 	return result.String()
 }
 
+func transcriptMCMTRTreeAttributes(result *strings.Builder, event model.SessionEvent) {
+	root, enabled := event.Payload["_mcmtr_root"].(string)
+	if !enabled {
+		return
+	}
+	transcriptAttribute(result, "root-id", root)
+	if event.AuthorPrincipal != nil {
+		transcriptAttribute(result, "author", "principal:"+event.AuthorPrincipal.Ref.Id)
+	} else if event.AuthorAgent != nil {
+		transcriptAttribute(result, "author", "agent:"+event.AuthorAgent.Model.Id)
+	} else if event.AuthorGateway != nil {
+		transcriptAttribute(result, "author", "gateway:"+event.AuthorGateway.Id)
+	}
+}
+
+func transcriptPayloadEvent(event model.SessionEvent, payload string, truncated bool, sizeBytes, shownBytes int) string {
+	var body strings.Builder
+	body.WriteString("<payload")
+	transcriptTruncationAttributes(&body, truncated, sizeBytes, shownBytes)
+	body.WriteString(">")
+	body.WriteString(transcriptEscape(payload))
+	body.WriteString("</payload>")
+	return transcriptEvent(event, event.Kind, "", "", body.String())
+}
+
+type mcmtrText struct {
+	value      string
+	truncated  bool
+	omitted    bool
+	sizeBytes  int
+	shownBytes int
+}
+
+type mcmtrRecord struct {
+	event    model.SessionEvent
+	kind     string
+	status   string
+	callID   string
+	channel  contextSchedule
+	stream   string
+	contents mcmtrText
+}
+
+// compileMCMTRContext projects durable session events into one compact transcript,
+// one active user message, and (when available) one native completed tool batch.
+func compileMCMTRContext(events []model.SessionEvent, active model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]openAICompatibleMessage, mcmtrContextState, error) {
+	events = mcmtrAnnotateRoots(events)
+	byID := make(map[string]model.SessionEvent, len(events))
+	for _, event := range events {
+		byID[event.Ref.Id] = event
+	}
+	activeEvent, ok := byID[active.Id]
+	if !ok || activeEvent.Ref.Session != active.Session || activeEvent.Kind != "message.text" || activeEvent.AuthorPrincipal == nil {
+		return nil, state, fmt.Errorf("reply to session event %q: active user message is unavailable", active.Id)
+	}
+
+	nativeCalls, nativeResults, err := mcmtrNativeToolBatch(events, active)
+	if err != nil {
+		return nil, state, err
+	}
+	nativeEventIDs := make(map[string]bool, len(nativeCalls)+len(nativeResults))
+	for _, call := range nativeCalls {
+		nativeEventIDs[call.Event.Ref.Id] = true
+	}
+	for _, result := range nativeResults {
+		nativeEventIDs[result.event.Ref.Id] = true
+	}
+
+	all := make([]mcmtrRecord, 0, len(events))
+	for _, event := range events {
+		record, include, err := mcmtrRecordFor(event)
+		if err != nil {
+			return nil, state, err
+		}
+		if !include {
+			continue
+		}
+		record.stream = mcmtrChannel(event)
+		all = append(all, record)
+	}
+	high, state := mcmtrHighTier(all, state, profile.BufferBytes)
+
+	userRemaining := profile.BufferBytes
+	activeText, _ := activeEvent.Payload["text"].(string)
+	activeContent := mcmtrLimitText(activeText, max(0, userRemaining-512))
+	activeMessage, _, _ := transcriptMessageContent(activeEvent)
+	activeMessage.Truncated = activeContent.truncated
+	activeMessage.Omitted = activeContent.omitted
+	activeMessage.SizeBytes = activeContent.sizeBytes
+	activeMessage.ShownBytes = activeContent.shownBytes
+	activeRendered := transcriptMessageEvent(*activeMessage, activeContent.value)
+	if activeContent.omitted {
+		activeRendered = transcriptOmittedEvent(activeEvent, "message", "", "", activeContent.sizeBytes)
+	}
+	userRemaining = max(0, userRemaining-len(activeRendered))
+
+	if mcmtrNativeMinimumBytes(nativeCalls, nativeResults) > profile.BufferBytes {
+		return nil, state, fmt.Errorf("newest resolved tool batch exceeds MCMTR tool high-tier buffer")
+	}
+	toolRemaining := profile.BufferBytes
+	for index := range nativeCalls {
+		contents := mcmtrLimitText(nativeCalls[index].Arguments, max(0, toolRemaining-512))
+		nativeCalls[index].Arguments = contents.value
+		nativeCalls[index].Truncated = contents.truncated
+		nativeCalls[index].Omitted = contents.omitted
+		nativeCalls[index].SizeBytes = contents.sizeBytes
+		nativeCalls[index].ShownBytes = contents.shownBytes
+		toolRemaining = max(0, toolRemaining-len(nativeCalls[index].call().Function.Arguments))
+	}
+	for index := range nativeResults {
+		nativeResults[index].contents = mcmtrLimitText(nativeResults[index].contents.value, max(0, toolRemaining-512))
+		rendered := transcriptToolResultEvent(transcriptToolOutput{Event: nativeResults[index].event, Status: nativeResults[index].status, Truncated: nativeResults[index].contents.truncated, Omitted: nativeResults[index].contents.omitted, SizeBytes: nativeResults[index].contents.sizeBytes, ShownBytes: nativeResults[index].contents.shownBytes}, nativeResults[index].contents.value)
+		toolRemaining = max(0, toolRemaining-len(rendered))
+	}
+
+	highRecords := make([]mcmtrRecord, 0, len(all))
+	lowerRecords := make([]mcmtrRecord, 0, len(all))
+	remaining := map[string]int{"user": userRemaining, "agent": profile.BufferBytes, "tool": toolRemaining}
+	for _, record := range all {
+		if record.event.Ref.Id == active.Id || nativeEventIDs[record.event.Ref.Id] {
+			continue
+		}
+		if high[record.event.Ref.Id] {
+			record.contents = mcmtrLimitText(record.contents.value, max(0, remaining[record.stream]-512))
+			remaining[record.stream] = max(0, remaining[record.stream]-len(record.render()))
+			highRecords = append(highRecords, record)
+			continue
+		}
+		lowerRecords = append(lowerRecords, record)
+	}
+
+	fixed := len(activeRendered)
+	for _, call := range nativeCalls {
+		fixed += len(call.call().Function.Arguments)
+	}
+	for _, result := range nativeResults {
+		fixed += len(transcriptToolResultEvent(transcriptToolOutput{Event: result.event, Status: result.status, Truncated: result.contents.truncated, Omitted: result.contents.omitted, SizeBytes: result.contents.sizeBytes, ShownBytes: result.contents.shownBytes}, result.contents.value))
+	}
+	for _, record := range highRecords {
+		fixed += len(record.render())
+	}
+	shared := max(0, profile.HistoryBytes-fixed-len("<session-transcript></session-transcript>"))
+	selected := append([]mcmtrRecord(nil), highRecords...)
+	for index := len(lowerRecords) - 1; index >= 0; index-- {
+		record := lowerRecords[index]
+		record.contents = mcmtrLimitText(record.contents.value, max(0, min(1024, shared-512)))
+		rendered := record.render()
+		if len(rendered) > shared {
+			continue
+		}
+		shared -= len(rendered)
+		selected = append(selected, record)
+	}
+	sort.Slice(selected, func(left, right int) bool { return selected[left].event.Ref.Id < selected[right].event.Ref.Id })
+	parts := make([]string, 0, len(selected))
+	for _, record := range selected {
+		parts = append(parts, record.render())
+	}
+	transcript := ""
+	if len(parts) > 0 {
+		transcript = "<session-transcript>" + strings.Join(parts, "") + "</session-transcript>"
+	}
+	messages := make([]openAICompatibleMessage, 0, 2+len(nativeResults))
+	if transcript != "" {
+		messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: transcript})
+	}
+	messages = append(messages, openAICompatibleMessage{Role: "user", Content: activeRendered})
+	if len(nativeCalls) > 0 {
+		calls := make([]openAICompatibleToolCall, len(nativeCalls))
+		for index, call := range nativeCalls {
+			calls[index] = call.call()
+		}
+		messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: calls})
+	}
+	for _, result := range nativeResults {
+		messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: result.callID, Content: transcriptToolResultEvent(transcriptToolOutput{
+			Event: result.event, Status: result.status, Truncated: result.contents.truncated, Omitted: result.contents.omitted, SizeBytes: result.contents.sizeBytes, ShownBytes: result.contents.shownBytes,
+		}, result.contents.value)})
+	}
+	return messages, state, nil
+}
+
+func mcmtrAnnotateRoots(events []model.SessionEvent) []model.SessionEvent {
+	byID := make(map[string]model.SessionEvent, len(events))
+	for _, event := range events {
+		byID[event.Ref.Id] = event
+	}
+	roots := make(map[string]string, len(events))
+	var rootFor func(model.SessionEvent) string
+	rootFor = func(event model.SessionEvent) string {
+		if root, ok := roots[event.Ref.Id]; ok {
+			return root
+		}
+		root := event.Ref.Id
+		if event.Parent != nil {
+			if parent, ok := byID[event.Parent.Id]; ok {
+				root = rootFor(parent)
+			} else {
+				// The bounded suffix may omit ancestors; retain its tree anchor.
+				root = event.Parent.Id
+			}
+		}
+		roots[event.Ref.Id] = root
+		return root
+	}
+	result := make([]model.SessionEvent, len(events))
+	for index, event := range events {
+		payload := make(map[string]interface{}, len(event.Payload)+1)
+		for key, value := range event.Payload {
+			payload[key] = value
+		}
+		payload["_mcmtr_root"] = rootFor(event)
+		event.Payload = payload
+		result[index] = event
+	}
+	return result
+}
+
+func mcmtrChannel(event model.SessionEvent) string {
+	if event.Kind == "tool.request" || event.Kind == "tool.success" || event.Kind == "tool.failure" {
+		return "tool"
+	}
+	if event.Kind == "message.text" && event.AuthorPrincipal != nil {
+		return "user"
+	}
+	return "agent"
+}
+
+func mcmtrHighTier(records []mcmtrRecord, state mcmtrContextState, buffer int) (map[string]bool, mcmtrContextState) {
+	high := map[string]bool{}
+	for _, stream := range []string{"user", "agent", "tool"} {
+		checkpoint := ""
+		switch stream {
+		case "user":
+			checkpoint = state.UserHighFrom
+		case "agent":
+			checkpoint = state.AgentHighFrom
+		case "tool":
+			checkpoint = state.ToolHighFrom
+		}
+		candidates := make([]mcmtrRecord, 0)
+		for _, record := range records {
+			if record.stream == stream && (checkpoint == "" || record.event.Ref.Id >= checkpoint) {
+				candidates = append(candidates, record)
+			}
+		}
+		if len(candidates) == 0 {
+			continue
+		}
+		used := 0
+		for _, record := range candidates {
+			used += len(record.render())
+		}
+		start := 0
+		advance := checkpoint == ""
+		if used > buffer {
+			advance = true
+			used = 0
+			start = len(candidates)
+			for index := len(candidates) - 1; index >= 0; index-- {
+				cost := len(candidates[index].render())
+				if used > 0 && used+cost > buffer/2 {
+					break
+				}
+				used += cost
+				start = index
+			}
+			if start == len(candidates) {
+				start = len(candidates) - 1
+			}
+		}
+		if advance {
+			checkpoint = candidates[start].event.Ref.Id
+		}
+		switch stream {
+		case "user":
+			state.UserHighFrom = checkpoint
+		case "agent":
+			state.AgentHighFrom = checkpoint
+		case "tool":
+			state.ToolHighFrom = checkpoint
+		}
+		for _, record := range candidates[start:] {
+			high[record.event.Ref.Id] = true
+		}
+	}
+	return high, state
+}
+
+func mcmtrLimitText(value string, limit int) mcmtrText {
+	content := mcmtrText{value: value, sizeBytes: len(value), shownBytes: len(value)}
+	if limit <= 0 && len(value) > 0 {
+		content.value, content.omitted, content.shownBytes = "", true, 0
+		return content
+	}
+	if limit < len(value) {
+		content.value, content.shownBytes = transcriptPreview(value, limit)
+		content.truncated = true
+	}
+	return content
+}
+
+func mcmtrNativeMinimumBytes(calls []transcriptToolCall, results []mcmtrRecord) int {
+	used := 0
+	for _, call := range calls {
+		call.Arguments, call.Omitted, call.Truncated, call.SizeBytes, call.ShownBytes = "", true, false, len(call.Arguments), 0
+		used += len(call.call().Function.Arguments)
+	}
+	for _, result := range results {
+		used += len(transcriptOmittedEvent(result.event, "tool-result", result.status, "", len(result.contents.value)))
+	}
+	return used
+}
+
+// mcmtrNativeCallsFit rejects a tool batch before it can create durable events
+// when even its smallest recoverable native representation cannot fit.
+func mcmtrNativeCallsFit(calls []openAICompatibleToolCall, buffer int) bool {
+	used := 0
+	for _, call := range calls {
+		preview := transcriptToolCall{CallID: call.ID, Arguments: call.Function.Arguments, Omitted: true, SizeBytes: len(call.Function.Arguments)}
+		used += len(preview.call().Function.Arguments) + 256
+	}
+	return used <= buffer
+}
+
+func mcmtrSelectText(value string, schedule contextSchedule, used *int) mcmtrText {
+	content := mcmtrText{value: value, sizeBytes: len(value), shownBytes: len(value)}
+	limit := contextContentLimit(len(value), schedule, used)
+	if limit == 0 && len(value) > 0 {
+		content.value = ""
+		content.omitted = true
+		content.shownBytes = 0
+		return content
+	}
+	if limit < len(value) {
+		content.value, content.shownBytes = transcriptPreview(value, limit)
+		content.truncated = true
+	}
+	return content
+}
+
+func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
+	if strings.HasPrefix(event.Kind, "thinking.") {
+		return mcmtrRecord{}, false, nil
+	}
+	record := mcmtrRecord{event: event, kind: event.Kind, channel: agentContextSchedule}
+	switch event.Kind {
+	case "message.text":
+		record.kind = "message"
+		record.contents.value, _ = event.Payload["text"].(string)
+		if event.AuthorPrincipal != nil {
+			record.channel = userContextSchedule
+		}
+	case "tool.request":
+		if event.AuthorAgent == nil {
+			return mcmtrRecord{}, false, nil
+		}
+		call, err := openAICompatibleStoredToolCall(event)
+		if err != nil {
+			return mcmtrRecord{}, false, err
+		}
+		record.kind, record.callID, record.contents.value, record.channel = "tool-call", call.ID, call.Function.Arguments, toolResultSchedule
+	case "tool.success", "tool.failure":
+		output, ok := event.Payload["output"].(string)
+		if !ok {
+			return mcmtrRecord{}, false, fmt.Errorf("session tool output %q has no text output", event.Ref.Id)
+		}
+		record.kind, record.contents.value, record.channel = "tool-result", output, toolResultSchedule
+		if event.Kind == "tool.success" {
+			record.status = "success"
+		} else {
+			record.status = "failure"
+		}
+	default:
+		payloadValue := make(map[string]interface{}, len(event.Payload))
+		for key, value := range event.Payload {
+			if key != "_mcmtr_root" {
+				payloadValue[key] = value
+			}
+		}
+		payload, err := json.Marshal(payloadValue)
+		if err != nil {
+			return mcmtrRecord{}, false, fmt.Errorf("encode session event %q payload: %w", event.Ref.Id, err)
+		}
+		record.contents.value = string(payload)
+	}
+	return record, true, nil
+}
+
+func (record mcmtrRecord) render() string {
+	if record.contents.omitted {
+		return transcriptOmittedEvent(record.event, record.kind, record.status, record.callID, record.contents.sizeBytes)
+	}
+	switch record.kind {
+	case "message":
+		content, _, _ := transcriptMessageContent(record.event)
+		content.Truncated, content.SizeBytes, content.ShownBytes = record.contents.truncated, record.contents.sizeBytes, record.contents.shownBytes
+		return transcriptMessageEvent(*content, record.contents.value)
+	case "tool-call":
+		return transcriptToolCallArgumentsEvent(transcriptToolCall{Event: record.event, CallID: record.callID, Arguments: record.contents.value, Truncated: record.contents.truncated, SizeBytes: record.contents.sizeBytes, ShownBytes: record.contents.shownBytes})
+	case "tool-result":
+		return transcriptToolResultEvent(transcriptToolOutput{Event: record.event, Status: record.status, Truncated: record.contents.truncated, SizeBytes: record.contents.sizeBytes, ShownBytes: record.contents.shownBytes}, record.contents.value)
+	default:
+		return transcriptPayloadEvent(record.event, record.contents.value, record.contents.truncated, record.contents.sizeBytes, record.contents.shownBytes)
+	}
+}
+
+func mcmtrTranscript(records []mcmtrRecord, budget, fixed int, calls []transcriptToolCall, results []mcmtrRecord) string {
+	used := fixed + len("<session-transcript></session-transcript>")
+	for _, call := range calls {
+		used += len(call.call().Function.Arguments)
+	}
+	for _, result := range results {
+		used += len(transcriptToolResultEvent(transcriptToolOutput{Event: result.event, Status: result.status, Truncated: result.contents.truncated, Omitted: result.contents.omitted, SizeBytes: result.contents.sizeBytes, ShownBytes: result.contents.shownBytes}, result.contents.value))
+	}
+	selected := make([]string, 0, len(records))
+	for index := len(records) - 1; index >= 0; index-- {
+		rendered := records[index].render()
+		if used+len(rendered) > budget {
+			omitted := transcriptOmittedEvent(records[index].event, records[index].kind, records[index].status, records[index].callID, records[index].contents.sizeBytes)
+			if used+len(omitted) > budget {
+				continue
+			}
+			rendered = omitted
+		}
+		used += len(rendered)
+		selected = append(selected, rendered)
+	}
+	if len(selected) == 0 {
+		return ""
+	}
+	for left, right := 0, len(selected)-1; left < right; left, right = left+1, right-1 {
+		selected[left], selected[right] = selected[right], selected[left]
+	}
+	return "<session-transcript>" + strings.Join(selected, "") + "</session-transcript>"
+}
+
+func (content transcriptToolCall) call() openAICompatibleToolCall {
+	call := openAICompatibleToolCall{ID: content.CallID, Type: "function"}
+	call.Function.Name = "lisp"
+	if !content.Truncated && !content.Omitted {
+		call.Function.Arguments = content.Arguments
+		return call
+	}
+	preview := content.Arguments
+	if content.Omitted {
+		preview = ""
+	}
+	arguments, _ := json.Marshal(struct {
+		Code   string `json:"code"`
+		Reason string `json:"reason"`
+	}{Code: preview, Reason: fmt.Sprintf("MCMTR preview of session event %q arguments; truncated=%t size-bytes=%d shown-bytes=%d. Use session/events/read to recover the full arguments.", content.Event.Ref.Id, true, content.SizeBytes, content.ShownBytes)})
+	call.Function.Arguments = string(arguments)
+	return call
+}
+
+func mcmtrNativeToolBatch(events []model.SessionEvent, active model.SessionEventRef) ([]transcriptToolCall, []mcmtrRecord, error) {
+	type batch struct {
+		number int
+		calls  []transcriptToolCall
+	}
+	batches := map[int]*batch{}
+	results := map[string]mcmtrRecord{}
+	for _, event := range events {
+		if event.Kind == "tool.success" || event.Kind == "tool.failure" {
+			record, include, err := mcmtrRecordFor(event)
+			if err != nil {
+				return nil, nil, err
+			}
+			if include && event.Parent != nil {
+				results[event.Parent.Id] = record
+			}
+			continue
+		}
+		if event.Kind != "tool.request" || event.Parent == nil || *event.Parent != active || event.AuthorAgent == nil {
+			continue
+		}
+		batchValue, batchOK := event.Payload["batch"].(float64)
+		position, positionOK := event.Payload["position"].(float64)
+		if !batchOK || !positionOK {
+			continue
+		}
+		call, err := openAICompatibleStoredToolCall(event)
+		if err != nil {
+			return nil, nil, err
+		}
+		current := batches[int(batchValue)]
+		if current == nil {
+			current = &batch{number: int(batchValue)}
+			batches[int(batchValue)] = current
+		}
+		current.calls = append(current.calls, transcriptToolCall{Event: event, CallID: call.ID, Arguments: call.Function.Arguments, ShownBytes: int(position)})
+	}
+	var selected *batch
+	for _, candidate := range batches {
+		resolved := len(candidate.calls) > 0
+		for _, call := range candidate.calls {
+			if _, ok := results[call.Event.Ref.Id]; !ok {
+				resolved = false
+				break
+			}
+		}
+		if resolved && (selected == nil || candidate.number > selected.number) {
+			selected = candidate
+		}
+	}
+	if selected == nil {
+		return nil, nil, nil
+	}
+	sort.Slice(selected.calls, func(left, right int) bool { return selected.calls[left].ShownBytes < selected.calls[right].ShownBytes })
+	for index := range selected.calls {
+		selected.calls[index].ShownBytes = len(selected.calls[index].Arguments)
+		selected.calls[index].SizeBytes = len(selected.calls[index].Arguments)
+	}
+	outputs := make([]mcmtrRecord, 0, len(selected.calls))
+	for _, call := range selected.calls {
+		output := results[call.Event.Ref.Id]
+		output.callID = call.CallID
+		outputs = append(outputs, output)
+	}
+	return selected.calls, outputs, nil
+}
+
 type contextSchedule struct {
 	fullLimit, fullUntil       int
 	previewLimit, previewUntil int
@@ -171,7 +722,7 @@ type contextSchedule struct {
 }
 
 var (
-	userContextSchedule = contextSchedule{fullLimit: 4 * 1024, fullUntil: 12 * 1024, previewLimit: 1024, previewUntil: 18 * 1024, shortLimit: 250, shortUntil: 21 * 1024}
+	userContextSchedule  = contextSchedule{fullLimit: 4 * 1024, fullUntil: 12 * 1024, previewLimit: 1024, previewUntil: 18 * 1024, shortLimit: 250, shortUntil: 21 * 1024}
 	agentContextSchedule = contextSchedule{fullLimit: 2 * 1024, fullUntil: 6 * 1024, previewLimit: 768, previewUntil: 10500, shortLimit: 256, shortUntil: 13500}
 	toolResultSchedule   = contextSchedule{fullLimit: 4 * 1024, fullUntil: 12 * 1024, previewLimit: 1024, previewUntil: 18 * 1024, shortLimit: 256, shortUntil: 21 * 1024}
 )

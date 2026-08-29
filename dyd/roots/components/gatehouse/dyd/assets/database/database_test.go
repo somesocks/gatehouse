@@ -158,7 +158,7 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 			Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true,
 		}},
 		AgentModels: []config.AgentModel{{
-			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`, Enabled: true,
+			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {

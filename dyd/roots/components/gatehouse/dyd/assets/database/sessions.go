@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
@@ -725,9 +726,111 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	return nil, events
 }
 
+// SessionEventsTailGet returns a bounded creation-order suffix for cold context construction.
+func (store *Store) SessionEventsTailGet(ctx context.Context, session model.SessionRef, limit int) (error, []model.SessionEvent) {
+	if limit <= 0 {
+		return fmt.Errorf("get session event tail: limit must be positive"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT id
+		FROM gatehouse_session_events
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
+		ORDER BY id DESC
+		LIMIT `+placeholder(3)+`
+	`, session.Workspace.Id, session.Id, limit)
+	if err != nil {
+		return fmt.Errorf("get session event tail: %w", err), nil
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return fmt.Errorf("scan session event tail: %w", err), nil
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate session event tail: %w", err), nil
+	}
+	events := make([]model.SessionEvent, 0, len(ids))
+	for index := len(ids) - 1; index >= 0; index-- {
+		err, event := store.SessionEventGet(ctx, model.SessionEventRef{Session: session, Id: ids[index]})
+		if err != nil {
+			return err, nil
+		}
+		if event != nil {
+			events = append(events, *event)
+		}
+	}
+	return nil, events
+}
+
 type SessionEventTreeEntry struct {
 	Event model.SessionEvent
 	Depth int
+}
+
+// AgentContext is the durable working context owned by one active reply tree.
+// Session events remain the authoritative collaborative record.
+type AgentContext struct {
+	Root    model.SessionEventRef
+	Model   model.WorkspaceAgentRef
+	Profile string
+	State   json.RawMessage
+	UpdatedAt string
+}
+
+func (store *Store) AgentContextGet(ctx context.Context, root model.SessionEventRef) (error, *AgentContext) {
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT model, profile, state, updated_at
+		FROM gatehouse_agent_contexts
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND root = `+placeholder(3)+`
+	`, root.Session.Workspace.Id, root.Session.Id, root.Id)
+	context := AgentContext{Root: root, Model: model.WorkspaceAgentRef{Workspace: root.Session.Workspace}}
+	var state string
+	if err := row.Scan(&context.Model.Model.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get agent context: %w", err), nil
+	}
+	context.State = json.RawMessage(state)
+	return nil, &context
+}
+
+func (store *Store) AgentContextSet(ctx context.Context, context AgentContext) error {
+	if context.Root.Session.Workspace != context.Model.Workspace || context.Root.Id == "" || context.Model.Model.Id == "" || strings.TrimSpace(context.Profile) == "" || !json.Valid(context.State) {
+		return fmt.Errorf("set agent context: invalid context")
+	}
+	if context.UpdatedAt == "" {
+		context.UpdatedAt = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	_, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_agent_contexts (workspace, session, root, model, profile, state, updated_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
+		ON CONFLICT (workspace, session, root) DO UPDATE SET
+			model = excluded.model, profile = excluded.profile, state = excluded.state, updated_at = excluded.updated_at
+	`, context.Root.Session.Workspace.Id, context.Root.Session.Id, context.Root.Id, context.Model.Model.Id, context.Profile, string(context.State), context.UpdatedAt)
+	if err != nil {
+		return fmt.Errorf("set agent context: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) AgentContextDelete(ctx context.Context, root model.SessionEventRef) error {
+	placeholder := keychainPlaceholder(store.kind)
+	_, err := store.ExecContext(ctx, `
+		DELETE FROM gatehouse_agent_contexts
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND root = `+placeholder(3)+`
+	`, root.Session.Workspace.Id, root.Session.Id, root.Id)
+	if err != nil {
+		return fmt.Errorf("delete agent context: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.SessionRef, afterID string, limit int) (error, []SessionEventTreeEntry) {
@@ -816,6 +919,29 @@ func (store *Store) SessionEventsTreePageGet(ctx context.Context, session model.
 		return fmt.Errorf("iterate session event tree: %w", err), nil
 	}
 	return nil, entries
+}
+
+// SessionEventsTreeTailGet returns a bounded suffix of root trees in creation order.
+func (store *Store) SessionEventsTreeTailGet(ctx context.Context, session model.SessionRef, limit int) (error, []SessionEventTreeEntry) {
+	if limit <= 0 {
+		return fmt.Errorf("get session event tree tail: limit must be positive"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT id
+		FROM gatehouse_session_events
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND parent IS NULL
+		ORDER BY id DESC
+		LIMIT 1 OFFSET `+placeholder(3)+`
+	`, session.Workspace.Id, session.Id, limit)
+	var before string
+	if err := row.Scan(&before); err != nil {
+		if err != sql.ErrNoRows {
+			return fmt.Errorf("get session event tree tail: %w", err), nil
+		}
+		before = ""
+	}
+	return store.SessionEventsTreePageGet(ctx, session, before, limit)
 }
 
 func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEventRef) (error, *model.SessionEvent) {
@@ -1092,8 +1218,8 @@ type WorkspaceAgentModel struct {
 	APIKey     *string
 	Model      string
 	Parameters string
+	Compaction string
 	MaxTurns        int
-	MaxInputTokens  int
 	MaxOutputTokens int
 	SystemPrompt    *string
 }
@@ -1141,7 +1267,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, bindings.max_turns, bindings.max_input_tokens, bindings.max_output_tokens, bindings.system_prompt
+		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1156,7 +1282,7 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	selected.Ref.Workspace = workspace
 	var baseURL, keychainID, apiKey, systemPrompt sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.MaxTurns, &selected.MaxInputTokens, &selected.MaxOutputTokens, &systemPrompt); err != nil {
+	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}

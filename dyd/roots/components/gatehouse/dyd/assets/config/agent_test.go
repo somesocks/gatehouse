@@ -116,7 +116,7 @@ agent_models:
 	}
 }
 
-func TestResolveWorkspaceAgentsMaxTurns(t *testing.T) {
+func TestResolveAgentModelLimits(t *testing.T) {
 	for name, contents := range map[string]string{
 		"default": `
 api_version: v1
@@ -131,11 +131,6 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-workspaces:
-  - alias: engineering
-    agents:
-      - model: fallback
-        priority: 1
 `,
 		"configured": `
 api_version: v1
@@ -150,12 +145,8 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-workspaces:
-  - alias: engineering
-    agents:
-      - model: fallback
-        priority: 1
-        max_turns: 3
+    max_turns: 3
+    max_output_tokens: 2000
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -168,21 +159,22 @@ workspaces:
 				t.Fatal(err)
 			}
 			err, state := ResolveState(document)
-			if err != nil || len(state.WorkspaceAgents) != 1 {
-				t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+			if err != nil || len(state.AgentModels) != 1 {
+				t.Fatalf("ResolveState() = (%#v, %v)", state.AgentModels, err)
 			}
-			want := DefaultWorkspaceAgentMaxTurns
+			wantTurns, wantOutputTokens := DefaultAgentModelMaxTurns, DefaultAgentModelMaxOutputTokens
 			if name == "configured" {
-				want = 3
+				wantTurns, wantOutputTokens = 3, 2000
 			}
-			if state.WorkspaceAgents[0].MaxTurns != want {
-				t.Fatalf("max turns = %d, want %d", state.WorkspaceAgents[0].MaxTurns, want)
+			model := state.AgentModels[0]
+			if model.MaxTurns != wantTurns || model.MaxOutputTokens != wantOutputTokens {
+				t.Fatalf("model limits = (%d, %d), want (%d, %d)", model.MaxTurns, model.MaxOutputTokens, wantTurns, wantOutputTokens)
 			}
 		})
 	}
 }
 
-func TestResolveWorkspaceAgentsProviderLimits(t *testing.T) {
+func TestResolveAgentModelCompaction(t *testing.T) {
 	for name, contents := range map[string]string{
 		"default": `
 api_version: v1
@@ -197,13 +189,8 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-workspaces:
-  - alias: engineering
-    agents:
-      - model: fallback
-        priority: 1
 `,
-		"configured": `
+		"configured MCMTR": `
 api_version: v1
 agent_providers:
   - alias: builtin
@@ -216,13 +203,10 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-workspaces:
-  - alias: engineering
-    agents:
-      - model: fallback
-        priority: 1
-        max_input_tokens: 12000
-        max_output_tokens: 2000
+    compaction:
+      algorithm: mcmtr
+      history_bytes: 1000
+      buffer_bytes: 100
 `,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -235,16 +219,15 @@ workspaces:
 				t.Fatal(err)
 			}
 			err, state := ResolveState(document)
-			if err != nil || len(state.WorkspaceAgents) != 1 {
-				t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+			if err != nil || len(state.AgentModels) != 1 {
+				t.Fatalf("ResolveState() = (%#v, %v)", state.AgentModels, err)
 			}
-			wantInput, wantOutput := DefaultWorkspaceAgentMaxInputTokens, DefaultWorkspaceAgentMaxOutputTokens
-			if name == "configured" {
-				wantInput, wantOutput = 12000, 2000
+			want := AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+			if name == "configured MCMTR" {
+				want = AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 1000, BufferBytes: 100}
 			}
-			agent := state.WorkspaceAgents[0]
-			if agent.MaxInputTokens != wantInput || agent.MaxOutputTokens != wantOutput {
-				t.Fatalf("provider limits = (%d, %d), want (%d, %d)", agent.MaxInputTokens, agent.MaxOutputTokens, wantInput, wantOutput)
+			if state.AgentModels[0].Compaction != want {
+				t.Fatalf("compaction = %#v, want %#v", state.AgentModels[0].Compaction, want)
 			}
 		})
 	}
@@ -379,7 +362,7 @@ workspaces:
 	}
 }
 
-func TestValidateFileRejectsNonPositiveWorkspaceAgentMaxTurns(t *testing.T) {
+func TestValidateFileRejectsNonPositiveAgentModelLimits(t *testing.T) {
 	for _, value := range []string{"0", "-1"} {
 		path := filepath.Join(t.TempDir(), "config.yaml")
 		contents := `
@@ -395,31 +378,57 @@ agent_models:
     model: dummy.fixed-reply
     parameters:
       text: Fallback reply.
-workspaces:
-  - key: engineering
-    agents:
-      - model: fallback
-        priority: 1
-        max_turns: ` + value + `
+    max_turns: ` + value + `
 `
 		if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		err, document := ValidateFile(path)
-		if err == nil {
-			err, _ = ResolveState(document)
-		}
-		if err == nil {
-			t.Fatal("configuration accepted an invalid workspace agent max_turns")
+		if err, _ := ValidateFile(path); err == nil {
+			t.Fatal("configuration accepted an invalid agent model max_turns")
 		}
 	}
 }
 
-func TestValidateFileRejectsInvalidWorkspaceAgentProviderLimits(t *testing.T) {
-	for name, agent := range map[string]string{
-		"nonpositive input":      "max_input_tokens: 0",
-		"nonpositive output":     "max_output_tokens: -1",
-		"removed summary tokens": "summary_tokens: 1000",
+func TestValidateFileRejectsInvalidAgentModelCompaction(t *testing.T) {
+	for name, compaction := range map[string]string{
+		"unsupported algorithm": "algorithm: unsupported",
+		"nonpositive history":   "algorithm: mcmtr\n      history_bytes: 0",
+		"nonpositive buffer":    "algorithm: mcmtr\n      buffer_bytes: -1",
+		"buffer exceeds high-tier allocation": "algorithm: mcmtr\n      history_bytes: 100\n      buffer_bytes: 17",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			contents := `
+api_version: v1
+agent_providers:
+  - alias: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - alias: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+    compaction:
+      ` + compaction + `
+`
+			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err, _ := ValidateFile(path); err == nil {
+				t.Fatal("configuration accepted invalid agent model compaction")
+			}
+		})
+	}
+}
+
+func TestValidateFileRejectsWorkspaceAgentModelLimits(t *testing.T) {
+	for name, limit := range map[string]string{
+		"max turns":         "max_turns: 1",
+		"max input tokens":  "max_input_tokens: 120000",
+		"max output tokens": "max_output_tokens: 16000",
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "config.yaml")
@@ -441,13 +450,13 @@ workspaces:
     agents:
       - model: fallback
         priority: 1
-        ` + agent + `
+        ` + limit + `
 `
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if err, _ := ValidateFile(path); err == nil {
-				t.Fatal("configuration accepted invalid workspace agent provider limits")
+				t.Fatal("configuration accepted workspace agent model limits")
 			}
 		})
 	}

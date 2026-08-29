@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 
 	"gatehouse/agent"
@@ -100,14 +101,27 @@ func agentModelMigrationBuilder(models []config.AgentModel) MigrationBuilder {
 					return err, ""
 				}
 			}
-			values = append(values, agentModelMigrationValue{ID: id, Alias: model.Alias, Revision: model.Revision, ProviderID: providers[model.ProviderAlias], Model: model.Model, Parameters: model.Parameters, Enabled: model.Enabled})
+			if model.Compaction.Algorithm == "" {
+				model.Compaction = config.AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: config.DefaultAgentModelHistoryBytes, BufferBytes: config.DefaultAgentModelBufferBytes}
+			}
+			if model.MaxTurns == 0 {
+				model.MaxTurns = config.DefaultAgentModelMaxTurns
+			}
+			if model.MaxOutputTokens == 0 {
+				model.MaxOutputTokens = config.DefaultAgentModelMaxOutputTokens
+			}
+			compaction, err := json.Marshal(model.Compaction)
+			if err != nil {
+				return fmt.Errorf("encode agent model compaction %q: %w", model.Alias, err), ""
+			}
+			values = append(values, agentModelMigrationValue{ID: id, Alias: model.Alias, Revision: model.Revision, ProviderID: providers[model.ProviderAlias], Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, Enabled: model.Enabled})
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range . }}
-			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, enabled = excluded.enabled
+			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, enabled = excluded.enabled
 			WHERE gatehouse_agent_models.revision < excluded.revision;
 			{{ end }}
 		`, values)
@@ -115,30 +129,20 @@ func agentModelMigrationBuilder(models []config.AgentModel) MigrationBuilder {
 }
 
 type agentModelMigrationValue struct {
-	ID, Alias, ProviderID, Model, Parameters string
-	Revision                              int
-	Enabled                               bool
+	ID, Alias, ProviderID, Model, Parameters, Compaction string
+	Revision, MaxTurns, MaxOutputTokens               int
+	Enabled                                            bool
 }
 
 func workspaceAgentMigrationBuilder(agents []config.WorkspaceAgent) MigrationBuilder {
-	values := make([]config.WorkspaceAgent, len(agents))
-	copy(values, agents)
-	for index := range values {
-		if values[index].MaxInputTokens == 0 {
-			values[index].MaxInputTokens = config.DefaultWorkspaceAgentMaxInputTokens
-		}
-		if values[index].MaxOutputTokens == 0 {
-			values[index].MaxOutputTokens = config.DefaultWorkspaceAgentMaxOutputTokens
-		}
-	}
 	return templateMigrationBuilder(`
 		SELECT 1;
 		{{ range . }}
-		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, max_turns, max_input_tokens, max_output_tokens, label, system_prompt, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxInputTokens }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
-		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, max_turns = excluded.max_turns, max_input_tokens = excluded.max_input_tokens, max_output_tokens = excluded.max_output_tokens, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, label, system_prompt, enabled)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
+		ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
 		{{ end }}
-	`, values)
+	`, agents)
 }
 
 type agentProviderIDAndRevision struct {
