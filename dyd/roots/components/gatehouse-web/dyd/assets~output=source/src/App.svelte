@@ -174,6 +174,7 @@
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let activityPollTimer: ReturnType<typeof setTimeout> | undefined
   let activityPollGeneration = 0
+  let activityPollTimestamp = $state(Date.now())
   let activeSessionCursor: ActivityCursor | null = null
   let activeProjectCursor: ActivityCursor | null = null
   let workspaceSessionsCursor: ActivityCursor | null = null
@@ -1195,6 +1196,7 @@
         // Keep checkpoints unchanged so a transient failure retries the same invalidation.
       } finally {
         if (generation === activityPollGeneration && activeWorkspace?.id === workspace.id) {
+          activityPollTimestamp = Date.now()
           activityPollTimer = setTimeout(poll, 1000)
         }
       }
@@ -1242,6 +1244,10 @@
       return ""
     }
     return elapsedDuration(tree.event.created_at, replies[replies.length - 1].event.created_at)
+  }
+
+  function workingReplyDuration(tree: SessionEventTree) {
+    return elapsedDuration(tree.event.created_at, activityPollTimestamp)
   }
 
   function toolStatus(tree: SessionEventTree) {
@@ -1294,7 +1300,7 @@
     return elapsedDuration(tree.event.created_at, completed.event.created_at)
   }
 
-  function elapsedDuration(startedAt: string, completedAt: string) {
+  function elapsedDuration(startedAt: string, completedAt: string | number) {
     const elapsed = new Date(completedAt).getTime() - new Date(startedAt).getTime()
     if (!Number.isFinite(elapsed) || elapsed < 0) {
       return ""
@@ -2429,6 +2435,9 @@
                         {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? "Agent is working" : "Agent activity"}
                         {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
                           <span class="agent-activity-duration">{replyDuration(tree)}</span>
+                        {/if}
+                        {#if replyCanBeCancelled(tree) && workingReplyDuration(tree) !== ""}
+                          <span class="agent-activity-duration">{workingReplyDuration(tree)}</span>
                         {/if}
                         {#if replyCanBeCancelled(tree)}
                           <button class="agent-activity-cancel" type="button" disabled={cancellingReplyFor.has(tree.event.ref.id)} onclick={() => void cancelReply(tree)}>{cancellingReplyFor.has(tree.event.ref.id) ? "Cancelling..." : "Cancel"}</button>
