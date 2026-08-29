@@ -50,19 +50,21 @@ func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx dbos.Context, roo
 		if stored != nil && stored.Model == selected.Ref && stored.Profile == fingerprint {
 			return true, nil
 		}
-		state, err := json.Marshal(mcmtrContextState{})
+		state := json.RawMessage(nil)
+		err, inherited := runtime.store.AgentContextLatestGet(step, root.Session, selected.Ref, fingerprint)
 		if err != nil {
 			return false, err
 		}
+		if inherited != nil {
+			state = inherited.State
+		} else {
+			state, err = json.Marshal(mcmtrContextState{})
+			if err != nil {
+				return false, err
+			}
+		}
 		return true, runtime.store.AgentContextSet(step, database.AgentContext{Root: root, Model: selected.Ref, Profile: fingerprint, State: state})
 	}, dbos.WithStepName("gatehouse.session-event-context-start"))
-	return stepErr
-}
-
-func (runtime *SessionEventReplyRuntime) mcmtrContextFinish(ctx dbos.Context, root model.SessionEventRef) error {
-	_, stepErr := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-		return true, runtime.store.AgentContextDelete(step, root)
-	}, dbos.WithStepName("gatehouse.session-event-context-finish"))
 	return stepErr
 }
 

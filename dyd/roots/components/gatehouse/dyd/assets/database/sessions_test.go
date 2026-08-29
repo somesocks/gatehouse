@@ -2,7 +2,9 @@ package database_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -628,6 +630,62 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 	if len(events) != 2 || events[0].Ref.Id != "sev_00000000000000000000000002" || events[1].Ref.Id != "sev_00000000000000000000000003" {
 		t.Fatalf("SessionEventsPageGet() = %#v", events)
+	}
+}
+
+func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	principal := principalRef(t, ctx, store, "alice")
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
+		t.Fatal(err)
+	}
+	var modelID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&modelID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}}
+	roots := make([]model.SessionEventRef, 3)
+	for index := range roots {
+		roots[index] = model.SessionEventRef{Session: session, Id: fmt.Sprintf("sev_0000000000000000000000000%d", index)}
+		event := model.SessionEvent{Ref: roots[index], Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true}, Payload: map[string]interface{}{"text": "hello"}}
+		if err, _ := store.SessionMessagesCreate(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, context := range []database.AgentContext{
+		{Root: roots[0], Model: agent, Profile: "profile", State: json.RawMessage(`{"user_high_from":"first"}`), UpdatedAt: "2026-01-01T00:00:01.000Z"},
+		{Root: roots[1], Model: agent, Profile: "profile", State: json.RawMessage(`{"user_high_from":"second"}`), UpdatedAt: "2026-01-01T00:00:02.000Z"},
+		{Root: roots[2], Model: agent, Profile: "other", State: json.RawMessage(`{"user_high_from":"other"}`), UpdatedAt: "2026-01-01T00:00:03.000Z"},
+	} {
+		if err := store.AgentContextSet(ctx, context); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err, latest := store.AgentContextLatestGet(ctx, session, agent, "profile")
+	if err != nil || latest == nil || latest.Root != roots[1] || string(latest.State) != `{"user_high_from":"second"}` {
+		t.Fatalf("AgentContextLatestGet() = (%#v, %v)", latest, err)
+	}
+	err, missing := store.AgentContextLatestGet(ctx, session, agent, "missing")
+	if err != nil || missing != nil {
+		t.Fatalf("AgentContextLatestGet() missing = (%#v, %v)", missing, err)
 	}
 }
 

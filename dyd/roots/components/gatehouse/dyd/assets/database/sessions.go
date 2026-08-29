@@ -802,7 +802,7 @@ type SessionEventTreeEntry struct {
 	Depth int
 }
 
-// AgentContext is the durable working context owned by one active reply tree.
+// AgentContext is a durable MCMTR checkpoint owned by one reply tree.
 // Session events remain the authoritative collaborative record.
 type AgentContext struct {
 	Root    model.SessionEventRef
@@ -826,6 +826,31 @@ func (store *Store) AgentContextGet(ctx context.Context, root model.SessionEvent
 			return nil, nil
 		}
 		return fmt.Errorf("get agent context: %w", err), nil
+	}
+	context.State = json.RawMessage(state)
+	return nil, &context
+}
+
+// AgentContextLatestGet returns the most recently checkpointed compatible context in a session.
+func (store *Store) AgentContextLatestGet(ctx context.Context, session model.SessionRef, agent model.WorkspaceAgentRef, profile string) (error, *AgentContext) {
+	if session.Workspace != agent.Workspace || agent.Model.Id == "" || strings.TrimSpace(profile) == "" {
+		return fmt.Errorf("get latest agent context: invalid context selector"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT root, state, updated_at
+		FROM gatehouse_agent_contexts
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND model = `+placeholder(3)+` AND profile = `+placeholder(4)+`
+		ORDER BY updated_at DESC, root DESC
+		LIMIT 1
+	`, session.Workspace.Id, session.Id, agent.Model.Id, profile)
+	context := AgentContext{Root: model.SessionEventRef{Session: session}, Model: agent, Profile: profile}
+	var state string
+	if err := row.Scan(&context.Root.Id, &state, &context.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get latest agent context: %w", err), nil
 	}
 	context.State = json.RawMessage(state)
 	return nil, &context

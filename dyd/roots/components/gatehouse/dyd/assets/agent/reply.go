@@ -323,9 +323,6 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
-				return model.SessionEvent{}, finishErr
-			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
@@ -365,18 +362,12 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	if err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
-				return model.SessionEvent{}, finishErr
-			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			if finishErr := runtime.mcmtrContextFinish(ctx, input.Event); finishErr != nil {
-				return model.SessionEvent{}, finishErr
-			}
 			return model.SessionEvent{}, nil
 		}
 		return model.SessionEvent{}, err
@@ -410,11 +401,6 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	err, stored := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
 		return model.SessionEvent{}, err
-	}
-	if selected.Protocol == "openai-chat-completions" || selected.Protocol == "openai-responses" {
-		if err := runtime.mcmtrContextFinish(ctx, input.Event); err != nil {
-			return model.SessionEvent{}, err
-		}
 	}
 	return stored, nil
 }

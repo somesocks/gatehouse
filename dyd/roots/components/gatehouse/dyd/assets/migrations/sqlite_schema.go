@@ -650,6 +650,13 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 				ALTER TABLE gatehouse_session_events
 				ADD COLUMN metrics TEXT CHECK (metrics IS NULL OR (json_valid(metrics) AND json_type(metrics) = 'object'));
 			`),
+		}, {
+			Index:       26,
+			Description: "index_latest_agent_contexts",
+			Builder: staticMigrationBuilder(`
+				CREATE INDEX gatehouse_agent_contexts_latest
+				ON gatehouse_agent_contexts (workspace, session, model, profile, updated_at DESC, root DESC);
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{
