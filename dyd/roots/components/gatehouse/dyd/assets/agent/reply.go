@@ -545,11 +545,10 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	err, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
+	err, files, projectInfo, projectFiles, projectNotes, sessionNotes := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
-	defer clearResourceValues(values)
 	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
 	sessionNotes.Remove = runtime.sessionNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	if projectInfo != nil {
@@ -589,7 +588,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
-	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, Bindings: bindings, SourceModules: tools, HostModules: modules})
+	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, HostModules: modules})
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
 	if evalErr != nil {
@@ -923,7 +922,7 @@ func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.Session
 
 const openAISystemPrompt = `# Role
 
-You are an agent that completes user requests using authorized workspace capabilities. Use available tools and resources to perform the work, not merely describe how it could be done. Verify results before reporting completion, and continue working when verification shows the result is missing, invalid, or incomplete. Communicate clear user-facing results without mentioning your tools or implementation details.
+You are an agent that completes user requests using available native operations and session or project content. Perform the work rather than merely describing how it could be done. Verify results before reporting completion, and continue working when verification shows the result is missing, invalid, or incomplete. Communicate clear user-facing results without mentioning your implementation details.
 
 # Tools
 
@@ -1139,7 +1138,7 @@ func (runtime *SessionEventReplyRuntime) thinkingFinishWithMetrics(ctx dbos.Cont
 func openAICompatibleLispTool() openAICompatibleTool {
 	tool := openAICompatibleTool{Type: "function"}
 	tool.Function.Name = "lisp"
-	tool.Function.Description = "Evaluate Lisp using only the workspace's authorized tools and resources. Explain the purpose in reason. Use (help/env) and (help/search) to discover this Lisp dialect; it is not Common Lisp. Correct and retry failed evaluations when possible."
+	tool.Function.Description = "Evaluate Lisp using available native modules. Explain the purpose in reason. Use (help/env) and (help/search) to discover this Lisp dialect; it is not Common Lisp. Correct and retry failed evaluations when possible."
 	tool.Function.Parameters = map[string]any{
 		"type": "object", "additionalProperties": false,
 		"required": []string{"code", "reason"},
@@ -1175,62 +1174,10 @@ func openAIResponsesLispTool() openAIResponsesTool {
 	return openAIResponsesTool{Type: "function", Name: compatible.Function.Name, Description: compatible.Function.Description, Parameters: compatible.Function.Parameters, Strict: true}
 }
 
-func readToolSource(source string) (error, string) {
-	if !strings.HasPrefix(source, "file:") {
-		return fmt.Errorf("unsupported tool source %q", source), ""
-	}
-	path := strings.TrimPrefix(source, "file:")
-	if path == "" {
-		return fmt.Errorf("file source path is empty"), ""
-	}
-	contents, err := os.ReadFile(path)
-	if err != nil {
-		return err, ""
-	}
-	return nil, string(contents)
-}
-
-func clearResourceValues(values map[model.ResourceRef][]byte) {
-	for _, value := range values {
-		clear(value)
-	}
-}
-
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []lisp.SourceModule, []lisp.Binding, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *SessionNotes, map[model.ResourceRef][]byte) {
-	workspace := session.Workspace
-	err, configuredTools := runtime.store.WorkspaceToolsGet(ctx, workspace, principal)
-	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
-	}
-	err, configuredResources := runtime.store.WorkspaceResourcesGet(ctx, workspace, principal)
-	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
-	}
-	err, values := runtime.resolveResources(ctx, configuredResources)
-	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
-	}
-	tools := make([]lisp.SourceModule, 0, len(configuredTools))
-	for _, configured := range configuredTools {
-		err, source := readToolSource(configured.Source)
-		if err != nil {
-			clearResourceValues(values)
-			return fmt.Errorf("read tool %q: %w", configured.Ref.Id, err), nil, nil, nil, nil, nil, nil, nil, nil
-		}
-		tools = append(tools, lisp.SourceModule{ID: configured.Ref.Id, Source: source})
-	}
-	bindings := make([]lisp.Binding, 0, len(configuredResources))
-	for _, configured := range configuredResources {
-		value := lisp.Bytes(values[configured.Ref])
-		if configured.Secret {
-			value = lisp.MarkSecret(value)
-		}
-		bindings = append(bindings, lisp.Binding{Name: "resource/" + configured.Ref.Id, Value: value})
-	}
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *SessionNotes) {
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
-		clearResourceValues(values)
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil
 	}
 	files := make([]File, 0, len(summaries))
 	for _, file := range summaries {
@@ -1238,8 +1185,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	err, noteSummaries := runtime.store.SessionNotesGet(ctx, session, principal)
 	if err != nil {
-		clearResourceValues(values)
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil
 	}
 	sessionNotes := &SessionNotes{Notes: make([]SessionNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
@@ -1265,24 +1211,21 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {
-		clearResourceValues(values)
-		return err, nil, nil, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil
 	}
 	var projectInfo *ProjectInfo
 	var projectFiles *ProjectFiles
 	var projectNotes *ProjectNotes
 	if project != nil {
-		err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
-		if err != nil {
-			clearResourceValues(values)
-			return err, nil, nil, nil, nil, nil, nil, nil, nil
+			err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
+			if err != nil {
+				return err, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
 			projectInfo = &ProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
 			err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
 			if err != nil {
-				clearResourceValues(values)
-				return err, nil, nil, nil, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil
 			}
 			projectFiles = &ProjectFiles{Files: make([]File, 0, len(summaries))}
 			for _, file := range summaries {
@@ -1300,8 +1243,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 			err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
 			if err != nil {
-				clearResourceValues(values)
-				return err, nil, nil, nil, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil
 			}
 			projectNotes = &ProjectNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
 			for _, note := range noteSummaries {
@@ -1327,71 +1269,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 		}
 	}
-	return nil, tools, bindings, files, projectInfo, projectFiles, projectNotes, sessionNotes, values
-}
-
-func (runtime *SessionEventReplyRuntime) resolveResources(ctx context.Context, resources []model.Resource) (error, map[model.ResourceRef][]byte) {
-	values := make(map[model.ResourceRef][]byte, len(resources))
-	type encryptedResource struct {
-		resource  model.Resource
-		encrypted keychain.Encrypted
-	}
-	encryptedResources := make([]encryptedResource, 0)
-	references := make([]model.KeychainRef, 0)
-	for _, configured := range resources {
-		ref := configured.Ref
-		switch {
-		case strings.HasPrefix(configured.Source, "file:"):
-			path := strings.TrimPrefix(configured.Source, "file:")
-			if path == "" {
-				return fmt.Errorf("resolve resource %q: file source path is empty", configured.Ref.Id), nil
-			}
-			value, err := os.ReadFile(path)
-			if err != nil {
-				return fmt.Errorf("resolve resource %q from file %q: %w", configured.Ref.Id, path, err), nil
-			}
-			values[ref] = value
-		case strings.HasPrefix(configured.Source, "env:"):
-			name := strings.TrimPrefix(configured.Source, "env:")
-			if name == "" {
-				return fmt.Errorf("resolve resource %q: environment source name is empty", configured.Ref.Id), nil
-			}
-			value, ok := os.LookupEnv(name)
-			if !ok {
-				return fmt.Errorf("resolve resource %q: environment variable %q is not set", configured.Ref.Id, name), nil
-			}
-			values[ref] = []byte(value)
-		case strings.HasPrefix(configured.Source, "gh-enc:"):
-			err, encrypted := keychain.ParseResource(configured.Source)
-			if err != nil {
-				return fmt.Errorf("resolve resource %q: %w", configured.Ref.Id, err), nil
-			}
-			encryptedResources = append(encryptedResources, encryptedResource{resource: configured, encrypted: encrypted})
-			references = append(references, *encrypted.Key)
-		default:
-			return fmt.Errorf("resolve resource %q: unsupported source %q", configured.Ref.Id, configured.Source), nil
-		}
-	}
-	if len(references) == 0 {
-		return nil, values
-	}
-	err, keys := runtime.keyring.Get(ctx, references)
-	if err != nil {
-		return err, nil
-	}
-	defer clear(keys)
-	for _, configured := range encryptedResources {
-		key, ok := keys[*configured.encrypted.Key]
-		if !ok {
-			return fmt.Errorf("resolve resource %q: keychain key %q version %d is unavailable", configured.resource.Ref.Id, configured.encrypted.Key.Id, configured.encrypted.Key.Version), nil
-		}
-		valueErr, value := keychain.Open(key, []byte("gh=v1|workspace="+configured.resource.Ref.Workspace.Id+"|resource="+configured.resource.Ref.Id), configured.encrypted)
-		if valueErr != nil {
-			return fmt.Errorf("resolve resource %q: %w", configured.resource.Ref.Id, valueErr), nil
-		}
-		values[configured.resource.Ref] = value
-	}
-	return nil, values
+	return nil, files, projectInfo, projectFiles, projectNotes, sessionNotes
 }
 
 func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompatibleMessage) {

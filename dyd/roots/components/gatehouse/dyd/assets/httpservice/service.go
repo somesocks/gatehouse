@@ -141,8 +141,6 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/storage", storageProxy(tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
-		mux.HandleFunc("/api/v1/workspaces/{workspace}/tools", workspaceTools(store, tokens[0]))
-		mux.HandleFunc("/api/v1/workspaces/{workspace}/resources", workspaceResources(store, tokens[0]))
 	}
 	return mux
 }
@@ -218,10 +216,6 @@ type workspaceResponse struct {
 	Name *string `json:"name,omitempty"`
 }
 
-type toolResponse struct {
-	ID string `json:"id"`
-}
-
 type groupResponse struct {
 	ID   string  `json:"id"`
 	Name *string `json:"name,omitempty"`
@@ -230,11 +224,6 @@ type groupResponse struct {
 type workspaceAgentResponse struct {
 	ID    string  `json:"id"`
 	Label *string `json:"label,omitempty"`
-}
-
-type resourceResponse struct {
-	ID     string `json:"id"`
-	Secret bool   `json:"secret"`
 }
 
 type sessionResponse struct {
@@ -404,33 +393,6 @@ func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFu
 		result := make([]workspaceResponse, 0, len(configured))
 		for _, workspace := range configured {
 			result = append(result, workspaceResponse{ID: workspace.Ref.Id, Alias: workspace.Alias, Name: workspace.Name})
-		}
-		writeJSON(response, result)
-	}
-}
-
-func workspaceTools(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
-	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
-			response.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		claims, ok := authenticate(response, request, tokens)
-		if !ok {
-			return
-		}
-		workspace, ok := authorizedWorkspace(response, request, store, claims)
-		if !ok {
-			return
-		}
-		err, ids := store.WorkspaceToolIDsGet(request.Context(), workspace, claims.Principal.Ref)
-		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		result := make([]toolResponse, 0, len(ids))
-		for _, id := range ids {
-			result = append(result, toolResponse{ID: id})
 		}
 		writeJSON(response, result)
 	}
@@ -1771,33 +1733,6 @@ func sessionEventTrees(entries []database.SessionEventTreeEntry) []*sessionEvent
 		stack = append(stack[:entry.Depth], node)
 	}
 	return trees
-}
-
-func workspaceResources(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
-	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
-			response.WriteHeader(http.StatusMethodNotAllowed)
-			return
-		}
-		claims, ok := authenticate(response, request, tokens)
-		if !ok {
-			return
-		}
-		workspace, ok := authorizedWorkspace(response, request, store, claims)
-		if !ok {
-			return
-		}
-		err, resources := store.WorkspaceResourceSummariesGet(request.Context(), workspace, claims.Principal.Ref)
-		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		result := make([]resourceResponse, 0, len(resources))
-		for _, resource := range resources {
-			result = append(result, resourceResponse{ID: resource.ID, Secret: resource.Secret})
-		}
-		writeJSON(response, result)
-	}
 }
 
 func authenticate(response http.ResponseWriter, request *http.Request, tokens *auth.BearerTokens) (auth.Claims, bool) {

@@ -29,8 +29,6 @@ type State struct {
 	Workspaces []Workspace
 	Principals []Principal
 	Keychains  []Keychain
-	Tools      []Tool
-	Resources  []Resource
 	Groups     []Group
 	AgentProviders []AgentProvider
 	AgentModels []AgentModel
@@ -89,14 +87,6 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil {
 		return err, State{}
 	}
-	err, tools := ResolveTools(document)
-	if err != nil {
-		return err, State{}
-	}
-	err, resources := ResolveResources(document)
-	if err != nil {
-		return err, State{}
-	}
 	err, groups := ResolveGroups(document)
 	if err != nil {
 		return err, State{}
@@ -111,7 +101,7 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil { return err, State{} }
 	err, workspaceStorageProviders := ResolveWorkspaceStorageProviders(document, storageProviders)
 	if err != nil { return err, State{} }
-	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Tools: tools, Resources: resources, Groups: groups, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
+	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {

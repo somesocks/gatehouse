@@ -6,7 +6,6 @@ import (
 )
 
 func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, Registry) {
-	values := migrationValuesFor(state)
 	gatehouseName := "Gatehouse"
 	registry := Registry{
 		Init: InitMigration{Builder: staticMigrationBuilder(`
@@ -93,55 +92,6 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 
 			CREATE INDEX gatehouse_group_members_by_principal
 			ON gatehouse_group_members (principal_id);
-		`),
-		}, {
-			Index:       4,
-			Description: "create_tools_resources_and_group_grants",
-			Builder: staticMigrationBuilder(`
-			CREATE TABLE gatehouse_tools (
-				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^tol_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
-				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
-				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
-				enabled BOOLEAN NOT NULL,
-				PRIMARY KEY (workspace_id, id),
-				UNIQUE (workspace_id, alias)
-			);
-
-			CREATE TABLE gatehouse_resources (
-				workspace_id TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
-				id TEXT NOT NULL CHECK (id ~ '^res_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
-				alias TEXT CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
-				source TEXT NOT NULL CHECK (length(trim(source)) > 0),
-				secret BOOLEAN NOT NULL,
-				enabled BOOLEAN NOT NULL,
-				PRIMARY KEY (workspace_id, id),
-				UNIQUE (workspace_id, alias)
-			);
-
-			CREATE TABLE gatehouse_group_tool_grants (
-				workspace_id TEXT NOT NULL,
-				group_id TEXT NOT NULL,
-				tool_id TEXT NOT NULL,
-				enabled BOOLEAN NOT NULL,
-				PRIMARY KEY (workspace_id, group_id, tool_id),
-				FOREIGN KEY (workspace_id, group_id)
-					REFERENCES gatehouse_groups (workspace_id, id),
-				FOREIGN KEY (workspace_id, tool_id)
-					REFERENCES gatehouse_tools (workspace_id, id)
-			);
-
-			CREATE TABLE gatehouse_group_resource_grants (
-				workspace_id TEXT NOT NULL,
-				group_id TEXT NOT NULL,
-				resource_id TEXT NOT NULL,
-				enabled BOOLEAN NOT NULL,
-				PRIMARY KEY (workspace_id, group_id, resource_id),
-				FOREIGN KEY (workspace_id, group_id)
-					REFERENCES gatehouse_groups (workspace_id, id),
-				FOREIGN KEY (workspace_id, resource_id)
-					REFERENCES gatehouse_resources (workspace_id, id)
-			);
 		`),
 		}, {
 			Index:       5,
@@ -635,6 +585,15 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				CREATE INDEX gatehouse_agent_contexts_latest
 				ON gatehouse_agent_contexts (workspace, session, model, profile, updated_at DESC, root DESC);
 			`),
+		}, {
+			Index:       27,
+			Description: "drop_legacy_workspace_tools_and_resources",
+			Builder: staticMigrationBuilder(`
+				DROP TABLE IF EXISTS gatehouse_group_tool_grants;
+				DROP TABLE IF EXISTS gatehouse_group_resource_grants;
+				DROP TABLE IF EXISTS gatehouse_tools;
+				DROP TABLE IF EXISTS gatehouse_resources;
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{
@@ -662,31 +621,6 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				Index:       6,
 				Description: "reconcile_groups_and_memberships",
 				Builder:     groupMigrationBuilder(state.Groups),
-			}, {
-				Index:       7,
-				Description: "reconcile_tools_and_resources",
-				Builder:     toolsResourcesMigrationBuilder(state.Tools, state.Resources),
-			}, {
-				Index:       8,
-				Description: "reconcile_group_grants",
-				Builder: templateMigrationBuilder(`
-			SELECT 1;
-			{{ range .Groups }}
-			{{ $group := . }}
-			{{ range .ToolGrants }}
-			INSERT INTO gatehouse_group_tool_grants (workspace_id, group_id, tool_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), (SELECT tools.id FROM gatehouse_tools AS tools JOIN gatehouse_workspaces AS workspaces ON workspaces.id = tools.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND tools.alias = {{ sqlLiteral .ToolAlias }}), {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, group_id, tool_id) DO UPDATE SET
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ range .ResourceGrants }}
-			INSERT INTO gatehouse_group_resource_grants (workspace_id, group_id, resource_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), (SELECT groups.id FROM gatehouse_groups AS groups JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND groups.alias = {{ sqlLiteral $group.Alias }}), (SELECT resources.id FROM gatehouse_resources AS resources JOIN gatehouse_workspaces AS workspaces ON workspaces.id = resources.workspace_id WHERE workspaces.alias = {{ sqlLiteral $group.WorkspaceID }} AND resources.alias = {{ sqlLiteral .ResourceAlias }}), {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, group_id, resource_id) DO UPDATE SET
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ end }}
-		`, values),
 			}, {
 				Index:       9,
 				Description: "reconcile_agent_providers",

@@ -885,164 +885,6 @@ let SessionGroupGrant =
         , description = Some "A workspace group granted access to a session."
         }
 
-let ToolRef =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { workspace =
-                  s.reference.from
-                    s.reference.props::{ to = "WorkspaceRef" }
-                    s.reference.meta::{ description = Some "owning workspace identity" }
-              , id =
-                   s.text.from
-                     s.text.props::{ variant = s.text.variants.none }
-                      s.text.meta::{ description = Some "durable typed tool identity" }
-              }
-        , optional =
-            toMap
-              { alias =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local tool reconciliation alias" }
-              }
-        }
-        s.record.meta::{
-        , name = Some "ToolRef"
-        , description = Some "The stable identity of a workspace tool."
-        }
-
-let Tool =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { ref =
-                  s.reference.from
-                    s.reference.props::{ to = "ToolRef" }
-                    s.reference.meta::{ description = Some "tool identity" }
-              , source =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "tool module source" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the tool is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{
-        , name = Some "Tool"
-        , description = Some "A workspace-bound Lisp tool module."
-        }
-
-let ResourceRef =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { workspace =
-                  s.reference.from
-                    s.reference.props::{ to = "WorkspaceRef" }
-                    s.reference.meta::{ description = Some "owning workspace identity" }
-              , id =
-                   s.text.from
-                     s.text.props::{ variant = s.text.variants.none }
-                      s.text.meta::{ description = Some "durable typed resource identity" }
-              }
-        , optional =
-            toMap
-              { alias =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local resource reconciliation alias" }
-              }
-        }
-        s.record.meta::{
-        , name = Some "ResourceRef"
-        , description = Some "The stable identity of a workspace resource."
-        }
-
-let Resource =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { ref =
-                  s.reference.from
-                    s.reference.props::{ to = "ResourceRef" }
-                    s.reference.meta::{ description = Some "resource identity" }
-              , source =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "resource value source" }
-              , secret =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the resource value is secret" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the resource is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{
-        , name = Some "Resource"
-        , description = Some "A workspace-bound Lisp resource value."
-        }
-
-let GroupToolGrant =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { group =
-                  s.reference.from
-                    s.reference.props::{ to = "GroupRef" }
-                    s.reference.meta::{ description = Some "granted group identity" }
-              , tool =
-                  s.reference.from
-                    s.reference.props::{ to = "ToolRef" }
-                    s.reference.meta::{ description = Some "granted tool identity" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the tool grant is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{
-        , name = Some "GroupToolGrant"
-        , description = Some "A workspace group granted a tool."
-        }
-
-let GroupResourceGrant =
-      s.record.from
-        s.record.props::{
-        , required =
-            toMap
-              { group =
-                  s.reference.from
-                    s.reference.props::{ to = "GroupRef" }
-                    s.reference.meta::{ description = Some "granted group identity" }
-              , resource =
-                  s.reference.from
-                    s.reference.props::{ to = "ResourceRef" }
-                    s.reference.meta::{ description = Some "granted resource identity" }
-              , enabled =
-                  s.boolean.from
-                    s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the resource grant is enabled" }
-              }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{
-        , name = Some "GroupResourceGrant"
-        , description = Some "A workspace group granted a resource."
-        }
-
 in  Document::{
     , headers = [] : List Text
     , schemas =
@@ -1059,8 +901,6 @@ in  Document::{
            , s.root.from AgentModel s.root.meta::{ name = "AgentModel" }
            , s.root.from WorkspaceAgentRef s.root.meta::{ name = "WorkspaceAgentRef" }
            , s.root.from WorkspaceAgent s.root.meta::{ name = "WorkspaceAgent" }
-          , s.root.from ResourceRef s.root.meta::{ name = "ResourceRef" }
-          , s.root.from ToolRef s.root.meta::{ name = "ToolRef" }
            , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
            , s.root.from Group s.root.meta::{ name = "Group" }
           , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
@@ -1091,9 +931,5 @@ in  Document::{
           , s.root.from ActivityTopicCheckpoints s.root.meta::{ name = "ActivityTopicCheckpoints" }
           , s.root.from SessionPrincipalGrant s.root.meta::{ name = "SessionPrincipalGrant" }
          , s.root.from SessionGroupGrant s.root.meta::{ name = "SessionGroupGrant" }
-         , s.root.from Tool s.root.meta::{ name = "Tool" }
-        , s.root.from Resource s.root.meta::{ name = "Resource" }
-        , s.root.from GroupToolGrant s.root.meta::{ name = "GroupToolGrant" }
-        , s.root.from GroupResourceGrant s.root.meta::{ name = "GroupResourceGrant" }
         ]
     }

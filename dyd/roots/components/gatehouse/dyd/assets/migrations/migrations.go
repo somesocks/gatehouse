@@ -48,13 +48,6 @@ func Run(ctx context.Context, store *database.Store, migrations Set) error {
 	}
 }
 
-type migrationValues struct {
-	Workspaces []workspaceMigrationValue
-	Tools      []toolMigrationValue
-	Resources  []resourceMigrationValue
-	Groups     []groupMigrationValue
-}
-
 type workspaceMigrationValue struct {
 	ID      string
 	Alias   string
@@ -70,91 +63,17 @@ type principalMigrationValue struct {
 }
 
 type groupMigrationValue struct {
-	WorkspaceID    string
-	ID             string
-	Alias          string
-	Name           any
-	Enabled        bool
-	Members        []groupMemberMigrationValue
-	ToolGrants     []groupToolGrantMigrationValue
-	ResourceGrants []groupResourceGrantMigrationValue
+	WorkspaceID string
+	ID          string
+	Alias       string
+	Name        any
+	Enabled     bool
+	Members     []groupMemberMigrationValue
 }
 
 type groupMemberMigrationValue struct {
 	PrincipalID string
 	Enabled     bool
-}
-
-type toolMigrationValue struct {
-	WorkspaceID string
-	ID          string
-	Alias       string
-	Source      string
-	Enabled     bool
-}
-
-type resourceMigrationValue struct {
-	WorkspaceID string
-	ID          string
-	Alias       string
-	Source      string
-	Secret      bool
-	Enabled     bool
-}
-
-type groupToolGrantMigrationValue struct {
-	ToolAlias string
-	Enabled   bool
-}
-
-type groupResourceGrantMigrationValue struct {
-	ResourceAlias string
-	Enabled       bool
-}
-
-func migrationValuesFor(state config.State) migrationValues {
-	values := migrationValues{
-		Workspaces: make([]workspaceMigrationValue, 0, len(state.Workspaces)),
-		Tools:      make([]toolMigrationValue, 0, len(state.Tools)),
-		Resources:  make([]resourceMigrationValue, 0, len(state.Resources)),
-		Groups:     make([]groupMigrationValue, 0, len(state.Groups)),
-	}
-	for _, workspace := range state.Workspaces {
-		var name any
-		if workspace.Name != nil {
-			name = *workspace.Name
-		}
-		values.Workspaces = append(values.Workspaces, workspaceMigrationValue{Alias: workspace.Alias, Name: name, Enabled: workspace.Enabled})
-	}
-	for _, tool := range state.Tools {
-		values.Tools = append(values.Tools, toolMigrationValue{WorkspaceID: tool.WorkspaceID, Alias: tool.Alias, Source: tool.Source, Enabled: tool.Enabled})
-	}
-	for _, resource := range state.Resources {
-		values.Resources = append(values.Resources, resourceMigrationValue{WorkspaceID: resource.WorkspaceID, Alias: resource.Alias, Source: resource.Source, Secret: resource.Secret, Enabled: resource.Enabled})
-	}
-	for _, group := range state.Groups {
-		var name any
-		if group.Name != nil {
-			name = *group.Name
-		}
-		members := make([]groupMemberMigrationValue, 0, len(group.Members))
-		for _, member := range group.Members {
-			members = append(members, groupMemberMigrationValue{PrincipalID: member.PrincipalID, Enabled: member.Enabled})
-		}
-		toolGrants := make([]groupToolGrantMigrationValue, 0, len(group.ToolGrants))
-		for _, grant := range group.ToolGrants {
-			toolGrants = append(toolGrants, groupToolGrantMigrationValue{ToolAlias: grant.ToolAlias, Enabled: grant.Enabled})
-		}
-		resourceGrants := make([]groupResourceGrantMigrationValue, 0, len(group.ResourceGrants))
-		for _, grant := range group.ResourceGrants {
-			resourceGrants = append(resourceGrants, groupResourceGrantMigrationValue{ResourceAlias: grant.ResourceAlias, Enabled: grant.Enabled})
-		}
-		values.Groups = append(values.Groups, groupMigrationValue{
-			WorkspaceID: group.WorkspaceID, Alias: group.Alias, Name: name, Enabled: group.Enabled,
-			Members: members, ToolGrants: toolGrants, ResourceGrants: resourceGrants,
-		})
-	}
-	return values
 }
 
 func principalMigrationBuilder(principals []config.Principal) MigrationBuilder {
@@ -285,100 +204,6 @@ func groupIDsByAlias(ctx context.Context, session *MigrationSession) (map[groupA
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate group IDs: %w", err)
-	}
-	return ids, nil
-}
-
-func toolsResourcesMigrationBuilder(tools []config.Tool, resources []config.Resource) MigrationBuilder {
-	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		toolIDs, err := toolIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		resourceIDs, err := resourceIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		values := migrationValues{Tools: make([]toolMigrationValue, 0, len(tools)), Resources: make([]resourceMigrationValue, 0, len(resources))}
-		for _, tool := range tools {
-			key := workspaceAliasKey{Workspace: tool.WorkspaceID, Alias: tool.Alias}
-			id := toolIDs[key]
-			if id == "" {
-				id, err = typed_id.New(typed_id.Tool)
-				if err != nil {
-					return err, ""
-				}
-			}
-			values.Tools = append(values.Tools, toolMigrationValue{WorkspaceID: tool.WorkspaceID, ID: id, Alias: tool.Alias, Source: tool.Source, Enabled: tool.Enabled})
-		}
-		for _, resource := range resources {
-			key := workspaceAliasKey{Workspace: resource.WorkspaceID, Alias: resource.Alias}
-			id := resourceIDs[key]
-			if id == "" {
-				id, err = typed_id.New(typed_id.Resource)
-				if err != nil {
-					return err, ""
-				}
-			}
-			values.Resources = append(values.Resources, resourceMigrationValue{WorkspaceID: resource.WorkspaceID, ID: id, Alias: resource.Alias, Source: resource.Source, Secret: resource.Secret, Enabled: resource.Enabled})
-		}
-		return session.RenderTemplate(`
-			SELECT 1;
-			{{ range .Tools }}
-			INSERT INTO gatehouse_tools (workspace_id, id, alias, source, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Source }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET
-				source = excluded.source,
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ range .Resources }}
-			INSERT INTO gatehouse_resources (workspace_id, id, alias, source, secret, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Source }}, {{ sqlBool .Secret }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET
-				source = excluded.source,
-				secret = excluded.secret,
-				enabled = excluded.enabled;
-			{{ end }}
-		`, values)
-	}
-}
-
-type workspaceAliasKey struct {
-	Workspace string
-	Alias     string
-}
-
-func toolIDsByAlias(ctx context.Context, session *MigrationSession) (map[workspaceAliasKey]string, error) {
-	return idsByAlias(ctx, session, "gatehouse_tools", "tool")
-}
-
-func resourceIDsByAlias(ctx context.Context, session *MigrationSession) (map[workspaceAliasKey]string, error) {
-	return idsByAlias(ctx, session, "gatehouse_resources", "resource")
-}
-
-func idsByAlias(ctx context.Context, session *MigrationSession, table, kind string) (map[workspaceAliasKey]string, error) {
-	rows, err := session.QueryContext(ctx, `
-		SELECT workspaces.alias, entities.alias, entities.id
-		FROM `+table+` AS entities
-		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = entities.workspace_id
-		WHERE workspaces.alias IS NOT NULL AND entities.alias IS NOT NULL
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("get %s IDs by alias: %w", kind, err)
-	}
-	defer rows.Close()
-
-	ids := map[workspaceAliasKey]string{}
-	for rows.Next() {
-		var key workspaceAliasKey
-		var id string
-		if err := rows.Scan(&key.Workspace, &key.Alias, &id); err != nil {
-			return nil, fmt.Errorf("scan %s ID: %w", kind, err)
-		}
-		ids[key] = id
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate %s IDs: %w", kind, err)
 	}
 	return ids, nil
 }

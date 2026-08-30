@@ -25,14 +25,6 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 							{Principal: "zebra"},
 							{Principal: "alpha", Enabled: &disabled},
 						},
-						ToolGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesToolGrantsValues{
-							{Tool: "zulu"},
-							{Tool: "alpha", Enabled: &disabled},
-						},
-						ResourceGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesResourceGrantsValues{
-							{Resource: "token"},
-							{Resource: "endpoint", Enabled: &disabled},
-						},
 					},
 				},
 			},
@@ -53,22 +45,12 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 				{PrincipalID: "alpha", Enabled: false},
 				{PrincipalID: "zebra", Enabled: true},
 			},
-			ToolGrants: []GroupToolGrant{
-				{ToolAlias: "alpha", Enabled: false},
-				{ToolAlias: "zulu", Enabled: true},
-			},
-			ResourceGrants: []GroupResourceGrant{
-				{ResourceAlias: "endpoint", Enabled: false},
-				{ResourceAlias: "token", Enabled: true},
-			},
 		},
 	{
-		WorkspaceID:      "zebra",
-		Alias:            "guests",
-		Enabled:          true,
-		Members:          []GroupMember{},
-		ToolGrants:       []GroupToolGrant{},
-		ResourceGrants:   []GroupResourceGrant{},
+		WorkspaceID: "zebra",
+		Alias:       "guests",
+		Enabled:     true,
+		Members:     []GroupMember{},
 	},
 	}
 	if !reflect.DeepEqual(groups, want) {
@@ -140,33 +122,6 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 				}},
 			}},
 			contains: "duplicated",
-		},
-		{
-			name: "duplicate tool grant",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Alias: "engineering",
-				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Alias: "admins",
-					ToolGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesToolGrantsValues{
-						{Tool: "github"},
-						{Tool: "github"},
-					},
-				}},
-			}},
-			contains: "duplicated",
-		},
-		{
-			name: "invalid resource grant alias",
-			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
-				Alias: "engineering",
-				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
-					Alias: "admins",
-					ResourceGrants: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesResourceGrantsValues{{
-						Resource: "GitHub",
-					}},
-				}},
-			}},
-			contains: "must match",
 		},
 	}
 

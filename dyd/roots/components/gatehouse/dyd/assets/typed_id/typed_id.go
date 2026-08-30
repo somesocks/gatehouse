@@ -15,8 +15,6 @@ const (
 	Principal     = "prn"
 	Identity      = "idt"
 	Group         = "grp"
-	Tool          = "tol"
-	Resource      = "res"
 	AgentProvider = "apr"
 	AgentModel    = "amd"
 	StorageProvider = "stp"

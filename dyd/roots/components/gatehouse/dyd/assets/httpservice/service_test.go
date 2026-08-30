@@ -187,11 +187,6 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	if workspaces.Code != http.StatusOK || workspaces.Body.String() != "[{\"id\":\""+engineering.Id+"\",\"alias\":\"engineering\",\"name\":\"Engineering\"},{\"id\":\""+operations.Id+"\",\"alias\":\"operations\"}]\n" {
 		t.Fatalf("GET workspaces = status %d body %q", workspaces.Code, workspaces.Body.String())
 	}
-	tools := request("/api/v1/workspaces/" + engineering.Id + "/tools")
-	var toolResponse []struct{ ID string }
-	if err := json.Unmarshal(tools.Body.Bytes(), &toolResponse); err != nil || tools.Code != http.StatusOK || len(toolResponse) != 1 || !typed_id.Valid(typed_id.Tool, toolResponse[0].ID) {
-		t.Fatalf("GET tools = status %d body %q", tools.Code, tools.Body.String())
-	}
 	groups := request("/api/v1/workspaces/" + engineering.Id + "/groups")
 	developersID := groupID(t, context.Background(), store, "engineering", "developers")
 	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\""+developersID+"\",\"name\":\"Developers\"}]\n" {
@@ -212,25 +207,6 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	invalidSessionPage := request("/api/v1/workspaces/" + engineering.Id + "/sessions?limit=101")
 	if invalidSessionPage.Code != http.StatusBadRequest {
 		t.Fatalf("GET invalid session page = status %d", invalidSessionPage.Code)
-	}
-	resources := request("/api/v1/workspaces/" + engineering.Id + "/resources")
-	var resourceResponse []struct {
-		ID     string
-		Secret bool
-	}
-	if err := json.Unmarshal(resources.Body.Bytes(), &resourceResponse); err != nil || resources.Code != http.StatusOK || len(resourceResponse) != 2 || !typed_id.Valid(typed_id.Resource, resourceResponse[0].ID) || !typed_id.Valid(typed_id.Resource, resourceResponse[1].ID) || resourceResponse[0].Secret == resourceResponse[1].Secret {
-		t.Fatalf("GET resources = status %d body %q", resources.Code, resources.Body.String())
-	}
-	if strings.Contains(resources.Body.String(), "file:") || strings.Contains(resources.Body.String(), "env:") || strings.Contains(resources.Body.String(), "TOP_SECRET") {
-		t.Fatalf("GET resources disclosed a resource source: %q", resources.Body.String())
-	}
-	operationResources := request("/api/v1/workspaces/" + operations.Id + "/resources")
-	if operationResources.Code != http.StatusOK || operationResources.Body.String() != "[]\n" {
-		t.Fatalf("GET ungranted workspace resources = status %d body %q", operationResources.Code, operationResources.Body.String())
-	}
-	private := request("/api/v1/workspaces/private/tools")
-	if private.Code != http.StatusNotFound {
-		t.Fatalf("GET inaccessible workspace tools = status %d, want %d", private.Code, http.StatusNotFound)
 	}
 }
 
@@ -882,20 +858,13 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		Groups: []config.Group{
 			{
 				WorkspaceID: "engineering", Alias: "developers", Name: &developers, Enabled: true,
-				Members:        []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
-				ToolGrants:     []config.GroupToolGrant{{ToolAlias: "git", Enabled: true}},
-				ResourceGrants: []config.GroupResourceGrant{{ResourceAlias: "docs", Enabled: true}, {ResourceAlias: "token", Enabled: true}},
+				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 			},
 			{
 				WorkspaceID: "operations", Alias: "operators", Enabled: true,
 				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 			},
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
-		},
-		Tools: []config.Tool{{WorkspaceID: "engineering", Alias: "git", Source: "file:./git.lisp", Enabled: true}},
-		Resources: []config.Resource{
-			{WorkspaceID: "engineering", Alias: "docs", Source: "file:./docs", Secret: false, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "token", Source: "env:TOP_SECRET", Secret: true, Enabled: true},
 		},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
