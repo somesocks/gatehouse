@@ -611,6 +611,33 @@ let SessionNote =
         }
         s.record.meta::{ name = Some "SessionNote", description = Some "A shared Markdown note attached to a session." }
 
+let SessionSecretRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { session = s.reference.from s.reference.props::{ to = "SessionRef" } s.reference.meta::{ description = Some "owning session identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed session secret identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionSecretRef", description = Some "The stable identity of a secret attached to a session." }
+
+let SessionSecret =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SessionSecretRef" } s.reference.meta::{ description = Some "session secret identity" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable secret author" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "public secret description" }
+            , ciphertext = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted secret value" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session secret is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session secret creation timestamp" }
+            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session secret update timestamp" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionSecret", description = Some "An encrypted secret attached to a session." }
+
 let GatewayRef =
       s.record.from
         s.record.props::{
@@ -918,8 +945,10 @@ in  Document::{
             , s.root.from ProjectFile s.root.meta::{ name = "ProjectFile" }
 			, s.root.from ProjectNoteRef s.root.meta::{ name = "ProjectNoteRef" }
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
-            , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
-            , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
+             , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
+             , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
+			 , s.root.from SessionSecretRef s.root.meta::{ name = "SessionSecretRef" }
+			 , s.root.from SessionSecret s.root.meta::{ name = "SessionSecret" }
              , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
              , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
              , s.root.from SessionEventMetrics s.root.meta::{ name = "SessionEventMetrics" }

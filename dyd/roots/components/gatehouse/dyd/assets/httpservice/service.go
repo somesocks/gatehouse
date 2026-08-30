@@ -132,6 +132,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes", workspaceSessionNotes(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}", workspaceSessionNote(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets", workspaceSessionSecrets(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets/{secret}", workspaceSessionSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
@@ -368,6 +370,19 @@ type sessionNoteResponse struct {
 	Sensitive   bool                      `json:"sensitive"`
 	Author      projectNoteAuthorResponse `json:"author"`
 	CreatedAt   string                    `json:"created_at"`
+}
+
+type sessionSecretRequest struct {
+	Description *string `json:"description"`
+	Value       *string `json:"value"`
+}
+
+type sessionSecretResponse struct {
+	ID          string                    `json:"id"`
+	Description string                    `json:"description"`
+	Author      projectNoteAuthorResponse `json:"author"`
+	CreatedAt   string                    `json:"created_at"`
+	UpdatedAt   string                    `json:"updated_at"`
 }
 
 type sessionEventTreeResponse struct {
@@ -1315,6 +1330,136 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 	}
 }
 
+func workspaceSessionSecrets(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		session, ok := authorizedSession(response, request, store, claims)
+		if !ok {
+			return
+		}
+		noStore(response)
+		switch request.Method {
+		case http.MethodGet:
+			err, secrets := store.SessionSecretsGet(request.Context(), session, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]sessionSecretResponse, 0, len(secrets))
+			for _, secret := range secrets {
+				result = append(result, sessionSecretResponseFromSummary(secret))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			var input sessionSecretRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validSessionSecretRequest(input, true) {
+				http.Error(response, "invalid session secret", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.SessionSecret)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			ref := model.SessionSecretRef{Session: session, Id: id}
+			value := []byte(*input.Value)
+			err, ciphertext := tokens.Encrypt(request.Context(), database.SessionSecretAssociatedData(ref), value)
+			clear(value)
+			if err != nil {
+				http.Error(response, "session secret could not be encrypted", http.StatusInternalServerError)
+				return
+			}
+			secret := model.SessionSecret{Ref: ref, Description: *input.Description, Ciphertext: ciphertext}
+			err, stored := store.SessionSecretCreate(request.Context(), secret, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "session secret could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, sessionSecretResponse{ID: stored.Ref.Id, Description: stored.Description, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt, UpdatedAt: stored.UpdatedAt})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceSessionSecret(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		secret, ok := sessionSecretRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.SessionSecretGet(request.Context(), secret, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		noStore(response)
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, sessionSecretResponseFromDetail(*current))
+		case http.MethodPatch:
+			var input sessionSecretRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validSessionSecretRequest(input, false) {
+				http.Error(response, "invalid session secret", http.StatusBadRequest)
+				return
+			}
+			description, ciphertext := current.Secret.Description, current.Secret.Ciphertext
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Value != nil {
+				value := []byte(*input.Value)
+				err, ciphertext = tokens.Encrypt(request.Context(), database.SessionSecretAssociatedData(secret), value)
+				clear(value)
+				if err != nil {
+					http.Error(response, "session secret could not be encrypted", http.StatusInternalServerError)
+					return
+				}
+			}
+			err, updated := store.SessionSecretDetailsSet(request.Context(), secret, claims.Principal.Ref, &description, &ciphertext)
+			if err != nil {
+				http.Error(response, "session secret could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, sessionSecretResponseFromDetail(*updated))
+		case http.MethodDelete:
+			err, removed := store.SessionSecretRemove(request.Context(), secret, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
@@ -1841,6 +1986,17 @@ func sessionNoteRef(response http.ResponseWriter, request *http.Request) (model.
 	return model.SessionNoteRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: noteID}, true
 }
 
+func sessionSecretRef(response http.ResponseWriter, request *http.Request) (model.SessionSecretRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	sessionID := request.PathValue("session")
+	secretID := request.PathValue("secret")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionSecret, secretID) {
+		http.NotFound(response, request)
+		return model.SessionSecretRef{}, false
+	}
+	return model.SessionSecretRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: secretID}, true
+}
+
 func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 	if required && input.Title == nil {
 		return false
@@ -1861,6 +2017,16 @@ func validSessionNoteRequest(input sessionNoteRequest, required bool) bool {
 	return validProjectNoteRequest(projectNoteRequest{Title: input.Title, Description: input.Description, Body: input.Body}, required)
 }
 
+func validSessionSecretRequest(input sessionSecretRequest, required bool) bool {
+	if required && (input.Description == nil || input.Value == nil) {
+		return false
+	}
+	if !required && input.Description == nil && input.Value == nil {
+		return false
+	}
+	return (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Value == nil || len(*input.Value) <= 1024*1024)
+}
+
 func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
 	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
 }
@@ -1877,6 +2043,15 @@ func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNot
 func sessionNoteResponseFromDetail(detail database.SessionNoteDetail) sessionNoteResponse {
 	note := detail.Note
 	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+}
+
+func sessionSecretResponseFromSummary(secret database.SessionSecretSummary) sessionSecretResponse {
+	return sessionSecretResponse{ID: secret.Ref.Id, Description: secret.Description, Author: projectNoteAuthorResponse{ID: secret.AuthorPrincipal.Id, Name: secret.AuthorName}, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt}
+}
+
+func sessionSecretResponseFromDetail(detail database.SessionSecretDetail) sessionSecretResponse {
+	secret := detail.Secret
+	return sessionSecretResponse{ID: secret.Ref.Id, Description: secret.Description, Author: projectNoteAuthorResponse{ID: secret.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt}
 }
 
 func authorizedProjectFile(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, fileID string) (*model.ProjectFile, *database.StorageObject, bool) {

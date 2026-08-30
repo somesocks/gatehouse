@@ -693,6 +693,65 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 }
 
+func TestSessionSecretCreateUpdateListGetAndRemove(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated {
+		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + session.ID + "/secrets"
+	created := request(http.MethodPost, base, `{"description":"Deploy token","value":"secret value"}`)
+	var secret sessionSecretResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &secret); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionSecret, secret.ID) || secret.Description != "Deploy token" || secret.Author.ID == "" || secret.CreatedAt == "" || secret.UpdatedAt == "" || strings.Contains(created.Body.String(), "secret value") {
+		t.Fatalf("POST session secret = (%d, %#v, %v)", created.Code, secret, err)
+	}
+	listed := request(http.MethodGet, base, "")
+	var secrets []sessionSecretResponse
+	if err := json.Unmarshal(listed.Body.Bytes(), &secrets); err != nil || listed.Code != http.StatusOK || len(secrets) != 1 || secrets[0].ID != secret.ID || strings.Contains(listed.Body.String(), "secret value") {
+		t.Fatalf("GET session secrets = (%d, %#v, %v)", listed.Code, secrets, err)
+	}
+	detail := request(http.MethodGet, base+"/"+secret.ID, "")
+	if err := json.Unmarshal(detail.Body.Bytes(), &secret); err != nil || detail.Code != http.StatusOK || secret.Description != "Deploy token" || strings.Contains(detail.Body.String(), "secret value") {
+		t.Fatalf("GET session secret = (%d, %#v, %v)", detail.Code, secret, err)
+	}
+	updated := request(http.MethodPatch, base+"/"+secret.ID, `{"description":"Rotated deploy token","value":"replacement value"}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &secret); err != nil || updated.Code != http.StatusOK || secret.Description != "Rotated deploy token" || strings.Contains(updated.Body.String(), "replacement value") {
+		t.Fatalf("PATCH session secret = (%d, %#v, %v)", updated.Code, secret, err)
+	}
+	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
+	err, stored := store.SessionSecretGet(context.Background(), model.SessionSecretRef{Session: model.SessionRef{Workspace: engineering, Id: session.ID}, Id: secret.ID}, principal)
+	if err != nil || stored == nil || !strings.HasPrefix(stored.Secret.Ciphertext, "gh-enc:") || strings.Contains(stored.Secret.Ciphertext, "replacement value") {
+		t.Fatalf("stored session secret = (%#v, %v)", stored, err)
+	}
+	invalid := request(http.MethodPost, base, `{"description":""}`)
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid session secret = status %d", invalid.Code)
+	}
+	removed := request(http.MethodDelete, base+"/"+secret.ID, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE session secret = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if get := request(http.MethodGet, base+"/"+secret.ID, ""); get.Code != http.StatusNotFound {
+		t.Fatalf("GET removed session secret = status %d", get.Code)
+	}
+}
+
 func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	label := "Assistant"

@@ -23,6 +23,7 @@ const (
 	ProjectFile     = "pfi"
 	ProjectNote     = "pnt"
 	SessionNote     = "snt"
+	SessionSecret   = "ssc"
 	Gateway         = "gwy"
 	Project         = "prj"
 	Session         = "ses"

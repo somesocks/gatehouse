@@ -582,9 +582,42 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		}
 		return sessionEventReadRange(*event, offset, length)
 	}
+	err, secretSummaries := runtime.store.SessionSecretsGet(ctx, input.Request.Ref.Session, input.Principal)
+	if err != nil {
+		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+	}
+	sessionSecrets := make([]SessionSecret, 0, len(secretSummaries))
+	for _, secret := range secretSummaries {
+		sessionSecrets = append(sessionSecrets, SessionSecret{ID: secret.Ref.Id, Description: secret.Description, AuthorID: secret.AuthorPrincipal.Id, AuthorName: secret.AuthorName, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt})
+	}
+	sessionSecretRead := func(id string) (error, []byte) {
+		err, detail := runtime.store.SessionSecretGet(ctx, model.SessionSecretRef{Session: input.Request.Ref.Session, Id: id}, input.Principal)
+		if err != nil || detail == nil {
+			if err != nil {
+				return err, nil
+			}
+			return fmt.Errorf("read session secret: unavailable"), nil
+		}
+		err, encrypted := keychain.ParseResource(detail.Secret.Ciphertext)
+		if err != nil {
+			return fmt.Errorf("parse session secret: %w", err), nil
+		}
+		keysErr, keys := runtime.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
+		if keysErr != nil {
+			return fmt.Errorf("get keychain for session secret: %w", keysErr), nil
+		}
+		key := keys[*encrypted.Key]
+		defer clear(key)
+		clear(keys)
+		decryptedErr, value := keychain.Open(key, database.SessionSecretAssociatedData(detail.Secret.Ref), encrypted)
+		if decryptedErr != nil {
+			return fmt.Errorf("decrypt session secret: %w", decryptedErr), nil
+		}
+		return nil, value
+	}
 	modules := []lisp.HostModule{
 		NewProjectModule(projectInfo, projectFiles, projectNotes),
-		NewSessionModule(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionEventRead),
+		NewSessionModuleWithSecrets(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}

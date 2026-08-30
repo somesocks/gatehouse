@@ -119,6 +119,49 @@ func TestGatehouseSessionEventRead(t *testing.T) {
 	}
 }
 
+func TestGatehouseSessionSecretRead(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/secrets/read "ssc_01m17ej89df8jnhnh7476ssnvg"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecrets(nil, nil, nil, nil, &SessionSecrets{Read: func(id string) (error, []byte) {
+			if id != "ssc_01m17ej89df8jnhnh7476ssnvg" {
+				t.Fatalf("session secret read id = %q", id)
+			}
+			return nil, []byte("secret")
+		}})},
+	})
+	if err != nil || !lisp.IsSecret(result) {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+	bytesErr, value := lisp.RequireBytes(result)
+	if bytesErr != nil || string(value) != "secret" {
+		t.Fatalf("RequireBytes() = (%q, %v)", value, bytesErr)
+	}
+}
+
+func TestGatehouseSessionSecretsList(t *testing.T) {
+	authorName := "Ada"
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/secrets/list))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecrets(nil, nil, nil, nil, &SessionSecrets{Secrets: []SessionSecret{
+			{ID: "ssc_01m17ej89df8jnhnh7476ssnvg", Description: "Deployment token", AuthorID: "prn_01m17ej89df8jnhnh7476ssnvg", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z", UpdatedAt: "2026-01-02T00:00:00.000Z"},
+		}})},
+	})
+	if err != nil || lisp.TaintOf(result) != lisp.TaintNone || result.String() != `(((id . "ssc_01m17ej89df8jnhnh7476ssnvg") (description . "Deployment token") (author_id . "prn_01m17ej89df8jnhnh7476ssnvg") (author_name . "Ada") (created_at . "2026-01-01T00:00:00.000Z") (updated_at . "2026-01-02T00:00:00.000Z")))` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (error/value (error/catch (session/secrets/list "unexpected"))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecrets(nil, nil, nil, nil, &SessionSecrets{})},
+	})
+	if err != nil || result.String() != `"session/secrets/list requires no arguments"` {
+		t.Fatalf("Evaluate() invalid session secrets list = (%s, %v)", result, err)
+	}
+}
+
 func TestSessionEventReadRange(t *testing.T) {
 	for _, test := range []struct {
 		name   string

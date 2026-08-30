@@ -23,6 +23,8 @@ var (
 	fileReadDocumentation          = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
 	fileCreateDocumentation        = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
 	sessionEventReadDocumentation  = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from a message text or tool result in the current session. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
+	sessionSecretListDocumentation = capabilityDocumentation{"(session/secrets/list) -> List", "Returns public metadata for secrets in the current session. Secret values are not included.", "(session/secrets/list)", "((id . \"ssc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionSecretReadDocumentation = capabilityDocumentation{"(session/secrets/read id) -> Bytes", "Reads an encrypted session secret by ID. The returned Bytes are secret-tainted.", "(session/secrets/read \"ssc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	sessionNoteListDocumentation   = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, sensitivity, author_id, optional author_name, and created_at.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	sessionNoteReadDocumentation   = capabilityDocumentation{"(session/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))", "\"# Session guide\""}
 	sessionNoteCreateDocumentation = capabilityDocumentation{"(session/notes/create title description body) -> List", "Creates a shared Markdown note in the current session and returns its metadata. Description and body may be empty strings. A body derived from sensitive data creates a sensitive note.", "(session/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
@@ -31,6 +33,14 @@ var (
 
 // NewSessionModule constructs the session capability module for one agent evaluation.
 func NewSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, eventReads ...SessionEventRead) lisp.HostModule {
+	return newSessionModule(files, read, create, notes, nil, eventReads...)
+}
+
+func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
+	return newSessionModule(files, read, create, notes, secrets, eventReads...)
+}
+
+func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
 	fileRead := unavailableRead("session/files/read")
 	if read != nil {
 		fileRead = fileReadFunction(read, "session/files/read")
@@ -60,6 +70,13 @@ func NewSessionModule(files []File, read FileRead, create SessionFileCreate, not
 			noteRemove = noteRemoveFunction(notes.Remove, "session/notes/remove")
 		}
 	}
+	secretsList, secretRead := sessionSecretListFunction(nil, "session/secrets/list"), unavailableSecretRead("session/secrets/read")
+	if secrets != nil {
+		secretsList = sessionSecretListFunction(secrets.Secrets, "session/secrets/list")
+	}
+	if secrets != nil && secrets.Read != nil {
+		secretRead = sessionSecretReadFunction(secrets.Read, "session/secrets/read")
+	}
 
 	return lisp.HostModule{ID: gatehouseSessionModuleID, Exports: []lisp.HostExport{
 		{Name: "files/list", Value: document(lisp.Function(fileListFunction(files, "session/files/list")), fileListDocumentation)},
@@ -67,11 +84,41 @@ func NewSessionModule(files []File, read FileRead, create SessionFileCreate, not
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
 		{Name: "events/read", Value: document(lisp.Function(eventRead), sessionEventReadDocumentation)},
+		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), sessionSecretListDocumentation)},
+		{Name: "secrets/read", Value: document(lisp.Function(secretRead), sessionSecretReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), sessionNoteReadDocumentation)},
 		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), sessionNoteCreateDocumentation)},
 		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), sessionNoteRemoveDocumentation)},
 	}}
+}
+
+func sessionSecretReadFunction(read SessionSecretRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 1 {
+			return lisp.Errorf("%s requires an id", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if id == "" {
+			return lisp.Errorf("%s requires a non-empty id", name), nil
+		}
+		err, value := read(id)
+		if err != nil {
+			return lisp.Errorf("%s is unavailable", name), nil
+		}
+		result := lisp.MarkSecret(lisp.Bytes(value))
+		clear(value)
+		return nil, result
+	}
+}
+
+func unavailableSecretRead(name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func([]lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("%s is unavailable", name), nil
+	}
 }
 
 func sessionEventReadFunction(read SessionEventRead, name string) func([]lisp.Expr) (error, lisp.Expr) {

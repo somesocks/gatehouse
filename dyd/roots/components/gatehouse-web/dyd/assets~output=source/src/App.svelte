@@ -57,6 +57,14 @@
 
   type SessionNote = ProjectNote & { sensitive: boolean }
 
+  type SessionSecret = {
+    id: string
+    description: string
+    author: { id: string; name?: string }
+    created_at: string
+    updated_at: string
+  }
+
   type SessionSearchResponse = {
     sessions: Session[]
     next_cursor?: string
@@ -149,6 +157,14 @@
   let sessionNoteBody = $state("")
   let sessionNoteSensitive = $state(false)
   let sessionNoteError = $state("")
+  let activeSessionSecret = $state<SessionSecret | null>(null)
+  let creatingSessionSecret = $state(false)
+  let editingSessionSecret = $state(false)
+  let savingSessionSecret = $state(false)
+  let deletingSessionSecret = $state(false)
+  let sessionSecretDescription = $state("")
+  let sessionSecretValue = $state("")
+  let sessionSecretError = $state("")
   let creatingProject = $state(false)
   let updatingProject = $state(false)
   let projectEditName = $state("")
@@ -195,6 +211,8 @@
   let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
   let sessionNotes = $state<SessionNote[]>([])
   let sessionNoteStatus = $state<WorkspaceContentStatus>("checking")
+  let sessionSecrets = $state<SessionSecret[]>([])
+  let sessionSecretStatus = $state<WorkspaceContentStatus>("checking")
   let sessionSearchCursor = $state<string | null>(null)
   let projectSearchCursor = $state<string | null>(null)
   let sessionSearchLoading = $state(false)
@@ -322,6 +340,18 @@
     }
   }
 
+  function sessionSecretIDFromPath(path: string) {
+    const match = /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/secrets\/([^/]+)\/?$/.exec(path)
+    if (match === null) {
+      return null
+    }
+    try {
+      return decodeURIComponent(match[1])
+    } catch {
+      return null
+    }
+  }
+
   function workspacePath(workspace: Workspace) {
     return `/app/wsp/${encodeURIComponent(workspace.id)}`
   }
@@ -341,6 +371,15 @@
   function sessionNotePath(workspace: Workspace, session: Session, note: SessionNote | string) {
     const id = typeof note === "string" ? note : note.id
     return `${sessionNotesPath(workspace, session)}/${encodeURIComponent(id)}`
+  }
+
+  function sessionSecretsPath(workspace: Workspace, session: Session) {
+    return `${sessionPath(workspace, session)}/secrets`
+  }
+
+  function sessionSecretPath(workspace: Workspace, session: Session, secret: SessionSecret | string) {
+    const id = typeof secret === "string" ? secret : secret.id
+    return `${sessionSecretsPath(workspace, session)}/${encodeURIComponent(id)}`
   }
 
   function projectsPath(workspace: Workspace) {
@@ -383,6 +422,10 @@
 
   function isSessionNotesRoute() {
     return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes(?:\/[^/]+)?\/?$/.test(currentPath)
+  }
+
+  function isSessionSecretsRoute() {
+    return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/secrets(?:\/[^/]+)?\/?$/.test(currentPath)
   }
 
   function isProjectNotesRoute() {
@@ -464,6 +507,13 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
+    activeSessionSecret = null
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    sessionSecretValue = ""
+    sessionSecretDescription = ""
+    sessionSecretError = ""
+    sessionSecrets = []
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -547,6 +597,13 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
+    activeSessionSecret = null
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    sessionSecretValue = ""
+    sessionSecretDescription = ""
+    sessionSecretError = ""
+    sessionSecrets = []
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -620,6 +677,11 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
+    activeSessionSecret = null
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    sessionSecretValue = ""
+    sessionSecrets = []
     activeProject = session.project ?? null
     activeProjectNote = null
     creatingProjectNote = false
@@ -643,6 +705,17 @@
           navigate(sessionNotesPath(activeWorkspace, session), true)
         }
       }
+    } else if (isSessionSecretsRoute()) {
+      await loadSessionSecrets(session)
+      const secretID = sessionSecretIDFromPath(currentPath)
+      if (secretID === "new") {
+        startSessionSecretCreate(false)
+      } else if (secretID !== null) {
+        activeSessionSecret = await loadSessionSecret(session, secretID)
+        if (activeSessionSecret === null) {
+          navigate(sessionSecretsPath(activeWorkspace, session), true)
+        }
+      }
     } else {
       await loadSessionEvents(session)
     }
@@ -658,8 +731,34 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNoteError = ""
+    activeSessionSecret = null
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    sessionSecretDescription = ""
+    sessionSecretValue = ""
+    sessionSecretError = ""
     navigate(sessionNotesPath(activeWorkspace, session), false)
     await loadSessionNotes(session)
+    startActivityPolling()
+  }
+
+  async function selectSessionSecrets(session: Session) {
+    if (activeWorkspace === null || activeSession?.id !== session.id) {
+      return
+    }
+    mobileMenuOpen = false
+    activeSessionSecret = null
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    activeSessionNote = null
+    creatingSessionNote = false
+    editingSessionNote = false
+    sessionNoteError = ""
+    sessionSecretDescription = ""
+    sessionSecretValue = ""
+    sessionSecretError = ""
+    navigate(sessionSecretsPath(activeWorkspace, session), false)
+    await loadSessionSecrets(session)
     startActivityPolling()
   }
 
@@ -980,6 +1079,60 @@
     return (await response.json()) as SessionNote
   }
 
+  async function loadSessionSecrets(session: Session, showLoading = true) {
+    if (activeWorkspace === null || !isSessionSecretsRoute()) {
+      return false
+    }
+    const workspace = activeWorkspace
+    if (showLoading) {
+      sessionSecretStatus = "checking"
+    }
+    try {
+      const response = await fetch(sessionSecretsAPIPath(workspace, session), { credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return false
+      }
+      if (!response.ok) {
+        throw new Error("session secrets could not be loaded")
+      }
+      const loaded = (await response.json()) as SessionSecret[]
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || !isSessionSecretsRoute()) {
+        return false
+      }
+      sessionSecrets = [...loaded].sort((left, right) => {
+        const difference = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
+      })
+      sessionSecretStatus = "ready"
+      return true
+    } catch {
+      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && isSessionSecretsRoute()) {
+        sessionSecretStatus = "unavailable"
+      }
+      return false
+    }
+  }
+
+  async function loadSessionSecret(session: Session, id: string) {
+    if (activeWorkspace === null || !isSessionSecretsRoute()) {
+      return null
+    }
+    const workspace = activeWorkspace
+    const response = await fetch(`${sessionSecretsAPIPath(workspace, session)}/${encodeURIComponent(id)}`, { credentials: "same-origin" })
+    if (response.status === 401) {
+      signInRequired()
+      return null
+    }
+    if (response.status === 404) {
+      return null
+    }
+    if (!response.ok) {
+      throw new Error("session secret could not be loaded")
+    }
+    return (await response.json()) as SessionSecret
+  }
+
   async function loadSessionEvents(session: Session, showLoading = true) {
     if (activeWorkspace === null) {
       return false
@@ -1154,6 +1307,22 @@
                   navigate(sessionNotesPath(workspace, session))
                 } else if (loaded !== null && activeSessionNote?.id === note.id) {
                   activeSessionNote = loaded
+                }
+              }
+            }
+          } else if (isSessionSecretsRoute()) {
+            if (sessionChanged) {
+              refreshed = await loadSessionSecrets(session, false)
+              if (refreshed && activeSessionSecret !== null) {
+                const secret = activeSessionSecret
+                const loaded = await loadSessionSecret(session, secret.id)
+                if (loaded === null && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionSecret?.id === secret.id) {
+                  activeSessionSecret = null
+                  editingSessionSecret = false
+                  sessionSecretValue = ""
+                  navigate(sessionSecretsPath(workspace, session))
+                } else if (loaded !== null && activeSessionSecret?.id === secret.id) {
+                  activeSessionSecret = loaded
                 }
               }
             }
@@ -1783,6 +1952,160 @@
     return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes`
   }
 
+  async function selectSessionSecret(secret: SessionSecret) {
+    if (activeWorkspace === null || activeSession === null) {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    sessionSecretError = ""
+    creatingSessionSecret = false
+    editingSessionSecret = false
+    sessionSecretValue = ""
+    navigate(sessionSecretPath(workspace, session, secret), false)
+    try {
+      const loaded = await loadSessionSecret(session, secret.id)
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
+        return
+      }
+      if (loaded === null) {
+        navigate(sessionSecretsPath(workspace, session))
+        return
+      }
+      activeSessionSecret = loaded
+    } catch {
+      sessionSecretError = "The secret could not be loaded. Try again."
+    }
+  }
+
+  function startSessionSecretCreate(navigateRoute = true) {
+    if (activeWorkspace === null || activeSession === null) {
+      return
+    }
+    activeSessionSecret = null
+    creatingSessionSecret = true
+    editingSessionSecret = true
+    sessionSecretDescription = ""
+    sessionSecretValue = ""
+    sessionSecretError = ""
+    if (navigateRoute) {
+      navigate(sessionSecretPath(activeWorkspace, activeSession, "new"), false)
+    }
+  }
+
+  function startSessionSecretEdit() {
+    if (activeSessionSecret === null) {
+      return
+    }
+    sessionSecretDescription = activeSessionSecret.description
+    sessionSecretValue = ""
+    sessionSecretError = ""
+    editingSessionSecret = true
+  }
+
+  function cancelSessionSecretEdit() {
+    if (savingSessionSecret || activeWorkspace === null || activeSession === null) {
+      return
+    }
+    sessionSecretError = ""
+    sessionSecretValue = ""
+    if (creatingSessionSecret) {
+      creatingSessionSecret = false
+      editingSessionSecret = false
+      navigate(sessionSecretsPath(activeWorkspace, activeSession))
+      return
+    }
+    editingSessionSecret = false
+  }
+
+  async function saveSessionSecret() {
+    if (activeWorkspace === null || activeSession === null || sessionSecretDescription.trim() === "") {
+      sessionSecretError = "Description is required."
+      return
+    }
+    if (creatingSessionSecret && sessionSecretValue === "") {
+      sessionSecretError = "Value is required."
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    const creating = creatingSessionSecret
+    const secret = activeSessionSecret
+    const input: { description: string; value?: string } = { description: sessionSecretDescription }
+    if (creating || sessionSecretValue !== "") {
+      input.value = sessionSecretValue
+    }
+    sessionSecretError = ""
+    savingSessionSecret = true
+    try {
+      const secretsPath = sessionSecretsAPIPath(workspace, session)
+      const path = creating ? secretsPath : `${secretsPath}/${encodeURIComponent(secret?.id ?? "")}`
+      const response = await fetch(path, {
+        method: creating ? "POST" : "PATCH",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session secret could not be saved")
+      }
+      const saved = (await response.json()) as SessionSecret
+      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
+        return
+      }
+      sessionSecretValue = ""
+      activeSessionSecret = saved
+      creatingSessionSecret = false
+      editingSessionSecret = false
+      sessionSecrets = [saved, ...sessionSecrets.filter((candidate) => candidate.id !== saved.id)]
+      navigate(sessionSecretPath(workspace, session, saved))
+    } catch {
+      sessionSecretError = "The secret could not be saved. Try again."
+    } finally {
+      savingSessionSecret = false
+    }
+  }
+
+  async function removeSessionSecret() {
+    if (activeWorkspace === null || activeSession === null || activeSessionSecret === null || deletingSessionSecret || !window.confirm(`Remove ${activeSessionSecret.description}?`)) {
+      return
+    }
+    const workspace = activeWorkspace
+    const session = activeSession
+    const secret = activeSessionSecret
+    deletingSessionSecret = true
+    sessionSecretError = ""
+    try {
+      const response = await fetch(`${sessionSecretsAPIPath(workspace, session)}/${encodeURIComponent(secret.id)}`, { method: "DELETE", credentials: "same-origin" })
+      if (response.status === 401) {
+        signInRequired()
+        return
+      }
+      if (!response.ok) {
+        throw new Error("session secret could not be removed")
+      }
+      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionSecret?.id === secret.id) {
+        activeSessionSecret = null
+        editingSessionSecret = false
+        sessionSecretValue = ""
+        sessionSecrets = sessionSecrets.filter((candidate) => candidate.id !== secret.id)
+        navigate(sessionSecretsPath(workspace, session))
+      }
+    } catch {
+      sessionSecretError = "The secret could not be removed. Try again."
+    } finally {
+      deletingSessionSecret = false
+    }
+  }
+
+  function sessionSecretsAPIPath(workspace: Workspace, session: Session) {
+    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/secrets`
+  }
+
   function openProjectEdit() {
     if (activeProject === null) {
       return
@@ -2214,6 +2537,14 @@
                 {:else}
                   <span>Notes</span>
                 {/if}
+              {:else if isSessionSecretsRoute()}
+                <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>{activeSession.name ?? "New Chat"}</a>
+                <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+                {#if activeSessionSecret !== null || creatingSessionSecret}
+                  <a href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionSecrets(activeSession) }}>Secrets</a>
+                {:else}
+                  <span>Secrets</span>
+                {/if}
               {:else}
                 <span>{activeSession.name ?? "New Chat"}</span>
               {/if}
@@ -2233,15 +2564,21 @@
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeSessionNote?.title ?? "New Note"}</span>
             {/if}
+            {#if activeSession !== null && (activeSessionSecret !== null || creatingSessionSecret)}
+              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+              <span>{activeSessionSecret?.description ?? "New Secret"}</span>
+            {/if}
           </h1>
           {#if activeSession !== null}
             <nav class="session-tabs" aria-label="Session navigation">
-              <a class:active={!isSessionNotesRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>Chat</a>
+              <a class:active={!isSessionNotesRoute() && !isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>Chat</a>
               <a class:active={isSessionNotesRoute()} href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
+              <a class:active={isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionSecrets(activeSession) }}>Secrets</a>
             </nav>
-            <select class="session-tabs-select" aria-label="Session view" value={isSessionNotesRoute() ? "notes" : "chat"} onchange={(event) => { if (event.currentTarget.value === "notes") { void selectSessionNotes(activeSession) } else { void selectSessionChat(activeSession) } }}>
+            <select class="session-tabs-select" aria-label="Session view" value={isSessionNotesRoute() ? "notes" : isSessionSecretsRoute() ? "secrets" : "chat"} onchange={(event) => { if (event.currentTarget.value === "notes") { void selectSessionNotes(activeSession) } else if (event.currentTarget.value === "secrets") { void selectSessionSecrets(activeSession) } else { void selectSessionChat(activeSession) } }}>
               <option value="chat">Chat</option>
               <option value="notes">Notes</option>
+              <option value="secrets">Secrets</option>
             </select>
           {/if}
       </header>
@@ -2362,6 +2699,36 @@
                 {#each sessionNotes as note (note.id)}
                   <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionNotePath(activeWorkspace, activeSession, note) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNote(note) }}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><span>{note.author.name ?? note.author.id}</span><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
                 {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
+              {/if}
+            </div>
+          {/if}
+        </section>
+      {:else if activeSession !== null && isSessionSecretsRoute()}
+        <section class="project-note-page">
+          {#if editingSessionSecret}
+            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveSessionSecret() }}>
+              <div class="project-note-page-heading"><div><p class="eyebrow">Session Secret</p><h2>{creatingSessionSecret ? "New Secret" : "Edit Secret"}</h2></div></div>
+              <div class="field"><label class="label" for="session-secret-description">Description</label><div class="control"><textarea class="textarea" id="session-secret-description" autocomplete="off" rows="3" maxlength="4096" required bind:value={sessionSecretDescription}></textarea></div></div>
+              <div class="field"><label class="label" for="session-secret-value">{creatingSessionSecret ? "Value" : "New value (optional)"}</label><div class="control"><textarea class="textarea" id="session-secret-value" autocomplete="new-password" rows="5" maxlength="1048576" required={creatingSessionSecret} bind:value={sessionSecretValue}></textarea></div>{#if !creatingSessionSecret}<p class="help">Leave blank to keep the current value.</p>{/if}</div>
+              {#if sessionSecretError !== ""}<p class="help is-danger" aria-live="polite">{sessionSecretError}</p>{/if}
+              <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionSecret} onclick={cancelSessionSecretEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionSecret}>{savingSessionSecret ? "Saving..." : "Save secret"}</button></div>
+            </form>
+          {:else if activeSessionSecret !== null}
+            <article class="project-note-view">
+              <header class="project-note-page-heading"><div><p class="eyebrow">Session Secret</p><h2>{activeSessionSecret.description}</h2><small>By {activeSessionSecret.author.name ?? activeSessionSecret.author.id} on {createdAtLabel(activeSessionSecret.created_at)}{#if activeSessionSecret.updated_at !== activeSessionSecret.created_at} / Updated {createdAtLabel(activeSessionSecret.updated_at)}{/if}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startSessionSecretEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingSessionSecret} onclick={() => void removeSessionSecret()}>{deletingSessionSecret ? "Removing..." : "Remove"}</button></div></header>
+              {#if sessionSecretError !== ""}<p class="help is-danger" aria-live="polite">{sessionSecretError}</p>{/if}
+            </article>
+          {:else}
+            <div class="collection-heading"><h2>Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionSecretCreate()}>New secret</button></div>
+            <div class="collection-list">
+              {#if sessionSecretStatus === "checking"}
+                <p class="dashboard-empty">Loading secrets...</p>
+              {:else if sessionSecretStatus === "unavailable"}
+                <p class="dashboard-empty">Secrets could not be loaded.</p>
+              {:else}
+                {#each sessionSecrets as secret (secret.id)}
+                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionSecretPath(activeWorkspace, activeSession, secret) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionSecret(secret) }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
+                {:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
               {/if}
             </div>
           {/if}

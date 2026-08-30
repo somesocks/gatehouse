@@ -27,6 +27,9 @@ type ProjectNoteRead = NoteRead
 // SessionNoteRead reads an authorized session note byte range and reports whether it is sensitive.
 type SessionNoteRead = NoteRead
 
+// SessionSecretRead reads an authorized session secret value.
+type SessionSecretRead func(id string) (error, []byte)
+
 // SessionFileCreate creates a file in the current session and returns its ID.
 type SessionFileCreate func(name, mediaType string, source io.Reader) (error, string)
 
@@ -38,6 +41,22 @@ type ProjectNoteCreate func(title, description, body string, sensitive bool) (er
 
 // SessionNoteCreate creates an authorized session note.
 type SessionNoteCreate func(title, description, body string, sensitive bool) (error, SessionNote)
+
+// SessionSecrets contains the authorized secrets in the current session.
+type SessionSecrets struct {
+	Secrets []SessionSecret
+	Read    SessionSecretRead
+}
+
+// SessionSecret describes authorized public session secret metadata.
+type SessionSecret struct {
+	ID          string
+	Description string
+	AuthorID    string
+	AuthorName  *string
+	CreatedAt   string
+	UpdatedAt   string
+}
 
 // NoteRemove removes an authorized note.
 type NoteRemove func(id string) (error, bool)
@@ -199,6 +218,41 @@ func sessionNoteValue(note SessionNote, name string) (error, lisp.Expr) {
 		lisp.Pair("author_id", lisp.String(note.AuthorID)),
 		lisp.Pair("author_name", authorName),
 		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
+	)
+}
+
+func sessionSecretListFunction(secrets []SessionSecret, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 0 {
+			return lisp.Errorf("%s requires no arguments", name), nil
+		}
+		values := make([]lisp.Expr, 0, len(secrets))
+		for _, secret := range secrets {
+			err, value := sessionSecretValue(secret, name)
+			if err != nil {
+				return err, nil
+			}
+			values = append(values, value)
+		}
+		return nil, lisp.List(values...)
+	}
+}
+
+func sessionSecretValue(secret SessionSecret, name string) (error, lisp.Expr) {
+	if secret.ID == "" || secret.Description == "" || secret.AuthorID == "" || secret.CreatedAt == "" || secret.UpdatedAt == "" {
+		return lisp.Errorf("%s has invalid secret metadata", name), nil
+	}
+	authorName := lisp.Null()
+	if secret.AuthorName != nil {
+		authorName = lisp.String(*secret.AuthorName)
+	}
+	return nil, lisp.List(
+		lisp.Pair("id", lisp.String(secret.ID)),
+		lisp.Pair("description", lisp.String(secret.Description)),
+		lisp.Pair("author_id", lisp.String(secret.AuthorID)),
+		lisp.Pair("author_name", authorName),
+		lisp.Pair("created_at", lisp.String(secret.CreatedAt)),
+		lisp.Pair("updated_at", lisp.String(secret.UpdatedAt)),
 	)
 }
 

@@ -51,6 +51,31 @@ func (tokens *BearerTokens) StorageClient() *storage.Client {
 	return storage.NewClient(tokens.store, tokens.keyring)
 }
 
+// Encrypt seals an application value with the current bearer-token keychain.
+func (tokens *BearerTokens) Encrypt(ctx context.Context, associatedData, plaintext []byte) (error, string) {
+	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
+	if err != nil {
+		return err, ""
+	}
+	if len(current) != 1 {
+		return fmt.Errorf("get current bearer keychain %q: not found", tokens.keychainID), ""
+	}
+	reference := current[0].Ref
+	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{reference})
+	if err != nil {
+		return err, ""
+	}
+	key := keys[reference]
+	defer clear(key)
+	clear(keys)
+	err, encrypted := keychain.Seal(rand.Reader, key, associatedData, plaintext)
+	if err != nil {
+		return fmt.Errorf("seal encrypted value: %w", err), ""
+	}
+	encrypted.Key = &reference
+	return nil, encrypted.String()
+}
+
 func (tokens *BearerTokens) Login(ctx context.Context, identityKey string, password []byte) (error, string) {
 	err, active := tokens.store.ActiveIdentityGetByKey(ctx, identityKey)
 	if err != nil {
