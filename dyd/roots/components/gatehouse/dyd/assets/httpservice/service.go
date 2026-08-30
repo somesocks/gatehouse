@@ -121,6 +121,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes", workspaceProjectNotes(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}", workspaceProjectNote(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets", workspaceProjectSecrets(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets/{secret}", workspaceProjectSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/start", workspaceProjectFileStart(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}/finish", workspaceProjectFileFinish(store, tokens[0]))
@@ -338,6 +340,19 @@ type projectNoteRequest struct {
 	Description *string `json:"description"`
 	Body        *string `json:"body"`
 	Sensitive   *bool   `json:"sensitive"`
+}
+
+type projectSecretRequest struct {
+	Description *string `json:"description"`
+	Value       *string `json:"value"`
+}
+
+type projectSecretResponse struct {
+	ID          string                    `json:"id"`
+	Description string                    `json:"description"`
+	Author      projectNoteAuthorResponse `json:"author"`
+	CreatedAt   string                    `json:"created_at"`
+	UpdatedAt   string                    `json:"updated_at"`
 }
 
 type sessionNoteRequest struct {
@@ -1204,6 +1219,136 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 	}
 }
 
+func workspaceProjectSecrets(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		noStore(response)
+		switch request.Method {
+		case http.MethodGet:
+			err, secrets := store.ProjectSecretsGet(request.Context(), project, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectSecretResponse, 0, len(secrets))
+			for _, secret := range secrets {
+				result = append(result, projectSecretResponseFromSummary(secret))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			var input projectSecretRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectSecretRequest(input, true) {
+				http.Error(response, "invalid project secret", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.ProjectSecret)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			ref := model.ProjectSecretRef{Project: project, Id: id}
+			value := []byte(*input.Value)
+			err, ciphertext := tokens.Encrypt(request.Context(), database.ProjectSecretAssociatedData(ref), value)
+			clear(value)
+			if err != nil {
+				http.Error(response, "project secret could not be encrypted", http.StatusInternalServerError)
+				return
+			}
+			secret := model.ProjectSecret{Ref: ref, Description: *input.Description, Ciphertext: ciphertext}
+			err, stored := store.ProjectSecretCreate(request.Context(), secret, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "project secret could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectSecretResponse{ID: stored.Ref.Id, Description: stored.Description, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt, UpdatedAt: stored.UpdatedAt})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectSecret(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		secret, ok := projectSecretRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.ProjectSecretGet(request.Context(), secret, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		noStore(response)
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectSecretResponseFromDetail(*current))
+		case http.MethodPatch:
+			var input projectSecretRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validProjectSecretRequest(input, false) {
+				http.Error(response, "invalid project secret", http.StatusBadRequest)
+				return
+			}
+			description, ciphertext := current.Secret.Description, current.Secret.Ciphertext
+			if input.Description != nil {
+				description = *input.Description
+			}
+			if input.Value != nil {
+				value := []byte(*input.Value)
+				err, ciphertext = tokens.Encrypt(request.Context(), database.ProjectSecretAssociatedData(secret), value)
+				clear(value)
+				if err != nil {
+					http.Error(response, "project secret could not be encrypted", http.StatusInternalServerError)
+					return
+				}
+			}
+			err, updated := store.ProjectSecretDetailsSet(request.Context(), secret, claims.Principal.Ref, &description, &ciphertext)
+			if err != nil {
+				http.Error(response, "project secret could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectSecretResponseFromDetail(*updated))
+		case http.MethodDelete:
+			err, removed := store.ProjectSecretRemove(request.Context(), secret, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		claims, ok := authenticate(response, request, tokens)
@@ -1975,6 +2120,17 @@ func projectNoteRef(response http.ResponseWriter, request *http.Request) (model.
 	return model.ProjectNoteRef{Project: model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, Id: noteID}, true
 }
 
+func projectSecretRef(response http.ResponseWriter, request *http.Request) (model.ProjectSecretRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	projectID := request.PathValue("project")
+	secretID := request.PathValue("secret")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Project, projectID) || !typed_id.Valid(typed_id.ProjectSecret, secretID) {
+		http.NotFound(response, request)
+		return model.ProjectSecretRef{}, false
+	}
+	return model.ProjectSecretRef{Project: model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, Id: secretID}, true
+}
+
 func sessionNoteRef(response http.ResponseWriter, request *http.Request) (model.SessionNoteRef, bool) {
 	workspaceID := request.PathValue("workspace")
 	sessionID := request.PathValue("session")
@@ -2027,6 +2183,16 @@ func validSessionSecretRequest(input sessionSecretRequest, required bool) bool {
 	return (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Value == nil || len(*input.Value) <= 1024*1024)
 }
 
+func validProjectSecretRequest(input projectSecretRequest, required bool) bool {
+	if required && (input.Description == nil || input.Value == nil) {
+		return false
+	}
+	if !required && input.Description == nil && input.Value == nil {
+		return false
+	}
+	return (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Value == nil || len(*input.Value) <= 1024*1024)
+}
+
 func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
 	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
 }
@@ -2034,6 +2200,15 @@ func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNot
 func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNoteResponse {
 	note := detail.Note
 	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+}
+
+func projectSecretResponseFromSummary(secret database.ProjectSecretSummary) projectSecretResponse {
+	return projectSecretResponse{ID: secret.Ref.Id, Description: secret.Description, Author: projectNoteAuthorResponse{ID: secret.AuthorPrincipal.Id, Name: secret.AuthorName}, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt}
+}
+
+func projectSecretResponseFromDetail(detail database.ProjectSecretDetail) projectSecretResponse {
+	secret := detail.Secret
+	return projectSecretResponse{ID: secret.Ref.Id, Description: secret.Description, Author: projectNoteAuthorResponse{ID: secret.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt}
 }
 
 func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNoteResponse {

@@ -583,6 +583,33 @@ let ProjectNote =
         }
         s.record.meta::{ name = Some "ProjectNote", description = Some "A shared Markdown note attached to a project." }
 
+let ProjectSecretRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "owning project identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project secret identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectSecretRef", description = Some "The stable identity of a secret attached to a project." }
+
+let ProjectSecret =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectSecretRef" } s.reference.meta::{ description = Some "project secret identity" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable secret author" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "public secret description" }
+            , ciphertext = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted secret value" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project secret is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret creation timestamp" }
+            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret update timestamp" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectSecret", description = Some "An encrypted secret attached to a project." }
+
 let SessionNoteRef =
       s.record.from
         s.record.props::{
@@ -945,6 +972,8 @@ in  Document::{
             , s.root.from ProjectFile s.root.meta::{ name = "ProjectFile" }
 			, s.root.from ProjectNoteRef s.root.meta::{ name = "ProjectNoteRef" }
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
+			, s.root.from ProjectSecretRef s.root.meta::{ name = "ProjectSecretRef" }
+			, s.root.from ProjectSecret s.root.meta::{ name = "ProjectSecret" }
              , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
              , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
 			 , s.root.from SessionSecretRef s.root.meta::{ name = "SessionSecretRef" }

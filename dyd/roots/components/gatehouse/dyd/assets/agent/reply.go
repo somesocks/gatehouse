@@ -545,7 +545,7 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	err, files, projectInfo, projectFiles, projectNotes, sessionNotes := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
+	err, files, projectInfo, projectFiles, projectNotes, projectSecrets, sessionNotes := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
@@ -616,7 +616,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return nil, value
 	}
 	modules := []lisp.HostModule{
-		NewProjectModule(projectInfo, projectFiles, projectNotes),
+		NewProjectModuleWithSecrets(projectInfo, projectFiles, projectNotes, projectSecrets),
 		NewSessionModuleWithSecrets(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
@@ -963,6 +963,8 @@ You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorize
 
 Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text, tool-call arguments, tool output, or other event payloads by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
+Project secrets are available through ` + "`project/secrets/list`" + ` and ` + "`project/secrets/read`" + `. List exposes public metadata only; read returns secret-tainted Bytes.
+
 ## Large Tool Results
 
 In the transcript, large tool results may be represented by a truncated preview of the full data. Write Lisp programs that return concise checks, summaries, or filtered results instead of raw data. Test transformations on small fixtures and make heavy use of ` + "`assert`" + ` for validation. If necessary, use ` + "`session/events/read`" + ` to inspect targeted ranges of truncated results. When the final result is large, create and attach a session file instead of dumping it into tool output.
@@ -1207,10 +1209,10 @@ func openAIResponsesLispTool() openAIResponsesTool {
 	return openAIResponsesTool{Type: "function", Name: compatible.Function.Name, Description: compatible.Function.Description, Parameters: compatible.Function.Parameters, Strict: true}
 }
 
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *SessionNotes) {
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *ProjectSecrets, *SessionNotes) {
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil
 	}
 	files := make([]File, 0, len(summaries))
 	for _, file := range summaries {
@@ -1218,7 +1220,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	err, noteSummaries := runtime.store.SessionNotesGet(ctx, session, principal)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil
 	}
 	sessionNotes := &SessionNotes{Notes: make([]SessionNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
@@ -1244,21 +1246,22 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil
 	}
 	var projectInfo *ProjectInfo
 	var projectFiles *ProjectFiles
 	var projectNotes *ProjectNotes
+	var projectSecrets *ProjectSecrets
 	if project != nil {
 			err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
 			projectInfo = &ProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
 			err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil
 			}
 			projectFiles = &ProjectFiles{Files: make([]File, 0, len(summaries))}
 			for _, file := range summaries {
@@ -1276,7 +1279,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 			err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil
 			}
 			projectNotes = &ProjectNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
 			for _, note := range noteSummaries {
@@ -1300,9 +1303,42 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				}
 				return nil, append([]byte(nil), body[offset:end]...), detail.Note.Sensitive
 			}
+			err, secretSummaries := runtime.store.ProjectSecretsGet(ctx, *project, principal)
+			if err != nil {
+				return err, nil, nil, nil, nil, nil, nil
+			}
+			projectSecrets = &ProjectSecrets{Secrets: make([]ProjectSecret, 0, len(secretSummaries))}
+			for _, secret := range secretSummaries {
+				projectSecrets.Secrets = append(projectSecrets.Secrets, ProjectSecret{ID: secret.Ref.Id, Description: secret.Description, AuthorID: secret.AuthorPrincipal.Id, AuthorName: secret.AuthorName, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt})
+			}
+			projectSecrets.Read = func(id string) (error, []byte) {
+				err, detail := runtime.store.ProjectSecretGet(ctx, model.ProjectSecretRef{Project: *project, Id: id}, principal)
+				if err != nil || detail == nil {
+					if err != nil {
+						return err, nil
+					}
+					return fmt.Errorf("read project secret: unavailable"), nil
+				}
+				err, encrypted := keychain.ParseResource(detail.Secret.Ciphertext)
+				if err != nil {
+					return fmt.Errorf("parse project secret: %w", err), nil
+				}
+				keysErr, keys := runtime.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
+				if keysErr != nil {
+					return fmt.Errorf("get keychain for project secret: %w", keysErr), nil
+				}
+				key := keys[*encrypted.Key]
+				defer clear(key)
+				clear(keys)
+				decryptedErr, value := keychain.Open(key, database.ProjectSecretAssociatedData(detail.Secret.Ref), encrypted)
+				if decryptedErr != nil {
+					return fmt.Errorf("decrypt project secret: %w", decryptedErr), nil
+				}
+				return nil, value
+			}
 		}
 	}
-	return nil, files, projectInfo, projectFiles, projectNotes, sessionNotes
+	return nil, files, projectInfo, projectFiles, projectNotes, projectSecrets, sessionNotes
 }
 
 func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompatibleMessage) {

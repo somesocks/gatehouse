@@ -15,14 +15,44 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
     (project/files/list)
     (project/files/info "guide")
     (project/notes/list)
+	(project/secrets/list)
     (error/value (error/catch (project/files/read "guide" 0 1)))
     (error/value (error/catch (project/notes/read "guide" 0 1)))
     (error/value (error/catch (project/notes/create "Decision" "" "# Decision")))
     (error/value (error/catch (project/notes/remove "example-note-id")))
+	(error/value (error/catch (project/secrets/read "psc_01m17ej89df8jnhnh7476ssnvg")))
     (error/value (error/catch (project/info/set "Roadmap" "Current priorities")))))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil)},
 	})
-	if err != nil || result.String() != `(null null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/info/set is unavailable")` {
+	if err != nil || result.String() != `(null null null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/secrets/read is unavailable" "project/info/set is unavailable")` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseProjectSecretsListAndRead(t *testing.T) {
+	authorName := "Ada"
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/secrets/list))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewProjectModuleWithSecrets(nil, nil, nil, &ProjectSecrets{Secrets: []ProjectSecret{
+			{ID: "psc_01m17ej89df8jnhnh7476ssnvg", Description: "Deployment token", AuthorID: "prn_01m17ej89df8jnhnh7476ssnvg", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z", UpdatedAt: "2026-01-02T00:00:00.000Z"},
+		}})},
+	})
+	if err != nil || lisp.TaintOf(result) != lisp.TaintNone || result.String() != `(((id . "psc_01m17ej89df8jnhnh7476ssnvg") (description . "Deployment token") (author_id . "prn_01m17ej89df8jnhnh7476ssnvg") (author_name . "Ada") (created_at . "2026-01-01T00:00:00.000Z") (updated_at . "2026-01-02T00:00:00.000Z")))` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/secrets/read "psc_01m17ej89df8jnhnh7476ssnvg"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewProjectModuleWithSecrets(nil, nil, nil, &ProjectSecrets{Read: func(id string) (error, []byte) {
+			if id != "psc_01m17ej89df8jnhnh7476ssnvg" {
+				t.Fatalf("project secret read id = %q", id)
+			}
+			return nil, []byte("secret")
+		}})},
+	})
+	if err != nil || !lisp.IsSecret(result) {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }

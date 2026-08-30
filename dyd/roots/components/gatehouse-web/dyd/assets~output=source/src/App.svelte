@@ -65,6 +65,8 @@
     updated_at: string
   }
 
+  type ProjectSecret = SessionSecret
+
   type SessionSearchResponse = {
     sessions: Session[]
     next_cursor?: string
@@ -147,6 +149,14 @@
   let projectNoteBody = $state("")
   let projectNoteSensitive = $state(false)
   let projectNoteError = $state("")
+	let activeProjectSecret = $state<ProjectSecret | null>(null)
+	let creatingProjectSecret = $state(false)
+	let editingProjectSecret = $state(false)
+	let savingProjectSecret = $state(false)
+	let deletingProjectSecret = $state(false)
+	let projectSecretDescription = $state("")
+	let projectSecretValue = $state("")
+	let projectSecretError = $state("")
   let activeSessionNote = $state<SessionNote | null>(null)
   let creatingSessionNote = $state(false)
   let editingSessionNote = $state(false)
@@ -209,6 +219,8 @@
   let projectFileInputElement = $state<HTMLInputElement | undefined>()
   let projectNotes = $state<ProjectNote[]>([])
   let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
+	let projectSecrets = $state<ProjectSecret[]>([])
+	let projectSecretStatus = $state<WorkspaceContentStatus>("checking")
   let sessionNotes = $state<SessionNote[]>([])
   let sessionNoteStatus = $state<WorkspaceContentStatus>("checking")
   let sessionSecrets = $state<SessionSecret[]>([])
@@ -328,6 +340,18 @@
     }
   }
 
+	function projectSecretIDFromPath(path: string) {
+		const match = /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/secrets\/([^/]+)\/?$/.exec(path)
+		if (match === null) {
+			return null
+		}
+		try {
+			return decodeURIComponent(match[1])
+		} catch {
+			return null
+		}
+	}
+
   function sessionNoteIDFromPath(path: string) {
     const match = /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes\/([^/]+)\/?$/.exec(path)
     if (match === null) {
@@ -399,6 +423,15 @@
     return `${projectNotesPath(workspace, project)}/${encodeURIComponent(id)}`
   }
 
+	function projectSecretsPath(workspace: Workspace, project: Project) {
+		return `${projectPath(workspace, project)}/secrets`
+	}
+
+	function projectSecretPath(workspace: Workspace, project: Project, secret: ProjectSecret | string) {
+		const id = typeof secret === "string" ? secret : secret.id
+		return `${projectSecretsPath(workspace, project)}/${encodeURIComponent(id)}`
+	}
+
   function groupsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/grp`
   }
@@ -431,6 +464,10 @@
   function isProjectNotesRoute() {
     return /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/pnt(?:\/[^/]+)?\/?$/.test(currentPath)
   }
+
+	function isProjectSecretsRoute() {
+		return /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/secrets(?:\/[^/]+)?\/?$/.test(currentPath)
+	}
 
   function isProjectCollection() {
     return isCollectionPath("prj")
@@ -517,9 +554,16 @@
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
+		activeProjectSecret = null
+		creatingProjectSecret = false
+		editingProjectSecret = false
+		projectSecretDescription = ""
+		projectSecretValue = ""
+		projectSecretError = ""
     projectFiles = []
     projectFileError = ""
     projectNotes = []
+		projectSecrets = []
     events = []
     showJumpToLatest = false
     status = "anonymous"
@@ -607,9 +651,16 @@
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
+		activeProjectSecret = null
+		creatingProjectSecret = false
+		editingProjectSecret = false
+		projectSecretDescription = ""
+		projectSecretValue = ""
+		projectSecretError = ""
     projectFiles = []
     projectFileError = ""
     projectNotes = []
+		projectSecrets = []
     events = []
     showJumpToLatest = false
     workspaceContentStatus = "checking"
@@ -643,7 +694,16 @@
         const projectID = projectIDFromPath(currentPath)
         activeProject = projectID === null ? null : latestProjects.find((candidate) => candidate.id === projectID) ?? await loadProject(workspace, projectID)
         if (activeProject !== null) {
-          await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject), loadProjectNotes(activeProject)])
+			await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject), loadProjectNotes(activeProject), loadProjectSecrets(activeProject)])
+			const secretID = projectSecretIDFromPath(currentPath)
+			if (secretID === "new") {
+				startProjectSecretCreate(false)
+			} else if (secretID !== null) {
+				activeProjectSecret = await loadProjectSecret(activeProject, secretID)
+				if (activeProjectSecret === null) {
+					navigate(projectSecretsPath(workspace, activeProject), true)
+				}
+			}
           const noteID = projectNoteIDFromPath(currentPath)
           if (noteID === "new") {
             startProjectNoteCreate()
@@ -779,12 +839,17 @@
     activeProject = project
     activeProjectNote = null
     creatingProjectNote = false
+		activeProjectSecret = null
+		creatingProjectSecret = false
+		editingProjectSecret = false
+		projectSecretValue = ""
     projectFiles = []
     projectFileError = ""
     projectNotes = []
+		projectSecrets = []
     events = []
     navigate(projectPath(activeWorkspace, project), replace)
-    await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project)])
+		await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project), loadProjectSecrets(project)])
     startActivityPolling()
   }
 
@@ -796,9 +861,26 @@
     creatingProjectNote = false
     editingProjectNote = false
     projectNoteError = ""
+		activeProjectSecret = null
+		creatingProjectSecret = false
+		editingProjectSecret = false
     navigate(projectNotesPath(activeWorkspace, project), false)
     await loadProjectNotes(project)
   }
+
+	async function selectProjectSecrets(project: Project) {
+		if (activeWorkspace === null || activeProject?.id !== project.id) {
+			return
+		}
+		activeProjectSecret = null
+		creatingProjectSecret = false
+		editingProjectSecret = false
+		projectSecretDescription = ""
+		projectSecretValue = ""
+		projectSecretError = ""
+		navigate(projectSecretsPath(activeWorkspace, project), false)
+		await loadProjectSecrets(project)
+	}
 
   async function loadSession(workspace: Workspace, id: string) {
     const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(id)}`, { credentials: "same-origin" })
@@ -1024,6 +1106,64 @@
     }
     return (await response.json()) as ProjectNote
   }
+
+	function projectSecretsAPIPath(workspace: Workspace, project: Project) {
+		return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/secrets`
+	}
+
+	async function loadProjectSecrets(project: Project, showLoading = true) {
+		if (activeWorkspace === null) {
+			return false
+		}
+		const workspace = activeWorkspace
+		if (showLoading) {
+			projectSecretStatus = "checking"
+		}
+		try {
+			const response = await fetch(projectSecretsAPIPath(workspace, project), { credentials: "same-origin" })
+			if (response.status === 401) {
+				signInRequired()
+				return false
+			}
+			if (!response.ok) {
+				throw new Error("project secrets could not be loaded")
+			}
+			const loaded = (await response.json()) as ProjectSecret[]
+			if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
+				return false
+			}
+			projectSecrets = [...loaded].sort((left, right) => {
+				const difference = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
+				return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
+			})
+			projectSecretStatus = "ready"
+			return true
+		} catch {
+			if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
+				projectSecretStatus = "unavailable"
+			}
+			return false
+		}
+	}
+
+	async function loadProjectSecret(project: Project, id: string) {
+		if (activeWorkspace === null) {
+			return null
+		}
+		const workspace = activeWorkspace
+		const response = await fetch(`${projectSecretsAPIPath(workspace, project)}/${encodeURIComponent(id)}`, { credentials: "same-origin" })
+		if (response.status === 401) {
+			signInRequired()
+			return null
+		}
+		if (response.status === 404) {
+			return null
+		}
+		if (!response.ok) {
+			throw new Error("project secret could not be loaded")
+		}
+		return (await response.json()) as ProjectSecret
+	}
 
   async function loadSessionNotes(session: Session, showLoading = true) {
     if (activeWorkspace === null || !isSessionNotesRoute()) {
@@ -1331,7 +1471,7 @@
           }
         }
         if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
-          refreshed = (await Promise.all([loadProjectFiles(activeProject, false), loadProjectNotes(activeProject, false)])).every(Boolean)
+			refreshed = (await Promise.all([loadProjectFiles(activeProject, false), loadProjectNotes(activeProject, false), loadProjectSecrets(activeProject, false)])).every(Boolean)
           if (refreshed && activeProjectNote !== null) {
             const note = activeProjectNote
             const loaded = await loadProjectNote(activeProject, note.id)
@@ -1343,6 +1483,18 @@
               activeProjectNote = loaded
             }
           }
+			if (refreshed && activeProjectSecret !== null) {
+				const secret = activeProjectSecret
+				const loaded = await loadProjectSecret(activeProject, secret.id)
+				if (loaded === null && activeWorkspace?.id === workspace.id && activeProject?.id === projectID && activeProjectSecret?.id === secret.id) {
+					activeProjectSecret = null
+					editingProjectSecret = false
+					projectSecretValue = ""
+					navigate(projectSecretsPath(workspace, activeProject))
+				} else if (loaded !== null && activeProjectSecret?.id === secret.id) {
+					activeProjectSecret = loaded
+				}
+			}
         }
         if (generation !== activityPollGeneration || activeWorkspace?.id !== workspace.id) {
           return
@@ -1805,6 +1957,156 @@
       deletingProjectNote = false
     }
   }
+
+	async function selectProjectSecret(secret: ProjectSecret) {
+		if (activeWorkspace === null || activeProject === null) {
+			return
+		}
+		const workspace = activeWorkspace
+		const project = activeProject
+		projectSecretError = ""
+		creatingProjectSecret = false
+		editingProjectSecret = false
+		projectSecretValue = ""
+		navigate(projectSecretPath(workspace, project, secret), false)
+		try {
+			const loaded = await loadProjectSecret(project, secret.id)
+			if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
+				return
+			}
+			if (loaded === null) {
+				navigate(projectSecretsPath(workspace, project))
+				return
+			}
+			activeProjectSecret = loaded
+		} catch {
+			projectSecretError = "The secret could not be loaded. Try again."
+		}
+	}
+
+	function startProjectSecretCreate(navigateRoute = true) {
+		if (activeWorkspace === null || activeProject === null) {
+			return
+		}
+		activeProjectSecret = null
+		creatingProjectSecret = true
+		editingProjectSecret = true
+		projectSecretDescription = ""
+		projectSecretValue = ""
+		projectSecretError = ""
+		if (navigateRoute) {
+			navigate(projectSecretPath(activeWorkspace, activeProject, "new"), false)
+		}
+	}
+
+	function startProjectSecretEdit() {
+		if (activeProjectSecret === null) {
+			return
+		}
+		projectSecretDescription = activeProjectSecret.description
+		projectSecretValue = ""
+		projectSecretError = ""
+		editingProjectSecret = true
+	}
+
+	function cancelProjectSecretEdit() {
+		if (savingProjectSecret || activeWorkspace === null || activeProject === null) {
+			return
+		}
+		projectSecretError = ""
+		projectSecretValue = ""
+		if (creatingProjectSecret) {
+			creatingProjectSecret = false
+			editingProjectSecret = false
+			navigate(projectSecretsPath(activeWorkspace, activeProject))
+			return
+		}
+		editingProjectSecret = false
+	}
+
+	async function saveProjectSecret() {
+		if (activeWorkspace === null || activeProject === null || projectSecretDescription.trim() === "") {
+			projectSecretError = "Description is required."
+			return
+		}
+		if (creatingProjectSecret && projectSecretValue === "") {
+			projectSecretError = "Value is required."
+			return
+		}
+		const workspace = activeWorkspace
+		const project = activeProject
+		const creating = creatingProjectSecret
+		const secret = activeProjectSecret
+		const input: { description: string; value?: string } = { description: projectSecretDescription }
+		if (creating || projectSecretValue !== "") {
+			input.value = projectSecretValue
+		}
+		projectSecretError = ""
+		savingProjectSecret = true
+		try {
+			const secretsPath = projectSecretsAPIPath(workspace, project)
+			const path = creating ? secretsPath : `${secretsPath}/${encodeURIComponent(secret?.id ?? "")}`
+			const response = await fetch(path, {
+				method: creating ? "POST" : "PATCH",
+				credentials: "same-origin",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify(input),
+			})
+			if (response.status === 401) {
+				signInRequired()
+				return
+			}
+			if (!response.ok) {
+				throw new Error("project secret could not be saved")
+			}
+			const saved = (await response.json()) as ProjectSecret
+			if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
+				return
+			}
+			projectSecretValue = ""
+			activeProjectSecret = saved
+			creatingProjectSecret = false
+			editingProjectSecret = false
+			projectSecrets = [saved, ...projectSecrets.filter((candidate) => candidate.id !== saved.id)]
+			navigate(projectSecretPath(workspace, project, saved))
+		} catch {
+			projectSecretError = "The secret could not be saved. Try again."
+		} finally {
+			savingProjectSecret = false
+		}
+	}
+
+	async function removeProjectSecret() {
+		if (activeWorkspace === null || activeProject === null || activeProjectSecret === null || deletingProjectSecret || !window.confirm(`Remove ${activeProjectSecret.description}?`)) {
+			return
+		}
+		const workspace = activeWorkspace
+		const project = activeProject
+		const secret = activeProjectSecret
+		deletingProjectSecret = true
+		projectSecretError = ""
+		try {
+			const response = await fetch(`${projectSecretsAPIPath(workspace, project)}/${encodeURIComponent(secret.id)}`, { method: "DELETE", credentials: "same-origin" })
+			if (response.status === 401) {
+				signInRequired()
+				return
+			}
+			if (!response.ok) {
+				throw new Error("project secret could not be removed")
+			}
+			if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeProjectSecret?.id === secret.id) {
+				activeProjectSecret = null
+				editingProjectSecret = false
+				projectSecretValue = ""
+				projectSecrets = projectSecrets.filter((candidate) => candidate.id !== secret.id)
+				navigate(projectSecretsPath(workspace, project))
+			}
+		} catch {
+			projectSecretError = "The secret could not be removed. Try again."
+		} finally {
+			deletingProjectSecret = false
+		}
+	}
 
   async function selectSessionNote(note: SessionNote) {
     if (activeWorkspace === null || activeSession === null) {
@@ -2521,7 +2823,7 @@
               <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if activeSession === null && activeProjectNote === null && !creatingProjectNote && !isProjectNotesRoute()}
+				{#if activeSession === null && activeProjectNote === null && !creatingProjectNote && activeProjectSecret === null && !creatingProjectSecret && !isProjectNotesRoute() && !isProjectSecretsRoute()}
                 <span>{activeProject.name ?? "New Project"}</span>
               {:else}
                 <a href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
@@ -2548,7 +2850,14 @@
               {:else}
                 <span>{activeSession.name ?? "New Chat"}</span>
               {/if}
-            {:else if activeProject !== null && (isProjectNotesRoute() || activeProjectNote !== null || creatingProjectNote)}
+			{:else if activeProject !== null && (isProjectSecretsRoute() || activeProjectSecret !== null || creatingProjectSecret)}
+				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+				{#if activeProjectSecret !== null || creatingProjectSecret}
+					<a href={activeWorkspace !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectSecrets(activeProject) }}>Secrets</a>
+				{:else}
+					<span>Secrets</span>
+				{/if}
+			{:else if activeProject !== null && (isProjectNotesRoute() || activeProjectNote !== null || creatingProjectNote)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               {#if activeProjectNote !== null || creatingProjectNote}
                 <a href={activeWorkspace !== null ? projectNotesPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectNotes(activeProject) }}>Notes</a>
@@ -2568,6 +2877,10 @@
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>{activeSessionSecret?.description ?? "New Secret"}</span>
             {/if}
+			{#if activeSession === null && activeProject !== null && (activeProjectSecret !== null || creatingProjectSecret)}
+				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
+				<span>{activeProjectSecret?.description ?? "New Secret"}</span>
+			{/if}
           </h1>
           {#if activeSession !== null}
             <nav class="session-tabs" aria-label="Session navigation">
@@ -2582,7 +2895,7 @@
             </select>
           {/if}
       </header>
-      {#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote}
+		{#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote && activeProjectSecret === null && !creatingProjectSecret && !isProjectSecretsRoute()}
         <section class="project-dashboard-heading">
           <div>
             <h2 class="title is-3">{activeProject.name ?? "New Project"}</h2>
@@ -2590,7 +2903,7 @@
           </div>
           <details class="project-action-menu" bind:this={projectActionMenuElement}>
             <summary class="button is-small project-action-menu-trigger" aria-label="Project actions" title="Project actions"><Menu size={22} strokeWidth={2} aria-hidden="true" /></summary>
-            <div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button></div>
+				<div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button><button type="button" onclick={() => void selectProjectSecrets(activeProject)}>Secrets</button></div>
           </details>
         </section>
       {/if}
@@ -2650,7 +2963,37 @@
             {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
           </div>
         </section>
-      {:else if activeSession === null && (activeProjectNote !== null || creatingProjectNote)}
+		{:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
+			<section class="project-note-page">
+				{#if editingProjectSecret}
+					<form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectSecret() }}>
+						<div class="project-note-page-heading"><div><p class="eyebrow">Project Secret</p><h2>{creatingProjectSecret ? "New Secret" : "Edit Secret"}</h2></div></div>
+						<div class="field"><label class="label" for="project-secret-description">Description</label><div class="control"><textarea class="textarea" id="project-secret-description" autocomplete="off" rows="3" maxlength="4096" required bind:value={projectSecretDescription}></textarea></div></div>
+						<div class="field"><label class="label" for="project-secret-value">{creatingProjectSecret ? "Value" : "New value (optional)"}</label><div class="control"><textarea class="textarea" id="project-secret-value" autocomplete="new-password" rows="5" maxlength="1048576" required={creatingProjectSecret} bind:value={projectSecretValue}></textarea></div>{#if !creatingProjectSecret}<p class="help">Leave blank to keep the current value.</p>{/if}</div>
+						{#if projectSecretError !== ""}<p class="help is-danger" aria-live="polite">{projectSecretError}</p>{/if}
+						<div class="project-note-actions"><button class="button" type="button" disabled={savingProjectSecret} onclick={cancelProjectSecretEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectSecret}>{savingProjectSecret ? "Saving..." : "Save secret"}</button></div>
+					</form>
+				{:else if activeProjectSecret !== null}
+					<article class="project-note-view">
+						<header class="project-note-page-heading"><div><p class="eyebrow">Project Secret</p><h2>{activeProjectSecret.description}</h2><small>By {activeProjectSecret.author.name ?? activeProjectSecret.author.id} on {createdAtLabel(activeProjectSecret.created_at)}{#if activeProjectSecret.updated_at !== activeProjectSecret.created_at} / Updated {createdAtLabel(activeProjectSecret.updated_at)}{/if}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startProjectSecretEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingProjectSecret} onclick={() => void removeProjectSecret()}>{deletingProjectSecret ? "Removing..." : "Remove"}</button></div></header>
+						{#if projectSecretError !== ""}<p class="help is-danger" aria-live="polite">{projectSecretError}</p>{/if}
+					</article>
+				{:else}
+					<div class="collection-heading"><h2>Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startProjectSecretCreate()}>New secret</button></div>
+					<div class="collection-list">
+						{#if projectSecretStatus === "checking"}
+							<p class="dashboard-empty">Loading secrets...</p>
+						{:else if projectSecretStatus === "unavailable"}
+							<p class="dashboard-empty">Secrets could not be loaded.</p>
+						{:else}
+							{#each projectSecrets as secret (secret.id)}
+								<a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectSecretPath(activeWorkspace, activeProject, secret) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectSecret(secret) }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
+							{:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
+						{/if}
+					</div>
+				{/if}
+			</section>
+		{:else if activeSession === null && (activeProjectNote !== null || creatingProjectNote)}
         <section class="project-note-page">
           {#if editingProjectNote}
             <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectNote() }}>
