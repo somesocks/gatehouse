@@ -256,7 +256,7 @@ func noteReadFunction(read NoteRead, name string) func([]lisp.Expr) (error, lisp
 		}
 		result := lisp.Bytes(value)
 		if sensitive {
-			result = lisp.MarkSecret(result)
+			result = lisp.MarkSensitive(result)
 		}
 		return nil, result
 	}

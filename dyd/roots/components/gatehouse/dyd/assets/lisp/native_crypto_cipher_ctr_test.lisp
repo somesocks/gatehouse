@@ -36,17 +36,17 @@
       ; CTR preserves secret taint from keys, counters, and input.
       (assert
         (and
-          (secret?
+          (taint/secret?
             (ctr/crypt
               aes/encrypt
-              (secret/mark (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c"))
+              (taint/secret/mark (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c"))
               (bytes/hex/decode "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff")
               (bytes/hex/decode "6bc1bee22e409f96e93d7e117393172a")))
-          (secret?
+          (taint/secret?
             (ctr/crypt
               aes/encrypt
               (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c")
-              (secret/mark (bytes/hex/decode "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"))
+              (taint/secret/mark (bytes/hex/decode "f0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"))
               (bytes/hex/decode "6bc1bee22e409f96e93d7e117393172a")))))
 
       ; CTR validates counters and block function output lengths.

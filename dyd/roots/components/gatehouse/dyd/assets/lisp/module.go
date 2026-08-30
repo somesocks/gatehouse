@@ -238,6 +238,7 @@ func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed ma
 func importSearchBuiltin(allowed map[moduleReference]struct{}) Expr {
 	references := sortedModuleReferences(allowed)
 	return withHelp(&builtin{
+		leaky: true,
 		call: pure(func(_ *evaluator, arguments []Expr) (error, Expr) {
 			err, terms := helpTerms(arguments)
 			if err != nil {

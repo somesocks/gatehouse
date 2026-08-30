@@ -74,8 +74,8 @@ func newWebModule(endpoint string, client *http.Client) lisp.HostModule {
 
 func newWebModuleWithFetch(endpoint string, client *http.Client, fetch webFetchRequest) lisp.HostModule {
 	return lisp.HostModule{ID: gatehouseWebModuleID, Exports: []lisp.HostExport{
-		{Name: "search", Value: document(lisp.Function(webSearchFunction(endpoint, client)), webSearchDocumentation)},
-		{Name: "fetch", Value: document(lisp.Function(webFetchFunction(fetch)), webFetchDocumentation)},
+		{Name: "search", Value: document(lisp.FunctionNonLeaky(webSearchFunction(endpoint, client)), webSearchDocumentation)},
+		{Name: "fetch", Value: document(lisp.FunctionNonLeaky(webFetchFunction(fetch)), webFetchDocumentation)},
 	}}
 }
 
@@ -84,7 +84,7 @@ func webSearchFunction(endpoint string, client *http.Client) func([]lisp.Expr) (
 		if len(arguments) != 1 {
 			return lisp.Errorf("web/search requires a query"), nil
 		}
-		if lisp.IsSecret(arguments[0]) {
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone {
 			return lisp.Errorf("web/search query must not be sensitive"), nil
 		}
 		err, query := lisp.RequireString(arguments[0])
@@ -110,7 +110,7 @@ func webFetchFunction(fetch webFetchRequest) func([]lisp.Expr) (error, lisp.Expr
 		if len(arguments) != 1 {
 			return lisp.Errorf("web/fetch requires a URL"), nil
 		}
-		if lisp.IsSecret(arguments[0]) {
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone {
 			return lisp.Errorf("web/fetch URL must not be sensitive"), nil
 		}
 		err, rawURL := lisp.RequireString(arguments[0])

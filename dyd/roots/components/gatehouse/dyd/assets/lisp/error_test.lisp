@@ -21,13 +21,13 @@
   (assert (= (error/value (error/catch (error/throw (error/catch (error/throw 7))))) 7))
 
   ; Errors can carry secret-tainted values.
-  (assert (error? (error/catch (error/throw (secret/mark "secret")))))
+  (assert (error? (error/catch (error/throw (taint/secret/mark "secret")))))
 
   ; Catch preserves a secret-tainted thrown value.
-  (assert (secret? (error/catch (error/throw (secret/mark "secret")))))
+  (assert (taint/secret? (error/catch (error/throw (taint/secret/mark "secret")))))
 
   ; Error value preserves secret taint.
-  (assert (secret? (error/value (error/catch (error/throw (secret/mark "secret"))))))
+  (assert (taint/secret? (error/value (error/catch (error/throw (taint/secret/mark "secret"))))))
 
   ; Error values report their built-in help text.
   (assert (= (help (error/catch (error/throw 7))) "error"))

@@ -40,7 +40,7 @@ func helpDocument(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 2 {
 		return expressionError("help/document requires a value and help text"), nil
 	}
-	if hasSecret(arguments[1]) {
+	if TaintOf(arguments[1]) != TaintNone {
 		return expressionError("help/document requires public help text"), nil
 	}
 	err, text := requireString(arguments[1])

@@ -97,10 +97,10 @@
   ; Bytewise Boolean operations preserve secret taint.
   (assert
     (and
-      (secret? (bytes/and (secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
-      (secret? (bytes/or (bytes/hex/decode "aa") (secret/mark (bytes/hex/decode "0f"))))
-      (secret? (bytes/xor (secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
-      (secret? (bytes/not (secret/mark (bytes/hex/decode "aa"))))))
+      (taint/secret? (bytes/and (taint/secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
+      (taint/secret? (bytes/or (bytes/hex/decode "aa") (taint/secret/mark (bytes/hex/decode "0f"))))
+      (taint/secret? (bytes/xor (taint/secret/mark (bytes/hex/decode "aa")) (bytes/hex/decode "0f")))
+      (taint/secret? (bytes/not (taint/secret/mark (bytes/hex/decode "aa"))))))
 
   ; Big-endian arithmetic carries and borrows from the final byte.
   (assert
@@ -123,8 +123,8 @@
     (and
       (= (bytes/length (bytes/inc/be (bytes/concat))) 0)
       (= (bytes/length (bytes/dec/le (bytes/concat))) 0)
-      (secret? (bytes/inc/le (secret/mark (bytes/hex/decode "00"))))
-      (secret? (bytes/dec/be (secret/mark (bytes/hex/decode "00"))))))
+      (taint/secret? (bytes/inc/le (taint/secret/mark (bytes/hex/decode "00"))))
+      (taint/secret? (bytes/dec/be (taint/secret/mark (bytes/hex/decode "00"))))))
 
   ; Start and end padding reach the requested target length.
   (assert
@@ -137,8 +137,8 @@
   ; Padding preserves secret taint from Bytes and padding values.
   (assert
     (and
-      (secret? (bytes/pad/start (secret/mark (bytes/hex/decode "aa")) 2 0))
-      (secret? (bytes/pad/end (bytes/hex/decode "aa") 2 (secret/mark 0)))))
+      (taint/secret? (bytes/pad/start (taint/secret/mark (bytes/hex/decode "aa")) 2 0))
+      (taint/secret? (bytes/pad/end (bytes/hex/decode "aa") 2 (taint/secret/mark 0)))))
 
   ; Signed big-endian codecs preserve one-byte boundaries.
   (assert
@@ -167,8 +167,8 @@
   ; Integer codecs preserve secret taint.
   (assert
     (and
-      (secret? (bytes/int/be/encode (secret/mark -2) 2))
-      (secret? (bytes/uint/le/decode (secret/mark (bytes/hex/decode "0201"))))))
+      (taint/secret? (bytes/int/be/encode (taint/secret/mark -2) 2))
+      (taint/secret? (bytes/uint/le/decode (taint/secret/mark (bytes/hex/decode "0201"))))))
 
   ; Bytes values report their built-in help text.
   (assert

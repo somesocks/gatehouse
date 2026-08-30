@@ -109,7 +109,7 @@
       (string/contains? (error/value (error/catch (help/document 1))) "requires a value and help text")
       (string/contains? (error/value (error/catch (help/document 1 "text" "extra"))) "requires a value and help text")
       (string/contains? (error/value (error/catch (help/document 1 2))) "expected a string")
-      (string/contains? (error/value (error/catch (help/document 1 (secret/mark "secret")))) "requires public help text")))
+      (string/contains? (error/value (error/catch (help/document 1 (taint/secret/mark "secret")))) "requires public help text")))
 
   ; An empty help search has the same results as an omitted search term.
   (assert (= (help/search) (help/search "")))

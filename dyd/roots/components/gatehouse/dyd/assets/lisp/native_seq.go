@@ -80,8 +80,8 @@ func nativeSeqBytesSplitAt(source Expr, value string, blockSize int64, start int
 		end = int64(len(value))
 	}
 	block := Expr(bytesValue(value[start:end]))
-	if hasSecret(source) {
-		block = withSecret(block)
+	if taint := TaintOf(source); taint != TaintNone {
+		block = withTaint(block, taint)
 	}
 	tail := &builtin{call: pure(func(_ *evaluator, arguments []Expr) (error, Expr) {
 		if len(arguments) != 0 {
@@ -96,7 +96,7 @@ func nativeSeqBytesCollect(evaluator *evaluator, env *environment, arguments []E
 	if len(arguments) != 1 {
 		return expressionError("seq/bytes/collect requires one sequence"), nil
 	}
-	secret := hasSecret(arguments[0])
+	taint := TaintOf(arguments[0])
 	var builder strings.Builder
 	for sequence := arguments[0]; !isNullValue(sequence); {
 		base, _ := unwrap(sequence)
@@ -108,7 +108,7 @@ func nativeSeqBytesCollect(evaluator *evaluator, env *environment, arguments []E
 		if err != nil {
 			return err, nil
 		}
-		secret = secret || hasSecret(pair.first)
+		taint = joinTaint(taint, TaintOf(pair.first))
 		builder.WriteString(value)
 		err, sequence = evaluator.call(pair.rest, env, nil)
 		if err != nil {
@@ -116,8 +116,8 @@ func nativeSeqBytesCollect(evaluator *evaluator, env *environment, arguments []E
 		}
 	}
 	result := Expr(bytesValue(builder.String()))
-	if secret {
-		result = withSecret(result)
+	if taint != TaintNone {
+		result = withTaint(result, taint)
 	}
 	return nil, result
 }

@@ -18,10 +18,10 @@ func Run(source string) (error, Expr) {
 
 func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, result Expr) {
 	_, inputAnnotations := unwrap(expression)
-	tailSecret := false
+	tailTaint := TaintNone
 	defer func() {
-		if err == nil && (inputAnnotations.secret || tailSecret) {
-			result = withSecret(result)
+		if err == nil {
+			result = withTaint(result, joinTaint(inputAnnotations.taint, tailTaint))
 		}
 		if err == nil && inputAnnotations.help != "" {
 			result = withHelp(result, inputAnnotations.help)
@@ -65,12 +65,9 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 				}
 				switch outcome := outcome.(type) {
 				case callResult:
-					if leaky {
-						return nil, withSecret(outcome.value)
-					}
-					return nil, outcome.value
+					return nil, withTaint(outcome.value, leaky)
 				case callTailState:
-					tailSecret = tailSecret || leaky
+					tailTaint = joinTaint(tailTaint, joinTaint(leaky, outcome.taint))
 					expression = outcome.expression
 					if outcome.environment != nil {
 						env = outcome.environment
@@ -121,28 +118,24 @@ func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr
 		if err != nil {
 			return err, nil
 		}
-		if leaky {
-			result = withSecret(result)
-		}
-		return nil, result
+		return nil, withTaint(result, leaky)
 	default:
 		return expressionError("%s is not callable", callee.String()), nil
 	}
 }
 
-func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, arguments []Expr) (error, callOutcome, bool) {
-	err, outcome := builtin.call(evaluator, env, arguments)
-	if err != nil {
-		return err, nil, false
-	}
+func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, arguments []Expr) (error, callOutcome, Taint) {
+	taint := TaintNone
 	if builtin.leaky {
 		for _, argument := range arguments {
-			if hasSecret(argument) {
-				return nil, outcome, true
-			}
+			taint = joinTaint(taint, TaintOf(argument))
 		}
 	}
-	return nil, outcome, false
+	err, outcome := builtin.call(evaluator, env, arguments)
+	if err != nil {
+		return taintError(err, taint), nil, TaintNone
+	}
+	return nil, outcome, taint
 }
 
 func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environment) (error, Expr) {
@@ -153,60 +146,68 @@ func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environ
 		if outcome.environment == nil {
 			outcome.environment = env
 		}
-		return evaluator.eval(outcome.expression, outcome.environment)
+		err, result := evaluator.eval(outcome.expression, outcome.environment)
+		if err != nil {
+			return err, nil
+		}
+		return nil, withTaint(result, outcome.taint)
 	default:
 		panic("invalid builtin call outcome")
 	}
 }
 
-func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, Expr) {
+func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, Expr, Taint) {
 	if len(forms) != 3 {
-		return expressionError("if requires a condition, then expression, and else expression"), nil
+		return expressionError("if requires a condition, then expression, and else expression"), nil, TaintNone
 	}
 	err, condition := evaluator.eval(forms[0], env)
 	if err != nil {
-		return err, nil
+		return err, nil, TaintNone
 	}
 	err, truth := requireBoolean(condition)
 	if err != nil {
-		return err, nil
+		return err, nil, TaintNone
 	}
 	if truth {
-		return nil, forms[1]
+		return nil, forms[1], TaintOf(condition)
 	}
-	return nil, forms[2]
+	return nil, forms[2], TaintOf(condition)
 }
 func (evaluator *evaluator) evaluateAnd(forms []Expr, env *environment) (error, Expr) {
+	taint := TaintNone
 	for _, form := range forms {
 		err, value := evaluator.eval(form, env)
 		if err != nil {
 			return err, nil
 		}
+		taint = joinTaint(taint, TaintOf(value))
 		err, truth := requireBoolean(value)
 		if err != nil {
 			return err, nil
 		}
 		if !truth {
-			return nil, boolean(false)
+			return nil, withTaint(boolean(false), taint)
 		}
 	}
-	return nil, boolean(true)
+	return nil, withTaint(boolean(true), taint)
 }
 func (evaluator *evaluator) evaluateOr(forms []Expr, env *environment) (error, Expr) {
+	taint := TaintNone
 	for _, form := range forms {
 		err, value := evaluator.eval(form, env)
 		if err != nil {
 			return err, nil
 		}
+		taint = joinTaint(taint, TaintOf(value))
 		err, truth := requireBoolean(value)
 		if err != nil {
 			return err, nil
 		}
 		if truth {
-			return nil, boolean(true)
+			return nil, withTaint(boolean(true), taint)
 		}
 	}
-	return nil, boolean(false)
+	return nil, withTaint(boolean(false), taint)
 }
 
 func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, Expr, *environment) {

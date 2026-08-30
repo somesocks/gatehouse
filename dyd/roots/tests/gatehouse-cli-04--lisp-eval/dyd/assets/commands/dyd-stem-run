@@ -28,7 +28,7 @@ _setup() {
 _test() {
     assert_equals "$(gatehouse lisp eval '(+ 1 2)')" "3" "argument evaluation"
     assert_equals "$(printf '%s\n' '(+ 2 3)' | gatehouse lisp eval --from-stdin)" "5" "standard input evaluation"
-    assert_equals "$(gatehouse lisp eval '(secret/mark "token")')" "#<secret>" "secret rendering"
+    assert_equals "$(gatehouse lisp eval '(taint/secret/mark "token")')" "#<secret>" "secret rendering"
     assert_equals "$(gatehouse lisp eval '(import (time @native:time/v1) (int? (time/now)))')" "#t" "native import"
 
     if gatehouse lisp eval '(' >"$TEMP_DIR/parse.stdout" 2>"$TEMP_DIR/parse.stderr"; then

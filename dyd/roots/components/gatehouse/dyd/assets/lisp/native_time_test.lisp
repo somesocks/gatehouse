@@ -4,7 +4,7 @@
     (begin
       ; Now returns a public positive Unix-millisecond timestamp.
       (let ((value (time/now)))
-        (assert (and (int? value) (> value 0) (not (secret? value)))))
+        (assert (and (int? value) (> value 0) (not (taint/secret? value)))))
 
       ; Now reports its signature and runnable example.
       (assert

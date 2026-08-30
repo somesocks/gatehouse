@@ -47,7 +47,7 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 	err, result = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (session/notes/create "Decision" "" body))`, lisp.EvalOptions{
-		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSecret(lisp.String("# Decision"))}},
+		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSensitive(lisp.String("# Decision"))}},
 		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(title, description, body string, sensitive bool) (error, SessionNote) {
 			if title != "Decision" || description != "" || body != "# Decision" || !sensitive {
 				t.Fatalf("sensitive session note create = (%q, %q, %q, %t)", title, description, body, sensitive)
@@ -55,14 +55,14 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 			return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
 		}})},
 	})
-	if err != nil || result.String() != "#<secret>" {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
 		t.Fatalf("Evaluate() sensitive note = (%s, %v)", result, err)
 	}
 
 	err, _ = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (session/notes/create title "" "# Decision"))`, lisp.EvalOptions{
-		Bindings:    []lisp.Binding{{Name: "title", Value: lisp.MarkSecret(lisp.String("Decision"))}},
+		Bindings:    []lisp.Binding{{Name: "title", Value: lisp.MarkSensitive(lisp.String("Decision"))}},
 		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Create: func(string, string, string, bool) (error, SessionNote) { return nil, SessionNote{} }})},
 	})
 	if err == nil || !strings.Contains(err.Error(), "title and description must not be sensitive") {
@@ -162,8 +162,8 @@ func TestGatehouseSessionNoteReadMarksSensitiveBytes(t *testing.T) {
 			return nil, []byte("secret"), true
 		}})},
 	})
-	if err != nil || !lisp.IsSecret(result) {
-		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSecret(result))
+	if err != nil || !lisp.IsSensitive(result) {
+		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSensitive(result))
 	}
 	bytesErr, bytes := lisp.RequireBytes(result)
 	if bytesErr != nil || string(bytes) != "secret" {
@@ -177,8 +177,8 @@ func TestGatehouseSessionNoteReadMarksSensitiveBytes(t *testing.T) {
 			return nil, []byte("guide"), false
 		}})},
 	})
-	if err != nil || lisp.IsSecret(result) {
-		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSecret(result))
+	if err != nil || lisp.IsSensitive(result) {
+		t.Fatalf("Evaluate() = (%s, %v), sensitive = %t", result, err, lisp.IsSensitive(result))
 	}
 	bytesErr, bytes = lisp.RequireBytes(result)
 	if bytesErr != nil || string(bytes) != "guide" {

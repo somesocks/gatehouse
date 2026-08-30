@@ -28,7 +28,7 @@ func nativeJSONModule() Expr {
 	decode := withHelp(&builtin{leaky: true, call: pure(nativeJSONDecode)}, nativeJSONDecodeDocumentation.text())
 	encode := withHelp(&builtin{leaky: true, call: pure(nativeJSONEncode)}, nativeJSONEncodeDocumentation.text())
 	exports := list([]Expr{
-		pairValue(symbol("null"), withHelp(&builtin{leaky: true, call: pure(nativeJSONNull)}, doc("(json/null) -> JSON", "Creates the JSON null value.", "(json/null)", "(json/null)").text())),
+		pairValue(symbol("null"), withHelp(&builtin{call: pure(nativeJSONNull)}, doc("(json/null) -> JSON", "Creates the JSON null value.", "(json/null)", "(json/null)").text())),
 		pairValue(symbol("null?"), withHelp(&builtin{call: pure(nativeJSONNullQ)}, doc("(json/null? value) -> Boolean", "Returns whether value is a JSON Null.", "(json/null? (json/null))", "#t").text())),
 		pairValue(symbol("boolean"), withHelp(&builtin{leaky: true, call: pure(nativeJSONBoolean)}, doc("(json/boolean boolean) -> JSON", "Creates a JSON Boolean value.", "(json/boolean #t)", "(json/boolean #t)").text())),
 		pairValue(symbol("boolean?"), withHelp(&builtin{call: pure(nativeJSONBooleanQ)}, doc("(json/boolean? value) -> Boolean", "Returns whether value is a JSON Boolean.", "(json/boolean? (json/boolean #t))", "#t").text())),
@@ -393,8 +393,8 @@ func nativeJSONRequireType(arguments []Expr, tag string, typeName string, name s
 }
 
 func nativeJSONExtract(source Expr, value Expr) Expr {
-	if hasSecret(source) {
-		return withSecret(value)
+	if taint := TaintOf(source); taint != TaintNone {
+		return withTaint(value, taint)
 	}
 	return value
 }
@@ -416,8 +416,8 @@ func nativeJSONDecode(_ *evaluator, arguments []Expr) (error, Expr) {
 	if _, err := decoder.Token(); err != io.EOF {
 		return expressionError("json/decode requires one JSON value"), nil
 	}
-	if hasSecret(arguments[0]) {
-		value = withSecret(value)
+	if taint := TaintOf(arguments[0]); taint != TaintNone {
+		value = withTaint(value, taint)
 	}
 	return nil, value
 }
@@ -466,7 +466,7 @@ func nativeJSONDecodeValue(decoder *json.Decoder) (error, Expr) {
 				if err != nil {
 					return err, nil
 				}
-			members = append(members, pairValue(stringValue(keyText), value))
+				members = append(members, pairValue(stringValue(keyText), value))
 			}
 			if _, err := decoder.Token(); err != nil {
 				return err, nil
@@ -486,8 +486,8 @@ func nativeJSONEncode(_ *evaluator, arguments []Expr) (error, Expr) {
 		return err, nil
 	}
 	result := Expr(stringValue(encoded))
-	if hasSecret(arguments[0]) {
-		result = withSecret(result)
+	if taint := TaintOf(arguments[0]); taint != TaintNone {
+		result = withTaint(result, taint)
 	}
 	return nil, result
 }

@@ -63,13 +63,13 @@ func NewSessionModule(files []File, read FileRead, create SessionFileCreate, not
 
 	return lisp.HostModule{ID: gatehouseSessionModuleID, Exports: []lisp.HostExport{
 		{Name: "files/list", Value: document(lisp.Function(fileListFunction(files, "session/files/list")), fileListDocumentation)},
-		{Name: "files/info", Value: document(lisp.Function(fileInfoFunction(files, "session/files/info")), fileInfoDocumentation)},
+		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(fileInfoFunction(files, "session/files/info")), fileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
 		{Name: "events/read", Value: document(lisp.Function(eventRead), sessionEventReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), sessionNoteReadDocumentation)},
-		{Name: "notes/create", Value: document(lisp.Function(noteCreate), sessionNoteCreateDocumentation)},
+		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), sessionNoteCreateDocumentation)},
 		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), sessionNoteRemoveDocumentation)},
 	}}
 }
@@ -106,6 +106,9 @@ func sessionFileCreateFunction(create SessionFileCreate, name string) func(*lisp
 	return func(context *lisp.FunctionContext, arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires name, media_type, and chunks", name), nil
+		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || lisp.TaintOf(arguments[1]) != lisp.TaintNone {
+			return lisp.Errorf("%s name and media_type must not be sensitive", name), nil
 		}
 		err, fileName := lisp.RequireString(arguments[0])
 		if err != nil {
@@ -160,6 +163,9 @@ func (reader *sessionFileSequenceReader) Read(destination []byte) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		if lisp.TaintOf(head) != lisp.TaintNone {
+			return 0, lisp.Errorf("session/files/create contents must not be sensitive")
+		}
 		reader.remaining, reader.tail = contents, tail
 	}
 	count := copy(destination, reader.remaining)
@@ -193,10 +199,13 @@ func sessionNoteCreateFunction(create SessionNoteCreate, name string) func([]lis
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires title, description, and body", name), nil
 		}
-		if lisp.IsSecret(arguments[0]) || lisp.IsSecret(arguments[1]) {
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || lisp.TaintOf(arguments[1]) != lisp.TaintNone {
 			return lisp.Errorf("%s title and description must not be sensitive", name), nil
 		}
-		sensitive := lisp.IsSecret(arguments[2])
+		if lisp.IsSecret(arguments[2]) {
+			return lisp.Errorf("%s body must not be secret", name), nil
+		}
+		sensitive := lisp.IsSensitive(arguments[2])
 		err, title := lisp.RequireString(arguments[0])
 		if err != nil {
 			return err, nil

@@ -21,18 +21,38 @@ type raisedError struct {
 	value Expr
 }
 
+type taintedError struct {
+	cause error
+	taint Taint
+}
+
 func (err *raisedError) Error() string {
-	if hasSecret(err.value) {
-		return "#<secret>"
+	if TaintOf(err.value) != TaintNone {
+		return err.value.String()
 	}
 	base, _ := unwrap(err.value)
 	return "thrown error: " + base.(*errorValue).value.String()
 }
 
+func (err *taintedError) Error() string {
+	return withTaint(null(), err.taint).String()
+}
+
+func taintError(err error, taint Taint) error {
+	if taint == TaintNone {
+		return err
+	}
+	if existing, ok := err.(*taintedError); ok {
+		existing.taint = joinTaint(existing.taint, taint)
+		return existing
+	}
+	return &taintedError{cause: err, taint: taint}
+}
+
 func errorExpression(value Expr) Expr {
 	result := Expr(&errorValue{value: value})
-	if hasSecret(value) {
-		return withSecret(result)
+	if taint := TaintOf(value); taint != TaintNone {
+		return withTaint(result, taint)
 	}
 	return result
 }
@@ -60,7 +80,7 @@ func throwError(_ *evaluator, arguments []Expr) (error, Expr) {
 	return &raisedError{value: value}, nil
 }
 
-func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+func assertValues(evaluator *evaluator, env *environment, forms []Expr) (error, callOutcome) {
 	if len(forms) < 1 || len(forms) > 3 {
 		return expressionError("assert requires a condition and optional value and failure"), nil
 	}
@@ -82,17 +102,17 @@ func assertValue(evaluator *evaluator, env *environment, forms []Expr) (error, E
 			if _, ok := base.(*errorValue); !ok {
 				value = errorExpression(value)
 			}
-			return &raisedError{value: value}, nil
+			return &raisedError{value: withTaint(value, TaintOf(condition))}, nil
 		}
-		return &raisedError{value: errorExpression(stringValue("assertion failed"))}, nil
+		return &raisedError{value: withTaint(errorExpression(stringValue("assertion failed")), TaintOf(condition))}, nil
 	}
 	if len(forms) == 1 {
-		return nil, null()
+		return nil, callResult{value: withTaint(null(), TaintOf(condition))}
 	}
-	return evaluator.eval(forms[1], env)
+	return nil, callTailState{expression: forms[1], taint: TaintOf(condition)}
 }
 
-func assertTiming(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+func assertTimingValues(evaluator *evaluator, env *environment, forms []Expr) (error, callOutcome) {
 	if len(forms) != 2 {
 		return expressionError("assert/timing requires maximum milliseconds and one expression"), nil
 	}
@@ -105,7 +125,7 @@ func assertTiming(evaluator *evaluator, env *environment, forms []Expr) (error, 
 		return err, nil
 	}
 	if milliseconds < 0 {
-		return expressionError("assert/timing requires non-negative maximum milliseconds"), nil
+		return taintError(expressionError("assert/timing requires non-negative maximum milliseconds"), TaintOf(maximum)), nil
 	}
 
 	started := time.Now()
@@ -115,9 +135,9 @@ func assertTiming(evaluator *evaluator, env *environment, forms []Expr) (error, 
 	}
 	elapsed := time.Since(started).Milliseconds()
 	if elapsed > milliseconds {
-		return expressionError("assert/timing exceeded %d milliseconds (actual %d milliseconds)", milliseconds, elapsed), nil
+		return taintError(expressionError("assert/timing exceeded %d milliseconds (actual %d milliseconds)", milliseconds, elapsed), TaintOf(maximum)), nil
 	}
-	return nil, result
+	return nil, callResult{value: withTaint(result, TaintOf(maximum))}
 }
 
 func isError(_ *evaluator, arguments []Expr) (error, Expr) {
@@ -144,6 +164,9 @@ func errorValueOf(_ *evaluator, arguments []Expr) (error, Expr) {
 func caughtError(err error) Expr {
 	if raised, ok := err.(*raisedError); ok {
 		return raised.value
+	}
+	if tainted, ok := err.(*taintedError); ok {
+		return errorExpression(withTaint(stringValue(tainted.cause.Error()), tainted.taint))
 	}
 	return errorExpression(stringValue(err.Error()))
 }

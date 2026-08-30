@@ -2,12 +2,18 @@ package lisp
 
 import "testing"
 
-func TestEvalPreservesSecretAnnotation(t *testing.T) {
-	err, result := Eval(withSecret(integer(1)))
+func TestEvalPreservesTaintAnnotation(t *testing.T) {
+	err, result := Eval(MarkSecret(integer(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasSecret(result) {
-		t.Fatalf("Eval(withSecret(1)) = %s, want a secret value", result)
+	if !IsSecret(result) {
+		t.Fatalf("Eval(MarkSecret(1)) = %s, want a secret value", result)
+	}
+}
+
+func TestTaintDoesNotDowngrade(t *testing.T) {
+	if !IsSecret(MarkSensitive(MarkSecret(integer(1)))) {
+		t.Fatal("MarkSensitive(MarkSecret(1)) downgraded the taint")
 	}
 }

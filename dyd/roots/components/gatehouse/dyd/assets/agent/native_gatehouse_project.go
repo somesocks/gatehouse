@@ -78,11 +78,11 @@ func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)},
 		{Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)},
 		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
-		{Name: "files/info", Value: document(lisp.Function(filesInfo), projectFileInfoDocumentation)},
+		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
-		{Name: "notes/create", Value: document(lisp.Function(noteCreate), projectNoteCreateDocumentation)},
+		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), projectNoteCreateDocumentation)},
 		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), projectNoteRemoveDocumentation)},
 	}}
 }
@@ -92,10 +92,13 @@ func projectNoteCreateFunction(create ProjectNoteCreate, name string) func([]lis
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires title, description, and body", name), nil
 		}
-		if lisp.IsSecret(arguments[0]) || lisp.IsSecret(arguments[1]) {
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || lisp.TaintOf(arguments[1]) != lisp.TaintNone {
 			return lisp.Errorf("%s title and description must not be sensitive", name), nil
 		}
-		sensitive := lisp.IsSecret(arguments[2])
+		if lisp.IsSecret(arguments[2]) {
+			return lisp.Errorf("%s body must not be secret", name), nil
+		}
+		sensitive := lisp.IsSensitive(arguments[2])
 		err, title := lisp.RequireString(arguments[0])
 		if err != nil {
 			return err, nil
@@ -132,6 +135,9 @@ func projectInfoSetFunction(set ProjectInfoSet) func([]lisp.Expr) (error, lisp.E
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 2 {
 			return lisp.Errorf("project/info/set requires name and description"), nil
+		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || lisp.TaintOf(arguments[1]) != lisp.TaintNone {
+			return lisp.Errorf("project/info/set name and description must not be sensitive"), nil
 		}
 		err, name := lisp.RequireString(arguments[0])
 		if err != nil {

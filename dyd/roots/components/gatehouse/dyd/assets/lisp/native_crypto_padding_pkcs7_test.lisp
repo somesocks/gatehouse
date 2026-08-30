@@ -26,10 +26,10 @@
       ; Padding and unpadding preserve secret taint.
       (assert
         (and
-          (secret? (pkcs7/pad 8 (secret/mark (bytes/hex/decode "aa"))))
-          (secret?
+          (taint/secret? (pkcs7/pad 8 (taint/secret/mark (bytes/hex/decode "aa"))))
+          (taint/secret?
             (pkcs7/unpad 8
-              (secret/mark (bytes/hex/decode "59454c4c4f570202"))))))
+              (taint/secret/mark (bytes/hex/decode "59454c4c4f570202"))))))
 
       ; Invalid block sizes are rejected.
       (assert

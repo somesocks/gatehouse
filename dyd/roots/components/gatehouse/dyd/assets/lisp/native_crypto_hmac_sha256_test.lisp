@@ -38,13 +38,13 @@
       ; Digest preserves taint from either key or message.
       (assert
         (and
-          (secret? (hmac/digest (secret/mark (bytes/utf8/encode "key")) (bytes/utf8/encode "message")))
-          (secret? (hmac/digest (bytes/utf8/encode "key") (secret/mark (bytes/utf8/encode "message"))))
-          (secret?
+          (taint/secret? (hmac/digest (taint/secret/mark (bytes/utf8/encode "key")) (bytes/utf8/encode "message")))
+          (taint/secret? (hmac/digest (bytes/utf8/encode "key") (taint/secret/mark (bytes/utf8/encode "message"))))
+          (taint/secret?
             (hmac/verify
               (bytes/utf8/encode "key")
               (bytes/utf8/encode "message")
-              (secret/mark (bytes/hex/decode "9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab"))))))
+              (taint/secret/mark (bytes/hex/decode "9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab"))))))
 
       ; Digest requires exactly two Bytes arguments.
       (assert

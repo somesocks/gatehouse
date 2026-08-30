@@ -14,7 +14,7 @@
           (string/contains? (help sha256/digest) "Example: (import (sha256 @native:crypto/digest/sha256/v1)")))
 
       ; Digest preserves secret taint.
-      (assert (secret? (sha256/digest (secret/mark (bytes/utf8/encode "abc")))))
+      (assert (taint/secret? (sha256/digest (taint/secret/mark (bytes/utf8/encode "abc")))))
 
       ; Digest requires exactly one Bytes argument.
       (assert

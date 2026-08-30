@@ -13,9 +13,18 @@ type Expr interface {
 }
 
 type annotations struct {
-	secret bool
-	help   string
+	taint Taint
+	help  string
 }
+
+// Taint controls how a value may flow through the runtime.
+type Taint uint8
+
+const (
+	TaintNone Taint = iota
+	TaintSensitive
+	TaintSecret
+)
 
 type annotatedExpr struct {
 	value Expr
@@ -54,6 +63,7 @@ type callResult struct{ value Expr }
 type callTailState struct {
 	expression  Expr
 	environment *environment
+	taint       Taint
 }
 
 type errorValue struct {
@@ -213,9 +223,9 @@ func unwrap(expr Expr) (Expr, annotations) {
 	}
 }
 
-func hasSecret(expr Expr) bool {
+func TaintOf(expr Expr) Taint {
 	_, annotations := unwrap(expr)
-	return annotations.secret
+	return annotations.taint
 }
 
 func helpOf(expr Expr) string {
@@ -223,19 +233,29 @@ func helpOf(expr Expr) string {
 	return annotations.help
 }
 
-func withSecret(expr Expr) Expr {
-	base, annotations := unwrap(expr)
-	if annotations.secret {
+func joinTaint(left, right Taint) Taint {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func withTaint(expr Expr, taint Taint) Expr {
+	if taint == TaintNone {
 		return expr
 	}
-	annotations.secret = true
+	base, annotations := unwrap(expr)
+	if annotations.taint >= taint {
+		return expr
+	}
+	annotations.taint = taint
 	return &annotatedExpr{value: base, annotations: annotations}
 }
 
 func withHelp(expr Expr, help string) Expr {
 	base, annotations := unwrap(expr)
 	annotations.help = help
-	if !annotations.secret && annotations.help == "" {
+	if annotations.taint == TaintNone && annotations.help == "" {
 		return base
 	}
 	return &annotatedExpr{value: base, annotations: annotations}
@@ -254,8 +274,8 @@ func appendHelp(expr Expr, help string) Expr {
 
 func pairValue(first Expr, rest Expr) Expr {
 	result := Expr(&pair{first: first, rest: rest})
-	if hasSecret(first) || hasSecret(rest) {
-		return withSecret(result)
+	if taint := joinTaint(TaintOf(first), TaintOf(rest)); taint != TaintNone {
+		return withTaint(result, taint)
 	}
 	return result
 }
@@ -270,7 +290,10 @@ func list(values []Expr) Expr {
 
 func render(expr Expr) string {
 	base, annotations := unwrap(expr)
-	if annotations.secret {
+	switch annotations.taint {
+	case TaintSensitive:
+		return "#<sensitive>"
+	case TaintSecret:
 		return "#<secret>"
 	}
 	switch value := base.(type) {

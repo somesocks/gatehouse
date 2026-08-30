@@ -21,14 +21,14 @@
       ; Encrypting and decrypting preserve secret taint from either input.
       (assert
         (and
-          (secret?
+          (taint/secret?
             (aes/encrypt
-              (secret/mark (bytes/hex/decode "000102030405060708090a0b0c0d0e0f"))
+              (taint/secret/mark (bytes/hex/decode "000102030405060708090a0b0c0d0e0f"))
               (bytes/hex/decode "00112233445566778899aabbccddeeff")))
-          (secret?
+          (taint/secret?
             (aes/decrypt
               (bytes/hex/decode "000102030405060708090a0b0c0d0e0f")
-              (secret/mark (bytes/hex/decode "69c4e0d86a7b0430d8cdb78070b4c55a"))))))
+              (taint/secret/mark (bytes/hex/decode "69c4e0d86a7b0430d8cdb78070b4c55a"))))))
 
       ; AES-128 validates key and block lengths.
       (assert

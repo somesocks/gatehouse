@@ -140,7 +140,7 @@ func TestNativeNetHTTPValidationAndTaint(t *testing.T) {
 		{`(import (http @native:net/http/v1) (error/value (error/catch (http/request "GET" "file:///etc/passwd" null (bytes/concat)))))`, "absolute HTTP or HTTPS URL"},
 		{`(import (http @native:net/http/v1) (error/value (error/catch (http/request "GET" "https://user:pass@api.example.test" null (bytes/concat)))))`, "without credentials"},
 		{`(import (http @native:net/http/v1) (error/value (error/catch (http/request "GET" "https://api.example.test" (list "bad") (bytes/concat)))))`, "proper list"},
-		{`(import (http @native:net/http/v1) (secret? (http/request "GET" "https://api.example.test" (secret/mark (list (pair "Authorization" "Bearer secret"))) (bytes/concat))))`, "#t"},
+		{`(import (http @native:net/http/v1) (taint/secret? (http/request "GET" "https://api.example.test" (taint/secret/mark (list (pair "Authorization" "Bearer secret"))) (bytes/concat))))`, "#t"},
 	} {
 		t.Run(test.contains, func(t *testing.T) {
 			err, result := runWithModuleCache(test.source, cache)

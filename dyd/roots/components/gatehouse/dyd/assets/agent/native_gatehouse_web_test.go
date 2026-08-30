@@ -98,11 +98,11 @@ func TestGatehouseWebModuleRejectsInvalidQueriesAndResponses(t *testing.T) {
   (list
     (error/value (error/catch (web/search)))
     (error/value (error/catch (web/search " ")))
-    (error/value (error/catch (web/search (secret/mark "query"))))
+	    (error/value (error/catch (web/search (taint/secret/mark "query"))))
     (error/value (error/catch (web/search "query")))
     (error/value (error/catch (web/fetch)))
     (error/value (error/catch (web/fetch " ")))
-    (error/value (error/catch (web/fetch (secret/mark "https://example.test"))))
+	    (error/value (error/catch (web/fetch (taint/secret/mark "https://example.test"))))
     (error/value (error/catch (web/fetch "https://example.test")))))`, lisp.EvalOptions{HostModules: []lisp.HostModule{newWebModuleWithFetch(server.URL, server.Client(), func(string) (string, error) { return "", errors.New("unavailable") })}})
 	if err != nil || result.String() != `("web/search requires a query" "web/search query must not be blank" "web/search query must not be sensitive" "web/search failed" "web/fetch requires a URL" "web/fetch URL must not be blank" "web/fetch URL must not be sensitive" "web/fetch failed")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)

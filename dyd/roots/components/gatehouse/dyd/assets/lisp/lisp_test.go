@@ -428,26 +428,45 @@ func TestModuleImportErrors(t *testing.T) {
 	}
 }
 
-func TestEvalSecretRendering(t *testing.T) {
-	err, result := Run("(secret/mark \"secret\")")
+func TestEvalTaintRendering(t *testing.T) {
+	err, result := Run("(taint/secret/mark \"secret\")")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasSecret(result) || result.String() != "#<secret>" {
+	if !IsSecret(result) || result.String() != "#<secret>" {
 		t.Fatalf("secret value = %#v, want redacted secret", result)
 	}
 }
 
-func TestPreludePredicatesAreNonLeaky(t *testing.T) {
-	for _, definition := range preludeBuiltins {
-		if strings.HasSuffix(definition.name, "?") && definition.leaky {
-			t.Errorf("%s is leaky, want non-leaky predicate", definition.name)
+func TestTaintBuiltinsAndPropagation(t *testing.T) {
+	err, result := Run(`(list
+  (taint/get null)
+  (taint/get (taint/sensitive/mark 1))
+  (taint/get (taint/secret/mark 1))
+  (taint/get (bytes/length (taint/secret/mark (bytes/utf8/encode "secret"))))
+  (taint/get (string/contains? (taint/secret/mark "secret") "sec"))
+  (taint/get (fn/apply if (list (taint/sensitive/mark #t) 1 2)))
+  (taint/get (error/value (error/catch (assert (taint/secret/mark #f))))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := result.String(), "(none sensitive secret none secret sensitive secret)"; got != want {
+		t.Fatalf("taint propagation = %s, want %s", got, want)
+	}
+}
+
+func TestPreludeMetadataOperationsAreNonLeaky(t *testing.T) {
+	for _, name := range []string{"bool?", "int?", "symbol?", "pair?", "null?", "list?", "list/length", "string?", "string/length", "bytes?", "bytes/length"} {
+		for _, definition := range preludeBuiltins {
+			if definition.name == name && definition.leaky {
+				t.Errorf("%s is leaky, want non-leaky metadata operation", name)
+			}
 		}
 	}
 }
 
 func TestEvalSecretErrorsAreRedacted(t *testing.T) {
-	err, _ := Run("(int/div (secret/mark \"secret\") 1)")
+	err, _ := Run("(int/div (taint/secret/mark \"secret\") 1)")
 	if err == nil || !strings.Contains(err.Error(), "#<secret>") || strings.Contains(err.Error(), `"secret"`) {
 		t.Fatalf("Run() error = %v, want redacted secret", err)
 	}

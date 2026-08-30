@@ -40,7 +40,7 @@
 
   ; Rest parameters retain lexical bindings and preserve secret taint.
   (assert (= (let ((prefix 1)) ((fn (first . rest) (list prefix first rest)) 2 3)) (list 1 2 (list 3))))
-  (assert (secret? ((fn rest rest) (secret/mark 1))))
+  (assert (taint/secret? ((fn rest rest) (taint/secret/mark 1))))
 
   ; Recursive variadic functions work through fn/apply.
   (assert

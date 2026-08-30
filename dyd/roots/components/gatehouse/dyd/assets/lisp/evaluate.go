@@ -127,14 +127,26 @@ func Pair(name string, value Expr) Expr {
 	return pairValue(symbol(name), value)
 }
 func Function(call func([]Expr) (error, Expr)) Expr {
-	return &builtin{leaky: true, call: pure(func(_ *evaluator, arguments []Expr) (error, Expr) {
+	return function(true, call)
+}
+func FunctionNonLeaky(call func([]Expr) (error, Expr)) Expr {
+	return function(false, call)
+}
+func function(leaky bool, call func([]Expr) (error, Expr)) Expr {
+	return &builtin{leaky: leaky, call: pure(func(_ *evaluator, arguments []Expr) (error, Expr) {
 		return call(arguments)
 	})}
 }
 
 // FunctionWithContext creates a host function that can synchronously call Lisp values.
 func FunctionWithContext(call func(*FunctionContext, []Expr) (error, Expr)) Expr {
-	return &builtin{leaky: true, call: valueCall(func(evaluator *evaluator, environment *environment, arguments []Expr) (error, Expr) {
+	return functionWithContext(true, call)
+}
+func FunctionWithContextNonLeaky(call func(*FunctionContext, []Expr) (error, Expr)) Expr {
+	return functionWithContext(false, call)
+}
+func functionWithContext(leaky bool, call func(*FunctionContext, []Expr) (error, Expr)) Expr {
+	return &builtin{leaky: leaky, call: valueCall(func(evaluator *evaluator, environment *environment, arguments []Expr) (error, Expr) {
 		context := &FunctionContext{evaluator: evaluator, environment: environment, active: true}
 		defer context.close()
 		return call(context, arguments)
@@ -187,5 +199,7 @@ func RequireBytes(expression Expr) (error, []byte) {
 	return err, []byte(value)
 }
 func Errorf(format string, args ...any) error       { return expressionError(format, args...) }
-func MarkSecret(expression Expr) Expr                { return withSecret(expression) }
-func IsSecret(expression Expr) bool                  { return hasSecret(expression) }
+func MarkSensitive(expression Expr) Expr             { return withTaint(expression, TaintSensitive) }
+func MarkSecret(expression Expr) Expr                { return withTaint(expression, TaintSecret) }
+func IsSensitive(expression Expr) bool               { return TaintOf(expression) == TaintSensitive }
+func IsSecret(expression Expr) bool                  { return TaintOf(expression) == TaintSecret }

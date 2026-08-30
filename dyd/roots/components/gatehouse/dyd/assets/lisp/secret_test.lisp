@@ -2,78 +2,76 @@
   ; Marked values and direct-flow transformations remain secret.
   (assert
     (and
-      (secret? (secret/mark "secret"))
-      (secret? (string/upper (secret/mark "secret")))
-      (secret? (head (list (secret/mark "secret"))))
-      (secret? ((fn (value) value) (secret/mark "secret")))
-      (secret? (let ((value (secret/mark "secret"))) ((fn () value))))
-      (secret? (list/map string/upper (list (secret/mark "secret"))))
-      (secret? (secret/mark (list 1 2)))))
+      (taint/secret? (taint/secret/mark "secret"))
+      (taint/secret? (string/upper (taint/secret/mark "secret")))
+      (taint/secret? (head (list (taint/secret/mark "secret"))))
+      (taint/secret? ((fn (value) value) (taint/secret/mark "secret")))
+      (taint/secret? (let ((value (taint/secret/mark "secret"))) ((fn () value))))
+      (taint/secret? (list/map string/upper (list (taint/secret/mark "secret"))))
+      (taint/secret? (taint/secret/mark (list 1 2)))))
 
   ; Pairs and enclosing lists inherit taint from either element.
   (assert
     (and
-      (secret? (pair (secret/mark 1) 2))
-      (secret? (pair 1 (secret/mark 2)))
-      (secret? (list 1 (secret/mark 2)))
-      (secret? (list (secret/mark 1) 2))))
+      (taint/secret? (pair (taint/secret/mark 1) 2))
+      (taint/secret? (pair 1 (taint/secret/mark 2)))
+      (taint/secret? (list 1 (taint/secret/mark 2)))
+      (taint/secret? (list (taint/secret/mark 1) 2))))
 
   ; Length operations return public values derived from secret input.
   (assert
     (and
-      (not (secret? (string/length (string/upper (secret/mark "secret")))))
-      (= (string/length (string/upper (secret/mark "secret"))) 6)
-      (not (secret? (string/length (secret/mark "secret"))))
-      (= (string/length (secret/mark "secret")) 6)
-      (not (secret? (list/length (list (secret/mark "secret")))))
-      (= (list/length (list (secret/mark "secret"))) 1)
-      (not (secret? (bytes/length (secret/mark (bytes/hex/decode "ff00")))))
-      (= (bytes/length (secret/mark (bytes/hex/decode "ff00"))) 2)))
+      (not (taint/secret? (string/length (string/upper (taint/secret/mark "secret")))))
+      (= (string/length (string/upper (taint/secret/mark "secret"))) 6)
+      (not (taint/secret? (string/length (taint/secret/mark "secret"))))
+      (= (string/length (taint/secret/mark "secret")) 6)
+      (not (taint/secret? (list/length (list (taint/secret/mark "secret")))))
+      (= (list/length (list (taint/secret/mark "secret"))) 1)
+      (not (taint/secret? (bytes/length (taint/secret/mark (bytes/hex/decode "ff00")))))
+      (= (bytes/length (taint/secret/mark (bytes/hex/decode "ff00"))) 2)))
 
-  ; A public predicate can select a public branch from secret input.
+  ; A content predicate taints its selected branch.
   (assert
-    (let ((result (if (string/contains? (secret/mark "secret") "e") "yes" "no")))
-      (and (not (secret? result)) (= result "yes"))))
+    (let ((result (if (string/contains? (taint/secret/mark "secret") "e") "yes" "no")))
+      (and (taint/secret? result) (= result "yes"))))
 
   ; Secret predicate recognizes marked strings and builtins.
-  (assert (and (secret? (secret/mark "secret")) (secret? (secret/mark +))))
+  (assert (and (taint/secret? (taint/secret/mark "secret")) (taint/secret? (taint/secret/mark +))))
 
-  ; Help operations keep public metadata public.
+  ; Help operations that discriminate their input preserve its taint.
   (assert
     (and
-       (string/contains? (help (secret/mark string/slice)) "(string/slice text start end) -> String")
-       (secret? (help/document (secret/mark "secret") "Public help text."))
-       (= (help (help/document (secret/mark "secret") "Public help text.")) "Public help text.")
-       (= (help/search (secret/mark "secret")) (list 'secret/mark 'secret?))
-      (= (help/env (secret/mark "secret")) (list 'secret/mark 'secret?))))
+       (taint/secret? (help (taint/secret/mark string/slice)))
+       (taint/secret? (help/document (taint/secret/mark "secret") "Public help text."))
+       (taint/secret? (help (help/document (taint/secret/mark "secret") "Public help text.")))
+       (taint/secret? (help/search (taint/secret/mark "secret")))
+       (taint/secret? (help/env (taint/secret/mark "secret")))))
 
   ; Leaky Bytes encoders preserve secret taint.
   (assert
     (and
-      (secret? (bytes/hex/encode (secret/mark (bytes/hex/decode "ff"))))
-      (secret? (bytes/base64/encode (secret/mark (bytes/hex/decode "ff"))))
-      (secret? (bytes/base64url/encode (secret/mark (bytes/hex/decode "ff"))))
-      (secret? (bytes/base64/pad (secret/mark "/wA")))))
+      (taint/secret? (bytes/hex/encode (taint/secret/mark (bytes/hex/decode "ff"))))
+      (taint/secret? (bytes/base64/encode (taint/secret/mark (bytes/hex/decode "ff"))))
+      (taint/secret? (bytes/base64url/encode (taint/secret/mark (bytes/hex/decode "ff"))))
+      (taint/secret? (bytes/base64/pad (taint/secret/mark "/wA")))))
 
-  ; Predicate and search operations return public Boolean results.
+  ; Type predicates are public while content predicates preserve taint.
   (assert
     (and
-      (not (secret? (bool? (secret/mark "secret"))))
-      (not (secret? (int? (secret/mark "secret"))))
-      (not (secret? (symbol? (secret/mark "secret"))))
-      (not (secret? (pair? (secret/mark "secret"))))
-      (not (secret? (null? (secret/mark "secret"))))
-      (not (secret? (list? (secret/mark "secret"))))
-      (not (secret? (string? (secret/mark "secret"))))
-      (not (secret? (string/contains? (secret/mark "secret") "a")))
-      (not (secret? (string/prefix? (secret/mark "secret") "a")))
-      (not (secret? (string/suffix? (secret/mark "secret") "t")))
-      (not (secret? (bytes? (secret/mark (bytes/hex/decode "ff")))))))
+      (not (taint/secret? (bool? (taint/secret/mark "secret"))))
+      (not (taint/secret? (int? (taint/secret/mark "secret"))))
+      (not (taint/secret? (symbol? (taint/secret/mark "secret"))))
+      (not (taint/secret? (pair? (taint/secret/mark "secret"))))
+      (not (taint/secret? (null? (taint/secret/mark "secret"))))
+      (not (taint/secret? (list? (taint/secret/mark "secret"))))
+      (not (taint/secret? (string? (taint/secret/mark "secret"))))
+      (taint/secret? (string/contains? (taint/secret/mark "secret") "a"))
+      (taint/secret? (string/prefix? (taint/secret/mark "secret") "a"))
+      (taint/secret? (string/suffix? (taint/secret/mark "secret") "t"))
+      (not (taint/secret? (bytes? (taint/secret/mark (bytes/hex/decode "ff")))))))
 
   ; Caught diagnostics redact the secret source value.
   (assert
-    (let ((diagnostic (error/value (error/catch (int/div (secret/mark "secret") 1)))))
-      (and
-        (string/contains? diagnostic "#<secret>")
-        (not (string/contains? diagnostic "\"secret\"")))))
+    (taint/secret?
+      (error/value (error/catch (int/div (taint/secret/mark "secret") 1)))))
   null)

@@ -69,18 +69,18 @@
        ; CBC preserves secret taint from keys and ciphertext.
       (assert
         (and
-          (secret?
+          (taint/secret?
             (cbc/encrypt
               aes/encrypt
-              (secret/mark (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c"))
+              (taint/secret/mark (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c"))
               (bytes/hex/decode "000102030405060708090a0b0c0d0e0f")
               (bytes/hex/decode "6bc1bee22e409f96e93d7e117393172a")))
-          (secret?
+          (taint/secret?
             (cbc/decrypt
               aes/decrypt
               (bytes/hex/decode "2b7e151628aed2a6abf7158809cf4f3c")
               (bytes/hex/decode "000102030405060708090a0b0c0d0e0f")
-              (secret/mark (bytes/hex/decode "7649abac8119b246cee98e9b12e9197d"))))))
+              (taint/secret/mark (bytes/hex/decode "7649abac8119b246cee98e9b12e9197d"))))))
 
       ; CBC validates IVs, block alignment, and block function output lengths.
       (assert

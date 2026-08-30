@@ -4,18 +4,18 @@
     (begin
       ; Bytes returns the requested public length.
       (let ((value (random/bytes 32)))
-        (assert (and (= (bytes/length value) 32) (not (secret? value)))))
+        (assert (and (= (bytes/length value) 32) (not (taint/secret? value)))))
 
       ; Int returns a public value below its bound.
       (let ((value (random/int 10)))
-        (assert (and (<= 0 value) (< value 10) (not (secret? value)))))
+        (assert (and (<= 0 value) (< value 10) (not (taint/secret? value)))))
 
       ; A bound of one has the only possible result.
       (assert (= (random/int 1) 0))
 
       ; Bool returns a public Boolean.
       (let ((value (random/bool)))
-        (assert (and (bool? value) (not (secret? value)))))
+        (assert (and (bool? value) (not (taint/secret? value)))))
 
       ; Random exports report signatures and runnable examples.
       (assert

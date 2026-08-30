@@ -110,9 +110,9 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "string/trim", documentation: doc("(string/trim text) -> String", "Removes Unicode whitespace from both ends of text.", "(string/trim \"  hi  \")", "\"hi\""), leaky: true, call: pure(stringTrim)},
 	{name: "string/lower", documentation: doc("(string/lower text) -> String", "Converts text to locale-independent Unicode lower case.", "(string/lower \"Hi\")", "\"hi\""), leaky: true, call: pure(stringLower)},
 	{name: "string/upper", documentation: doc("(string/upper text) -> String", "Converts text to locale-independent Unicode upper case.", "(string/upper \"Hi\")", "\"HI\""), leaky: true, call: pure(stringUpper)},
-	{name: "string/contains?", documentation: doc("(string/contains? text substring) -> Boolean", "Returns whether text contains substring.", "(string/contains? \"hello\" \"ell\")", "#t"), call: pure(stringContains)},
-	{name: "string/prefix?", documentation: doc("(string/prefix? text prefix) -> Boolean", "Returns whether text starts with prefix.", "(string/prefix? \"hello\" \"he\")", "#t"), call: pure(stringPrefix)},
-	{name: "string/suffix?", documentation: doc("(string/suffix? text suffix) -> Boolean", "Returns whether text ends with suffix.", "(string/suffix? \"hello\" \"lo\")", "#t"), call: pure(stringSuffix)},
+	{name: "string/contains?", documentation: doc("(string/contains? text substring) -> Boolean", "Returns whether text contains substring.", "(string/contains? \"hello\" \"ell\")", "#t"), leaky: true, call: pure(stringContains)},
+	{name: "string/prefix?", documentation: doc("(string/prefix? text prefix) -> Boolean", "Returns whether text starts with prefix.", "(string/prefix? \"hello\" \"he\")", "#t"), leaky: true, call: pure(stringPrefix)},
+	{name: "string/suffix?", documentation: doc("(string/suffix? text suffix) -> Boolean", "Returns whether text ends with suffix.", "(string/suffix? \"hello\" \"lo\")", "#t"), leaky: true, call: pure(stringSuffix)},
 	{name: "string/split", documentation: doc("(string/split text separator) -> List", "Splits text on a literal separator into a list of Strings.", "(string/split \"a,b\" \",\")", "(\"a\" \"b\")"), leaky: true, call: pure(stringSplit)},
 	{name: "string/join", documentation: doc("(string/join strings separator) -> String", "Joins a proper list of Strings with a separator.", "(string/join (list \"a\" \"b\") \",\")", "\"a,b\""), leaky: true, call: pure(stringJoin)},
 	{name: "string/replace", documentation: doc("(string/replace text old new) -> String", "Replaces every non-overlapping occurrence of old with new.", "(string/replace \"a-b-a\" \"a\" \"x\")", "\"x-b-x\""), leaky: true, call: pure(stringReplace)},
@@ -120,14 +120,17 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "error/catch", documentation: doc("(error/catch expression) -> Error", "Returns an Error raised while evaluating expression.", "(error? (error/catch (error/throw \"failure\")))", "#t"), special: true, call: valueCall(catchError)},
 	{name: "error?", documentation: doc("(error? value) -> Boolean", "Returns whether value is an Error.", "(error? (error/catch (error/throw 1)))", "#t"), call: pure(isError)},
 	{name: "error/value", documentation: doc("(error/value error) -> Value", "Returns the value carried by an Error.", "(error/value (error/catch (error/throw 1)))", "1"), leaky: true, call: pure(errorValueOf)},
-	{name: "assert", documentation: doc("(assert condition [value [failure]]) -> Null | Value", "Returns null or value when condition is true, otherwise raises failure or an Error.", "(assert #t 7 \"required value\")", "7"), special: true, call: valueCall(assertValue)},
-	{name: "assert/timing", documentation: doc("(assert/timing maximum-milliseconds expression) -> Value", "Evaluates expression once and raises an Error when its elapsed monotonic time exceeds maximum-milliseconds.", "(assert/timing 1000 (+ 1 2))", "3"), special: true, call: valueCall(assertTiming)},
-	{name: "secret?", documentation: doc("(secret? value) -> Boolean", "Returns whether value is secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(isSecret)},
-	{name: "secret/mark", documentation: doc("(secret/mark value) -> Value", "Marks value as secret-tainted.", "(secret? (secret/mark \"value\"))", "#t"), call: pure(markSecret)},
-	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), call: valueCall(helpValue)},
+	{name: "assert", documentation: doc("(assert condition [value [failure]]) -> Null | Value", "Returns null or value when condition is true, otherwise raises failure or an Error.", "(assert #t 7 \"required value\")", "7"), special: true, call: assertValues},
+	{name: "assert/timing", documentation: doc("(assert/timing maximum-milliseconds expression) -> Value", "Evaluates expression once and raises an Error when its elapsed monotonic time exceeds maximum-milliseconds.", "(assert/timing 1000 (+ 1 2))", "3"), special: true, call: assertTimingValues},
+	{name: "taint/get", documentation: doc("(taint/get value) -> Symbol", "Returns none, sensitive, or secret for the value's taint.", "(taint/get (taint/secret/mark \"value\"))", "secret"), call: pure(taintGet)},
+	{name: "taint/sensitive?", documentation: doc("(taint/sensitive? value) -> Boolean", "Returns whether value is sensitive-tainted.", "(taint/sensitive? (taint/sensitive/mark \"value\"))", "#t"), call: pure(isSensitive)},
+	{name: "taint/secret?", documentation: doc("(taint/secret? value) -> Boolean", "Returns whether value is secret-tainted.", "(taint/secret? (taint/secret/mark \"value\"))", "#t"), call: pure(isSecret)},
+	{name: "taint/sensitive/mark", documentation: doc("(taint/sensitive/mark value) -> Value", "Marks value as sensitive-tainted.", "(taint/get (taint/sensitive/mark \"value\"))", "sensitive"), call: pure(markSensitive)},
+	{name: "taint/secret/mark", documentation: doc("(taint/secret/mark value) -> Value", "Marks value as secret-tainted.", "(taint/get (taint/secret/mark \"value\"))", "secret"), call: pure(markSecret)},
+	{name: "help", documentation: doc("(help value-or-name) -> String", "Returns public help text. Quote a name to look up a visible binding; other expressions are evaluated before being described.", `(string/contains? (help 'fn) "(fn parameters body) -> Function")`, "#t"), leaky: true, call: valueCall(helpValue)},
 	{name: "help/document", documentation: doc("(help/document value text) -> Value", "Returns value with public help text attached.", "(help (help/document 1 \"count\"))", "\"count\""), call: pure(helpDocument)},
-	{name: "help/env", documentation: doc("(help/env term...) -> List", "Returns visible lexical binding names matching every term.", "(list? (help/env \"int?\"))", "#t"), call: valueCall(helpEnv)},
-	{name: "help/search", documentation: doc("(help/search term...) -> List", "Returns symbols for values and forms available in the environment with help text that matches every search term.", "(list? (help/search \"integer\"))", "#t"), call: valueCall(helpSearch)},
+	{name: "help/env", documentation: doc("(help/env term...) -> List", "Returns visible lexical binding names matching every term.", "(list? (help/env \"int?\"))", "#t"), leaky: true, call: valueCall(helpEnv)},
+	{name: "help/search", documentation: doc("(help/search term...) -> List", "Returns symbols for values and forms available in the environment with help text that matches every search term.", "(list? (help/search \"integer\"))", "#t"), leaky: true, call: valueCall(helpSearch)},
 	{name: "import/restrict", documentation: doc("(import/restrict (@reference...) body) -> Value", "Evaluates body with imports limited to the listed module references.", "(import/restrict (@native:time/v1) (import/search))", "(@native:time/v1)"), special: true, call: valueCall(importRestrict)},
 }
 
@@ -220,18 +223,46 @@ func isSymbolValue(_ *evaluator, arguments []Expr) (error, Expr) {
 	return nil, boolean(ok)
 }
 
+func taintGet(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("taint/get requires one argument"), nil
+	}
+	switch TaintOf(arguments[0]) {
+	case TaintSensitive:
+		return nil, symbol("sensitive")
+	case TaintSecret:
+		return nil, symbol("secret")
+	default:
+		return nil, symbol("none")
+	}
+}
+
+func isSensitive(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("taint/sensitive? requires one argument"), nil
+	}
+	return nil, boolean(TaintOf(arguments[0]) == TaintSensitive)
+}
+
 func isSecret(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError("secret? requires one argument"), nil
+		return expressionError("taint/secret? requires one argument"), nil
 	}
-	return nil, boolean(hasSecret(arguments[0]))
+	return nil, boolean(TaintOf(arguments[0]) == TaintSecret)
+}
+
+func markSensitive(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("taint/sensitive/mark requires one argument"), nil
+	}
+	return nil, withTaint(arguments[0], TaintSensitive)
 }
 
 func markSecret(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
-		return expressionError("secret/mark requires one argument"), nil
+		return expressionError("taint/secret/mark requires one argument"), nil
 	}
-	return nil, withSecret(arguments[0])
+	return nil, withTaint(arguments[0], TaintSecret)
 }
 
 func integerDivide(_ *evaluator, arguments []Expr) (error, Expr) {
@@ -594,11 +625,11 @@ func letValues(evaluator *evaluator, env *environment, arguments []Expr) (error,
 }
 
 func ifValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
-	err, expression := evaluator.evaluateIf(arguments, env)
+	err, expression, taint := evaluator.evaluateIf(arguments, env)
 	if err != nil {
 		return err, nil
 	}
-	return nil, callTailState{expression: expression}
+	return nil, callTailState{expression: expression, taint: taint}
 }
 
 func beginValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {

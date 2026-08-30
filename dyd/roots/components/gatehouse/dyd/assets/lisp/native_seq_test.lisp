@@ -57,20 +57,20 @@
          (= (bytes/length (seq/bytes/collect null)) 0))
 
        ; Splitting preserves secrecy in deferred blocks.
-       (let ((sequence (seq/bytes/split (secret/mark (bytes/hex/decode "aabb")) 1)))
+       (let ((sequence (seq/bytes/split (taint/secret/mark (bytes/hex/decode "aabb")) 1)))
          (assert
            (and
-             (secret? (seq/head sequence))
-             (secret? (seq/head (seq/tail sequence))))))
+             (taint/secret? (seq/head sequence))
+             (taint/secret? (seq/head (seq/tail sequence))))))
 
        ; Collecting preserves secrecy that appears after the first block.
        (assert
-         (secret?
+         (taint/secret?
            (seq/bytes/collect
              (pair
                (bytes/hex/decode "aa")
                (fn ()
-                 (pair (secret/mark (bytes/hex/decode "bb")) (fn () null)))))))
+                 (pair (taint/secret/mark (bytes/hex/decode "bb")) (fn () null)))))))
 
        ; Bootstrapped sequence definitions do not capture caller shadowing.
        (let ((+ (fn (left right) 0)))

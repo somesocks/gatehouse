@@ -24,8 +24,8 @@
       (check "empty update" (= (crc32/update 0 (bytes/concat)) 0))
 
       ; Digest operations preserve secret taint.
-      (check "digest sensitivity" (secret? (crc32/digest (secret/mark (bytes/utf8/encode "abc")))))
-      (check "update sensitivity" (secret? (crc32/update 0 (secret/mark (bytes/utf8/encode "abc")))))
+      (check "digest sensitivity" (taint/secret? (crc32/digest (taint/secret/mark (bytes/utf8/encode "abc")))))
+      (check "update sensitivity" (taint/secret? (crc32/update 0 (taint/secret/mark (bytes/utf8/encode "abc")))))
 
       ; CRC values must be unsigned 32-bit integers.
       (check "integer range"

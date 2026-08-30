@@ -40,7 +40,7 @@
           "indexed update"))
 
       ; Vectors preserve secrecy through ordinary pair structure.
-      (assert (secret? (vector/from (secret/mark 1))) null "secrecy")
+      (assert (taint/secret? (vector/from (taint/secret/mark 1))) null "secrecy")
 
       ; Invalid vector operations report errors.
       (assert

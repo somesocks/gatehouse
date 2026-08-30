@@ -25,6 +25,9 @@ func NewPolicyModule(requestApproval func(description string) error) lisp.HostMo
 		if len(arguments) != 1 {
 			return lisp.Errorf("policy/await-approval requires one description argument"), nil
 		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone {
+			return lisp.Errorf("policy/await-approval description must not be sensitive"), nil
+		}
 		err, description := lisp.RequireString(arguments[0])
 		if err != nil {
 			return err, nil

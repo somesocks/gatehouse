@@ -23,7 +23,7 @@ func TestEvaluateKeepsSecretsTainted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasSecret(result) || result.String() != "#<secret>" {
+	if !IsSecret(result) || result.String() != "#<secret>" {
 		t.Fatalf("Evaluate() = %s, want secret result", result)
 	}
 }
