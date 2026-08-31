@@ -114,6 +114,43 @@ let Groups =
         s.list.props::{ values = Group }
         s.list.meta::{ description = Some "configured workspace authorization groups" }
 
+let WorkspaceRoleBinding =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { role =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace role assigned by this binding" }
+              }
+        , optional =
+            toMap
+              { principal =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "principal reconciliation alias" }
+              , group =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "workspace-local group reconciliation alias" }
+              , revision =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "monotonic role-binding configuration revision" }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the role binding is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "WorkspaceRoleBinding" }
+
+let WorkspaceRoleBindings =
+      s.list.from
+        s.list.props::{ values = WorkspaceRoleBinding }
+        s.list.meta::{ description = Some "configured workspace role bindings" }
+
 let WorkspaceAgent =
       s.record.from
         s.record.props::{
@@ -170,6 +207,7 @@ let Workspace =
                      s.boolean.props::{=}
                      s.boolean.meta::{ description = Some "whether the workspace is enabled" }
                 , groups = Groups
+                , role_bindings = WorkspaceRoleBindings
                 , agents = WorkspaceAgents
                 , storage_providers = WorkspaceStorageProviders
                 }

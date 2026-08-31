@@ -600,6 +600,82 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 }
 
+func TestMigrateSQLiteReconcilesWorkspaceRoleBindings(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	alice, members := "alice", "members"
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: alice, Enabled: true}},
+		Groups: []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
+		WorkspaceRoleBindings: []config.WorkspaceRoleBinding{
+			{WorkspaceID: "engineering", Role: "member", PrincipalID: &alice, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: "manager", GroupID: &members, Revision: 1, Enabled: true},
+		},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	var principalID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&principalID); err != nil {
+		t.Fatal(err)
+	}
+	group := groupID(t, ctx, store, "engineering", "members")
+
+	var bindings int
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_workspace_role_bindings
+		WHERE workspace = ? AND (
+			(role = 'member' AND principal = ?)
+			OR (role = 'manager' AND "group" = ?)
+		)
+	`, workspace.Id, principalID, group).Scan(&bindings); err != nil {
+		t.Fatal(err)
+	}
+	if bindings != 2 {
+		t.Fatalf("role binding count = %d, want 2", bindings)
+	}
+
+	state.WorkspaceRoleBindings[0].Enabled = false
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	var enabled bool
+	if err := store.QueryRowContext(ctx, `
+		SELECT enabled
+		FROM gatehouse_workspace_role_bindings
+		WHERE workspace = ? AND role = 'member' AND principal = ?
+	`, workspace.Id, principalID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled {
+		t.Fatal("equal revision changed the binding")
+	}
+
+	state.WorkspaceRoleBindings[0].Revision = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `
+		SELECT enabled
+		FROM gatehouse_workspace_role_bindings
+		WHERE workspace = ? AND role = 'member' AND principal = ?
+	`, workspace.Id, principalID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatal("newer revision did not change the binding")
+	}
+}
+
 func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, database := database.Open(context.Background(), configuration)

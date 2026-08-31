@@ -50,6 +50,9 @@ workspaces:
         name: Members
         members:
           - principal: root
+    role_bindings:
+      - role: manager
+        group: members
 services:
   http:
     listen: 0.0.0.0:4283

@@ -26,10 +26,11 @@ var compiledSchema struct {
 }
 
 type State struct {
-	Workspaces []Workspace
-	Principals []Principal
-	Keychains  []Keychain
-	Groups     []Group
+	Workspaces            []Workspace
+	Principals            []Principal
+	Keychains             []Keychain
+	Groups                []Group
+	WorkspaceRoleBindings []WorkspaceRoleBinding
 	AgentProviders []AgentProvider
 	AgentModels []AgentModel
 	WorkspaceAgents []WorkspaceAgent
@@ -91,6 +92,10 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil {
 		return err, State{}
 	}
+	err, workspaceRoleBindings := ResolveWorkspaceRoleBindings(document, principals, groups)
+	if err != nil {
+		return err, State{}
+	}
 	err, providers := ResolveAgentProviders(document)
 	if err != nil { return err, State{} }
 	err, models := ResolveAgentModels(document, providers)
@@ -101,7 +106,7 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil { return err, State{} }
 	err, workspaceStorageProviders := ResolveWorkspaceStorageProviders(document, storageProviders)
 	if err != nil { return err, State{} }
-	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
+	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, WorkspaceRoleBindings: workspaceRoleBindings, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {
