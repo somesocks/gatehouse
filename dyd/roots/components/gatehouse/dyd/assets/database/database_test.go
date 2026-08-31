@@ -600,7 +600,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 }
 
-func TestMigrateSQLiteReconcilesWorkspaceRoleBindings(t *testing.T) {
+func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -614,7 +614,7 @@ func TestMigrateSQLiteReconcilesWorkspaceRoleBindings(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: alice, Enabled: true}},
 		Groups: []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
-		WorkspaceRoleBindings: []config.WorkspaceRoleBinding{
+		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: "member", PrincipalID: &alice, Revision: 1, Enabled: true},
 			{WorkspaceID: "engineering", Role: "manager", GroupID: &members, Revision: 1, Enabled: true},
 		},
@@ -629,50 +629,50 @@ func TestMigrateSQLiteReconcilesWorkspaceRoleBindings(t *testing.T) {
 	}
 	group := groupID(t, ctx, store, "engineering", "members")
 
-	var bindings int
+	var grants int
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM gatehouse_workspace_role_bindings
+		FROM gatehouse_workspace_grants
 		WHERE workspace = ? AND (
 			(role = 'member' AND principal = ?)
 			OR (role = 'manager' AND "group" = ?)
 		)
-	`, workspace.Id, principalID, group).Scan(&bindings); err != nil {
+	`, workspace.Id, principalID, group).Scan(&grants); err != nil {
 		t.Fatal(err)
 	}
-	if bindings != 2 {
-		t.Fatalf("role binding count = %d, want 2", bindings)
+	if grants != 2 {
+		t.Fatalf("workspace grant count = %d, want 2", grants)
 	}
 
-	state.WorkspaceRoleBindings[0].Enabled = false
+	state.WorkspaceGrants[0].Enabled = false
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	var enabled bool
 	if err := store.QueryRowContext(ctx, `
 		SELECT enabled
-		FROM gatehouse_workspace_role_bindings
+		FROM gatehouse_workspace_grants
 		WHERE workspace = ? AND role = 'member' AND principal = ?
 	`, workspace.Id, principalID).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}
 	if !enabled {
-		t.Fatal("equal revision changed the binding")
+		t.Fatal("equal revision changed the grant")
 	}
 
-	state.WorkspaceRoleBindings[0].Revision = 2
+	state.WorkspaceGrants[0].Revision = 2
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.QueryRowContext(ctx, `
 		SELECT enabled
-		FROM gatehouse_workspace_role_bindings
+		FROM gatehouse_workspace_grants
 		WHERE workspace = ? AND role = 'member' AND principal = ?
 	`, workspace.Id, principalID).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}
 	if enabled {
-		t.Fatal("newer revision did not change the binding")
+		t.Fatal("newer revision did not change the grant")
 	}
 }
 

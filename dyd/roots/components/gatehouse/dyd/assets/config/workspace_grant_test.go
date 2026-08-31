@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestResolveWorkspaceRoleBindingsDefaultsAndSorts(t *testing.T) {
+func TestResolveWorkspaceGrantsDefaultsAndSorts(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gatehouse.yaml")
 	if err := os.WriteFile(path, []byte(`
 api_version: v1
@@ -18,7 +18,7 @@ workspaces:
   - alias: zebra
     groups:
       - alias: operators
-    role_bindings:
+    grants:
       - role: manager
         group: operators
       - role: member
@@ -39,17 +39,17 @@ workspaces:
 		t.Fatal(err)
 	}
 	disabled := false
-	want := []WorkspaceRoleBinding{
+	want := []WorkspaceGrant{
 		{WorkspaceID: "zebra", Role: "contributor", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
 		{WorkspaceID: "zebra", Role: "manager", GroupID: stringPointer("operators"), Revision: 1, Enabled: true},
 		{WorkspaceID: "zebra", Role: "member", PrincipalID: stringPointer("bob"), Revision: 2, Enabled: disabled},
 	}
-	if !reflect.DeepEqual(state.WorkspaceRoleBindings, want) {
-		t.Fatalf("WorkspaceRoleBindings = %#v, want %#v", state.WorkspaceRoleBindings, want)
+	if !reflect.DeepEqual(state.WorkspaceGrants, want) {
+		t.Fatalf("WorkspaceGrants = %#v, want %#v", state.WorkspaceGrants, want)
 	}
 }
 
-func TestResolveWorkspaceRoleBindingsRejectsInvalidValues(t *testing.T) {
+func TestResolveWorkspaceGrantsRejectsInvalidValues(t *testing.T) {
 	tests := []struct {
 		name     string
 		bindings string
@@ -93,20 +93,20 @@ func TestResolveWorkspaceRoleBindingsRejectsInvalidValues(t *testing.T) {
         revision: 0`,
 			contains: ".revision must be positive",
 		}, {
-			name: "duplicate binding",
+			name: "duplicate grant",
 			bindings: `
       - role: member
         group: members
       - role: member
         group: members`,
-			contains: "duplicates an earlier role binding",
+			contains: "duplicates an earlier grant",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "gatehouse.yaml")
-			contents := "api_version: v1\nprincipals:\n  - alias: alice\nworkspaces:\n  - alias: engineering\n    groups:\n      - alias: members\n    role_bindings:\n" + test.bindings + "\n"
+			contents := "api_version: v1\nprincipals:\n  - alias: alice\nworkspaces:\n  - alias: engineering\n    groups:\n      - alias: members\n    grants:\n" + test.bindings + "\n"
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -115,5 +115,20 @@ func TestResolveWorkspaceRoleBindingsRejectsInvalidValues(t *testing.T) {
 				t.Fatalf("ValidateFile() error = %v, want %q", err, test.contains)
 			}
 		})
+	}
+}
+
+func TestResolveWorkspaceGrantsRejectsRoleBindings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "gatehouse.yaml")
+	if err := os.WriteFile(path, []byte(`
+api_version: v1
+workspaces:
+  - alias: engineering
+    role_bindings: []
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := ValidateFile(path); err == nil {
+		t.Fatal("ValidateFile() accepted obsolete role_bindings")
 	}
 }

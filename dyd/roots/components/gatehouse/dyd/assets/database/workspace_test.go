@@ -10,7 +10,7 @@ import (
 	"gatehouse/database"
 )
 
-func TestWorkspaceRolesGetUsesDirectAndGroupBindings(t *testing.T) {
+func TestWorkspaceRolesGetUsesDirectAndGroupGrants(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -32,7 +32,7 @@ func TestWorkspaceRolesGetUsesDirectAndGroupBindings(t *testing.T) {
 			WorkspaceID: "engineering", Alias: developers, Enabled: true,
 			Members: []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
-		WorkspaceRoleBindings: []config.WorkspaceRoleBinding{
+		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: &alice, Revision: 1, Enabled: true},
 			{WorkspaceID: "engineering", Role: string(authz.Contributor), GroupID: &developers, Revision: 1, Enabled: true},
 		},

@@ -15,7 +15,7 @@ func TestWorkspaceAllows(t *testing.T) {
 		{name: "contributor cannot edit", roles: []Role{Contributor}, action: WorkspaceEdit},
 		{name: "manager edits", roles: []Role{Manager}, action: WorkspaceEdit, allowed: true},
 		{name: "manager creates group", roles: []Role{Manager}, action: WorkspaceGroupCreate, allowed: true},
-		{name: "manager manages bindings", roles: []Role{Manager}, action: WorkspaceRoleBindingManage, allowed: true},
+		{name: "manager manages grants", roles: []Role{Manager}, action: WorkspaceGrantManage, allowed: true},
 		{name: "manager rejects unrelated action", roles: []Role{Manager}, action: "workspace.project.session.create"},
 	} {
 		t.Run(test.name, func(t *testing.T) {

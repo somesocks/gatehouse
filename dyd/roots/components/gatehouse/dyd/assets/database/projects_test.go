@@ -319,14 +319,14 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	var managerBindings int
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM gatehouse_project_role_bindings
+		FROM gatehouse_project_grants
 		WHERE workspace = ? AND project = ? AND role = 'manager'
 			AND (principal = ? OR "group" = ?)
 	`, workspace.Id, projectRef.Id, alice.Id, reviewers.Id).Scan(&managerBindings); err != nil {
 		t.Fatal(err)
 	}
 	if managerBindings != 2 {
-		t.Fatalf("project manager role bindings = %d, want 2", managerBindings)
+		t.Fatalf("project manager grants = %d, want 2", managerBindings)
 	}
 	err, projects := store.ProjectsGet(ctx, workspace, alice)
 	if err != nil || len(projects) != 1 || projects[0].Ref != projectRef {
@@ -405,7 +405,7 @@ func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled) VALUES
+		INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled) VALUES
 			(?, 'prj_00000000000000000000000000', 'member', ?, NULL, TRUE),
 			(?, 'prj_00000000000000000000000001', 'member', ?, NULL, TRUE),
 			(?, 'prj_00000000000000000000000002', 'member', ?, NULL, TRUE)

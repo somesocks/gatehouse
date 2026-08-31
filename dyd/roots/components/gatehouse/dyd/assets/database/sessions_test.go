@@ -18,7 +18,7 @@ import (
 	"github.com/oklog/ulid/v2"
 )
 
-func TestSessionsGetHonorsPrincipalAndGroupRoleBindings(t *testing.T) {
+func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -62,7 +62,7 @@ func TestSessionsGetHonorsPrincipalAndGroupRoleBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled) VALUES
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled) VALUES
 			(?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
 			(?, 'ses_00000000000000000000000002', 'contributor', ?, NULL, TRUE),
 			(?, 'ses_00000000000000000000000003', 'manager', ?, NULL, FALSE),
@@ -71,7 +71,7 @@ func TestSessionsGetHonorsPrincipalAndGroupRoleBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
 			VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
@@ -141,7 +141,7 @@ func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled) VALUES
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled) VALUES
 			(?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
 			(?, 'ses_00000000000000000000000001', 'member', ?, NULL, TRUE),
 			(?, 'ses_00000000000000000000000002', 'member', ?, NULL, TRUE)
@@ -193,13 +193,13 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	var managerBindings int
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
-		FROM gatehouse_session_role_bindings
+		FROM gatehouse_session_grants
 		WHERE workspace = ? AND session = ? AND role = 'manager' AND principal = ?
 	`, workspace.Id, session.Id, alice.Id).Scan(&managerBindings); err != nil {
 		t.Fatal(err)
 	}
 	if managerBindings != 1 {
-		t.Fatalf("session manager role bindings = %d, want 1", managerBindings)
+		t.Fatalf("session manager grants = %d, want 1", managerBindings)
 	}
 	err, storedSession := store.SessionGet(ctx, session, alice)
 	if err != nil || storedSession == nil || storedSession.AuthorPrincipal == nil || *storedSession.AuthorPrincipal != alice || storedSession.AuthorAgent != nil || storedSession.AuthorGateway != nil || !storedSession.Enabled || storedSession.CreatedAt == "" {
@@ -514,7 +514,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
 		VALUES (?, 'ses_00000000000000000000000000', 'contributor', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)

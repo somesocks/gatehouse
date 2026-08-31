@@ -64,7 +64,7 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 		return fmt.Errorf("insert session: %w", err), model.Session{}
 	}
 	_, err = transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE)
 	`, session.Ref.Workspace.Id, session.Ref.Id, authz.Manager, grantee.Id)
 	if err != nil {
@@ -164,14 +164,14 @@ func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session m
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
 		SELECT principal
-		FROM gatehouse_session_role_bindings
+		FROM gatehouse_session_grants
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
 			AND principal IS NOT NULL AND enabled = TRUE
 
 		UNION
 
 		SELECT members.principal_id
-		FROM gatehouse_session_role_bindings AS grants
+		FROM gatehouse_session_grants AS grants
 		JOIN gatehouse_group_members AS members
 			ON members.workspace_id = grants.workspace AND members.group_id = grants."group"
 		WHERE grants.workspace = `+placeholder(3)+` AND grants.session = `+placeholder(4)+`
@@ -1515,7 +1515,7 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 			AND (
 				EXISTS (
 					SELECT 1
-				FROM gatehouse_session_role_bindings AS grants
+				FROM gatehouse_session_grants AS grants
 					WHERE grants.workspace = sessions.workspace
 						AND grants.session = sessions.id
 						AND grants.principal = `+placeholder(3)+`
@@ -1523,7 +1523,7 @@ func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRe
 				)
 				OR EXISTS (
 					SELECT 1
-					FROM gatehouse_session_role_bindings AS grants
+					FROM gatehouse_session_grants AS grants
 					JOIN gatehouse_groups AS groups
 						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members
@@ -1649,12 +1649,12 @@ func (store *Store) sessionsSearch(ctx context.Context, workspace model.Workspac
 			)
 			AND (
 				EXISTS (
-					SELECT 1 FROM gatehouse_session_role_bindings AS grants
+					SELECT 1 FROM gatehouse_session_grants AS grants
 					WHERE grants.workspace = sessions.workspace AND grants.session = sessions.id
 						AND grants.principal = `+placeholder(6)+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_session_role_bindings AS grants
+					SELECT 1 FROM gatehouse_session_grants AS grants
 					JOIN gatehouse_groups AS groups
 						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members
@@ -1667,12 +1667,12 @@ func (store *Store) sessionsSearch(ctx context.Context, workspace model.Workspac
 			AND (
 				sessions.project IS NULL
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					WHERE grants.workspace = sessions.workspace AND grants.project = sessions.project
 						AND grants.principal = `+placeholder(8)+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					JOIN gatehouse_groups AS groups
 						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members

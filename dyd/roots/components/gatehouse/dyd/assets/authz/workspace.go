@@ -16,7 +16,7 @@ const (
 	WorkspaceProjectCreate     WorkspaceAction = "workspace.project.create"
 	WorkspaceSessionCreate     WorkspaceAction = "workspace.session.create"
 	WorkspaceGroupCreate       WorkspaceAction = "workspace.group.create"
-	WorkspaceRoleBindingManage WorkspaceAction = "workspace.role_binding.manage"
+	WorkspaceGrantManage       WorkspaceAction = "workspace.grant.manage"
 )
 
 func ValidRole(role string) bool {
@@ -48,7 +48,7 @@ func WorkspaceAllows(roles []Role, action WorkspaceAction) bool {
 
 func validWorkspaceAction(action WorkspaceAction) bool {
 	switch action {
-	case WorkspaceEdit, WorkspaceProjectCreate, WorkspaceSessionCreate, WorkspaceGroupCreate, WorkspaceRoleBindingManage:
+	case WorkspaceEdit, WorkspaceProjectCreate, WorkspaceSessionCreate, WorkspaceGroupCreate, WorkspaceGrantManage:
 		return true
 	default:
 		return false

@@ -1003,7 +1003,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			},
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
 		},
-		WorkspaceRoleBindings: []config.WorkspaceRoleBinding{
+		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: string(authz.Manager), GroupID: &developersGroup, Revision: 1, Enabled: true},
 			{WorkspaceID: "operations", Role: string(authz.Member), GroupID: &operatorsGroup, Revision: 1, Enabled: true},
 		},
@@ -1050,13 +1050,13 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
 		VALUES (?, 'ses_00000000000000000000000000', 'manager', ?, NULL, TRUE)
 	`, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
 		VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)

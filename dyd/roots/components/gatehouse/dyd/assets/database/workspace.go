@@ -20,24 +20,24 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 			AND (
 				EXISTS (
 					SELECT 1
-					FROM gatehouse_workspace_role_bindings AS bindings
-					JOIN gatehouse_principals AS principals ON principals.id = bindings.principal
-					WHERE bindings.workspace = workspaces.id
-						AND bindings.principal = input.principal
-						AND bindings.enabled = TRUE
+					FROM gatehouse_workspace_grants AS grants
+					JOIN gatehouse_principals AS principals ON principals.id = grants.principal
+					WHERE grants.workspace = workspaces.id
+						AND grants.principal = input.principal
+						AND grants.enabled = TRUE
 						AND principals.enabled = TRUE
 				)
 				OR EXISTS (
 					SELECT 1
-					FROM gatehouse_workspace_role_bindings AS bindings
+					FROM gatehouse_workspace_grants AS grants
 					JOIN gatehouse_groups AS groups
-						ON groups.workspace_id = bindings.workspace AND groups.id = bindings."group"
+						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members
 						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-					WHERE bindings.workspace = workspaces.id
+					WHERE grants.workspace = workspaces.id
 						AND members.principal_id = input.principal
-						AND bindings.enabled = TRUE
+						AND grants.enabled = TRUE
 						AND groups.enabled = TRUE
 						AND members.enabled = TRUE
 						AND principals.enabled = TRUE
@@ -78,30 +78,30 @@ func (store *Store) WorkspaceRolesGet(ctx context.Context, workspace model.Works
 			SELECT `+placeholder(1)+` AS workspace, `+placeholder(2)+` AS principal
 		)
 		SELECT role FROM (
-			SELECT bindings.role
-			FROM gatehouse_workspace_role_bindings AS bindings
+			SELECT grants.role
+			FROM gatehouse_workspace_grants AS grants
 			CROSS JOIN input
-			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = bindings.workspace
-			JOIN gatehouse_principals AS principals ON principals.id = bindings.principal
-			WHERE bindings.workspace = input.workspace
-				AND bindings.principal = input.principal
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = grants.workspace
+			JOIN gatehouse_principals AS principals ON principals.id = grants.principal
+			WHERE grants.workspace = input.workspace
+				AND grants.principal = input.principal
 				AND workspaces.enabled = TRUE
-				AND bindings.enabled = TRUE
+				AND grants.enabled = TRUE
 				AND principals.enabled = TRUE
 			UNION
-			SELECT bindings.role
-			FROM gatehouse_workspace_role_bindings AS bindings
+			SELECT grants.role
+			FROM gatehouse_workspace_grants AS grants
 			CROSS JOIN input
-			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = bindings.workspace
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = grants.workspace
 			JOIN gatehouse_groups AS groups
-				ON groups.workspace_id = bindings.workspace AND groups.id = bindings."group"
+				ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 			JOIN gatehouse_group_members AS members
 				ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 			JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-			WHERE bindings.workspace = input.workspace
+			WHERE grants.workspace = input.workspace
 				AND members.principal_id = input.principal
 				AND workspaces.enabled = TRUE
-				AND bindings.enabled = TRUE
+				AND grants.enabled = TRUE
 				AND groups.enabled = TRUE
 				AND members.enabled = TRUE
 				AND principals.enabled = TRUE

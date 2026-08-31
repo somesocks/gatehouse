@@ -50,7 +50,7 @@ workspaces:
         name: Admins
         members:
           - principal: root
-    role_bindings:
+    grants:
       - role: manager
         group: admins
 services:

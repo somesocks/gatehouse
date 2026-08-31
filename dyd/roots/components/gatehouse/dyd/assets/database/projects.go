@@ -47,7 +47,7 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 		return fmt.Errorf("insert project: %w", err), model.Project{}
 	}
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled)
+		INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE)
 	`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, creator.Id); err != nil {
 		return fmt.Errorf("bind project creator role: %w", err), model.Project{}
@@ -57,7 +57,7 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 			return fmt.Errorf("bind project group role: group belongs to another workspace"), model.Project{}
 		}
 		if _, err := transaction.ExecContext(ctx, `
-			INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled)
+			INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled)
 			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, NULL, `+placeholder(4)+`, TRUE)
 		`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, group.Id); err != nil {
 			return fmt.Errorf("bind project group role: %w", err), model.Project{}
@@ -85,7 +85,7 @@ func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRe
 		WHERE projects.workspace = `+placeholder(1)+`
 			AND projects.enabled = TRUE
 			AND EXISTS (
-				SELECT 1 FROM gatehouse_project_role_bindings AS grants
+				SELECT 1 FROM gatehouse_project_grants AS grants
 				WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 					AND grants.principal = `+placeholder(2)+` AND grants.enabled = TRUE
 			)
@@ -93,7 +93,7 @@ func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRe
 				projects.workspace = `+placeholder(3)+` AND projects.enabled = TRUE
 				AND EXISTS (
 					SELECT 1
-					FROM gatehouse_project_role_bindings AS grants
+					FROM gatehouse_project_grants AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
@@ -176,12 +176,12 @@ func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.Works
 			AND projects.enabled = TRUE
 			AND (
 				EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 						AND grants.principal = `+principalPlaceholder+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
@@ -292,12 +292,12 @@ func (store *Store) projectsSearch(ctx context.Context, workspace model.Workspac
 			AND (`+placeholder(3)+` = '' OR projects.id < `+placeholder(4)+`)
 			AND (
 				EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 						AND grants.principal = `+placeholder(5)+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_role_bindings AS grants
+					SELECT 1 FROM gatehouse_project_grants AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE

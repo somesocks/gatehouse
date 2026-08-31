@@ -8,7 +8,7 @@ import (
 	"gatehouse/configschema"
 )
 
-type WorkspaceRoleBinding struct {
+type WorkspaceGrant struct {
 	WorkspaceID string
 	Role        string
 	PrincipalID *string
@@ -17,13 +17,13 @@ type WorkspaceRoleBinding struct {
 	Enabled     bool
 }
 
-func ResolveWorkspaceRoleBindings(document configschema.GatehouseConfig, principals []Principal, groups []Group) (error, []WorkspaceRoleBinding) {
+func ResolveWorkspaceGrants(document configschema.GatehouseConfig, principals []Principal, groups []Group) (error, []WorkspaceGrant) {
 	if document.Workspaces == nil {
 		if document.Principals != nil {
-			return nil, []WorkspaceRoleBinding{}
+			return nil, []WorkspaceGrant{}
 		}
 		root := "root"
-		return nil, []WorkspaceRoleBinding{{WorkspaceID: defaultWorkspaceAlias, Role: string(authz.Manager), GroupID: &root, Revision: 1, Enabled: true}}
+		return nil, []WorkspaceGrant{{WorkspaceID: defaultWorkspaceAlias, Role: string(authz.Manager), GroupID: &root, Revision: 1, Enabled: true}}
 	}
 
 	groupAliases := make(map[workspaceGroupAliasKey]struct{}, len(groups))
@@ -31,14 +31,14 @@ func ResolveWorkspaceRoleBindings(document configschema.GatehouseConfig, princip
 		groupAliases[workspaceGroupAliasKey{Workspace: group.WorkspaceID, Alias: group.Alias}] = struct{}{}
 	}
 
-	bindings := make([]WorkspaceRoleBinding, 0)
-	seen := map[workspaceRoleBindingKey]struct{}{}
+	grants := make([]WorkspaceGrant, 0)
+	seen := map[workspaceGrantKey]struct{}{}
 	for workspaceIndex, workspace := range *document.Workspaces {
-		if workspace.RoleBindings == nil {
+		if workspace.Grants == nil {
 			continue
 		}
-		for bindingIndex, configured := range *workspace.RoleBindings {
-			path := fmt.Sprintf("workspaces[%d].role_bindings[%d]", workspaceIndex, bindingIndex)
+		for grantIndex, configured := range *workspace.Grants {
+			path := fmt.Sprintf("workspaces[%d].grants[%d]", workspaceIndex, grantIndex)
 			if !authz.ValidRole(configured.Role) {
 				return fmt.Errorf("%s.role must be member, contributor, or manager", path), nil
 			}
@@ -56,42 +56,42 @@ func ResolveWorkspaceRoleBindings(document configschema.GatehouseConfig, princip
 			if configured.Enabled != nil {
 				enabled = *configured.Enabled
 			}
-			binding := WorkspaceRoleBinding{WorkspaceID: workspace.Alias, Role: configured.Role, Revision: revision, Enabled: enabled}
-			key := workspaceRoleBindingKey{Workspace: workspace.Alias, Role: configured.Role}
+			grant := WorkspaceGrant{WorkspaceID: workspace.Alias, Role: configured.Role, Revision: revision, Enabled: enabled}
+			key := workspaceGrantKey{Workspace: workspace.Alias, Role: configured.Role}
 			if configured.Principal != nil {
 				if !principalAlias.MatchString(*configured.Principal) {
 					return fmt.Errorf("%s.principal must match %q", path, principalAlias.String()), nil
 				}
-				binding.PrincipalID = configured.Principal
+				grant.PrincipalID = configured.Principal
 				key.Principal = *configured.Principal
 			} else {
 				if _, exists := groupAliases[workspaceGroupAliasKey{Workspace: workspace.Alias, Alias: *configured.Group}]; !exists {
 					return fmt.Errorf("%s.group %q is not configured in workspace %q", path, *configured.Group, workspace.Alias), nil
 				}
-				binding.GroupID = configured.Group
+				grant.GroupID = configured.Group
 				key.Group = *configured.Group
 			}
 			if _, exists := seen[key]; exists {
-				return fmt.Errorf("%s duplicates an earlier role binding", path), nil
+				return fmt.Errorf("%s duplicates an earlier grant", path), nil
 			}
 			seen[key] = struct{}{}
-			bindings = append(bindings, binding)
+			grants = append(grants, grant)
 		}
 	}
-	sort.Slice(bindings, func(left, right int) bool {
-		leftBinding, rightBinding := bindings[left], bindings[right]
-		if leftBinding.WorkspaceID != rightBinding.WorkspaceID {
-			return leftBinding.WorkspaceID < rightBinding.WorkspaceID
+	sort.Slice(grants, func(left, right int) bool {
+		leftGrant, rightGrant := grants[left], grants[right]
+		if leftGrant.WorkspaceID != rightGrant.WorkspaceID {
+			return leftGrant.WorkspaceID < rightGrant.WorkspaceID
 		}
-		if leftBinding.Role != rightBinding.Role {
-			return leftBinding.Role < rightBinding.Role
+		if leftGrant.Role != rightGrant.Role {
+			return leftGrant.Role < rightGrant.Role
 		}
-		return workspaceRoleBindingSubject(leftBinding) < workspaceRoleBindingSubject(rightBinding)
+		return workspaceGrantSubject(leftGrant) < workspaceGrantSubject(rightGrant)
 	})
-	return nil, bindings
+	return nil, grants
 }
 
-type workspaceRoleBindingKey struct {
+type workspaceGrantKey struct {
 	Workspace, Role, Principal, Group string
 }
 
@@ -99,9 +99,9 @@ type workspaceGroupAliasKey struct {
 	Workspace, Alias string
 }
 
-func workspaceRoleBindingSubject(binding WorkspaceRoleBinding) string {
-	if binding.PrincipalID != nil {
-		return "principal:" + *binding.PrincipalID
+func workspaceGrantSubject(grant WorkspaceGrant) string {
+	if grant.PrincipalID != nil {
+		return "principal:" + *grant.PrincipalID
 	}
-	return "group:" + *binding.GroupID
+	return "group:" + *grant.GroupID
 }

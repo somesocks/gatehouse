@@ -638,9 +638,9 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			`),
 		}, {
 			Index:       30,
-			Description: "create_workspace_role_bindings",
+			Description: "create_workspace_grants",
 			Builder: staticMigrationBuilder(`
-			CREATE TABLE gatehouse_workspace_role_bindings (
+			CREATE TABLE gatehouse_workspace_grants (
 				workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 				role TEXT NOT NULL CHECK (role IN ('member', 'contributor', 'manager')),
 				principal TEXT REFERENCES gatehouse_principals (id),
@@ -654,32 +654,32 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
 			);
 
-			CREATE UNIQUE INDEX gatehouse_workspace_role_bindings_principal_once
-			ON gatehouse_workspace_role_bindings (workspace, role, principal)
+			CREATE UNIQUE INDEX gatehouse_workspace_grants_principal_once
+			ON gatehouse_workspace_grants (workspace, role, principal)
 			WHERE principal IS NOT NULL;
 
-			CREATE UNIQUE INDEX gatehouse_workspace_role_bindings_group_once
-			ON gatehouse_workspace_role_bindings (workspace, role, "group")
+			CREATE UNIQUE INDEX gatehouse_workspace_grants_group_once
+			ON gatehouse_workspace_grants (workspace, role, "group")
 			WHERE "group" IS NOT NULL;
 
-			CREATE INDEX gatehouse_workspace_role_bindings_principal_enabled
-			ON gatehouse_workspace_role_bindings (principal, workspace)
+			CREATE INDEX gatehouse_workspace_grants_principal_enabled
+			ON gatehouse_workspace_grants (principal, workspace)
 			WHERE principal IS NOT NULL AND enabled = TRUE;
 
-			CREATE INDEX gatehouse_workspace_role_bindings_group_enabled
-			ON gatehouse_workspace_role_bindings (workspace, "group")
+			CREATE INDEX gatehouse_workspace_grants_group_enabled
+			ON gatehouse_workspace_grants (workspace, "group")
 			WHERE "group" IS NOT NULL AND enabled = TRUE;
 		`),
 		}, {
 			Index:       31,
-			Description: "replace_resource_grants_with_role_bindings",
+			Description: "merge_resource_grants",
 			Builder: staticMigrationBuilder(`
 				DROP TABLE gatehouse_project_principal_grants;
 				DROP TABLE gatehouse_project_group_grants;
 				DROP TABLE gatehouse_session_principal_grants;
 				DROP TABLE gatehouse_session_group_grants;
 
-				CREATE TABLE gatehouse_project_role_bindings (
+				CREATE TABLE gatehouse_project_grants (
 					workspace TEXT NOT NULL,
 					project TEXT NOT NULL,
 					role TEXT NOT NULL CHECK (role IN ('member', 'contributor', 'manager')),
@@ -694,23 +694,23 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 					FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
 				);
 
-				CREATE UNIQUE INDEX gatehouse_project_role_bindings_principal_once
-				ON gatehouse_project_role_bindings (workspace, project, role, principal)
+				CREATE UNIQUE INDEX gatehouse_project_grants_principal_once
+				ON gatehouse_project_grants (workspace, project, role, principal)
 				WHERE principal IS NOT NULL;
 
-				CREATE UNIQUE INDEX gatehouse_project_role_bindings_group_once
-				ON gatehouse_project_role_bindings (workspace, project, role, "group")
+				CREATE UNIQUE INDEX gatehouse_project_grants_group_once
+				ON gatehouse_project_grants (workspace, project, role, "group")
 				WHERE "group" IS NOT NULL;
 
-				CREATE INDEX gatehouse_project_role_bindings_principal_enabled
-				ON gatehouse_project_role_bindings (principal, workspace, project)
+				CREATE INDEX gatehouse_project_grants_principal_enabled
+				ON gatehouse_project_grants (principal, workspace, project)
 				WHERE principal IS NOT NULL AND enabled = TRUE;
 
-				CREATE INDEX gatehouse_project_role_bindings_group_enabled
-				ON gatehouse_project_role_bindings (workspace, "group", project)
+				CREATE INDEX gatehouse_project_grants_group_enabled
+				ON gatehouse_project_grants (workspace, "group", project)
 				WHERE "group" IS NOT NULL AND enabled = TRUE;
 
-				CREATE TABLE gatehouse_session_role_bindings (
+				CREATE TABLE gatehouse_session_grants (
 					workspace TEXT NOT NULL,
 					session TEXT NOT NULL,
 					role TEXT NOT NULL CHECK (role IN ('member', 'contributor', 'manager')),
@@ -725,20 +725,20 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 					FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
 				);
 
-				CREATE UNIQUE INDEX gatehouse_session_role_bindings_principal_once
-				ON gatehouse_session_role_bindings (workspace, session, role, principal)
+				CREATE UNIQUE INDEX gatehouse_session_grants_principal_once
+				ON gatehouse_session_grants (workspace, session, role, principal)
 				WHERE principal IS NOT NULL;
 
-				CREATE UNIQUE INDEX gatehouse_session_role_bindings_group_once
-				ON gatehouse_session_role_bindings (workspace, session, role, "group")
+				CREATE UNIQUE INDEX gatehouse_session_grants_group_once
+				ON gatehouse_session_grants (workspace, session, role, "group")
 				WHERE "group" IS NOT NULL;
 
-				CREATE INDEX gatehouse_session_role_bindings_principal_enabled
-				ON gatehouse_session_role_bindings (principal, workspace, session)
+				CREATE INDEX gatehouse_session_grants_principal_enabled
+				ON gatehouse_session_grants (principal, workspace, session)
 				WHERE principal IS NOT NULL AND enabled = TRUE;
 
-				CREATE INDEX gatehouse_session_role_bindings_group_enabled
-				ON gatehouse_session_role_bindings (workspace, "group", session)
+				CREATE INDEX gatehouse_session_grants_group_enabled
+				ON gatehouse_session_grants (workspace, "group", session)
 				WHERE "group" IS NOT NULL AND enabled = TRUE;
 			`),
 		}},
@@ -770,8 +770,8 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 				Builder:     groupMigrationBuilder(state.Groups),
 			}, {
 				Index:       7,
-				Description: "reconcile_workspace_role_bindings",
-				Builder:     workspaceRoleBindingMigrationBuilder(state.WorkspaceRoleBindings),
+				Description: "reconcile_workspace_grants",
+				Builder:     workspaceGrantMigrationBuilder(state.WorkspaceGrants),
 			}, {
 				Index:       9,
 				Description: "reconcile_agent_providers",

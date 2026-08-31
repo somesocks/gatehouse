@@ -114,7 +114,7 @@ let Groups =
         s.list.props::{ values = Group }
         s.list.meta::{ description = Some "configured workspace authorization groups" }
 
-let WorkspaceRoleBinding =
+let WorkspaceGrant =
       s.record.from
         s.record.props::{
         , required =
@@ -122,7 +122,7 @@ let WorkspaceRoleBinding =
               { role =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace role assigned by this binding" }
+                    s.text.meta::{ description = Some "workspace role granted by this grant" }
               }
         , optional =
             toMap
@@ -137,19 +137,19 @@ let WorkspaceRoleBinding =
               , revision =
                   s.number.from
                     s.number.props::{ variant = s.number.variants.integer }
-                    s.number.meta::{ description = Some "monotonic role-binding configuration revision" }
+                    s.number.meta::{ description = Some "monotonic grant configuration revision" }
               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
-                    s.boolean.meta::{ description = Some "whether the role binding is enabled" }
+                    s.boolean.meta::{ description = Some "whether the grant is enabled" }
               }
         }
-        s.record.meta::{ name = Some "WorkspaceRoleBinding" }
+        s.record.meta::{ name = Some "WorkspaceGrant" }
 
-let WorkspaceRoleBindings =
+let WorkspaceGrants =
       s.list.from
-        s.list.props::{ values = WorkspaceRoleBinding }
-        s.list.meta::{ description = Some "configured workspace role bindings" }
+        s.list.props::{ values = WorkspaceGrant }
+        s.list.meta::{ description = Some "configured workspace grants" }
 
 let WorkspaceAgent =
       s.record.from
@@ -207,7 +207,7 @@ let Workspace =
                      s.boolean.props::{=}
                      s.boolean.meta::{ description = Some "whether the workspace is enabled" }
                 , groups = Groups
-                , role_bindings = WorkspaceRoleBindings
+                , grants = WorkspaceGrants
                 , agents = WorkspaceAgents
                 , storage_providers = WorkspaceStorageProviders
                 }
