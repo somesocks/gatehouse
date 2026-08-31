@@ -1050,14 +1050,14 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_principal_grants (workspace, session, principal, enabled)
-		VALUES (?, 'ses_00000000000000000000000000', ?, TRUE)
+		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		VALUES (?, 'ses_00000000000000000000000000', 'manager', ?, NULL, TRUE)
 	`, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_group_grants (workspace, session, "group", enabled)
-		VALUES (?, 'ses_00000000000000000000000001', ?, TRUE)
+		INSERT INTO gatehouse_session_role_bindings (workspace, session, role, principal, "group", enabled)
+		VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}

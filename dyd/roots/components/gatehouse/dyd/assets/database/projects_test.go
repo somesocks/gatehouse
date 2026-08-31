@@ -292,11 +292,13 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	state := config.State{
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: "reviewers", Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	reviewers := model.GroupRef{Workspace: workspace, Id: groupID(t, ctx, store, "engineering", "reviewers")}
 	alice := principalRef(t, ctx, store, "alice")
 	bob := principalRef(t, ctx, store, "bob")
 	projectID, err := typed_id.New(typed_id.Project)
@@ -304,7 +306,7 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectRef := model.ProjectRef{Workspace: workspace, Id: projectID}
-	err, project := store.ProjectsCreate(ctx, model.Project{Ref: projectRef, Enabled: true}, alice, nil)
+	err, project := store.ProjectsCreate(ctx, model.Project{Ref: projectRef, Enabled: true}, alice, []model.GroupRef{reviewers})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -313,6 +315,18 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	}
 	if project.Name != nil {
 		t.Fatalf("ProjectsCreate() name = %q, want nil", *project.Name)
+	}
+	var managerBindings int
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_project_role_bindings
+		WHERE workspace = ? AND project = ? AND role = 'manager'
+			AND (principal = ? OR "group" = ?)
+	`, workspace.Id, projectRef.Id, alice.Id, reviewers.Id).Scan(&managerBindings); err != nil {
+		t.Fatal(err)
+	}
+	if managerBindings != 2 {
+		t.Fatalf("project manager role bindings = %d, want 2", managerBindings)
 	}
 	err, projects := store.ProjectsGet(ctx, workspace, alice)
 	if err != nil || len(projects) != 1 || projects[0].Ref != projectRef {
@@ -391,10 +405,10 @@ func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_principal_grants (workspace, project, principal, enabled) VALUES
-			(?, 'prj_00000000000000000000000000', ?, TRUE),
-			(?, 'prj_00000000000000000000000001', ?, TRUE),
-			(?, 'prj_00000000000000000000000002', ?, TRUE)
+		INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled) VALUES
+			(?, 'prj_00000000000000000000000000', 'member', ?, NULL, TRUE),
+			(?, 'prj_00000000000000000000000001', 'member', ?, NULL, TRUE),
+			(?, 'prj_00000000000000000000000002', 'member', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}

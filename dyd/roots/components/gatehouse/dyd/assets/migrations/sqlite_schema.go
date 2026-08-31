@@ -688,6 +688,77 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			ON gatehouse_workspace_role_bindings (workspace, "group")
 			WHERE "group" IS NOT NULL AND enabled = TRUE;
 		`),
+		}, {
+			Index:       31,
+			Description: "replace_resource_grants_with_role_bindings",
+			Builder: staticMigrationBuilder(`
+				DROP TABLE gatehouse_project_principal_grants;
+				DROP TABLE gatehouse_project_group_grants;
+				DROP TABLE gatehouse_session_principal_grants;
+				DROP TABLE gatehouse_session_group_grants;
+
+				CREATE TABLE gatehouse_project_role_bindings (
+					workspace TEXT NOT NULL,
+					project TEXT NOT NULL,
+					role TEXT NOT NULL CHECK (role IN ('member', 'contributor', 'manager')),
+					principal TEXT REFERENCES gatehouse_principals (id),
+					"group" TEXT,
+					enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+					CHECK (
+						(principal IS NOT NULL AND "group" IS NULL)
+						OR (principal IS NULL AND "group" IS NOT NULL)
+					),
+					FOREIGN KEY (workspace, project) REFERENCES gatehouse_projects (workspace, id),
+					FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
+				) STRICT;
+
+				CREATE UNIQUE INDEX gatehouse_project_role_bindings_principal_once
+				ON gatehouse_project_role_bindings (workspace, project, role, principal)
+				WHERE principal IS NOT NULL;
+
+				CREATE UNIQUE INDEX gatehouse_project_role_bindings_group_once
+				ON gatehouse_project_role_bindings (workspace, project, role, "group")
+				WHERE "group" IS NOT NULL;
+
+				CREATE INDEX gatehouse_project_role_bindings_principal_enabled
+				ON gatehouse_project_role_bindings (principal, workspace, project)
+				WHERE principal IS NOT NULL AND enabled = TRUE;
+
+				CREATE INDEX gatehouse_project_role_bindings_group_enabled
+				ON gatehouse_project_role_bindings (workspace, "group", project)
+				WHERE "group" IS NOT NULL AND enabled = TRUE;
+
+				CREATE TABLE gatehouse_session_role_bindings (
+					workspace TEXT NOT NULL,
+					session TEXT NOT NULL,
+					role TEXT NOT NULL CHECK (role IN ('member', 'contributor', 'manager')),
+					principal TEXT REFERENCES gatehouse_principals (id),
+					"group" TEXT,
+					enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
+					CHECK (
+						(principal IS NOT NULL AND "group" IS NULL)
+						OR (principal IS NULL AND "group" IS NOT NULL)
+					),
+					FOREIGN KEY (workspace, session) REFERENCES gatehouse_sessions (workspace, id),
+					FOREIGN KEY (workspace, "group") REFERENCES gatehouse_groups (workspace_id, id)
+				) STRICT;
+
+				CREATE UNIQUE INDEX gatehouse_session_role_bindings_principal_once
+				ON gatehouse_session_role_bindings (workspace, session, role, principal)
+				WHERE principal IS NOT NULL;
+
+				CREATE UNIQUE INDEX gatehouse_session_role_bindings_group_once
+				ON gatehouse_session_role_bindings (workspace, session, role, "group")
+				WHERE "group" IS NOT NULL;
+
+				CREATE INDEX gatehouse_session_role_bindings_principal_enabled
+				ON gatehouse_session_role_bindings (principal, workspace, session)
+				WHERE principal IS NOT NULL AND enabled = TRUE;
+
+				CREATE INDEX gatehouse_session_role_bindings_group_enabled
+				ON gatehouse_session_role_bindings (workspace, "group", session)
+				WHERE "group" IS NOT NULL AND enabled = TRUE;
+			`),
 		}},
 		Repeatable: []RepeatableMigration{
 			{

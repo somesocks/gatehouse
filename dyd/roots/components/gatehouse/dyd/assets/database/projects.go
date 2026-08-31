@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gatehouse/authz"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -46,20 +47,20 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 		return fmt.Errorf("insert project: %w", err), model.Project{}
 	}
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_principal_grants (workspace, project, principal, enabled)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, TRUE)
-	`, project.Ref.Workspace.Id, project.Ref.Id, creator.Id); err != nil {
-		return fmt.Errorf("grant project creator: %w", err), model.Project{}
+		INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE)
+	`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, creator.Id); err != nil {
+		return fmt.Errorf("bind project creator role: %w", err), model.Project{}
 	}
 	for _, group := range groups {
 		if group.Workspace != project.Ref.Workspace {
-			return fmt.Errorf("grant project group: group belongs to another workspace"), model.Project{}
+			return fmt.Errorf("bind project group role: group belongs to another workspace"), model.Project{}
 		}
 		if _, err := transaction.ExecContext(ctx, `
-			INSERT INTO gatehouse_project_group_grants (workspace, project, "group", enabled)
-			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, TRUE)
-		`, project.Ref.Workspace.Id, project.Ref.Id, group.Id); err != nil {
-			return fmt.Errorf("grant project group: %w", err), model.Project{}
+			INSERT INTO gatehouse_project_role_bindings (workspace, project, role, principal, "group", enabled)
+			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, NULL, `+placeholder(4)+`, TRUE)
+		`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, group.Id); err != nil {
+			return fmt.Errorf("bind project group role: %w", err), model.Project{}
 		}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
@@ -84,7 +85,7 @@ func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRe
 		WHERE projects.workspace = `+placeholder(1)+`
 			AND projects.enabled = TRUE
 			AND EXISTS (
-				SELECT 1 FROM gatehouse_project_principal_grants AS grants
+				SELECT 1 FROM gatehouse_project_role_bindings AS grants
 				WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 					AND grants.principal = `+placeholder(2)+` AND grants.enabled = TRUE
 			)
@@ -92,7 +93,7 @@ func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRe
 				projects.workspace = `+placeholder(3)+` AND projects.enabled = TRUE
 				AND EXISTS (
 					SELECT 1
-					FROM gatehouse_project_group_grants AS grants
+					FROM gatehouse_project_role_bindings AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
@@ -175,12 +176,12 @@ func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.Works
 			AND projects.enabled = TRUE
 			AND (
 				EXISTS (
-					SELECT 1 FROM gatehouse_project_principal_grants AS grants
+					SELECT 1 FROM gatehouse_project_role_bindings AS grants
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 						AND grants.principal = `+principalPlaceholder+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_group_grants AS grants
+					SELECT 1 FROM gatehouse_project_role_bindings AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
@@ -291,12 +292,12 @@ func (store *Store) projectsSearch(ctx context.Context, workspace model.Workspac
 			AND (`+placeholder(3)+` = '' OR projects.id < `+placeholder(4)+`)
 			AND (
 				EXISTS (
-					SELECT 1 FROM gatehouse_project_principal_grants AS grants
+					SELECT 1 FROM gatehouse_project_role_bindings AS grants
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
 						AND grants.principal = `+placeholder(5)+` AND grants.enabled = TRUE
 				)
 				OR EXISTS (
-					SELECT 1 FROM gatehouse_project_group_grants AS grants
+					SELECT 1 FROM gatehouse_project_role_bindings AS grants
 					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
 					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE

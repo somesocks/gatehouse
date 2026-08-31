@@ -46,13 +46,13 @@ workspaces:
         label: GPT 5.6 Luna Med
         priority: 1
     groups:
-      - alias: members
-        name: Members
+      - alias: admins
+        name: Admins
         members:
           - principal: root
     role_bindings:
       - role: manager
-        group: members
+        group: admins
 services:
   http:
     listen: 0.0.0.0:4283

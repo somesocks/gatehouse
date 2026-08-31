@@ -61,10 +61,13 @@ workspaces:
       - provider: local-s3
         priority: 1
     groups:
-      - alias: members
-        name: Members
+      - alias: admins
+        name: Admins
         members:
           - principal: root
+    role_bindings:
+      - role: manager
+        group: admins
 services:
   http:
     listen: 0.0.0.0:4283
