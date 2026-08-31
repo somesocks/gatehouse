@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"gatehouse/auth"
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/keychain"
@@ -175,6 +176,10 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	err, roles := store.WorkspaceRolesGet(context.Background(), engineering, principal)
+	if err != nil || !reflect.DeepEqual(roles, []authz.Role{authz.Manager}) {
+		t.Fatalf("WorkspaceRolesGet() = (%#v, %v), want (%#v, nil)", roles, err, []authz.Role{authz.Manager})
+	}
 	request := func(path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
 		httpRequest := httptest.NewRequest(http.MethodGet, path, nil)
@@ -207,6 +212,18 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	invalidSessionPage := request("/api/v1/workspaces/" + engineering.Id + "/sessions?limit=101")
 	if invalidSessionPage.Code != http.StatusBadRequest {
 		t.Fatalf("GET invalid session page = status %d", invalidSessionPage.Code)
+	}
+	for _, path := range []string{
+		"/api/v1/workspaces/" + operations.Id + "/projects",
+		"/api/v1/workspaces/" + operations.Id + "/sessions",
+	} {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{}`))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("POST %s as workspace member = status %d, want %d", path, response.Code, http.StatusForbidden)
+		}
 	}
 }
 
@@ -960,6 +977,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	engineering := "Engineering"
 	private := "Private"
 	developers := "Developers"
+	developersGroup := "developers"
+	operatorsGroup := "operators"
 	state := config.State{
 		Keychains: configured,
 		Workspaces: []config.Workspace{
@@ -975,14 +994,18 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		}},
 		Groups: []config.Group{
 			{
-				WorkspaceID: "engineering", Alias: "developers", Name: &developers, Enabled: true,
+				WorkspaceID: "engineering", Alias: developersGroup, Name: &developers, Enabled: true,
 				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 			},
 			{
-				WorkspaceID: "operations", Alias: "operators", Enabled: true,
+				WorkspaceID: "operations", Alias: operatorsGroup, Enabled: true,
 				Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
 			},
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
+		},
+		WorkspaceRoleBindings: []config.WorkspaceRoleBinding{
+			{WorkspaceID: "engineering", Role: string(authz.Manager), GroupID: &developersGroup, Revision: 1, Enabled: true},
+			{WorkspaceID: "operations", Role: string(authz.Member), GroupID: &operatorsGroup, Revision: 1, Enabled: true},
 		},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},

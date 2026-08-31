@@ -5,26 +5,43 @@ import (
 	"database/sql"
 	"fmt"
 
+	"gatehouse/authz"
 	"gatehouse/model"
 )
 
 func (store *Store) WorkspacesGet(ctx context.Context, principal model.PrincipalRef) (error, []model.Workspace) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
+		WITH input AS (SELECT `+placeholder(1)+` AS principal)
 		SELECT workspaces.id, workspaces.alias, workspaces.name, workspaces.enabled
 		FROM gatehouse_workspaces AS workspaces
+		CROSS JOIN input
 		WHERE workspaces.enabled = TRUE
-			AND EXISTS (
-				SELECT 1
-				FROM gatehouse_group_members AS members
-				JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-				JOIN gatehouse_groups AS groups
-					ON groups.workspace_id = members.workspace_id AND groups.id = members.group_id
-				WHERE members.workspace_id = workspaces.id
-					AND principals.id = `+placeholder(1)+`
-					AND principals.enabled = TRUE
-					AND members.enabled = TRUE
-					AND groups.enabled = TRUE
+			AND (
+				EXISTS (
+					SELECT 1
+					FROM gatehouse_workspace_role_bindings AS bindings
+					JOIN gatehouse_principals AS principals ON principals.id = bindings.principal
+					WHERE bindings.workspace = workspaces.id
+						AND bindings.principal = input.principal
+						AND bindings.enabled = TRUE
+						AND principals.enabled = TRUE
+				)
+				OR EXISTS (
+					SELECT 1
+					FROM gatehouse_workspace_role_bindings AS bindings
+					JOIN gatehouse_groups AS groups
+						ON groups.workspace_id = bindings.workspace AND groups.id = bindings."group"
+					JOIN gatehouse_group_members AS members
+						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+					JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
+					WHERE bindings.workspace = workspaces.id
+						AND members.principal_id = input.principal
+						AND bindings.enabled = TRUE
+						AND groups.enabled = TRUE
+						AND members.enabled = TRUE
+						AND principals.enabled = TRUE
+				)
 			)
 		ORDER BY workspaces.name IS NULL, workspaces.name, workspaces.id
 	`, principal.Id)
@@ -52,6 +69,62 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 		return fmt.Errorf("iterate workspaces: %w", err), nil
 	}
 	return nil, workspaces
+}
+
+func (store *Store) WorkspaceRolesGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []authz.Role) {
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		WITH input AS (
+			SELECT `+placeholder(1)+` AS workspace, `+placeholder(2)+` AS principal
+		)
+		SELECT role FROM (
+			SELECT bindings.role
+			FROM gatehouse_workspace_role_bindings AS bindings
+			CROSS JOIN input
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = bindings.workspace
+			JOIN gatehouse_principals AS principals ON principals.id = bindings.principal
+			WHERE bindings.workspace = input.workspace
+				AND bindings.principal = input.principal
+				AND workspaces.enabled = TRUE
+				AND bindings.enabled = TRUE
+				AND principals.enabled = TRUE
+			UNION
+			SELECT bindings.role
+			FROM gatehouse_workspace_role_bindings AS bindings
+			CROSS JOIN input
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = bindings.workspace
+			JOIN gatehouse_groups AS groups
+				ON groups.workspace_id = bindings.workspace AND groups.id = bindings."group"
+			JOIN gatehouse_group_members AS members
+				ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+			JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
+			WHERE bindings.workspace = input.workspace
+				AND members.principal_id = input.principal
+				AND workspaces.enabled = TRUE
+				AND bindings.enabled = TRUE
+				AND groups.enabled = TRUE
+				AND members.enabled = TRUE
+				AND principals.enabled = TRUE
+		)
+		ORDER BY role
+	`, workspace.Id, principal.Id)
+	if err != nil {
+		return fmt.Errorf("get workspace roles: %w", err), nil
+	}
+	defer rows.Close()
+
+	roles := []authz.Role{}
+	for rows.Next() {
+		var role authz.Role
+		if err := rows.Scan(&role); err != nil {
+			return fmt.Errorf("scan workspace role: %w", err), nil
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate workspace roles: %w", err), nil
+	}
+	return nil, roles
 }
 
 func (store *Store) WorkspaceGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, *model.Workspace) {

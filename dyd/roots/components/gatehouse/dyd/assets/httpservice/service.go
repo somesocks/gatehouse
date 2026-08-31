@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"gatehouse/auth"
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
@@ -488,7 +489,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 		if !ok {
 			return
 		}
-		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		workspace, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
 		if !ok {
 			return
 		}
@@ -513,6 +514,9 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			}
 			writeJSON(response, projectSearchResponse{Projects: result, NextCursor: nextCursor})
 		case http.MethodPost:
+			if !workspaceActionAllowed(response, roles, authz.WorkspaceProjectCreate) {
+				return
+			}
 			var input projectCreateRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 			decoder.DisallowUnknownFields()
@@ -725,8 +729,11 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 	if !ok {
 		return
 	}
-	workspace, ok := authorizedWorkspace(response, request, store, claims)
+	workspace, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
 	if !ok {
+		return
+	}
+	if !workspaceActionAllowed(response, roles, authz.WorkspaceSessionCreate) {
 		return
 	}
 	var input sessionCreateRequest
@@ -2040,22 +2047,35 @@ func authenticate(response http.ResponseWriter, request *http.Request, tokens *a
 }
 
 func authorizedWorkspace(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.WorkspaceRef, bool) {
+	workspace, _, ok := authorizedWorkspaceRoles(response, request, store, claims)
+	return workspace, ok
+}
+
+func workspaceActionAllowed(response http.ResponseWriter, roles []authz.Role, action authz.WorkspaceAction) bool {
+	if !authz.WorkspaceAllows(roles, action) {
+		http.Error(response, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func authorizedWorkspaceRoles(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.WorkspaceRef, []authz.Role, bool) {
 	workspaceID := request.PathValue("workspace")
 	if workspaceID == "" {
 		http.NotFound(response, request)
-		return model.WorkspaceRef{}, false
+		return model.WorkspaceRef{}, nil, false
 	}
 	workspace := model.WorkspaceRef{Id: workspaceID}
-	err, configured := store.WorkspaceGet(request.Context(), workspace, claims.Principal.Ref)
+	err, roles := store.WorkspaceRolesGet(request.Context(), workspace, claims.Principal.Ref)
 	if err != nil {
 		http.Error(response, "internal server error", http.StatusInternalServerError)
-		return model.WorkspaceRef{}, false
+		return model.WorkspaceRef{}, nil, false
 	}
-	if configured == nil {
+	if len(roles) == 0 {
 		http.NotFound(response, request)
-		return model.WorkspaceRef{}, false
+		return model.WorkspaceRef{}, nil, false
 	}
-	return workspace, true
+	return workspace, roles, true
 }
 
 func authorizedProject(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims) (model.ProjectRef, bool) {

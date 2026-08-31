@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"gatehouse/authorization"
+	"gatehouse/authz"
 	"gatehouse/configschema"
 )
 
@@ -23,7 +23,7 @@ func ResolveWorkspaceRoleBindings(document configschema.GatehouseConfig, princip
 			return nil, []WorkspaceRoleBinding{}
 		}
 		root := "root"
-		return nil, []WorkspaceRoleBinding{{WorkspaceID: defaultWorkspaceAlias, Role: string(authorization.Manager), GroupID: &root, Revision: 1, Enabled: true}}
+		return nil, []WorkspaceRoleBinding{{WorkspaceID: defaultWorkspaceAlias, Role: string(authz.Manager), GroupID: &root, Revision: 1, Enabled: true}}
 	}
 
 	groupAliases := make(map[workspaceGroupAliasKey]struct{}, len(groups))
@@ -39,7 +39,7 @@ func ResolveWorkspaceRoleBindings(document configschema.GatehouseConfig, princip
 		}
 		for bindingIndex, configured := range *workspace.RoleBindings {
 			path := fmt.Sprintf("workspaces[%d].role_bindings[%d]", workspaceIndex, bindingIndex)
-			if !authorization.ValidRole(configured.Role) {
+			if !authz.ValidRole(configured.Role) {
 				return fmt.Errorf("%s.role must be member, contributor, or manager", path), nil
 			}
 			if configured.Principal == nil && configured.Group == nil || configured.Principal != nil && configured.Group != nil {
