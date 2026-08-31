@@ -7,8 +7,9 @@ import (
 )
 
 type moduleLoader struct {
-	cache   *moduleCache
-	loading []string
+	cache     *moduleCache
+	evaluator *evaluator
+	loading   []string
 }
 
 type moduleCache struct {
@@ -116,9 +117,13 @@ func (loader *moduleLoader) load(reference moduleReference, parent *environment)
 		loader.loading = loader.loading[:len(loader.loading)-1]
 	}()
 
-	err, result := (&evaluator{}).eval(expression, parent)
+	evaluator := loader.evaluator
+	if evaluator == nil {
+		evaluator = newEvaluator(nil)
+	}
+	err, result := evaluator.eval(expression, parent)
 	if err != nil {
-		return fmt.Errorf("load %s: %v", reference.String(), err), nil
+		return fmt.Errorf("load %s: %w", reference.String(), err), nil
 	}
 	err, exports := moduleExports(result)
 	if err != nil {
@@ -296,6 +301,7 @@ func importModules(loader *moduleLoader, evaluator *evaluator, env *environment,
 	if len(forms) < 2 {
 		return expressionError("import requires declarations and a body expression"), nil
 	}
+	loader.evaluator = evaluator
 
 	imports := &environment{parent: env, values: make(map[string]*Expr)}
 	aliases := make(map[string]struct{}, len(forms)-1)

@@ -1,13 +1,22 @@
 package lisp
 
+import "context"
+
 type environment struct {
 	parent *environment
 	values map[string]*Expr
 }
 
-type evaluator struct{}
+type evaluator struct{ context context.Context }
 
-func Eval(expression Expr) (error, Expr) { return (&evaluator{}).eval(expression, prelude()) }
+func newEvaluator(ctx context.Context) *evaluator {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &evaluator{context: ctx}
+}
+
+func Eval(expression Expr) (error, Expr) { return newEvaluator(nil).eval(expression, prelude()) }
 func Run(source string) (error, Expr) {
 	err, expression := Read(source)
 	if err != nil {
@@ -28,6 +37,9 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 		}
 	}()
 	for {
+		if err := evaluator.interrupted(); err != nil {
+			return err, nil
+		}
 		base, _ := unwrap(expression)
 		switch value := base.(type) {
 		case *booleanExpr, *integerExpr, *stringExpr, *bytesExpr, *errorValue, *nullExpr, *closure, *builtin, *moduleReference:
@@ -101,6 +113,9 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 }
 
 func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr) (error, Expr) {
+	if err := evaluator.interrupted(); err != nil {
+		return err, nil
+	}
 	base, _ := unwrap(callee)
 	switch callee := base.(type) {
 	case *closure:
@@ -125,6 +140,9 @@ func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr
 }
 
 func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, arguments []Expr) (error, callOutcome, Taint) {
+	if err := evaluator.interrupted(); err != nil {
+		return err, nil, TaintNone
+	}
 	taint := TaintNone
 	if builtin.leaky {
 		for _, argument := range arguments {
@@ -135,7 +153,17 @@ func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, argu
 	if err != nil {
 		return taintError(err, taint), nil, TaintNone
 	}
+	if err := evaluator.interrupted(); err != nil {
+		return err, nil, TaintNone
+	}
 	return nil, outcome, taint
+}
+
+func (evaluator *evaluator) interrupted() error {
+	if evaluator.context == nil || evaluator.context.Err() == nil {
+		return nil
+	}
+	return interruptedError{cause: evaluator.context.Err()}
 }
 
 func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environment) (error, Expr) {

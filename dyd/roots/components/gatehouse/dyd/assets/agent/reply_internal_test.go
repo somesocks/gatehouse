@@ -1,13 +1,38 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"gatehouse/database"
 	"gatehouse/model"
 )
+
+func TestWatchCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	requested := make(chan struct{})
+	stop := watchCancellation(func(context.Context) bool {
+		select {
+		case <-requested:
+			return true
+		default:
+			return false
+		}
+	}, cancel)
+	defer stop()
+	close(requested)
+	select {
+	case <-ctx.Done():
+		if ctx.Err() != context.Canceled {
+			t.Fatalf("cancellation context error = %v", ctx.Err())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("cancellation watcher did not cancel the evaluation context")
+	}
+}
 
 func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."

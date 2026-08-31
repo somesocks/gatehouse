@@ -33,6 +33,7 @@ const (
 	sessionNameQueue       = "gatehouse.session-names"
 	sessionNamePrompt      = "Generate a concise title for this conversation. Return only the title, using a few words."
 	sessionApprovalWait    = time.Duration(1<<63 - 1)
+	lispCancellationPoll   = time.Second
 )
 
 type SessionEventReplyInput struct {
@@ -621,15 +622,56 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
-	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Prelude: agentPrelude, HostModules: modules})
+	evaluationContext, cancelEvaluation := context.WithCancel(ctx)
+	stopCancellationWatch := runtime.watchToolCallCancellation(input.Request.Parent, cancelEvaluation)
+	defer stopCancellationWatch()
+	defer cancelEvaluation()
+	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPrelude, HostModules: modules})
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
-	if evalErr != nil {
+	if errors.Is(evalErr, lisp.ErrInterrupted) {
+		execution = sessionToolCallExecution{Kind: "tool.failure", Output: "execution cancelled"}
+	} else if evalErr != nil {
 		execution = sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}
 	} else {
 		execution = sessionToolCallExecution{Kind: "tool.success", Output: result.String()}
 	}
 	return runtime.toolCallFinish(ctx, input, execution)
+}
+
+func (runtime *SessionEventReplyRuntime) watchToolCallCancellation(parent *model.SessionEventRef, cancel context.CancelFunc) func() {
+	if parent == nil {
+		return func() {}
+	}
+	return watchCancellation(func(ctx context.Context) bool {
+		err, request := runtime.replyCancellationRequested(ctx, *parent)
+		return err == nil && request != nil
+	}, cancel)
+}
+
+func watchCancellation(requested func(context.Context) bool, cancel context.CancelFunc) func() {
+	ctx, stop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(lispCancellationPoll)
+		defer ticker.Stop()
+		for {
+			if requested(ctx) {
+				cancel()
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+	return func() {
+		stop()
+		<-done
+	}
 }
 
 func sessionEventReadRange(event model.SessionEvent, offset, length int64) (error, []byte) {

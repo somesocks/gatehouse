@@ -1,9 +1,13 @@
 package lisp
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
+
+// ErrInterrupted reports that an evaluation context was cancelled or expired.
+var ErrInterrupted = errors.New("evaluation interrupted")
 
 type Error struct {
 	Message string
@@ -26,6 +30,12 @@ type taintedError struct {
 	taint Taint
 }
 
+type interruptedError struct{ cause error }
+
+func (err interruptedError) Error() string { return ErrInterrupted.Error() }
+func (err interruptedError) Unwrap() error { return err.cause }
+func (err interruptedError) Is(target error) bool { return target == ErrInterrupted }
+
 func (err *raisedError) Error() string {
 	if TaintOf(err.value) != TaintNone {
 		return err.value.String()
@@ -37,6 +47,8 @@ func (err *raisedError) Error() string {
 func (err *taintedError) Error() string {
 	return withTaint(null(), err.taint).String()
 }
+
+func (err *taintedError) Unwrap() error { return err.cause }
 
 func taintError(err error, taint Taint) error {
 	if taint == TaintNone {
@@ -64,6 +76,9 @@ func catchError(evaluator *evaluator, env *environment, forms []Expr) (error, Ex
 	err, result := evaluator.eval(forms[0], env)
 	if err == nil {
 		return nil, result
+	}
+	if errors.Is(err, ErrInterrupted) {
+		return err, nil
 	}
 	return nil, caughtError(err)
 }

@@ -1,11 +1,13 @@
 package lisp
 
 import (
+	"context"
 	"fmt"
 	"sync"
 )
 
 type EvalOptions struct {
+	Context       context.Context
 	Prelude       string
 	Bindings      []Binding
 	SourceModules []SourceModule
@@ -39,6 +41,7 @@ func Evaluate(source string, options EvalOptions) (error, Expr) {
 		return err, nil
 	}
 
+	evaluator := newEvaluator(options.Context)
 	env := bootstrap()
 	env.bind("program", program)
 	for _, binding := range options.Bindings {
@@ -89,7 +92,7 @@ func Evaluate(source string, options EvalOptions) (error, Expr) {
 		}
 		moduleEnv := &environment{parent: env, values: make(map[string]*Expr)}
 		bindImports(moduleEnv, cache)
-		err, result := (&evaluator{}).eval(expression, moduleEnv)
+		err, result := evaluator.eval(expression, moduleEnv)
 		if err != nil {
 			return fmt.Errorf("load source module %q: %w", module.ID, err), nil
 		}
@@ -108,13 +111,13 @@ func Evaluate(source string, options EvalOptions) (error, Expr) {
 
 	bindImports(env, cache)
 	if options.Prelude == "" {
-		return (&evaluator{}).eval(program, env)
+		return evaluator.eval(program, env)
 	}
 	err, prelude := Read(options.Prelude)
 	if err != nil {
 		return fmt.Errorf("read evaluation prelude: %w", err), nil
 	}
-	return (&evaluator{}).eval(prelude, env)
+	return evaluator.eval(prelude, env)
 }
 
 func String(value string) Expr { return stringValue(value) }

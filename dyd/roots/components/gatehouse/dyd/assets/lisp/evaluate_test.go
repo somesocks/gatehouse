@@ -1,8 +1,11 @@
 package lisp
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestEvaluateBindsValuesAndSourceModuleExports(t *testing.T) {
@@ -84,5 +87,29 @@ func TestEvaluateRejectsInvalidAndDuplicateInput(t *testing.T) {
 				t.Fatalf("Evaluate() error = %v, want %q", err, test.contains)
 			}
 		})
+	}
+}
+
+func TestEvaluateInterruptsInfiniteTailRecursion(t *testing.T) {
+	for _, source := range []string{
+		`(let ((forever (fn () (forever)))) (forever))`,
+		`(error/catch (let ((forever (fn () (forever)))) (forever)))`,
+	} {
+		ctx, cancel := context.WithCancel(context.Background())
+		result := make(chan error, 1)
+		go func() {
+			err, _ := Evaluate(source, EvalOptions{Context: ctx})
+			result <- err
+		}()
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+		select {
+		case err := <-result:
+			if !errors.Is(err, ErrInterrupted) || !errors.Is(err, context.Canceled) {
+				t.Fatalf("Evaluate(%s) = %v, want interrupted cancellation", source, err)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("Evaluate(%s) did not stop after cancellation", source)
+		}
 	}
 }
