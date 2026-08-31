@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Bot, CircleCheck, CircleX, Copy, Menu, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
+  import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
   import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
 
@@ -2811,7 +2811,7 @@
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
           </button>
           <h1 class="workspace-breadcrumb">
-            <a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(workspacePath(activeWorkspace)) } }}>{activeWorkspace?.name ?? "New Workspace"}</a>
+            <a class="workspace-breadcrumb-segment" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { void selectWorkspaceRoute(workspacePath(activeWorkspace)) } }}><Building size={16} strokeWidth={2} aria-hidden="true" /><span>{activeWorkspace?.name ?? "New Workspace"}</span></a>
             {#if isChatCollection()}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>Chats</span>
@@ -2824,15 +2824,15 @@
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
 				{#if activeSession === null && activeProjectNote === null && !creatingProjectNote && activeProjectSecret === null && !creatingProjectSecret && !isProjectNotesRoute() && !isProjectSecretsRoute()}
-                <span>{activeProject.name ?? "New Project"}</span>
+                <span class="workspace-breadcrumb-segment"><Folder size={16} strokeWidth={2} aria-hidden="true" />{activeProject.name ?? "New Project"}</span>
               {:else}
-                <a href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}>{activeProject.name ?? "New Project"}</a>
+                <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProject(activeProject) }}><Folder size={16} strokeWidth={2} aria-hidden="true" /><span>{activeProject.name ?? "New Project"}</span></a>
               {/if}
             {/if}
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               {#if isSessionNotesRoute()}
-                <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>{activeSession.name ?? "New Chat"}</a>
+                <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
                 {#if activeSessionNote !== null || creatingSessionNote}
                   <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionNotes(activeSession) }}>Notes</a>
@@ -2840,7 +2840,7 @@
                   <span>Notes</span>
                 {/if}
               {:else if isSessionSecretsRoute()}
-                <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}>{activeSession.name ?? "New Chat"}</a>
+                <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionChat(activeSession) }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
                 {#if activeSessionSecret !== null || creatingSessionSecret}
                   <a href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); void selectSessionSecrets(activeSession) }}>Secrets</a>
@@ -2848,14 +2848,14 @@
                   <span>Secrets</span>
                 {/if}
               {:else}
-                <span>{activeSession.name ?? "New Chat"}</span>
+                <span class="workspace-breadcrumb-segment"><MessageSquare size={16} strokeWidth={2} aria-hidden="true" />{activeSession.name ?? "New Chat"}</span>
               {/if}
 			{:else if activeProject !== null && (isProjectSecretsRoute() || activeProjectSecret !== null || creatingProjectSecret)}
 				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
 				{#if activeProjectSecret !== null || creatingProjectSecret}
-					<a href={activeWorkspace !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectSecrets(activeProject) }}>Secrets</a>
-				{:else}
-					<span>Secrets</span>
+                  <a href={activeWorkspace !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectSecrets(activeProject) }}>Secrets</a>
+                {:else}
+                  <span>Secrets</span>
 				{/if}
 			{:else if activeProject !== null && (isProjectNotesRoute() || activeProjectNote !== null || creatingProjectNote)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
@@ -2866,20 +2866,20 @@
               {/if}
               {#if activeProjectNote !== null || creatingProjectNote}
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                <span>{activeProjectNote?.title ?? "New Note"}</span>
+                <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{activeProjectNote?.title ?? "New Note"}</span>
               {/if}
             {/if}
             {#if activeSession !== null && (activeSessionNote !== null || creatingSessionNote)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>{activeSessionNote?.title ?? "New Note"}</span>
+              <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{activeSessionNote?.title ?? "New Note"}</span>
             {/if}
             {#if activeSession !== null && (activeSessionSecret !== null || creatingSessionSecret)}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>{activeSessionSecret?.description ?? "New Secret"}</span>
+              <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{activeSessionSecret?.description ?? "New Secret"}</span>
             {/if}
 			{#if activeSession === null && activeProject !== null && (activeProjectSecret !== null || creatingProjectSecret)}
 				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-				<span>{activeProjectSecret?.description ?? "New Secret"}</span>
+                <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{activeProjectSecret?.description ?? "New Secret"}</span>
 			{/if}
           </h1>
           {#if activeSession !== null}
@@ -2903,7 +2903,7 @@
           </div>
           <details class="project-action-menu" bind:this={projectActionMenuElement}>
             <summary class="button is-small project-action-menu-trigger" aria-label="Project actions" title="Project actions"><Menu size={22} strokeWidth={2} aria-hidden="true" /></summary>
-				<div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button><button type="button" onclick={() => void selectProjectSecrets(activeProject)}>Secrets</button></div>
+				<div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button></div>
           </details>
         </section>
       {/if}
@@ -3117,6 +3117,19 @@
               {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
             {/if}
           </section>
+			<section class="dashboard-widget dashboard-widget-wide project-notes-widget">
+				<div class="dashboard-widget-heading"><h2>Project Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startProjectSecretCreate()}>New secret</button></div>
+				{#if projectSecretStatus === "checking"}
+					<p class="dashboard-empty">Loading secrets...</p>
+				{:else if projectSecretStatus === "unavailable"}
+					<p class="dashboard-empty">Secrets could not be loaded.</p>
+				{:else}
+					{#each projectSecrets as secret (secret.id)}
+						<a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectSecretPath(activeWorkspace, activeProject, secret) : "#"} onclick={(event) => { event.preventDefault(); void selectProjectSecret(secret) }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
+					{:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
+				{/if}
+				{#if projectSecrets.length > 0}<a class="dashboard-view-all" href={activeWorkspace !== null && activeProject !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeProject !== null) { void selectProjectSecrets(activeProject) } }}>View all secrets</a>{/if}
+			</section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
       {:else}

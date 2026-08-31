@@ -556,6 +556,15 @@ body {
   text-decoration: none;
 }
 
+.workspace-breadcrumb-segment {
+  white-space: nowrap;
+}
+
+.workspace-breadcrumb-segment svg {
+  margin-right: 0.35rem;
+  vertical-align: -0.125em;
+}
+
 .workspace-breadcrumb a:hover,
 .workspace-breadcrumb a:focus-visible {
   color: #b9db6f;
