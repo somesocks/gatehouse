@@ -489,12 +489,13 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 		if !ok {
 			return
 		}
-		workspace, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
-		if !ok {
-			return
-		}
 		switch request.Method {
 		case http.MethodGet:
+			workspaceID := request.PathValue("workspace")
+			if workspaceID == "" {
+				http.NotFound(response, request)
+				return
+			}
 			name, cursor, limit, ok := catalogSearchParameters(response, request)
 			if !ok {
 				return
@@ -503,7 +504,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 				http.Error(response, "invalid project cursor", http.StatusBadRequest)
 				return
 			}
-			err, projects, nextCursor := store.ProjectsSearch(request.Context(), workspace, claims.Principal.Ref, database.ProjectSearch{Name: name, Cursor: cursor, Limit: limit})
+			err, projects, nextCursor := store.ProjectsSearch(request.Context(), model.WorkspaceRef{Id: workspaceID}, claims.Principal.Ref, database.ProjectSearch{Name: name, Cursor: cursor, Limit: limit})
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -514,6 +515,10 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			}
 			writeJSON(response, projectSearchResponse{Projects: result, NextCursor: nextCursor})
 		case http.MethodPost:
+			workspace, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
+			if !ok {
+				return
+			}
 			if !workspaceActionAllowed(response, roles, authz.WorkspaceProjectCreate) {
 				return
 			}
@@ -559,16 +564,10 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 		if !ok {
 			return
 		}
-		workspace, ok := authorizedWorkspace(response, request, store, claims)
+		projectRef, ok := authorizedProject(response, request, store, claims)
 		if !ok {
 			return
 		}
-		projectID := request.PathValue("project")
-		if !typed_id.Valid(typed_id.Project, projectID) {
-			http.NotFound(response, request)
-			return
-		}
-		projectRef := model.ProjectRef{Workspace: workspace, Id: projectID}
 		if request.Method == http.MethodGet {
 			err, project := store.ProjectGet(request.Context(), projectRef, claims.Principal.Ref)
 			if err != nil {
@@ -596,6 +595,9 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 		}
 		if current == nil {
 			http.NotFound(response, request)
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, projectRef, authz.ProjectEdit) {
 			return
 		}
 		name, description := input.Name, input.Description
@@ -729,13 +731,12 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 	if !ok {
 		return
 	}
-	workspace, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
-	if !ok {
+	workspaceID := request.PathValue("workspace")
+	if workspaceID == "" {
+		http.NotFound(response, request)
 		return
 	}
-	if !workspaceActionAllowed(response, roles, authz.WorkspaceSessionCreate) {
-		return
-	}
+	workspace := model.WorkspaceRef{Id: workspaceID}
 	var input sessionCreateRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 	decoder.DisallowUnknownFields()
@@ -750,6 +751,29 @@ func workspaceSessionsCreate(store *database.Store, tokens *auth.BearerTokens, r
 			return
 		}
 		project = &model.ProjectRef{Workspace: workspace, Id: *input.Project}
+	}
+	if project == nil {
+		var roles []authz.Role
+		workspace, roles, ok = authorizedWorkspaceRoles(response, request, store, claims)
+		if !ok {
+			return
+		}
+		if !workspaceActionAllowed(response, roles, authz.WorkspaceSessionCreate) {
+			return
+		}
+	} else {
+		err, available := store.ProjectGet(request.Context(), *project, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if available == nil {
+			http.NotFound(response, request)
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, *project, authz.ProjectSessionCreate) {
+			return
+		}
 	}
 	id, err := typed_id.New(typed_id.Session)
 	if err != nil {
@@ -786,6 +810,19 @@ func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) h
 			http.NotFound(response, request)
 			return
 		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, available := store.SessionGet(request.Context(), session, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if available == nil {
+			http.NotFound(response, request)
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionProjectSet) {
+			return
+		}
 		var input sessionProjectRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
@@ -800,8 +837,28 @@ func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) h
 				return
 			}
 			project = &model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: *input.Project}
+			err, available := store.ProjectGet(request.Context(), *project, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if available == nil {
+				http.NotFound(response, request)
+				return
+			}
+			if !projectActionAllowed(response, request, store, claims, *project, authz.ProjectSessionCreate) {
+				return
+			}
+		} else {
+			_, roles, ok := authorizedWorkspaceRoles(response, request, store, claims)
+			if !ok {
+				return
+			}
+			if !workspaceActionAllowed(response, roles, authz.WorkspaceSessionCreate) {
+				return
+			}
 		}
-		err, stored := store.SessionProjectSet(request.Context(), model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, project, claims.Principal.Ref)
+		err, stored := store.SessionProjectSet(request.Context(), session, project, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "session project could not be updated", http.StatusBadRequest)
 			return
@@ -905,6 +962,9 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.NotFound(response, request)
 			return
 		}
+		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionMessageCreate) {
+			return
+		}
 
 		var message sessionMessageRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
@@ -978,6 +1038,9 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			http.NotFound(response, request)
 			return
 		}
+		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionFileCreate) {
+			return
+		}
 		var input sessionFileCreateRequest
 		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
 		decoder.DisallowUnknownFields()
@@ -1026,6 +1089,9 @@ func workspaceSessionFileFinish(store *database.Store, tokens *auth.BearerTokens
 		}
 		file, object, ok := authorizedSessionFile(response, request, store, claims, request.PathValue("file"))
 		if !ok || file == nil || object == nil {
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, file.Ref.Session, authz.SessionFileFinish) {
 			return
 		}
 		if err := tokens.StorageClient().Finish(request.Context(), object.ID); err != nil {
@@ -1123,6 +1189,9 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			}
 			writeJSON(response, result)
 		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectNoteCreate) {
+				return
+			}
 			var input projectNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1183,6 +1252,9 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 		case http.MethodGet:
 			writeJSON(response, projectNoteResponseFromDetail(*current))
 		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, note.Project, authz.ProjectNoteEdit) {
+				return
+			}
 			var input projectNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1211,6 +1283,9 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 			}
 			writeJSON(response, projectNoteResponseFromDetail(*updated))
 		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, note.Project, authz.ProjectNoteRemove) {
+				return
+			}
 			err, removed := store.ProjectNoteRemove(request.Context(), note, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1250,6 +1325,9 @@ func workspaceProjectSecrets(store *database.Store, tokens *auth.BearerTokens) h
 			}
 			writeJSON(response, result)
 		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectSecretCreate) {
+				return
+			}
 			var input projectSecretRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1311,6 +1389,9 @@ func workspaceProjectSecret(store *database.Store, tokens *auth.BearerTokens) ht
 		case http.MethodGet:
 			writeJSON(response, projectSecretResponseFromDetail(*current))
 		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, secret.Project, authz.ProjectSecretEdit) {
+				return
+			}
 			var input projectSecretRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1342,6 +1423,9 @@ func workspaceProjectSecret(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			writeJSON(response, projectSecretResponseFromDetail(*updated))
 		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, secret.Project, authz.ProjectSecretRemove) {
+				return
+			}
 			err, removed := store.ProjectSecretRemove(request.Context(), secret, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1379,6 +1463,9 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			}
 			writeJSON(response, result)
 		case http.MethodPost:
+			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionNoteCreate) {
+				return
+			}
 			var input sessionNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1439,6 +1526,9 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 		case http.MethodGet:
 			writeJSON(response, sessionNoteResponseFromDetail(*current))
 		case http.MethodPatch:
+			if !sessionActionAllowed(response, request, store, claims, note.Session, authz.SessionNoteEdit) {
+				return
+			}
 			var input sessionNoteRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1467,6 +1557,9 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 			}
 			writeJSON(response, sessionNoteResponseFromDetail(*updated))
 		case http.MethodDelete:
+			if !sessionActionAllowed(response, request, store, claims, note.Session, authz.SessionNoteRemove) {
+				return
+			}
 			err, removed := store.SessionNoteRemove(request.Context(), note, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1506,6 +1599,9 @@ func workspaceSessionSecrets(store *database.Store, tokens *auth.BearerTokens) h
 			}
 			writeJSON(response, result)
 		case http.MethodPost:
+			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionSecretCreate) {
+				return
+			}
 			var input sessionSecretRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1567,6 +1663,9 @@ func workspaceSessionSecret(store *database.Store, tokens *auth.BearerTokens) ht
 		case http.MethodGet:
 			writeJSON(response, sessionSecretResponseFromDetail(*current))
 		case http.MethodPatch:
+			if !sessionActionAllowed(response, request, store, claims, secret.Session, authz.SessionSecretEdit) {
+				return
+			}
 			var input sessionSecretRequest
 			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
 			decoder.DisallowUnknownFields()
@@ -1598,6 +1697,9 @@ func workspaceSessionSecret(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			writeJSON(response, sessionSecretResponseFromDetail(*updated))
 		case http.MethodDelete:
+			if !sessionActionAllowed(response, request, store, claims, secret.Session, authz.SessionSecretRemove) {
+				return
+			}
 			err, removed := store.SessionSecretRemove(request.Context(), secret, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1624,6 +1726,9 @@ func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens)
 		}
 		project, ok := authorizedProject(response, request, store, claims)
 		if !ok {
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, project, authz.ProjectFileCreate) {
 			return
 		}
 		var input sessionFileCreateRequest
@@ -1674,6 +1779,9 @@ func workspaceProjectFileFinish(store *database.Store, tokens *auth.BearerTokens
 		}
 		file, object, ok := authorizedProjectFile(response, request, store, claims, request.PathValue("file"))
 		if !ok || file == nil || object == nil {
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, file.Ref.Project, authz.ProjectFileFinish) {
 			return
 		}
 		if err := tokens.StorageClient().Finish(request.Context(), object.ID); err != nil {
@@ -1745,6 +1853,18 @@ func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http
 		}
 		project, fileID, ok := projectFileRef(response, request)
 		if !ok {
+			return
+		}
+		err, available := store.ProjectGet(request.Context(), project, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if available == nil {
+			http.NotFound(response, request)
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, project, authz.ProjectFileRemove) {
 			return
 		}
 		err, removed := store.ProjectFileRemove(request.Context(), model.ProjectFileRef{Project: project, Id: fileID}, claims.Principal.Ref)
@@ -1838,6 +1958,9 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			http.NotFound(response, request)
 			return
 		}
+		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionMessageCancel) {
+			return
+		}
 		parent := model.SessionEventRef{Session: session, Id: messageID}
 		err, message := store.SessionEventGet(request.Context(), parent)
 		if err != nil {
@@ -1898,6 +2021,9 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		if authorized == nil {
 			http.NotFound(response, request)
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionApprovalRespond) {
 			return
 		}
 		var approvalInput sessionApprovalRequest
@@ -2053,6 +2179,32 @@ func authorizedWorkspace(response http.ResponseWriter, request *http.Request, st
 
 func workspaceActionAllowed(response http.ResponseWriter, roles []authz.Role, action authz.WorkspaceAction) bool {
 	if !authz.WorkspaceAllows(roles, action) {
+		http.Error(response, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func projectActionAllowed(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, project model.ProjectRef, action authz.ProjectAction) bool {
+	err, roles := store.ProjectRolesGet(request.Context(), project, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return false
+	}
+	if !authz.ProjectAllows(roles, action) {
+		http.Error(response, "forbidden", http.StatusForbidden)
+		return false
+	}
+	return true
+}
+
+func sessionActionAllowed(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, session model.SessionRef, action authz.SessionAction) bool {
+	err, roles := store.SessionRolesGet(request.Context(), session, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return false
+	}
+	if !authz.SessionAllows(roles, action) {
 		http.Error(response, "forbidden", http.StatusForbidden)
 		return false
 	}

@@ -77,6 +77,70 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 	return nil, project
 }
 
+func (store *Store) ProjectRolesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []authz.Role) {
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		WITH input AS (
+			SELECT `+placeholder(1)+` AS workspace, `+placeholder(2)+` AS project, `+placeholder(3)+` AS principal
+		)
+		SELECT role FROM (
+			SELECT grants.role
+			FROM gatehouse_project_grants AS grants
+			CROSS JOIN input
+			JOIN gatehouse_projects AS projects
+				ON projects.workspace = grants.workspace AND projects.id = grants.project
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = projects.workspace
+			JOIN gatehouse_principals AS principals ON principals.id = grants.principal
+			WHERE grants.workspace = input.workspace
+				AND grants.project = input.project
+				AND grants.principal = input.principal
+				AND workspaces.enabled = TRUE
+				AND projects.enabled = TRUE
+				AND grants.enabled = TRUE
+				AND principals.enabled = TRUE
+			UNION
+			SELECT grants.role
+			FROM gatehouse_project_grants AS grants
+			CROSS JOIN input
+			JOIN gatehouse_projects AS projects
+				ON projects.workspace = grants.workspace AND projects.id = grants.project
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = projects.workspace
+			JOIN gatehouse_groups AS groups
+				ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+			JOIN gatehouse_group_members AS members
+				ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+			JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
+			WHERE grants.workspace = input.workspace
+				AND grants.project = input.project
+				AND members.principal_id = input.principal
+				AND workspaces.enabled = TRUE
+				AND projects.enabled = TRUE
+				AND grants.enabled = TRUE
+				AND groups.enabled = TRUE
+				AND members.enabled = TRUE
+				AND principals.enabled = TRUE
+		) AS roles
+		ORDER BY role
+	`, project.Workspace.Id, project.Id, principal.Id)
+	if err != nil {
+		return fmt.Errorf("get project roles: %w", err), nil
+	}
+	defer rows.Close()
+
+	roles := []authz.Role{}
+	for rows.Next() {
+		var role authz.Role
+		if err := rows.Scan(&role); err != nil {
+			return fmt.Errorf("scan project role: %w", err), nil
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate project roles: %w", err), nil
+	}
+	return nil, roles
+}
+
 func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Project) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
@@ -85,19 +149,25 @@ func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRe
 		WHERE projects.workspace = `+placeholder(1)+`
 			AND projects.enabled = TRUE
 			AND EXISTS (
-				SELECT 1 FROM gatehouse_project_grants AS grants
-				WHERE grants.workspace = projects.workspace AND grants.project = projects.id
-					AND grants.principal = `+placeholder(2)+` AND grants.enabled = TRUE
+				SELECT 1 FROM gatehouse_workspaces AS workspaces
+				WHERE workspaces.id = projects.workspace AND workspaces.enabled = TRUE
 			)
-			OR (
-				projects.workspace = `+placeholder(3)+` AND projects.enabled = TRUE
-				AND EXISTS (
-					SELECT 1
-					FROM gatehouse_project_grants AS grants
-					JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
-					JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-					WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
-						AND groups.enabled = TRUE AND members.principal_id = `+placeholder(4)+` AND members.enabled = TRUE
+			AND (
+				EXISTS (
+					SELECT 1 FROM gatehouse_project_grants AS grants
+					WHERE grants.workspace = projects.workspace AND grants.project = projects.id
+						AND grants.principal = `+placeholder(2)+` AND grants.enabled = TRUE
+				)
+				OR (
+					projects.workspace = `+placeholder(3)+`
+					AND EXISTS (
+						SELECT 1
+						FROM gatehouse_project_grants AS grants
+						JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+						JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+						WHERE grants.workspace = projects.workspace AND grants.project = projects.id AND grants.enabled = TRUE
+							AND groups.enabled = TRUE AND members.principal_id = `+placeholder(4)+` AND members.enabled = TRUE
+					)
 				)
 			)
 		ORDER BY projects.id DESC
@@ -174,6 +244,10 @@ func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.Works
 		WHERE projects.workspace = `+placeholder(1)+`
 			AND projects.id IN (`+strings.Join(placeholders, ", ")+`)
 			AND projects.enabled = TRUE
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_workspaces AS workspaces
+				WHERE workspaces.id = projects.workspace AND workspaces.enabled = TRUE
+			)
 			AND (
 				EXISTS (
 					SELECT 1 FROM gatehouse_project_grants AS grants
@@ -288,6 +362,10 @@ func (store *Store) projectsSearch(ctx context.Context, workspace model.Workspac
 		FROM gatehouse_projects AS projects
 		WHERE projects.workspace = `+placeholder(1)+`
 			AND projects.enabled = TRUE
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_workspaces AS workspaces
+				WHERE workspaces.id = projects.workspace AND workspaces.enabled = TRUE
+			)
 			AND LOWER(COALESCE(projects.name, '')) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
 			AND (`+placeholder(3)+` = '' OR projects.id < `+placeholder(4)+`)
 			AND (

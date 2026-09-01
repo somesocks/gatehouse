@@ -336,6 +336,16 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	if err != nil || len(projects) != 0 {
 		t.Fatalf("ProjectsGet() for ungranted principal = (%#v, %v)", projects, err)
 	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_workspaces SET enabled = FALSE WHERE id = ?`, workspace.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, unavailable := store.ProjectGet(ctx, projectRef, alice)
+	if err != nil || unavailable != nil {
+		t.Fatalf("ProjectGet() for disabled workspace = (%#v, %v)", unavailable, err)
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_workspaces SET enabled = TRUE WHERE id = ?`, workspace.Id); err != nil {
+		t.Fatal(err)
+	}
 	name := "  Design system  "
 	description := "  Shared components and guidelines.  "
 	err, updated := store.ProjectDetailsSet(ctx, projectRef, alice, &name, &description)

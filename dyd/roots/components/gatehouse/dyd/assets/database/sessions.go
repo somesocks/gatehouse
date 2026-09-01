@@ -90,6 +90,70 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	return nil, session
 }
 
+func (store *Store) SessionRolesGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []authz.Role) {
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		WITH input AS (
+			SELECT `+placeholder(1)+` AS workspace, `+placeholder(2)+` AS session, `+placeholder(3)+` AS principal
+		)
+		SELECT role FROM (
+			SELECT grants.role
+			FROM gatehouse_session_grants AS grants
+			CROSS JOIN input
+			JOIN gatehouse_sessions AS sessions
+				ON sessions.workspace = grants.workspace AND sessions.id = grants.session
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = sessions.workspace
+			JOIN gatehouse_principals AS principals ON principals.id = grants.principal
+			WHERE grants.workspace = input.workspace
+				AND grants.session = input.session
+				AND grants.principal = input.principal
+				AND workspaces.enabled = TRUE
+				AND sessions.enabled = TRUE
+				AND grants.enabled = TRUE
+				AND principals.enabled = TRUE
+			UNION
+			SELECT grants.role
+			FROM gatehouse_session_grants AS grants
+			CROSS JOIN input
+			JOIN gatehouse_sessions AS sessions
+				ON sessions.workspace = grants.workspace AND sessions.id = grants.session
+			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = sessions.workspace
+			JOIN gatehouse_groups AS groups
+				ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
+			JOIN gatehouse_group_members AS members
+				ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
+			JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
+			WHERE grants.workspace = input.workspace
+				AND grants.session = input.session
+				AND members.principal_id = input.principal
+				AND workspaces.enabled = TRUE
+				AND sessions.enabled = TRUE
+				AND grants.enabled = TRUE
+				AND groups.enabled = TRUE
+				AND members.enabled = TRUE
+				AND principals.enabled = TRUE
+		) AS roles
+		ORDER BY role
+	`, session.Workspace.Id, session.Id, principal.Id)
+	if err != nil {
+		return fmt.Errorf("get session roles: %w", err), nil
+	}
+	defer rows.Close()
+
+	roles := []authz.Role{}
+	for rows.Next() {
+		var role authz.Role
+		if err := rows.Scan(&role); err != nil {
+			return fmt.Errorf("scan session role: %w", err), nil
+		}
+		roles = append(roles, role)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate session roles: %w", err), nil
+	}
+	return nil, roles
+}
+
 func (store *Store) SessionProjectSet(ctx context.Context, session model.SessionRef, project *model.ProjectRef, principal model.PrincipalRef) (error, *model.Session) {
 	err, stored := store.SessionGet(ctx, session, principal)
 	if err != nil {

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
@@ -75,6 +76,22 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 			VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		principal model.PrincipalRef
+		roles     []authz.Role
+	}{
+		{principal: alice, roles: []authz.Role{authz.Manager}},
+		{principal: bob, roles: []authz.Role{authz.Manager}},
+		{principal: carol, roles: []authz.Role{}},
+	} {
+		err, roles := store.SessionRolesGet(ctx, model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000001"}, test.principal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(roles, test.roles) {
+			t.Fatalf("SessionRolesGet() = %#v, want %#v", roles, test.roles)
+		}
 	}
 
 	sessionsFor := func(principal model.PrincipalRef) []model.Session {

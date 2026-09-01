@@ -227,6 +227,163 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	}
 }
 
+func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	principal, identityID := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: model.Principal{Ref: principal, Enabled: true}, Identity: identityID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	createdProject := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects", `{"name":"Policy"}`)
+	var project projectResponse
+	if err := json.Unmarshal(createdProject.Body.Bytes(), &project); err != nil || createdProject.Code != http.StatusCreated {
+		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_project_grants
+		SET role = 'member'
+		WHERE workspace = ? AND project = ? AND principal = ?
+	`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID+"/notes", `{"title":"Denied"}`); response.Code != http.StatusForbidden {
+		t.Fatalf("POST project note as member = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_project_grants
+		SET role = 'contributor'
+		WHERE workspace = ? AND project = ? AND principal = ?
+	`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID+"/notes", `{"title":"Allowed"}`); response.Code != http.StatusCreated {
+		t.Fatalf("POST project note as contributor = %d, want %d", response.Code, http.StatusCreated)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{}`); response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH project as contributor = %d, want %d", response.Code, http.StatusForbidden)
+	}
+
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", `{}`)
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated {
+		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_session_grants
+		SET role = 'member'
+		WHERE workspace = ? AND session = ? AND principal = ?
+	`, engineering.Id, session.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/notes", `{"title":"Denied"}`); response.Code != http.StatusForbidden {
+		t.Fatalf("POST session note as member = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_session_grants
+		SET role = 'contributor'
+		WHERE workspace = ? AND session = ? AND principal = ?
+	`, engineering.Id, session.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/notes", `{"title":"Allowed"}`); response.Code != http.StatusCreated {
+		t.Fatalf("POST session note as contributor = %d, want %d", response.Code, http.StatusCreated)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":null}`); response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH session project as contributor = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_session_grants
+		SET role = 'manager'
+		WHERE workspace = ? AND session = ? AND principal = ?
+	`, engineering.Id, session.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_project_grants
+		SET role = 'member'
+		WHERE workspace = ? AND project = ? AND principal = ?
+	`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":"`+project.ID+`"}`); response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH session into project as project member = %d, want %d", response.Code, http.StatusForbidden)
+	}
+	if _, err := store.ExecContext(context.Background(), `
+		UPDATE gatehouse_project_grants
+		SET role = 'contributor'
+		WHERE workspace = ? AND project = ? AND principal = ?
+	`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":"`+project.ID+`"}`); response.Code != http.StatusOK {
+		t.Fatalf("PATCH session into project as project contributor = %d, want %d", response.Code, http.StatusOK)
+	}
+}
+
+func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	principal, identityID := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(context.Background(), auth.Claims{Principal: model.Principal{Ref: principal, Enabled: true}, Identity: identityID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	created := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects", `{"name":"Direct grant"}`)
+	var project projectResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &project); err != nil || created.Code != http.StatusCreated {
+		t.Fatalf("POST project = (%d, %#v, %v)", created.Code, project, err)
+	}
+	if _, err := store.ExecContext(context.Background(), `DELETE FROM gatehouse_workspace_grants WHERE workspace = ?`, engineering.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, roles := store.WorkspaceRolesGet(context.Background(), engineering, principal)
+	if err != nil || len(roles) != 0 {
+		t.Fatalf("WorkspaceRolesGet() after revocation = (%#v, %v), want no roles", roles, err)
+	}
+
+	projects := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects", "")
+	if projects.Code != http.StatusOK || !strings.Contains(projects.Body.String(), project.ID) {
+		t.Fatalf("GET projects with direct grant = (%d, %q)", projects.Code, projects.Body.String())
+	}
+	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, ""); response.Code != http.StatusOK {
+		t.Fatalf("GET project with direct grant = %d, want %d", response.Code, http.StatusOK)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{"description":"Available directly"}`); response.Code != http.StatusOK {
+		t.Fatalf("PATCH project with direct grant = %d, want %d", response.Code, http.StatusOK)
+	}
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", `{"project":"`+project.ID+`"}`)
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated {
+		t.Fatalf("POST linked session with direct project grant = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	err, sessionRoles := store.SessionRolesGet(context.Background(), model.SessionRef{Workspace: engineering, Id: session.ID}, principal)
+	if err != nil || !reflect.DeepEqual(sessionRoles, []authz.Role{authz.Manager}) {
+		t.Fatalf("SessionRolesGet() after linked creation = (%#v, %v), want manager", sessionRoles, err)
+	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":null}`); response.Code != http.StatusNotFound {
+		t.Fatalf("PATCH linked session without workspace grant = %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
 func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
