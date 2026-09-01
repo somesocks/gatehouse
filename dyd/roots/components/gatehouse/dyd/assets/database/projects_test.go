@@ -371,6 +371,20 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	if err != nil || linked == nil || linked.Project == nil || *linked.Project != projectRef {
 		t.Fatalf("SessionProjectSet() link = (%#v, %v)", linked, err)
 	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_projects SET enabled = FALSE WHERE workspace = ? AND id = ?`, workspace.Id, projectRef.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, unavailableSession := store.SessionGet(ctx, session, alice)
+	if err != nil || unavailableSession != nil {
+		t.Fatalf("SessionGet() for disabled project = (%#v, %v)", unavailableSession, err)
+	}
+	err, unavailableSessions, _ := store.SessionsSearch(ctx, workspace, alice, database.SessionSearch{Limit: 50})
+	if err != nil || len(unavailableSessions) != 0 {
+		t.Fatalf("SessionsSearch() for disabled project = (%#v, %v)", unavailableSessions, err)
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_projects SET enabled = TRUE WHERE workspace = ? AND id = ?`, workspace.Id, projectRef.Id); err != nil {
+		t.Fatal(err)
+	}
 	checkpoints := []database.ActivityTopicCheckpoint{
 		{Topic: "project/*"},
 		{Topic: database.ActivityTopicSession(session)},

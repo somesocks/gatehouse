@@ -382,6 +382,15 @@ func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
 	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":null}`); response.Code != http.StatusNotFound {
 		t.Fatalf("PATCH linked session without workspace grant = %d, want %d", response.Code, http.StatusNotFound)
 	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_projects SET enabled = FALSE WHERE workspace = ? AND id = ?`, engineering.Id, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, ""); response.Code != http.StatusNotFound {
+		t.Fatalf("GET session with disabled project = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/notes", `{"title":"Unavailable"}`); response.Code != http.StatusNotFound {
+		t.Fatalf("POST session note with disabled project = %d, want %d", response.Code, http.StatusNotFound)
+	}
 }
 
 func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {

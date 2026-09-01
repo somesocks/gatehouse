@@ -1712,6 +1712,14 @@ func (store *Store) sessionsSearch(ctx context.Context, workspace model.Workspac
 				WHERE principals.id = `+placeholder(5)+` AND principals.enabled = TRUE
 			)
 			AND (
+				sessions.project IS NULL
+				OR EXISTS (
+					SELECT 1 FROM gatehouse_projects AS projects
+					WHERE projects.workspace = sessions.workspace AND projects.id = sessions.project
+						AND projects.enabled = TRUE
+				)
+			)
+			AND (
 				EXISTS (
 					SELECT 1 FROM gatehouse_session_grants AS grants
 					WHERE grants.workspace = sessions.workspace AND grants.session = sessions.id
