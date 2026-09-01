@@ -3172,7 +3172,7 @@
           {:else if activeProjectNote !== null}
             <article class="project-note-view">
               <header class="project-note-page-heading"><div>{#if selectedNoteRevision !== null}<p class="eyebrow">Project Note Revision {selectedNoteRevision.revision}</p><h2><span class="project-note-title">{selectedNoteRevision.title}{#if selectedNoteRevision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if selectedNoteRevision.description !== ""}<p>{selectedNoteRevision.description}</p>{/if}<small>By {noteAuthorLabel(selectedNoteRevision.author)} on {createdAtLabel(selectedNoteRevision.created_at)}</small>{:else}<p class="eyebrow">Project Note</p><h2><span class="project-note-title">{activeProjectNote.title}{#if activeProjectNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeProjectNote.description !== ""}<p>{activeProjectNote.description}</p>{/if}<small>By {noteAuthorLabel(activeProjectNote.author)} on {createdAtLabel(activeProjectNote.created_at)}</small>{/if}</div><div class="project-note-actions">{#if selectedNoteRevision === null}<button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button>{:else}<button class="button is-small" type="button" onclick={showCurrentNoteRevision}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => openNoteHistory(projectNotesAPIPath(activeWorkspace!, activeProject!), activeProjectNote!.id)}>History</button>{#if selectedNoteRevision === null}<button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button>{/if}</div></header>
-              {#if selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
+              {#if selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
               {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
             </article>
           {/if}
@@ -3192,7 +3192,7 @@
           {:else if activeSessionNote !== null}
             <article class="project-note-view">
               <header class="project-note-page-heading"><div>{#if selectedNoteRevision !== null}<p class="eyebrow">Session Note Revision {selectedNoteRevision.revision}</p><h2><span class="project-note-title">{selectedNoteRevision.title}{#if selectedNoteRevision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if selectedNoteRevision.description !== ""}<p>{selectedNoteRevision.description}</p>{/if}<small>By {noteAuthorLabel(selectedNoteRevision.author)} on {createdAtLabel(selectedNoteRevision.created_at)}</small>{:else}<p class="eyebrow">Session Note</p><h2><span class="project-note-title">{activeSessionNote.title}{#if activeSessionNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeSessionNote.description !== ""}<p>{activeSessionNote.description}</p>{/if}<small>By {noteAuthorLabel(activeSessionNote.author)} on {createdAtLabel(activeSessionNote.created_at)}</small>{/if}</div><div class="project-note-actions">{#if selectedNoteRevision === null}<button class="button is-small" type="button" onclick={startSessionNoteEdit}>Edit</button>{:else}<button class="button is-small" type="button" onclick={showCurrentNoteRevision}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => openNoteHistory(sessionNotesAPIPath(activeWorkspace!, activeSession!), activeSessionNote!.id)}>History</button>{#if selectedNoteRevision === null}<button class="button is-small is-danger is-light" type="button" disabled={deletingSessionNote} onclick={() => void removeSessionNote()}>{deletingSessionNote ? "Removing..." : "Remove"}</button>{/if}</div></header>
-              {#if selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeSessionNote.body !== undefined && activeSessionNote.body !== ""}<div class="project-note-markdown">{@html renderMarkdown(activeSessionNote.body)}</div>{/if}
+              {#if selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeSessionNote.body !== undefined && activeSessionNote.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(activeSessionNote.body)}</div>{/if}
               {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
             </article>
           {:else}
@@ -3314,7 +3314,7 @@
                       <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
                         <Copy size={16} strokeWidth={2} />
                       </button>
-                      <div class="chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
+                      <div class="markdown-content chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
                     {/if}
                     {#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}
                         <div class="message-files" aria-label="Attached files">
@@ -3423,7 +3423,7 @@
                         <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
                           <Copy size={16} strokeWidth={2} />
                         </button>
-                        <div class="chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
+                        <div class="markdown-content chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
                       {:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}
                         <div class="chat-message-text"><em>No reply.</em></div>
                       {/if}

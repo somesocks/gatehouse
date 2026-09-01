@@ -784,22 +784,110 @@ body {
 .project-note-markdown {
 	border-top: 1px solid #3f4538;
 	color: #eff2e8;
-	line-height: 1.65;
 	padding-top: 1.25rem;
+}
+
+.markdown-content {
+	line-height: 1.65;
+	min-width: 0;
 	overflow-wrap: anywhere;
 }
 
-.project-note-markdown > :first-child { margin-top: 0; }
+.markdown-content > :first-child { margin-top: 0; }
 
-.project-note-markdown > :last-child { margin-bottom: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
 
-.project-note-markdown pre {
+.markdown-content p { margin: 0.7rem 0; }
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+	color: inherit;
+	font-weight: 700;
+	line-height: 1.2;
+	margin: 1.4rem 0 0.65rem;
+}
+
+.markdown-content h1 { font-size: 2rem; }
+
+.markdown-content h2 { font-size: 1.6rem; }
+
+.markdown-content h3 { font-size: 1.3rem; }
+
+.markdown-content h4 { font-size: 1.12rem; }
+
+.markdown-content h5 { font-size: 1rem; }
+
+.markdown-content h6 {
+	font-size: 0.88rem;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+	list-style-position: outside;
+	margin: 0.8rem 0;
+	padding-inline-start: 2.25rem;
+}
+
+.markdown-content ul { list-style-type: disc; }
+
+.markdown-content ul ul { list-style-type: circle; }
+
+.markdown-content ul ul ul { list-style-type: square; }
+
+.markdown-content ol { list-style-type: decimal; }
+
+.markdown-content ol ol { list-style-type: lower-alpha; }
+
+.markdown-content ol ol ol { list-style-type: lower-roman; }
+
+.markdown-content li + li { margin-top: 0.3rem; }
+
+.markdown-content li > ul,
+.markdown-content li > ol { margin: 0.35rem 0; }
+
+.markdown-content blockquote {
+	border-left: 0.2rem solid #b9db6f;
+	color: inherit;
+	margin: 0.9rem 0;
+	padding: 0.1rem 0 0.1rem 0.85rem;
+}
+
+.markdown-content code {
+	background: rgb(0 0 0 / 20%);
+	border-radius: 0.25rem;
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+	font-size: 0.9em;
+	padding: 0.1rem 0.25rem;
+}
+
+.markdown-content pre {
 	background: #10120c;
 	border: 1px solid #3f4538;
 	border-radius: 0.45rem;
-	overflow-x: auto;
+	color: #edf3df;
+	line-height: 1.5;
+	margin: 0.9rem 0;
+	max-width: 100%;
+	overflow: auto;
 	padding: 0.8rem;
 }
+
+.markdown-content pre code {
+	background: transparent;
+	padding: 0;
+}
+
+.markdown-content a {
+	color: #b9db6f;
+	text-decoration: underline;
+}
+
 
 .markdown-code-block {
   position: relative;
@@ -949,89 +1037,18 @@ body {
 }
 
 .chat-message-text {
-  margin: 0;
-  min-width: 0;
-  overflow-wrap: anywhere;
+	margin: 0;
 }
 
-.chat-message-text > :first-child {
-  margin-top: 0;
+.chat-message-text pre { max-height: calc(1.5em * 16 + 1.5rem); }
+
+.chat-message:not(.message-own) .markdown-content strong {
+	color: #ffffff;
 }
 
-.chat-message-text > :last-child {
-  margin-bottom: 0;
-}
-
-.chat-message-text p {
-  margin: 0.65rem 0;
-}
-
-.chat-message:not(.message-own) .chat-message-text strong {
-  color: #ffffff;
-}
-
-.chat-message-text blockquote {
-  border-left: 0.2rem solid #b9db6f;
-  color: #e5edd8;
-  margin: 0.8rem 0;
-  padding: 0.1rem 0 0.1rem 0.8rem;
-}
-
-.chat-message.message-own .chat-message-text blockquote {
-  border-left-color: #52721d;
-  color: #26350e;
-}
-
-.chat-message-text h1,
-.chat-message-text h2,
-.chat-message-text h3 {
-  color: inherit;
-  line-height: 1.2;
-  margin: 1rem 0 0.55rem;
-}
-
-.chat-message-text h1 { font-size: 1.3rem; }
-.chat-message-text h2 { font-size: 1.15rem; }
-.chat-message-text h3 { font-size: 1rem; }
-
-.chat-message-text ul,
-.chat-message-text ol {
-  margin: 0.65rem 0;
-  padding-left: 1.35rem;
-}
-
-.chat-message-text li + li {
-  margin-top: 0.25rem;
-}
-
-.chat-message-text code {
-  border-radius: 0.25rem;
-  background: rgb(0 0 0 / 20%);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-  padding: 0.1rem 0.25rem;
-}
-
-.chat-message-text pre {
-  border-radius: 0.5rem;
-  background: #12150e;
-  color: #edf3df;
-  line-height: 1.5;
-  margin: 0.8rem 0;
-  max-height: calc(1.5em * 16 + 1.5rem);
-  max-width: 100%;
-  overflow: auto;
-  padding: 0.75rem;
-}
-
-.chat-message-text pre code {
-  background: transparent;
-  padding: 0;
-}
-
-.chat-message-text a {
-  color: #b9db6f;
-  text-decoration: underline;
+.chat-message.message-own .markdown-content blockquote {
+	border-left-color: #52721d;
+	color: #26350e;
 }
 
 .message-files,
