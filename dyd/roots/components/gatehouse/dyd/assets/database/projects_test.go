@@ -203,7 +203,7 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 			t.Fatal(err)
 		}
 		err, stored := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: "  "+title+"  ", Description: "  Description for "+title+".  ", Body: "# "+title}, alice)
-		if err != nil || stored.AuthorPrincipal != alice || stored.Title != title || stored.Description != "Description for "+title+"." || stored.Sensitive || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
+		if err != nil || stored.AuthorPrincipal == nil || *stored.AuthorPrincipal != alice || stored.Revision != 1 || stored.Title != title || stored.Description != "Description for "+title+"." || stored.Sensitive || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
 			t.Fatalf("ProjectNoteCreate() = (%#v, %v)", stored, err)
 		}
 		return stored
@@ -226,6 +226,16 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	if err != nil || sensitiveDetail == nil || !sensitiveDetail.Note.Sensitive {
 		t.Fatalf("ProjectNoteGet() sensitive = (%#v, %v)", sensitiveDetail, err)
 	}
+	gateway := model.GatewayRef{Id: "gwy_00000000000000000000000000"}
+	title, description, body := "Published credentials guide", "Public replacement", "# Public"
+	err, sensitiveDetail = store.ProjectNoteDetailsSetAs(ctx, sensitive.Ref, alice, database.NoteAuthor{Gateway: &gateway}, false, &title, &description, &body)
+	if err != nil || sensitiveDetail == nil || sensitiveDetail.Note.Sensitive || sensitiveDetail.Note.AuthorGateway == nil || *sensitiveDetail.Note.AuthorGateway != gateway || sensitiveDetail.Note.Revision != 2 {
+		t.Fatalf("ProjectNoteDetailsSetAs() changes current sensitivity and author = (%#v, %v)", sensitiveDetail, err)
+	}
+	err, sensitiveRevisions := store.ProjectNoteRevisionsGet(ctx, sensitive.Ref, alice)
+	if err != nil || len(sensitiveRevisions) != 2 || sensitiveRevisions[0].Ref.Revision != 2 || sensitiveRevisions[0].Sensitive || sensitiveRevisions[0].AuthorGateway == nil || *sensitiveRevisions[0].AuthorGateway != gateway || sensitiveRevisions[1].Ref.Revision != 1 || !sensitiveRevisions[1].Sensitive {
+		t.Fatalf("ProjectNoteRevisionsGet() preserves revision sensitivity and authors = (%#v, %v)", sensitiveRevisions, err)
+	}
 	err, denied := store.ProjectNotesGet(ctx, project, bob)
 	if err != nil || len(denied) != 0 {
 		t.Fatalf("ProjectNotesGet() for ungranted principal = (%#v, %v)", denied, err)
@@ -237,10 +247,10 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	if createErr, _ := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: newer.Ref.Id}, Title: "Denied", Description: "Denied note", Body: "Denied"}, bob); createErr == nil {
 		t.Fatal("ProjectNoteCreate() accepted an ungranted principal")
 	}
-	title, description, body := "Updated guide", "Updated description", "# Updated guide"
-	err, updated := store.ProjectNoteDetailsSet(ctx, older.Ref, alice, &title, &description, &body)
-	if err != nil || updated == nil || updated.Note.AuthorPrincipal != alice || updated.Note.Title != title || updated.Note.Description != description || updated.Note.Body != body {
-		t.Fatalf("ProjectNoteDetailsSet() = (%#v, %v)", updated, err)
+	title, description, body = "Updated guide", "Updated description", "# Updated guide"
+	err, updated := store.ProjectNoteDetailsSetAs(ctx, older.Ref, alice, database.NoteAuthor{Principal: &alice}, false, &title, &description, &body)
+	if err != nil || updated == nil || updated.Note.AuthorPrincipal == nil || *updated.Note.AuthorPrincipal != alice || updated.Note.Revision != 2 || updated.Note.Title != title || updated.Note.Description != description || updated.Note.Body != body {
+		t.Fatalf("ProjectNoteDetailsSetAs() = (%#v, %v)", updated, err)
 	}
 	err, removed := store.ProjectNoteRemove(ctx, newer.Ref, bob)
 	if err != nil || removed {
@@ -255,7 +265,7 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 		t.Fatalf("ProjectNoteGet() after removal = (%#v, %v)", hidden, err)
 	}
 	err, notes = store.ProjectNotesGet(ctx, project, alice)
-	if err != nil || len(notes) != 2 || notes[0].Ref.Id != sensitive.Ref.Id || !notes[0].Sensitive || notes[1].Ref.Id != older.Ref.Id {
+	if err != nil || len(notes) != 2 || notes[0].Ref.Id != sensitive.Ref.Id || notes[0].Sensitive || notes[1].Ref.Id != older.Ref.Id {
 		t.Fatalf("ProjectNotesGet() after removal = (%#v, %v)", notes, err)
 	}
 	oversizedID, err := typed_id.NewAt(typed_id.ProjectNote, time.Date(2026, 1, 2, 3, 4, 7, 678_000_000, time.UTC))

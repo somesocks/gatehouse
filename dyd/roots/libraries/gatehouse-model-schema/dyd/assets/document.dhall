@@ -571,17 +571,51 @@ let ProjectNote =
         s.record.props::{
         , required = toMap
             { ref = s.reference.from s.reference.props::{ to = "ProjectNoteRef" } s.reference.meta::{ description = Some "project note identity" }
-            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable note author" }
             , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note title" }
             , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note description" }
             , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Markdown note body" }
-            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the note body are marked sensitive" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the current revision body are marked sensitive" }
             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project note is available" }
             , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note creation timestamp" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "current immutable note revision" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal note author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent note author" }
+            , author_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway note author" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectNote", description = Some "A shared Markdown note attached to a project." }
+
+let ProjectNoteRevisionRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { note = s.reference.from s.reference.props::{ to = "ProjectNoteRef" } s.reference.meta::{ description = Some "revised project note identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "immutable revision number" }
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.record.meta::{ name = Some "ProjectNote", description = Some "A shared Markdown note attached to a project." }
+        s.record.meta::{ name = Some "ProjectNoteRevisionRef", description = Some "The stable identity of a project note revision." }
+
+let ProjectNoteRevision =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectNoteRevisionRef" } s.reference.meta::{ description = Some "project note revision identity" }
+            , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision title" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision description" }
+            , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision Markdown body" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the revision body are marked sensitive" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision creation timestamp" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal revision author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent revision author" }
+            , author_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway revision author" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectNoteRevision", description = Some "An immutable revision of a project note." }
 
 let ProjectSecretRef =
       s.record.from
@@ -626,17 +660,51 @@ let SessionNote =
         s.record.props::{
         , required = toMap
             { ref = s.reference.from s.reference.props::{ to = "SessionNoteRef" } s.reference.meta::{ description = Some "session note identity" }
-            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable note author" }
             , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note title" }
             , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "note description" }
             , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Markdown note body" }
-            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the note body are marked sensitive" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the current revision body are marked sensitive" }
             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session note is available" }
             , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session note creation timestamp" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "current immutable note revision" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal note author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent note author" }
+            , author_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway note author" }
+            }
+        }
+        s.record.meta::{ name = Some "SessionNote", description = Some "A shared Markdown note attached to a session." }
+
+let SessionNoteRevisionRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { note = s.reference.from s.reference.props::{ to = "SessionNoteRef" } s.reference.meta::{ description = Some "revised session note identity" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "immutable revision number" }
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.record.meta::{ name = Some "SessionNote", description = Some "A shared Markdown note attached to a session." }
+        s.record.meta::{ name = Some "SessionNoteRevisionRef", description = Some "The stable identity of a session note revision." }
+
+let SessionNoteRevision =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SessionNoteRevisionRef" } s.reference.meta::{ description = Some "session note revision identity" }
+            , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision title" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision description" }
+            , body = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision Markdown body" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of the revision body are marked sensitive" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "revision creation timestamp" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal revision author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent revision author" }
+            , author_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway revision author" }
+            }
+        }
+        s.record.meta::{ name = Some "SessionNoteRevision", description = Some "An immutable revision of a session note." }
 
 let SessionSecretRef =
       s.record.from
@@ -972,10 +1040,14 @@ in  Document::{
             , s.root.from ProjectFile s.root.meta::{ name = "ProjectFile" }
 			, s.root.from ProjectNoteRef s.root.meta::{ name = "ProjectNoteRef" }
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
+			, s.root.from ProjectNoteRevisionRef s.root.meta::{ name = "ProjectNoteRevisionRef" }
+			, s.root.from ProjectNoteRevision s.root.meta::{ name = "ProjectNoteRevision" }
 			, s.root.from ProjectSecretRef s.root.meta::{ name = "ProjectSecretRef" }
 			, s.root.from ProjectSecret s.root.meta::{ name = "ProjectSecret" }
-             , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
-             , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
+              , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
+              , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
+			 , s.root.from SessionNoteRevisionRef s.root.meta::{ name = "SessionNoteRevisionRef" }
+			 , s.root.from SessionNoteRevision s.root.meta::{ name = "SessionNoteRevision" }
 			 , s.root.from SessionSecretRef s.root.meta::{ name = "SessionSecretRef" }
 			 , s.root.from SessionSecret s.root.meta::{ name = "SessionSecret" }
              , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }

@@ -25,7 +25,7 @@ func TestGatehouseCapabilityModulesExposeAuthorizedValues(t *testing.T) {
 				}
 				return nil, []byte("world")
 			}, nil, nil),
-			NewProjectModule(&ProjectInfo{CreatedAt: "2026-01-01T00:00:00.000Z"}, nil, &ProjectNotes{Notes: []ProjectNote{{ID: "guide", Title: "Guide", AuthorID: "author", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z"}}, Read: func(id string, offset, length int64) (error, []byte, bool) {
+			NewProjectModule(&ProjectInfo{CreatedAt: "2026-01-01T00:00:00.000Z"}, nil, &ProjectNotes{Notes: []ProjectNote{{ID: "guide", Title: "Guide", AuthorID: "author", AuthorName: &authorName, CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 1}}, Read: func(id string, offset, length int64) (error, []byte, bool) {
 				if id != "guide" || offset != 0 || length != 7 {
 					t.Fatalf("project note read = (%q, %d, %d)", id, offset, length)
 				}

@@ -122,6 +122,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes", workspaceProjectNotes(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}", workspaceProjectNote(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}/revisions", workspaceProjectNoteRevisions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}/revisions/{revision}", workspaceProjectNoteRevision(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets", workspaceProjectSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets/{secret}", workspaceProjectSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
@@ -135,6 +137,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes", workspaceSessionNotes(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}", workspaceSessionNote(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}/revisions", workspaceSessionNoteRevisions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}/revisions/{revision}", workspaceSessionNoteRevision(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets", workspaceSessionSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets/{secret}", workspaceSessionSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
@@ -368,14 +372,26 @@ type projectNoteAuthorResponse struct {
 	Name *string `json:"name,omitempty"`
 }
 
+type noteAgentAuthorResponse struct {
+	ID    string  `json:"id"`
+	Label *string `json:"label,omitempty"`
+}
+
+type noteAuthorResponse struct {
+	Principal *projectNoteAuthorResponse `json:"principal,omitempty"`
+	Agent     *noteAgentAuthorResponse   `json:"agent,omitempty"`
+	Gateway   *string                    `json:"gateway,omitempty"`
+}
+
 type projectNoteResponse struct {
 	ID          string                    `json:"id"`
 	Title       string                    `json:"title"`
 	Description string                    `json:"description"`
 	Body        *string                   `json:"body,omitempty"`
 	Sensitive   bool                      `json:"sensitive"`
-	Author      projectNoteAuthorResponse `json:"author"`
+	Author      noteAuthorResponse        `json:"author"`
 	CreatedAt   string                    `json:"created_at"`
+	Revision    int                       `json:"revision"`
 }
 
 type sessionNoteResponse struct {
@@ -384,8 +400,19 @@ type sessionNoteResponse struct {
 	Description string                    `json:"description"`
 	Body        *string                   `json:"body,omitempty"`
 	Sensitive   bool                      `json:"sensitive"`
-	Author      projectNoteAuthorResponse `json:"author"`
+	Author      noteAuthorResponse        `json:"author"`
 	CreatedAt   string                    `json:"created_at"`
+	Revision    int                       `json:"revision"`
+}
+
+type noteRevisionResponse struct {
+	Revision    int                `json:"revision"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Body        *string            `json:"body,omitempty"`
+	Sensitive   bool               `json:"sensitive"`
+	Author      noteAuthorResponse `json:"author"`
+	CreatedAt   string             `json:"created_at"`
 }
 
 type sessionSecretRequest struct {
@@ -1218,7 +1245,7 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 				http.Error(response, "project note could not be created", http.StatusBadRequest)
 				return
 			}
-			writeJSONStatus(response, http.StatusCreated, projectNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+			writeJSONStatus(response, http.StatusCreated, projectNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: noteAuthorResponse{Principal: &projectNoteAuthorResponse{ID: claims.Principal.Ref.Id, Name: claims.Principal.Name}}, CreatedAt: stored.CreatedAt, Revision: stored.Revision})
 		default:
 			response.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -1272,7 +1299,11 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 			if input.Body != nil {
 				body = *input.Body
 			}
-			err, updated := store.ProjectNoteDetailsSet(request.Context(), note, claims.Principal.Ref, &title, &description, &body)
+			sensitive := current.Note.Sensitive
+			if input.Sensitive != nil {
+				sensitive = *input.Sensitive
+			}
+			err, updated := store.ProjectNoteDetailsSetAs(request.Context(), note, claims.Principal.Ref, database.NoteAuthor{Principal: &claims.Principal.Ref}, sensitive, &title, &description, &body)
 			if err != nil {
 				http.Error(response, "project note could not be updated", http.StatusBadRequest)
 				return
@@ -1281,6 +1312,7 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 				http.NotFound(response, request)
 				return
 			}
+			updated.AuthorName = claims.Principal.Name
 			writeJSON(response, projectNoteResponseFromDetail(*updated))
 		case http.MethodDelete:
 			if !projectActionAllowed(response, request, store, claims, note.Project, authz.ProjectNoteRemove) {
@@ -1298,6 +1330,69 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 			noStore(response)
 			response.WriteHeader(http.StatusNoContent)
 		}
+	}
+}
+
+func workspaceProjectNoteRevisions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := projectNoteRef(response, request)
+		if !ok {
+			return
+		}
+		err, revisions := store.ProjectNoteRevisionsGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if len(revisions) == 0 {
+			http.NotFound(response, request)
+			return
+		}
+		result := make([]noteRevisionResponse, 0, len(revisions))
+		for _, revision := range revisions {
+			result = append(result, projectNoteRevisionResponseFromSummary(revision))
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceProjectNoteRevision(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := projectNoteRef(response, request)
+		if !ok {
+			return
+		}
+		revision, err := strconv.Atoi(request.PathValue("revision"))
+		if err != nil || revision < 1 {
+			http.NotFound(response, request)
+			return
+		}
+		err, current := store.ProjectNoteRevisionGet(request.Context(), model.ProjectNoteRevisionRef{Note: note, Revision: revision}, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, projectNoteRevisionResponseFromDetail(*current))
 	}
 }
 
@@ -1492,7 +1587,7 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 				http.Error(response, "session note could not be created", http.StatusBadRequest)
 				return
 			}
-			writeJSONStatus(response, http.StatusCreated, sessionNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: projectNoteAuthorResponse{ID: stored.AuthorPrincipal.Id, Name: claims.Principal.Name}, CreatedAt: stored.CreatedAt})
+			writeJSONStatus(response, http.StatusCreated, sessionNoteResponse{ID: stored.Ref.Id, Title: stored.Title, Description: stored.Description, Body: &stored.Body, Sensitive: stored.Sensitive, Author: noteAuthorResponse{Principal: &projectNoteAuthorResponse{ID: claims.Principal.Ref.Id, Name: claims.Principal.Name}}, CreatedAt: stored.CreatedAt, Revision: stored.Revision})
 		default:
 			response.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -1546,7 +1641,11 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 			if input.Body != nil {
 				body = *input.Body
 			}
-			err, updated := store.SessionNoteDetailsSet(request.Context(), note, claims.Principal.Ref, &title, &description, &body)
+			sensitive := current.Note.Sensitive
+			if input.Sensitive != nil {
+				sensitive = *input.Sensitive
+			}
+			err, updated := store.SessionNoteDetailsSetAs(request.Context(), note, claims.Principal.Ref, database.NoteAuthor{Principal: &claims.Principal.Ref}, sensitive, &title, &description, &body)
 			if err != nil {
 				http.Error(response, "session note could not be updated", http.StatusBadRequest)
 				return
@@ -1555,6 +1654,7 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 				http.NotFound(response, request)
 				return
 			}
+			updated.AuthorName = claims.Principal.Name
 			writeJSON(response, sessionNoteResponseFromDetail(*updated))
 		case http.MethodDelete:
 			if !sessionActionAllowed(response, request, store, claims, note.Session, authz.SessionNoteRemove) {
@@ -1572,6 +1672,69 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 			noStore(response)
 			response.WriteHeader(http.StatusNoContent)
 		}
+	}
+}
+
+func workspaceSessionNoteRevisions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := sessionNoteRef(response, request)
+		if !ok {
+			return
+		}
+		err, revisions := store.SessionNoteRevisionsGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if len(revisions) == 0 {
+			http.NotFound(response, request)
+			return
+		}
+		result := make([]noteRevisionResponse, 0, len(revisions))
+		for _, revision := range revisions {
+			result = append(result, sessionNoteRevisionResponseFromSummary(revision))
+		}
+		writeJSON(response, result)
+	}
+}
+
+func workspaceSessionNoteRevision(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		note, ok := sessionNoteRef(response, request)
+		if !ok {
+			return
+		}
+		revision, err := strconv.Atoi(request.PathValue("revision"))
+		if err != nil || revision < 1 {
+			http.NotFound(response, request)
+			return
+		}
+		err, current := store.SessionNoteRevisionGet(request.Context(), model.SessionNoteRevisionRef{Note: note, Revision: revision}, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, sessionNoteRevisionResponseFromDetail(*current))
 	}
 }
 
@@ -2329,20 +2492,14 @@ func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 	if required && input.Title == nil {
 		return false
 	}
-	if !required && input.Sensitive != nil {
-		return false
-	}
-	if !required && input.Title == nil && input.Description == nil && input.Body == nil {
+	if !required && input.Title == nil && input.Description == nil && input.Body == nil && input.Sensitive == nil {
 		return false
 	}
 	return (input.Title == nil || len(*input.Title) <= 256) && (input.Description == nil || len(*input.Description) <= 4*1024) && (input.Body == nil || len(*input.Body) <= 1024*1024)
 }
 
 func validSessionNoteRequest(input sessionNoteRequest, required bool) bool {
-	if !required && input.Sensitive != nil {
-		return false
-	}
-	return validProjectNoteRequest(projectNoteRequest{Title: input.Title, Description: input.Description, Body: input.Body}, required)
+	return validProjectNoteRequest(projectNoteRequest{Title: input.Title, Description: input.Description, Body: input.Body, Sensitive: input.Sensitive}, required)
 }
 
 func validSessionSecretRequest(input sessionSecretRequest, required bool) bool {
@@ -2366,12 +2523,12 @@ func validProjectSecretRequest(input projectSecretRequest, required bool) bool {
 }
 
 func projectNoteResponseFromSummary(note database.ProjectNoteSummary) projectNoteResponse {
-	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: noteAuthorResponseFromValues(note.AuthorPrincipal, note.AuthorName, note.AuthorAgent, note.AuthorAgentLabel, note.AuthorGateway), CreatedAt: note.CreatedAt, Revision: note.Revision}
 }
 
 func projectNoteResponseFromDetail(detail database.ProjectNoteDetail) projectNoteResponse {
 	note := detail.Note
-	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+	return projectNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: noteAuthorResponseFromValues(note.AuthorPrincipal, detail.AuthorName, note.AuthorAgent, detail.AuthorAgentLabel, note.AuthorGateway), CreatedAt: note.CreatedAt, Revision: note.Revision}
 }
 
 func projectSecretResponseFromSummary(secret database.ProjectSecretSummary) projectSecretResponse {
@@ -2384,12 +2541,44 @@ func projectSecretResponseFromDetail(detail database.ProjectSecretDetail) projec
 }
 
 func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNoteResponse {
-	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: note.AuthorName}, CreatedAt: note.CreatedAt}
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, Author: noteAuthorResponseFromValues(note.AuthorPrincipal, note.AuthorName, note.AuthorAgent, note.AuthorAgentLabel, note.AuthorGateway), CreatedAt: note.CreatedAt, Revision: note.Revision}
 }
 
 func sessionNoteResponseFromDetail(detail database.SessionNoteDetail) sessionNoteResponse {
 	note := detail.Note
-	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: projectNoteAuthorResponse{ID: note.AuthorPrincipal.Id, Name: detail.AuthorName}, CreatedAt: note.CreatedAt}
+	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: noteAuthorResponseFromValues(note.AuthorPrincipal, detail.AuthorName, note.AuthorAgent, detail.AuthorAgentLabel, note.AuthorGateway), CreatedAt: note.CreatedAt, Revision: note.Revision}
+}
+
+func noteAuthorResponseFromValues(principal *model.PrincipalRef, principalName *string, agent *model.WorkspaceAgentRef, agentLabel *string, gateway *model.GatewayRef) noteAuthorResponse {
+	author := noteAuthorResponse{}
+	if principal != nil {
+		author.Principal = &projectNoteAuthorResponse{ID: principal.Id, Name: principalName}
+	}
+	if agent != nil {
+		author.Agent = &noteAgentAuthorResponse{ID: agent.Model.Id, Label: agentLabel}
+	}
+	if gateway != nil {
+		author.Gateway = &gateway.Id
+	}
+	return author
+}
+
+func projectNoteRevisionResponseFromSummary(revision database.ProjectNoteRevisionSummary) noteRevisionResponse {
+	return noteRevisionResponse{Revision: revision.Ref.Revision, Title: revision.Title, Description: revision.Description, Sensitive: revision.Sensitive, Author: noteAuthorResponseFromValues(revision.AuthorPrincipal, revision.AuthorName, revision.AuthorAgent, revision.AuthorAgentLabel, revision.AuthorGateway), CreatedAt: revision.CreatedAt}
+}
+
+func projectNoteRevisionResponseFromDetail(detail database.ProjectNoteRevisionDetail) noteRevisionResponse {
+	revision := detail.Revision
+	return noteRevisionResponse{Revision: revision.Ref.Revision, Title: revision.Title, Description: revision.Description, Body: &revision.Body, Sensitive: revision.Sensitive, Author: noteAuthorResponseFromValues(revision.AuthorPrincipal, detail.AuthorName, revision.AuthorAgent, detail.AuthorAgentLabel, revision.AuthorGateway), CreatedAt: revision.CreatedAt}
+}
+
+func sessionNoteRevisionResponseFromSummary(revision database.SessionNoteRevisionSummary) noteRevisionResponse {
+	return noteRevisionResponse{Revision: revision.Ref.Revision, Title: revision.Title, Description: revision.Description, Sensitive: revision.Sensitive, Author: noteAuthorResponseFromValues(revision.AuthorPrincipal, revision.AuthorName, revision.AuthorAgent, revision.AuthorAgentLabel, revision.AuthorGateway), CreatedAt: revision.CreatedAt}
+}
+
+func sessionNoteRevisionResponseFromDetail(detail database.SessionNoteRevisionDetail) noteRevisionResponse {
+	revision := detail.Revision
+	return noteRevisionResponse{Revision: revision.Ref.Revision, Title: revision.Title, Description: revision.Description, Body: &revision.Body, Sensitive: revision.Sensitive, Author: noteAuthorResponseFromValues(revision.AuthorPrincipal, detail.AuthorName, revision.AuthorAgent, detail.AuthorAgentLabel, revision.AuthorGateway), CreatedAt: revision.CreatedAt}
 }
 
 func sessionSecretResponseFromSummary(secret database.SessionSecretSummary) sessionSecretResponse {

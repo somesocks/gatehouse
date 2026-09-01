@@ -10,7 +10,7 @@ const gatehousePolicyModuleID = "native:gatehouse/policy/v1"
 
 var (
 	policyAwaitApprovalDocumentation   = capabilityDocumentation{"(policy/await-approval description) -> Null", "Requests action approval before continuing. Description must be a non-blank string shown to the user.", "(policy/await-approval \"Create a session note\")", "null"}
-	policyRequireApprovalDocumentation = capabilityDocumentation{"(policy/require-approval description call) -> Function", "Returns a function that requests action approval with description before invoking call.", "((policy/require-approval \"Create a session note\" session/notes/create) \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	policyRequireApprovalDocumentation = capabilityDocumentation{"(policy/require-approval description call) -> Function", "Returns a function that requests action approval with description before invoking call.", "((policy/require-approval \"Create a session note\" session/notes/create) \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
 )
 
 const policyRequireApprovalSource = `(fn (description call)

@@ -18,13 +18,15 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
 	(project/secrets/list)
     (error/value (error/catch (project/files/read "guide" 0 1)))
     (error/value (error/catch (project/notes/read "guide" 0 1)))
+	(error/value (error/catch (project/notes/revisions/list "guide")))
+	(error/value (error/catch (project/notes/revisions/read "guide" 1 0 1)))
     (error/value (error/catch (project/notes/create "Decision" "" "# Decision")))
     (error/value (error/catch (project/notes/remove "example-note-id")))
 	(error/value (error/catch (project/secrets/read "psc_01m17ej89df8jnhnh7476ssnvg")))
     (error/value (error/catch (project/info/set "Roadmap" "Current priorities")))))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, nil)},
 	})
-	if err != nil || result.String() != `(null null null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/secrets/read is unavailable" "project/info/set is unavailable")` {
+	if err != nil || result.String() != `(null null null null null "project/files/read is unavailable" "project/notes/read is unavailable" "project/notes/revisions/list is unavailable" "project/notes/revisions/read is unavailable" "project/notes/create is unavailable" "project/notes/remove is unavailable" "project/secrets/read is unavailable" "project/info/set is unavailable")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }
@@ -87,11 +89,11 @@ func TestGatehouseProjectNoteCreate(t *testing.T) {
 				if title != "Decision" || description != "" || body != "# Decision" || sensitive {
 					t.Fatalf("project note create = (%q, %q, %q, %t)", title, description, body, sensitive)
 				}
-				return nil, ProjectNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+				return nil, ProjectNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 1}
 			}}),
 		},
 	})
-	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 1))` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 
@@ -103,10 +105,10 @@ func TestGatehouseProjectNoteCreate(t *testing.T) {
 			if title != "Decision" || description != "" || body != "# Decision" || !sensitive {
 				t.Fatalf("sensitive project note create = (%q, %q, %q, %t)", title, description, body, sensitive)
 			}
-			return nil, ProjectNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+			return nil, ProjectNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 1}
 	}})},
 	})
-	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 1))` {
 		t.Fatalf("Evaluate() sensitive note = (%s, %v)", result, err)
 	}
 
@@ -118,6 +120,25 @@ func TestGatehouseProjectNoteCreate(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "title and description must not be sensitive") {
 		t.Fatalf("Evaluate() sensitive note metadata error = %v", err)
+	}
+}
+
+func TestGatehouseProjectNoteUpdate(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/notes/update "note" "Decision" "Updated" body))`, lisp.EvalOptions{
+		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSensitive(lisp.String("# Decision"))}},
+		HostModules: []lisp.HostModule{
+			NewProjectModule(nil, nil, &ProjectNotes{Update: func(id, title, description, body string, sensitive bool) (error, ProjectNote) {
+			if id != "note" || title != "Decision" || description != "Updated" || body != "# Decision" || !sensitive {
+				t.Fatalf("project note update = (%q, %q, %q, %q, %t)", id, title, description, body, sensitive)
+			}
+			return nil, ProjectNote{ID: id, Title: title, Description: description, Sensitive: true, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 2}
+			}}),
+		},
+	})
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "Updated") (sensitive . #t) (author_id . "agent") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 2))` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }
 
@@ -152,6 +173,41 @@ func TestGatehouseProjectNoteReadMarksSensitiveBytes(t *testing.T) {
 	}
 	bytesErr, bytes = lisp.RequireBytes(result)
 	if bytesErr != nil || string(bytes) != "guide" {
+		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
+	}
+}
+
+func TestGatehouseProjectNoteRevisions(t *testing.T) {
+	authorName := "Ada"
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/notes/revisions/list "guide"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, &ProjectNotes{Revisions: func(id string) (error, []NoteRevision) {
+			if id != "guide" {
+				t.Fatalf("project note revisions id = %q", id)
+			}
+			return nil, []NoteRevision{{Revision: 2, Title: "Guide", Description: "Updated", Sensitive: false, AuthorID: "agent", AuthorName: &authorName, CreatedAt: "2026-01-02T00:00:00.000Z"}, {Revision: 1, Title: "Guide", Description: "Original", Sensitive: true, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}}
+		}})},
+	})
+	if err != nil || result.String() != `(((revision . 2) (title . "Guide") (description . "Updated") (sensitive . #f) (author_id . "agent") (author_name . "Ada") (created_at . "2026-01-02T00:00:00.000Z")) ((revision . 1) (title . "Guide") (description . "Original") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z")))` {
+		t.Fatalf("Evaluate() revisions = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/notes/revisions/read "guide" 1 2 7))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewProjectModule(nil, nil, &ProjectNotes{RevisionRead: func(id string, revision int, offset, length int64) (error, []byte, bool) {
+			if id != "guide" || revision != 1 || offset != 2 || length != 7 {
+				t.Fatalf("project note revision read = (%q, %d, %d, %d)", id, revision, offset, length)
+			}
+			return nil, []byte("Original"), true
+		}})},
+	})
+	if err != nil || !lisp.IsSensitive(result) {
+		t.Fatalf("Evaluate() revision read = (%s, %v), sensitive = %t", result, err, lisp.IsSensitive(result))
+	}
+	bytesErr, bytes := lisp.RequireBytes(result)
+	if bytesErr != nil || string(bytes) != "Original" {
 		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
 	}
 }

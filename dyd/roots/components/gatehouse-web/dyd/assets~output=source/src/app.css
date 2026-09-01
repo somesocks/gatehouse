@@ -657,6 +657,54 @@ body {
 
 .project-edit-dialog::backdrop { background: rgb(5 7 4 / 72%); }
 
+.note-history-dialog {
+	background: #171910;
+	border: 1px solid #626858;
+	border-radius: 0.75rem;
+	box-sizing: border-box;
+	color: #f4f4ee;
+	max-height: min(42rem, calc(100vh - 2rem));
+	max-width: calc(100vw - 2rem);
+	padding: 1.25rem;
+	width: min(38rem, 100%);
+}
+
+.note-history-dialog::backdrop { background: rgb(5 7 4 / 72%); }
+
+.note-history-heading {
+	align-items: center;
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 1rem;
+}
+
+.note-history-heading h2 { font-size: 1.2rem; margin: 0; }
+
+.note-history-heading .button { color: #c7c9bd; }
+
+.note-history-list {
+	max-height: min(30rem, calc(100vh - 11rem));
+	overflow-y: auto;
+}
+
+.note-history-list .dashboard-row {
+	background: transparent;
+	border: 0;
+	border-radius: 0.4rem;
+	color: inherit;
+	cursor: pointer;
+	font: inherit;
+	padding: 0.65rem;
+	text-align: left;
+	width: 100%;
+}
+
+.note-history-list .dashboard-row:hover,
+.note-history-list .dashboard-row:focus-visible,
+.note-history-list .dashboard-row.is-selected { background: #2c3323; }
+
+.note-history-list .dashboard-row:disabled { cursor: wait; opacity: 0.6; }
+
 .project-edit-form {
 	display: grid;
 	gap: 1rem;

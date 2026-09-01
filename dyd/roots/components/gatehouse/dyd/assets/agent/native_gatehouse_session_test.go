@@ -18,11 +18,11 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 				if title != "Decision" || description != "" || body != "# Decision" || sensitive {
 					t.Fatalf("session note create = (%q, %q, %q, %t)", title, description, body, sensitive)
 				}
-				return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+				return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 1}
 			}}),
 		},
 	})
-	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 1))` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 
@@ -52,10 +52,10 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 			if title != "Decision" || description != "" || body != "# Decision" || !sensitive {
 				t.Fatalf("sensitive session note create = (%q, %q, %q, %t)", title, description, body, sensitive)
 			}
-			return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}
+			return nil, SessionNote{ID: "note", Title: title, Description: description, Sensitive: sensitive, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 1}
 		}})},
 	})
-	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z"))` {
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "") (sensitive . #t) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 1))` {
 		t.Fatalf("Evaluate() sensitive note = (%s, %v)", result, err)
 	}
 
@@ -67,6 +67,25 @@ func TestGatehouseSessionNoteCreate(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "title and description must not be sensitive") {
 		t.Fatalf("Evaluate() sensitive note metadata error = %v", err)
+	}
+}
+
+func TestGatehouseSessionNoteUpdate(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/update "note" "Decision" "Updated" body))`, lisp.EvalOptions{
+		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSensitive(lisp.String("# Decision"))}},
+		HostModules: []lisp.HostModule{
+			NewSessionModule(nil, nil, nil, &SessionNotes{Update: func(id, title, description, body string, sensitive bool) (error, SessionNote) {
+			if id != "note" || title != "Decision" || description != "Updated" || body != "# Decision" || !sensitive {
+				t.Fatalf("session note update = (%q, %q, %q, %q, %t)", id, title, description, body, sensitive)
+			}
+			return nil, SessionNote{ID: id, Title: title, Description: description, Sensitive: true, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 2}
+			}}),
+		},
+	})
+	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "Updated") (sensitive . #t) (author_id . "agent") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 2))` {
+		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }
 
@@ -225,6 +244,40 @@ func TestGatehouseSessionNoteReadMarksSensitiveBytes(t *testing.T) {
 	}
 	bytesErr, bytes = lisp.RequireBytes(result)
 	if bytesErr != nil || string(bytes) != "guide" {
+		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
+	}
+}
+
+func TestGatehouseSessionNoteRevisions(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/revisions/list "guide"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{Revisions: func(id string) (error, []NoteRevision) {
+			if id != "guide" {
+				t.Fatalf("session note revisions id = %q", id)
+			}
+			return nil, []NoteRevision{{Revision: 1, Title: "Guide", Description: "Original", Sensitive: false, AuthorID: "author", CreatedAt: "2026-01-01T00:00:00.000Z"}}
+		}})},
+	})
+	if err != nil || result.String() != `(((revision . 1) (title . "Guide") (description . "Original") (sensitive . #f) (author_id . "author") (author_name) (created_at . "2026-01-01T00:00:00.000Z")))` {
+		t.Fatalf("Evaluate() revisions = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/notes/revisions/read "guide" 1 0 5))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, &SessionNotes{RevisionRead: func(id string, revision int, offset, length int64) (error, []byte, bool) {
+			if id != "guide" || revision != 1 || offset != 0 || length != 5 {
+				t.Fatalf("session note revision read = (%q, %d, %d, %d)", id, revision, offset, length)
+			}
+			return nil, []byte("Guide"), false
+		}})},
+	})
+	if err != nil || lisp.IsSensitive(result) {
+		t.Fatalf("Evaluate() revision read = (%s, %v), sensitive = %t", result, err, lisp.IsSensitive(result))
+	}
+	bytesErr, bytes := lisp.RequireBytes(result)
+	if bytesErr != nil || string(bytes) != "Guide" {
 		t.Fatalf("RequireBytes() = (%q, %v)", bytes, bytesErr)
 	}
 }

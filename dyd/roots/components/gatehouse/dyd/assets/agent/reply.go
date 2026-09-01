@@ -550,13 +550,15 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
-	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+	sessionNotes.Update = runtime.sessionNoteUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 	sessionNotes.Remove = runtime.sessionNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	if projectInfo != nil {
 		projectInfo.Set = runtime.projectInfoSet(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	if projectNotes != nil {
-		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal)
+		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectNotes.Update = runtime.projectNoteUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 		projectNotes.Remove = runtime.projectNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
@@ -719,7 +721,7 @@ func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, input 
 	return execution.Output, nil
 }
 
-func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) SessionNoteCreate {
+func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) SessionNoteCreate {
 	return func(title, description, body string, sensitive bool) (error, SessionNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (SessionNote, error) {
 			id, err := typed_id.New(typed_id.SessionNote)
@@ -727,12 +729,12 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 				return SessionNote{}, fmt.Errorf("generate session note ID: %w", err)
 			}
 			err, note := runtime.store.SessionNoteCreate(step, model.SessionNote{
-				Ref: model.SessionNoteRef{Session: session, Id: id}, Title: title, Description: description, Body: body, Sensitive: sensitive,
+				Ref: model.SessionNoteRef{Session: session, Id: id}, AuthorAgent: &agent, Title: title, Description: description, Body: body, Sensitive: sensitive,
 			}, principal)
 			if err != nil {
 				return SessionNote{}, err
 			}
-			return SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
+			return SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Model.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
 		return err, note
 	}
@@ -778,7 +780,23 @@ func (runtime *SessionEventReplyRuntime) sessionNoteRemove(ctx dbos.Context, ses
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectNoteCreate {
+func (runtime *SessionEventReplyRuntime) sessionNoteUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) SessionNoteUpdate {
+	return func(id, title, description, body string, sensitive bool) (error, SessionNote) {
+		note, err := dbos.RunAsStep(ctx, func(step context.Context) (SessionNote, error) {
+			err, updated := runtime.store.SessionNoteDetailsSetAs(step, model.SessionNoteRef{Session: session, Id: id}, principal, database.NoteAuthor{Agent: &agent}, sensitive, &title, &description, &body)
+			if err != nil || updated == nil {
+				if err == nil {
+					err = fmt.Errorf("update session note: unavailable")
+				}
+				return SessionNote{}, err
+			}
+			return SessionNote{ID: updated.Note.Ref.Id, Title: updated.Note.Title, Description: updated.Note.Description, Sensitive: updated.Note.Sensitive, AuthorID: noteAuthorID(updated.Note.AuthorPrincipal, updated.Note.AuthorAgent, updated.Note.AuthorGateway), CreatedAt: updated.Note.CreatedAt, Revision: updated.Note.Revision}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-update"))
+		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectNoteCreate {
 	return func(title, description, body string, sensitive bool) (error, ProjectNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
 			err, project := runtime.store.SessionProjectGet(step, session)
@@ -793,12 +811,12 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 				return ProjectNote{}, fmt.Errorf("generate project note ID: %w", err)
 			}
 			err, note := runtime.store.ProjectNoteCreate(step, model.ProjectNote{
-				Ref: model.ProjectNoteRef{Project: *project, Id: id}, Title: title, Description: description, Body: body, Sensitive: sensitive,
+				Ref: model.ProjectNoteRef{Project: *project, Id: id}, AuthorAgent: &agent, Title: title, Description: description, Body: body, Sensitive: sensitive,
 			}, principal)
 			if err != nil {
 				return ProjectNote{}, err
 			}
-			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, CreatedAt: note.CreatedAt}, nil
+			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Model.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
 	}
@@ -818,6 +836,29 @@ func (runtime *SessionEventReplyRuntime) projectNoteRemove(ctx dbos.Context, ses
 			return removed, err
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-remove"))
 		return err, removed
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectNoteUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectNoteUpdate {
+	return func(id, title, description, body string, sensitive bool) (error, ProjectNote) {
+		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil || project == nil {
+				if err == nil {
+					err = fmt.Errorf("update project note: project is unavailable")
+				}
+				return ProjectNote{}, err
+			}
+			err, updated := runtime.store.ProjectNoteDetailsSetAs(step, model.ProjectNoteRef{Project: *project, Id: id}, principal, database.NoteAuthor{Agent: &agent}, sensitive, &title, &description, &body)
+			if err != nil || updated == nil {
+				if err == nil {
+					err = fmt.Errorf("update project note: unavailable")
+				}
+				return ProjectNote{}, err
+			}
+			return ProjectNote{ID: updated.Note.Ref.Id, Title: updated.Note.Title, Description: updated.Note.Description, Sensitive: updated.Note.Sensitive, AuthorID: noteAuthorID(updated.Note.AuthorPrincipal, updated.Note.AuthorAgent, updated.Note.AuthorGateway), CreatedAt: updated.Note.CreatedAt, Revision: updated.Note.Revision}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-update"))
+		return err, note
 	}
 }
 
@@ -1003,7 +1044,7 @@ You are an agent that completes user requests using available native operations 
 
 You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
 
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text, tool-call arguments, tool output, or other event payloads by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/create`" + `, and ` + "`session/notes/remove`" + `. Create notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/create`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
+Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text, tool-call arguments, tool output, or other event payloads by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/revisions/list`" + `, ` + "`session/notes/revisions/read`" + `, ` + "`session/notes/create`" + `, ` + "`session/notes/update`" + `, and ` + "`session/notes/remove`" + `. Create or update notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/revisions/list`" + `, ` + "`project/notes/revisions/read`" + `, ` + "`project/notes/create`" + `, ` + "`project/notes/update`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
 
 Project secrets are available through ` + "`project/secrets/list`" + ` and ` + "`project/secrets/read`" + `. List exposes public metadata only; read returns secret-tainted Bytes.
 
@@ -1266,7 +1307,8 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	sessionNotes := &SessionNotes{Notes: make([]SessionNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
-		sessionNotes.Notes = append(sessionNotes.Notes, SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+		authorID, authorName := noteAuthorMetadata(note.AuthorPrincipal, note.AuthorName, note.AuthorAgent, note.AuthorAgentLabel, note.AuthorGateway)
+		sessionNotes.Notes = append(sessionNotes.Notes, SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: authorID, AuthorName: authorName, CreatedAt: note.CreatedAt, Revision: note.Revision})
 	}
 	sessionNotes.Read = func(id string, offset, length int64) (error, []byte, bool) {
 		err, detail := runtime.store.SessionNoteGet(ctx, model.SessionNoteRef{Session: session, Id: id}, principal)
@@ -1285,6 +1327,36 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			end = int64(len(body))
 		}
 		return nil, append([]byte(nil), body[offset:end]...), detail.Note.Sensitive
+	}
+	sessionNotes.Revisions = func(id string) (error, []NoteRevision) {
+		err, summaries := runtime.store.SessionNoteRevisionsGet(ctx, model.SessionNoteRef{Session: session, Id: id}, principal)
+		if err != nil {
+			return err, nil
+		}
+		revisions := make([]NoteRevision, 0, len(summaries))
+		for _, summary := range summaries {
+			authorID, authorName := noteAuthorMetadata(summary.AuthorPrincipal, summary.AuthorName, summary.AuthorAgent, summary.AuthorAgentLabel, summary.AuthorGateway)
+			revisions = append(revisions, NoteRevision{Revision: summary.Ref.Revision, Title: summary.Title, Description: summary.Description, Sensitive: summary.Sensitive, AuthorID: authorID, AuthorName: authorName, CreatedAt: summary.CreatedAt})
+		}
+		return nil, revisions
+	}
+	sessionNotes.RevisionRead = func(id string, revision int, offset, length int64) (error, []byte, bool) {
+		err, detail := runtime.store.SessionNoteRevisionGet(ctx, model.SessionNoteRevisionRef{Note: model.SessionNoteRef{Session: session, Id: id}, Revision: revision}, principal)
+		if err != nil || detail == nil {
+			if err != nil {
+				return err, nil, false
+			}
+			return fmt.Errorf("read session note revision: unavailable"), nil, false
+		}
+		body := []byte(detail.Revision.Body)
+		if offset > int64(len(body)) {
+			return fmt.Errorf("read session note revision: offset is unavailable"), nil, false
+		}
+		end := offset + length
+		if end > int64(len(body)) {
+			end = int64(len(body))
+		}
+		return nil, append([]byte(nil), body[offset:end]...), detail.Revision.Sensitive
 	}
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {
@@ -1325,7 +1397,8 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 			projectNotes = &ProjectNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
 			for _, note := range noteSummaries {
-				projectNotes.Notes = append(projectNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorPrincipal.Id, AuthorName: note.AuthorName, CreatedAt: note.CreatedAt})
+				authorID, authorName := noteAuthorMetadata(note.AuthorPrincipal, note.AuthorName, note.AuthorAgent, note.AuthorAgentLabel, note.AuthorGateway)
+				projectNotes.Notes = append(projectNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: authorID, AuthorName: authorName, CreatedAt: note.CreatedAt, Revision: note.Revision})
 			}
 			projectNotes.Read = func(id string, offset, length int64) (error, []byte, bool) {
 				err, detail := runtime.store.ProjectNoteGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
@@ -1344,6 +1417,36 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 					end = int64(len(body))
 				}
 				return nil, append([]byte(nil), body[offset:end]...), detail.Note.Sensitive
+			}
+			projectNotes.Revisions = func(id string) (error, []NoteRevision) {
+				err, summaries := runtime.store.ProjectNoteRevisionsGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
+				if err != nil {
+					return err, nil
+				}
+				revisions := make([]NoteRevision, 0, len(summaries))
+				for _, summary := range summaries {
+					authorID, authorName := noteAuthorMetadata(summary.AuthorPrincipal, summary.AuthorName, summary.AuthorAgent, summary.AuthorAgentLabel, summary.AuthorGateway)
+					revisions = append(revisions, NoteRevision{Revision: summary.Ref.Revision, Title: summary.Title, Description: summary.Description, Sensitive: summary.Sensitive, AuthorID: authorID, AuthorName: authorName, CreatedAt: summary.CreatedAt})
+				}
+				return nil, revisions
+			}
+			projectNotes.RevisionRead = func(id string, revision int, offset, length int64) (error, []byte, bool) {
+				err, detail := runtime.store.ProjectNoteRevisionGet(ctx, model.ProjectNoteRevisionRef{Note: model.ProjectNoteRef{Project: *project, Id: id}, Revision: revision}, principal)
+				if err != nil || detail == nil {
+					if err != nil {
+						return err, nil, false
+					}
+					return fmt.Errorf("read project note revision: unavailable"), nil, false
+				}
+				body := []byte(detail.Revision.Body)
+				if offset > int64(len(body)) {
+					return fmt.Errorf("read project note revision: offset is unavailable"), nil, false
+				}
+				end := offset + length
+				if end > int64(len(body)) {
+					end = int64(len(body))
+				}
+				return nil, append([]byte(nil), body[offset:end]...), detail.Revision.Sensitive
 			}
 			err, secretSummaries := runtime.store.ProjectSecretsGet(ctx, *project, principal)
 			if err != nil {
@@ -1381,6 +1484,32 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		}
 	}
 	return nil, files, projectInfo, projectFiles, projectNotes, projectSecrets, sessionNotes
+}
+
+func noteAuthorMetadata(principal *model.PrincipalRef, principalName *string, agent *model.WorkspaceAgentRef, agentLabel *string, gateway *model.GatewayRef) (string, *string) {
+	if principal != nil {
+		return principal.Id, principalName
+	}
+	if agent != nil {
+		return agent.Model.Id, agentLabel
+	}
+	if gateway != nil {
+		return gateway.Id, nil
+	}
+	return "", nil
+}
+
+func noteAuthorID(principal *model.PrincipalRef, agent *model.WorkspaceAgentRef, gateway *model.GatewayRef) string {
+	if principal != nil {
+		return principal.Id
+	}
+	if agent != nil {
+		return agent.Model.Id
+	}
+	if gateway != nil {
+		return gateway.Id
+	}
+	return ""
 }
 
 func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompatibleMessage) {

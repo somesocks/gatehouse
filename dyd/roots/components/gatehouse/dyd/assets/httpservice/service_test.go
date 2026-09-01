@@ -771,7 +771,7 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/notes"
 	created := request(http.MethodPost, base, `{"title":"Guide","description":"How to work on this project.","body":"# Guide\n\nFollow the checklist."}`)
 	var note projectNoteResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectNote, note.ID) || note.Title != "Guide" || note.Description != "How to work on this project." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.ID == "" || note.CreatedAt == "" {
+	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectNote, note.ID) || note.Title != "Guide" || note.Description != "How to work on this project." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.Principal == nil || note.Author.Principal.ID == "" || note.CreatedAt == "" {
 		t.Fatalf("POST project note = (%d, %#v, %v)", created.Code, note, err)
 	}
 	listed := request(http.MethodGet, base, "")
@@ -784,8 +784,18 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 		t.Fatalf("GET project note = (%d, %#v, %v)", detail.Code, note, err)
 	}
 	updated := request(http.MethodPatch, base+"/"+note.ID, `{"description":"","body":""}`)
-	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Revision != 2 || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
 		t.Fatalf("PATCH project note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	revisions := request(http.MethodGet, base+"/"+note.ID+"/revisions", "")
+	var projectRevisions []noteRevisionResponse
+	if err := json.Unmarshal(revisions.Body.Bytes(), &projectRevisions); err != nil || revisions.Code != http.StatusOK || len(projectRevisions) != 2 || projectRevisions[0].Revision != 2 || projectRevisions[0].Body != nil || projectRevisions[1].Revision != 1 {
+		t.Fatalf("GET project note revisions = (%d, %#v, %v)", revisions.Code, projectRevisions, err)
+	}
+	firstRevision := request(http.MethodGet, base+"/"+note.ID+"/revisions/1", "")
+	var projectRevision noteRevisionResponse
+	if err := json.Unmarshal(firstRevision.Body.Bytes(), &projectRevision); err != nil || firstRevision.Code != http.StatusOK || projectRevision.Body == nil || *projectRevision.Body != "# Guide\n\nFollow the checklist." {
+		t.Fatalf("GET project note revision = (%d, %#v, %v)", firstRevision.Code, projectRevision, err)
 	}
 	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
 	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
@@ -795,8 +805,13 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	if err := json.Unmarshal(sensitive.Body.Bytes(), &note); err != nil || sensitive.Code != http.StatusCreated || !note.Sensitive {
 		t.Fatalf("POST sensitive project note = (%d, %#v, %v)", sensitive.Code, note, err)
 	}
-	if updated := request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`); updated.Code != http.StatusBadRequest {
-		t.Fatalf("PATCH sensitive project note = status %d", updated.Code)
+	updated = request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Sensitive || note.Revision != 2 {
+		t.Fatalf("PATCH sensitive project note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	firstRevision = request(http.MethodGet, base+"/"+note.ID+"/revisions/1", "")
+	if err := json.Unmarshal(firstRevision.Body.Bytes(), &projectRevision); err != nil || firstRevision.Code != http.StatusOK || !projectRevision.Sensitive {
+		t.Fatalf("GET sensitive project note revision = (%d, %#v, %v)", firstRevision.Code, projectRevision, err)
 	}
 	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
 	if invalid.Code != http.StatusBadRequest {
@@ -895,7 +910,7 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + session.ID + "/notes"
 	created := request(http.MethodPost, base, `{"title":"Guide","description":"How to work in this session.","body":"# Guide\n\nFollow the checklist."}`)
 	var note sessionNoteResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionNote, note.ID) || note.Title != "Guide" || note.Description != "How to work in this session." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.ID == "" || note.CreatedAt == "" {
+	if err := json.Unmarshal(created.Body.Bytes(), &note); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionNote, note.ID) || note.Title != "Guide" || note.Description != "How to work in this session." || note.Body == nil || *note.Body != "# Guide\n\nFollow the checklist." || note.Sensitive || note.Author.Principal == nil || note.Author.Principal.ID == "" || note.CreatedAt == "" {
 		t.Fatalf("POST session note = (%d, %#v, %v)", created.Code, note, err)
 	}
 	listed := request(http.MethodGet, base, "")
@@ -908,8 +923,18 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 		t.Fatalf("GET session note = (%d, %#v, %v)", detail.Code, note, err)
 	}
 	updated := request(http.MethodPatch, base+"/"+note.ID, `{"description":"","body":""}`)
-	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Revision != 2 || note.Title != "Guide" || note.Description != "" || note.Body == nil || *note.Body != "" {
 		t.Fatalf("PATCH session note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	revisions := request(http.MethodGet, base+"/"+note.ID+"/revisions", "")
+	var sessionRevisions []noteRevisionResponse
+	if err := json.Unmarshal(revisions.Body.Bytes(), &sessionRevisions); err != nil || revisions.Code != http.StatusOK || len(sessionRevisions) != 2 || sessionRevisions[0].Revision != 2 || sessionRevisions[0].Body != nil || sessionRevisions[1].Revision != 1 {
+		t.Fatalf("GET session note revisions = (%d, %#v, %v)", revisions.Code, sessionRevisions, err)
+	}
+	firstRevision := request(http.MethodGet, base+"/"+note.ID+"/revisions/1", "")
+	var sessionRevision noteRevisionResponse
+	if err := json.Unmarshal(firstRevision.Body.Bytes(), &sessionRevision); err != nil || firstRevision.Code != http.StatusOK || sessionRevision.Body == nil || *sessionRevision.Body != "# Guide\n\nFollow the checklist." {
+		t.Fatalf("GET session note revision = (%d, %#v, %v)", firstRevision.Code, sessionRevision, err)
 	}
 	empty := request(http.MethodPost, base, `{"title":"Empty"}`)
 	if err := json.Unmarshal(empty.Body.Bytes(), &note); err != nil || empty.Code != http.StatusCreated || note.Title != "Empty" || note.Description != "" || note.Body == nil || *note.Body != "" {
@@ -919,8 +944,13 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	if err := json.Unmarshal(sensitive.Body.Bytes(), &note); err != nil || sensitive.Code != http.StatusCreated || !note.Sensitive {
 		t.Fatalf("POST sensitive session note = (%d, %#v, %v)", sensitive.Code, note, err)
 	}
-	if updated := request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`); updated.Code != http.StatusBadRequest {
-		t.Fatalf("PATCH sensitive session note = status %d", updated.Code)
+	updated = request(http.MethodPatch, base+"/"+note.ID, `{"sensitive":false}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &note); err != nil || updated.Code != http.StatusOK || note.Sensitive || note.Revision != 2 {
+		t.Fatalf("PATCH sensitive session note = (%d, %#v, %v)", updated.Code, note, err)
+	}
+	firstRevision = request(http.MethodGet, base+"/"+note.ID+"/revisions/1", "")
+	if err := json.Unmarshal(firstRevision.Body.Bytes(), &sessionRevision); err != nil || firstRevision.Code != http.StatusOK || !sessionRevision.Sensitive {
+		t.Fatalf("GET sensitive session note revision = (%d, %#v, %v)", firstRevision.Code, sessionRevision, err)
 	}
 	invalid := request(http.MethodPost, base, `{"title":"Guide","description":"Too large","body":"`+strings.Repeat("x", 1024*1024+1)+`"}`)
 	if invalid.Code != http.StatusBadRequest {

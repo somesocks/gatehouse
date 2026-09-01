@@ -27,6 +27,15 @@ type ProjectNoteRead = NoteRead
 // SessionNoteRead reads an authorized session note byte range and reports whether it is sensitive.
 type SessionNoteRead = NoteRead
 
+// NoteRevisionRead reads an authorized historical note revision byte range and reports whether it is sensitive.
+type NoteRevisionRead func(id string, revision int, offset, length int64) (error, []byte, bool)
+
+// ProjectNoteRevisionRead reads an authorized historical project note revision byte range.
+type ProjectNoteRevisionRead = NoteRevisionRead
+
+// SessionNoteRevisionRead reads an authorized historical session note revision byte range.
+type SessionNoteRevisionRead = NoteRevisionRead
+
 // SessionSecretRead reads an authorized session secret value.
 type SessionSecretRead func(id string) (error, []byte)
 
@@ -41,6 +50,18 @@ type ProjectNoteCreate func(title, description, body string, sensitive bool) (er
 
 // SessionNoteCreate creates an authorized session note.
 type SessionNoteCreate func(title, description, body string, sensitive bool) (error, SessionNote)
+
+// ProjectNoteUpdate replaces an authorized project note.
+type ProjectNoteUpdate func(id, title, description, body string, sensitive bool) (error, ProjectNote)
+
+// SessionNoteUpdate replaces an authorized session note.
+type SessionNoteUpdate func(id, title, description, body string, sensitive bool) (error, SessionNote)
+
+// ProjectNoteRevisionsGet returns authorized project note revision summaries.
+type ProjectNoteRevisionsGet func(id string) (error, []NoteRevision)
+
+// SessionNoteRevisionsGet returns authorized session note revision summaries.
+type SessionNoteRevisionsGet func(id string) (error, []NoteRevision)
 
 // SessionSecrets contains the authorized secrets in the current session.
 type SessionSecrets struct {
@@ -70,11 +91,24 @@ type ProjectNote struct {
 	AuthorID    string
 	AuthorName  *string
 	CreatedAt   string
+	Revision    int
 }
 
 // SessionNote describes an authorized session note.
 type SessionNote struct {
 	ID          string
+	Title       string
+	Description string
+	Sensitive   bool
+	AuthorID    string
+	AuthorName  *string
+	CreatedAt   string
+	Revision    int
+}
+
+// NoteRevision describes an authorized historical note revision.
+type NoteRevision struct {
+	Revision    int
 	Title       string
 	Description string
 	Sensitive   bool
@@ -167,7 +201,7 @@ func noteListFunction(notes []ProjectNote, name string) func([]lisp.Expr) (error
 }
 
 func noteValue(note ProjectNote, name string) (error, lisp.Expr) {
-	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
+	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" || note.Revision < 1 {
 		return lisp.Errorf("%s has invalid note metadata", name), nil
 	}
 	authorName := lisp.Null()
@@ -182,6 +216,7 @@ func noteValue(note ProjectNote, name string) (error, lisp.Expr) {
 		lisp.Pair("author_id", lisp.String(note.AuthorID)),
 		lisp.Pair("author_name", authorName),
 		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
+		lisp.Pair("revision", lisp.Integer(int64(note.Revision))),
 	)
 }
 
@@ -203,7 +238,7 @@ func sessionNoteListFunction(notes []SessionNote, name string) func([]lisp.Expr)
 }
 
 func sessionNoteValue(note SessionNote, name string) (error, lisp.Expr) {
-	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" {
+	if note.ID == "" || note.Title == "" || note.AuthorID == "" || note.CreatedAt == "" || note.Revision < 1 {
 		return lisp.Errorf("%s has invalid note metadata", name), nil
 	}
 	authorName := lisp.Null()
@@ -218,6 +253,54 @@ func sessionNoteValue(note SessionNote, name string) (error, lisp.Expr) {
 		lisp.Pair("author_id", lisp.String(note.AuthorID)),
 		lisp.Pair("author_name", authorName),
 		lisp.Pair("created_at", lisp.String(note.CreatedAt)),
+		lisp.Pair("revision", lisp.Integer(int64(note.Revision))),
+	)
+}
+
+func noteRevisionListFunction(get func(string) (error, []NoteRevision), name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 1 {
+			return lisp.Errorf("%s requires an id", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if id == "" {
+			return lisp.Errorf("%s requires a non-empty id", name), nil
+		}
+		err, revisions := get(id)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		values := make([]lisp.Expr, 0, len(revisions))
+		for _, revision := range revisions {
+			err, value := noteRevisionValue(revision, name)
+			if err != nil {
+				return err, nil
+			}
+			values = append(values, value)
+		}
+		return nil, lisp.List(values...)
+	}
+}
+
+func noteRevisionValue(revision NoteRevision, name string) (error, lisp.Expr) {
+	if revision.Revision < 1 || revision.Title == "" || revision.AuthorID == "" || revision.CreatedAt == "" {
+		return lisp.Errorf("%s has invalid note revision metadata", name), nil
+	}
+	authorName := lisp.Null()
+	if revision.AuthorName != nil {
+		authorName = lisp.String(*revision.AuthorName)
+	}
+	return nil, lisp.List(
+		lisp.Pair("revision", lisp.Integer(int64(revision.Revision))),
+		lisp.Pair("title", lisp.String(revision.Title)),
+		lisp.Pair("description", lisp.String(revision.Description)),
+		lisp.Pair("sensitive", lisp.Boolean(revision.Sensitive)),
+		lisp.Pair("author_id", lisp.String(revision.AuthorID)),
+		lisp.Pair("author_name", authorName),
+		lisp.Pair("created_at", lisp.String(revision.CreatedAt)),
 	)
 }
 
@@ -313,6 +396,48 @@ func noteReadFunction(read NoteRead, name string) func([]lisp.Expr) (error, lisp
 			result = lisp.MarkSensitive(result)
 		}
 		return nil, result
+	}
+}
+
+func noteRevisionReadFunction(read NoteRevisionRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 4 {
+			return lisp.Errorf("%s requires id, revision, offset, and length", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		err, revision := lisp.RequireInteger(arguments[1])
+		if err != nil {
+			return err, nil
+		}
+		err, offset := lisp.RequireInteger(arguments[2])
+		if err != nil {
+			return err, nil
+		}
+		err, length := lisp.RequireInteger(arguments[3])
+		if err != nil {
+			return err, nil
+		}
+		if id == "" || revision < 1 || offset < 0 || length < 1 || length > 64*1024 {
+			return lisp.Errorf("%s requires a non-empty id, positive revision, non-negative offset, and length from 1 through 65536", name), nil
+		}
+		err, value, sensitive := read(id, int(revision), offset, length)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		result := lisp.Bytes(value)
+		if sensitive {
+			result = lisp.MarkSensitive(result)
+		}
+		return nil, result
+	}
+}
+
+func unavailableNoteRevisionList(name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func([]lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("%s is unavailable", name), nil
 	}
 }
 

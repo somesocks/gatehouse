@@ -31,6 +31,8 @@ const agentPrelude = `(let
               (list
                 (list 'session/notes/create "Create a session note" session/notes/create)
                 (list 'project/notes/create "Create a project note" project/notes/create)
+				(list 'session/notes/update "Update a session note" session/notes/update)
+				(list 'project/notes/update "Update a project note" project/notes/update)
                 (list 'session/notes/remove "Remove a session note" session/notes/remove)
                 (list 'project/notes/remove "Remove a project note" project/notes/remove)
                 (list 'project/info/set "Update project details" project/info/set)))
