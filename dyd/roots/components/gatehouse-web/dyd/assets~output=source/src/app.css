@@ -888,6 +888,14 @@ body {
 	text-decoration: underline;
 }
 
+.markdown-content .katex-display {
+	display: block;
+	margin: 1rem 0;
+	max-width: 100%;
+	overflow-x: auto;
+	overflow-y: hidden;
+	padding: 0.15rem 0;
+}
 
 .markdown-code-block {
   position: relative;

@@ -1,4 +1,5 @@
 import "bulma/css/bulma.min.css"
+import "katex/dist/katex.min.css"
 import "./app.css"
 import { mount } from "svelte"
 
