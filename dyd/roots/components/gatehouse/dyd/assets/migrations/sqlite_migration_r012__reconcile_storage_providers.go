@@ -1,14 +1,104 @@
 package migrations
 
 import (
+	"context"
+	"crypto/rand"
+	"fmt"
+
 	"gatehouse/config"
 	"gatehouse/keychain"
+	"gatehouse/model"
+	"gatehouse/storage"
 )
 
 func sqliteMigrationR012ReconcileStorageProviders(state config.State, keyring *keychain.Keyring) RepeatableMigration {
 	return RepeatableMigration{
 		Index:       12,
 		Description: "reconcile_storage_providers",
-		Builder:     storageProviderMigrationBuilder(state.StorageProviders, keyring),
+		Builder:     sqliteMigrationR012ReconcileStorageProvidersBuilder(state.StorageProviders, keyring),
 	}
+}
+
+type sqliteMigrationR012StorageProviderValue struct {
+	Alias, Protocol                                                               string
+	Endpoint, Region, Bucket, AccessKeyID, KeychainID, KeychainVersion, SecretKey any
+	Revision                                                                      int
+	Enabled                                                                       bool
+}
+
+func sqliteMigrationR012ReconcileStorageProvidersBuilder(providers []config.StorageProvider, keyring *keychain.Keyring) MigrationBuilder {
+	resolver := storage.NewSecretKeySourceResolver()
+	return func(ctx context.Context, session *MigrationSession) (error, string) {
+		revisions, err := sqliteMigrationR012StorageProviderRevisionsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		values := make([]sqliteMigrationR012StorageProviderValue, 0, len(providers))
+		for _, provider := range providers {
+			if revisions[provider.Alias] >= provider.Revision {
+				continue
+			}
+			value := sqliteMigrationR012StorageProviderValue{Alias: provider.Alias, Revision: provider.Revision, Protocol: provider.Protocol, Enabled: provider.Enabled}
+			if provider.Protocol == "embedded" {
+				values = append(values, value)
+				continue
+			}
+			secretErr, secret := resolver.Resolve(provider.Alias, provider.SecretKeySources)
+			if secretErr != nil {
+				return secretErr, ""
+			}
+			reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
+			keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
+			if keyringErr != nil {
+				clear(secret)
+				return fmt.Errorf("get keychain for storage provider %q: %w", provider.Alias, keyringErr), ""
+			}
+			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|storage-provider|alias="+provider.Alias), secret)
+			clear(secret)
+			clear(keys[reference])
+			if sealErr != nil {
+				return fmt.Errorf("encrypt secret access key for storage provider %q: %w", provider.Alias, sealErr), ""
+			}
+			encrypted.AAD = keychain.AADAlias
+			value.Endpoint = *provider.Endpoint
+			value.Region = *provider.Region
+			value.Bucket = *provider.Bucket
+			value.AccessKeyID = *provider.AccessKeyID
+			value.KeychainID = reference.Id
+			value.KeychainVersion = reference.Version
+			value.SecretKey = encrypted.String()
+			values = append(values, value)
+		}
+		return session.RenderTemplate(`
+			SELECT 1;
+			{{ range . }}
+			INSERT INTO gatehouse_storage_providers (id, alias, revision, protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, enabled)
+			VALUES (COALESCE((SELECT id FROM gatehouse_storage_providers WHERE alias = {{ sqlLiteral .Alias }}), gh_id_new('stp')), {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .Region }}, {{ sqlLiteral .Bucket }}, {{ sqlLiteral .AccessKeyID }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .SecretKey }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, region = excluded.region, bucket = excluded.bucket, access_key_id = excluded.access_key_id, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, secret_access_key = excluded.secret_access_key, enabled = excluded.enabled
+			WHERE gatehouse_storage_providers.revision < excluded.revision;
+			{{ end }}
+		`, values)
+	}
+}
+
+func sqliteMigrationR012StorageProviderRevisionsByAlias(ctx context.Context, session *MigrationSession) (map[string]int, error) {
+	rows, err := session.QueryContext(ctx, `SELECT alias, revision FROM gatehouse_storage_providers WHERE alias IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("get storage provider revisions: %w", err)
+	}
+	defer rows.Close()
+
+	revisions := map[string]int{}
+	for rows.Next() {
+		var alias string
+		var revision int
+		if err := rows.Scan(&alias, &revision); err != nil {
+			return nil, fmt.Errorf("read storage provider: %w", err)
+		}
+		revisions[alias] = revision
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read storage providers: %w", err)
+	}
+	return revisions, nil
 }
