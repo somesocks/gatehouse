@@ -3143,7 +3143,7 @@
 						{#if projectSecretError !== ""}<p class="help is-danger" aria-live="polite">{projectSecretError}</p>{/if}
 					</article>
 				{:else}
-					<div class="collection-heading"><h2>Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startProjectSecretCreate()}>New secret</button></div>
+					<div class="collection-heading"><h2>Project Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startProjectSecretCreate()}>New secret</button></div>
 					<div class="collection-list">
 						{#if projectSecretStatus === "checking"}
 							<p class="dashboard-empty">Loading secrets...</p>
@@ -3196,7 +3196,7 @@
               {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
             </article>
           {:else}
-            <div class="collection-heading"><h2>Notes</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionNoteCreate()}>New note</button></div>
+            <div class="collection-heading"><h2>Session Notes</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionNoteCreate()}>New note</button></div>
             <div class="collection-list">
               {#if sessionNoteStatus === "checking"}
                 <p class="dashboard-empty">Loading notes...</p>
@@ -3226,7 +3226,7 @@
               {#if sessionSecretError !== ""}<p class="help is-danger" aria-live="polite">{sessionSecretError}</p>{/if}
             </article>
           {:else}
-            <div class="collection-heading"><h2>Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionSecretCreate()}>New secret</button></div>
+            <div class="collection-heading"><h2>Session Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionSecretCreate()}>New secret</button></div>
             <div class="collection-list">
               {#if sessionSecretStatus === "checking"}
                 <p class="dashboard-empty">Loading secrets...</p>

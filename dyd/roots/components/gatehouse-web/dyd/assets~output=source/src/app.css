@@ -369,7 +369,6 @@ body {
 .collection-page {
   display: grid;
   gap: 1rem;
-  max-width: 58rem;
   padding: 1.5rem;
 }
 
