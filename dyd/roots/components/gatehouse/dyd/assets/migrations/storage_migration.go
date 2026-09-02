@@ -54,12 +54,13 @@ func storageProviderMigrationBuilder(providers []config.StorageProvider, keyring
 				clear(secret)
 				return fmt.Errorf("get keychain for storage provider %q: %w", provider.Alias, keyringErr), ""
 			}
-			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|storage-provider="+id), secret)
+			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|storage-provider|alias="+provider.Alias), secret)
 			clear(secret)
 			clear(keys[reference])
 			if sealErr != nil {
 				return fmt.Errorf("encrypt secret access key for storage provider %q: %w", provider.Alias, sealErr), ""
 			}
+			encrypted.AAD = keychain.AADAlias
 			value.Endpoint = *provider.Endpoint
 			value.Region = *provider.Region
 			value.Bucket = *provider.Bucket

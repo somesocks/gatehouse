@@ -212,7 +212,13 @@ func (client *Client) s3ConfigRaw(ctx context.Context, provider *database.Storag
 		clear(keys)
 		return fmt.Errorf("get keychain for storage provider %q: unavailable", provider.Object.Provider), s3.Config{}
 	}
-	decryptedErr, secret := keychain.Open(key, []byte("gh=v1|storage-provider="+provider.Object.Provider), encrypted)
+	associatedDataErr, associatedData := storageProviderAssociatedData(provider.Object.Provider, provider.ProviderAlias, encrypted.AAD)
+	if associatedDataErr != nil {
+		clear(key)
+		clear(keys)
+		return fmt.Errorf("select secret access key AAD for storage provider %q: %w", provider.Object.Provider, associatedDataErr), s3.Config{}
+	}
+	decryptedErr, secret := keychain.Open(key, associatedData, encrypted)
 	clear(key)
 	clear(keys)
 	if decryptedErr != nil {
@@ -221,5 +227,19 @@ func (client *Client) s3ConfigRaw(ctx context.Context, provider *database.Storag
 	return nil, s3.Config{
 		Endpoint: provider.Endpoint, Region: provider.Region, Bucket: provider.Bucket,
 		AccessKeyID: provider.AccessKeyID, SecretAccessKey: secret,
+	}
+}
+
+func storageProviderAssociatedData(id string, alias *string, selector string) (error, []byte) {
+	switch selector {
+	case keychain.AADID:
+		return nil, []byte("gh=v1|storage-provider|id=" + id)
+	case keychain.AADAlias:
+		if alias == nil {
+			return fmt.Errorf("storage provider alias is unavailable"), nil
+		}
+		return nil, []byte("gh=v1|storage-provider|alias=" + *alias)
+	default:
+		return fmt.Errorf("unsupported AAD selector %q", selector), nil
 	}
 }

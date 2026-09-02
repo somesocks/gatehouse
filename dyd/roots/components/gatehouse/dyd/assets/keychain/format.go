@@ -16,6 +16,8 @@ const (
 	kdfAlgorithm     = "pbkdf2-hmac-sha256-v1"
 	encryptionAlg    = "aes128-gcm-v1"
 	saltSize         = 16
+	AADID            = "id"
+	AADAlias         = "alias"
 )
 
 var keyID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
@@ -27,6 +29,7 @@ type KDF struct {
 type Encrypted struct {
 	Payload []byte
 	Key     *model.KeychainRef
+	AAD     string
 }
 
 func ParseKDF(value string) (error, KDF) {
@@ -68,6 +71,14 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		return fmt.Errorf("%s key and ver must be specified together", encryptionScheme), Encrypted{}
 	}
 	expected := url.Values{"alg": []string{encryptionAlg}}
+	var aad string
+	if values, ok := query["aad"]; ok {
+		if len(values) != 1 || (values[0] != AADID && values[0] != AADAlias) {
+			return fmt.Errorf("%s aad must be %q or %q", encryptionScheme, AADID, AADAlias), Encrypted{}
+		}
+		aad = values[0]
+		expected.Set("aad", aad)
+	}
 	var reference *model.KeychainRef
 	if hasKey {
 		if len(key) != 1 || !keyID.MatchString(key[0]) {
@@ -91,7 +102,7 @@ func ParseEncrypted(value string) (error, Encrypted) {
 	if err != nil || len(payload) < encryptionOverhead {
 		return fmt.Errorf("%s payload must contain a nonce and authentication tag", encryptionScheme), Encrypted{}
 	}
-	return nil, Encrypted{Payload: payload, Key: reference}
+	return nil, Encrypted{Payload: payload, Key: reference, AAD: aad}
 }
 
 func ParseKey(value string) (error, Encrypted) {
@@ -121,6 +132,9 @@ func (encrypted Encrypted) String() string {
 	if encrypted.Key != nil {
 		query.Set("key", encrypted.Key.Id)
 		query.Set("ver", strconv.Itoa(encrypted.Key.Version))
+	}
+	if encrypted.AAD != "" {
+		query.Set("aad", encrypted.AAD)
 	}
 	return encryptionScheme + ":" + base64.RawURLEncoding.EncodeToString(encrypted.Payload) + "?" + query.Encode()
 }

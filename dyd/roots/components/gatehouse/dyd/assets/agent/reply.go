@@ -536,13 +536,33 @@ func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selec
 		return fmt.Errorf("get keychain for provider %q: %w", selected.ProviderID, err), nil
 	}
 	key := keys[*selected.Keychain]
-	decryptedErr, apiKey := keychain.Open(key, []byte("gh=v1|agent-provider="+selected.ProviderID), encrypted)
+	associatedDataErr, associatedData := agentProviderAssociatedData(selected.ProviderID, selected.ProviderAlias, encrypted.AAD)
+	if associatedDataErr != nil {
+		clear(key)
+		clear(keys)
+		return fmt.Errorf("select API key AAD for provider %q: %w", selected.ProviderID, associatedDataErr), nil
+	}
+	decryptedErr, apiKey := keychain.Open(key, associatedData, encrypted)
 	clear(key)
 	clear(keys)
 	if decryptedErr != nil {
 		return fmt.Errorf("decrypt API key for provider %q: %w", selected.ProviderID, decryptedErr), nil
 	}
 	return nil, apiKey
+}
+
+func agentProviderAssociatedData(id string, alias *string, selector string) (error, []byte) {
+	switch selector {
+	case keychain.AADID:
+		return nil, []byte("gh=v1|agent-provider|id=" + id)
+	case keychain.AADAlias:
+		if alias == nil {
+			return fmt.Errorf("provider alias is unavailable"), nil
+		}
+		return nil, []byte("gh=v1|agent-provider|alias=" + *alias)
+	default:
+		return fmt.Errorf("unsupported AAD selector %q", selector), nil
+	}
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {

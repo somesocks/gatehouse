@@ -1344,15 +1344,16 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 }
 
 type WorkspaceAgentModel struct {
-	Ref        model.WorkspaceAgentRef
-	ProviderID string
-	Protocol   string
-	BaseURL    *string
-	Keychain   *model.KeychainRef
-	APIKey     *string
-	Model      string
-	Parameters string
-	Compaction string
+	Ref           model.WorkspaceAgentRef
+	ProviderID    string
+	ProviderAlias *string
+	Protocol      string
+	BaseURL       *string
+	Keychain      *model.KeychainRef
+	APIKey        *string
+	Model         string
+	Parameters    string
+	Compaction    string
 	MaxTurns        int
 	MaxOutputTokens int
 	SystemPrompt    *string
@@ -1401,7 +1402,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.id, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
+		SELECT models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1414,9 +1415,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	`, workspace.Id, preferred, preferred)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	var baseURL, keychainID, apiKey, systemPrompt sql.NullString
+	var providerAlias, baseURL, keychainID, apiKey, systemPrompt sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
+	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1429,6 +1430,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 		selected.BaseURL = &baseURL.String
 		selected.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
 		selected.APIKey = &apiKey.String
+	}
+	if providerAlias.Valid {
+		selected.ProviderAlias = &providerAlias.String
 	}
 	if systemPrompt.Valid {
 		selected.SystemPrompt = &systemPrompt.String

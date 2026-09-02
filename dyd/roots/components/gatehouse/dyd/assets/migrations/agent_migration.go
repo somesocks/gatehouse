@@ -59,12 +59,13 @@ func agentProviderMigrationBuilder(providers []config.AgentProvider, keyring *ke
 				clear(apiKey)
 				return fmt.Errorf("get keychain for provider %q: %w", provider.Alias, keyringErr), ""
 			}
-			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider="+id), apiKey)
+			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider|alias="+provider.Alias), apiKey)
 			clear(apiKey)
 			clear(keys[reference])
 			if sealErr != nil {
 				return fmt.Errorf("encrypt API key for provider %q: %w", provider.Alias, sealErr), ""
 			}
+			encrypted.AAD = keychain.AADAlias
 			value.BaseURL = *provider.BaseURL
 			value.KeychainID = reference.Id
 			value.KeychainVersion = reference.Version

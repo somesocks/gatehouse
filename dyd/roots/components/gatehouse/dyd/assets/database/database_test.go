@@ -132,6 +132,13 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if protocol != "s3" || endpoint != "https://s3.example.test" || region != "us-east-1" || bucket != "documents" || accessKeyID != "access-key" || keychainID != "storage" || keychainVersion != 1 || secret == "secret-1" || revision != 1 || !enabled {
 		t.Fatalf("documents storage provider = (%q, %q, %q, %q, %q, %q, %d, %q, %d, %t)", protocol, endpoint, region, bucket, accessKeyID, keychainID, keychainVersion, secret, revision, enabled)
 	}
+	err, encryptedSecret := keychain.ParseKey(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encryptedSecret.AAD != keychain.AADAlias {
+		t.Fatalf("storage provider ciphertext AAD = %q, want %q", encryptedSecret.AAD, keychain.AADAlias)
+	}
 	var documentsID string
 	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents'`).Scan(&documentsID); err != nil {
 		t.Fatal(err)
@@ -248,6 +255,42 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	}
 	if !typed_id.Valid(typed_id.AgentModel, renamedModelID) || renamedModelID == modelID {
 		t.Fatalf("renamed model ID = %q, want new typed ID distinct from %q", renamedModelID, modelID)
+	}
+}
+
+func TestMigrateEncryptsAgentProviderAPIKeyWithAliasAAD(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	baseURL := "https://api.example.test"
+	keychainID := "agent"
+	state := config.State{
+		Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:AGENT_KEYCHAIN"}}},
+		AgentProviders: []config.AgentProvider{{
+			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:AGENT_API_KEY"}, Enabled: true,
+		}},
+	}
+	t.Setenv("AGENT_KEYCHAIN", "agent passphrase")
+	t.Setenv("AGENT_API_KEY", "secret-api-key")
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+
+	var apiKey string
+	if err := store.QueryRowContext(ctx, `SELECT api_key FROM gatehouse_agent_providers WHERE alias = 'openai'`).Scan(&apiKey); err != nil {
+		t.Fatal(err)
+	}
+	err, encrypted := keychain.ParseKey(apiKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if encrypted.AAD != keychain.AADAlias {
+		t.Fatalf("agent provider ciphertext AAD = %q, want %q", encrypted.AAD, keychain.AADAlias)
 	}
 }
 

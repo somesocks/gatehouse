@@ -46,8 +46,8 @@ func TestParseKDFRejectsInvalidValues(t *testing.T) {
 
 func TestEncryptedRoundTrip(t *testing.T) {
 	payload := []byte("0123456789abcdefghijklmnopqr")
-	value := Encrypted{Payload: payload, Key: &model.KeychainRef{Id: "default", Version: 1}}.String()
-	want := "gh-enc:" + base64.RawURLEncoding.EncodeToString(payload) + "?alg=aes128-gcm-v1&key=default&ver=1"
+	value := Encrypted{Payload: payload, Key: &model.KeychainRef{Id: "default", Version: 1}, AAD: AADAlias}.String()
+	want := "gh-enc:" + base64.RawURLEncoding.EncodeToString(payload) + "?aad=alias&alg=aes128-gcm-v1&key=default&ver=1"
 	if value != want {
 		t.Fatalf("Encrypted.String() = %q, want %q", value, want)
 	}
@@ -55,8 +55,8 @@ func TestEncryptedRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(parsed.Payload) != string(payload) || parsed.Key == nil || *parsed.Key != (model.KeychainRef{Id: "default", Version: 1}) {
-		t.Fatalf("ParseResource() = %#v, want payload %x and default/1", parsed, payload)
+	if string(parsed.Payload) != string(payload) || parsed.Key == nil || *parsed.Key != (model.KeychainRef{Id: "default", Version: 1}) || parsed.AAD != AADAlias {
+		t.Fatalf("ParseResource() = %#v, want payload %x, default/1, and alias AAD", parsed, payload)
 	}
 }
 
@@ -74,6 +74,7 @@ func TestParseEncryptedRejectsInvalidValues(t *testing.T) {
 		{"missing key version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default", ParseEncrypted, "specified together"},
 		{"invalid key", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=Default&ver=1", ParseEncrypted, "key must match"},
 		{"noncanonical version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default&ver=01", ParseEncrypted, "canonical"},
+		{"invalid AAD", "gh-enc:" + payload + "?aad=provider&alg=aes128-gcm-v1", ParseEncrypted, "aad must be"},
 		{"keychain key has selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default&ver=1", ParseKey, "must not select"},
 		{"resource lacks selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1", ParseResource, "requires key"},
 		{"short payload", "gh-enc:" + base64.RawURLEncoding.EncodeToString([]byte("short")) + "?alg=aes128-gcm-v1", ParseEncrypted, "authentication tag"},

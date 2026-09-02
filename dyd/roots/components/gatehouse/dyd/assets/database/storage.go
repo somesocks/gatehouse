@@ -29,6 +29,7 @@ type StorageObject struct {
 
 type StorageObjectProvider struct {
 	Object          StorageObject
+	ProviderAlias   *string
 	Protocol        string
 	Endpoint        string
 	Region          string
@@ -419,7 +420,7 @@ func (store *Store) storageObjectGet(ctx context.Context, id, state string) (err
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		SELECT objects.id, objects.provider, objects.object, objects.state, objects.sha256, objects.size,
-			providers.protocol, providers.endpoint, providers.region, providers.bucket, providers.access_key_id,
+			providers.alias, providers.protocol, providers.endpoint, providers.region, providers.bucket, providers.access_key_id,
 			providers.keychain_id, providers.keychain_version, providers.secret_access_key
 		FROM gatehouse_storage_objects AS objects
 		JOIN gatehouse_storage_providers AS providers ON providers.id = objects.provider
@@ -427,10 +428,10 @@ func (store *Store) storageObjectGet(ctx context.Context, id, state string) (err
 	var stored StorageObjectProvider
 	var digest []byte
 	var size sql.NullInt64
-	var endpoint, region, bucket, accessKeyID, keychainID, secretAccessKey sql.NullString
+	var providerAlias, endpoint, region, bucket, accessKeyID, keychainID, secretAccessKey sql.NullString
 	var keychainVersion sql.NullInt64
 	if err := row.Scan(&stored.Object.ID, &stored.Object.Provider, &stored.Object.Object, &stored.Object.State, &digest, &size,
-		&stored.Protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secretAccessKey); err != nil {
+		&providerAlias, &stored.Protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secretAccessKey); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -447,6 +448,9 @@ func (store *Store) storageObjectGet(ctx context.Context, id, state string) (err
 		stored.AccessKeyID = accessKeyID.String
 		stored.SecretAccessKey = secretAccessKey.String
 		stored.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
+	}
+	if providerAlias.Valid {
+		stored.ProviderAlias = &providerAlias.String
 	}
 	return nil, &stored
 }
