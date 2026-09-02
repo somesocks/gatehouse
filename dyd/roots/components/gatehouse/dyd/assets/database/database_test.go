@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
@@ -50,6 +52,42 @@ func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	}
 }
 
+func TestSQLiteIDFunctions(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	var current string
+	if err := store.QueryRowContext(ctx, `SELECT gh_id_new('act')`).Scan(&current); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.ActivityEvent, current) {
+		t.Fatalf("gh_id_new() = %q, want valid activity ID", current)
+	}
+
+	const milliseconds = int64(1_700_000_000_123)
+	var fixed, timestamp string
+	if err := store.QueryRowContext(ctx, `SELECT gh_id_new('act', ?)`, milliseconds).Scan(&fixed); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT gh_id_timestamp(?)`, fixed).Scan(&timestamp); err != nil {
+		t.Fatal(err)
+	}
+	wantTimestamp := time.UnixMilli(milliseconds).UTC().Format("2006-01-02T15:04:05.000Z")
+	if timestamp != wantTimestamp {
+		t.Fatalf("gh_id_timestamp(%q) = %q, want %q", fixed, timestamp, wantTimestamp)
+	}
+	if _, err := store.ExecContext(ctx, `SELECT gh_id_new('invalid-prefix')`); err == nil {
+		t.Fatal("gh_id_new accepted an invalid prefix")
+	}
+	if _, err := store.ExecContext(ctx, `SELECT gh_id_timestamp('act_invalid')`); err == nil {
+		t.Fatal("gh_id_timestamp accepted an invalid ID")
+	}
+}
+
 func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -60,7 +98,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	defer store.Close()
 	t.Setenv("DOCUMENTS_SECRET", "secret-1")
 	state := config.State{
-		Keychains: []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
+		Keychains:  []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{
 			{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
@@ -82,8 +120,8 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 
 	var (
 		protocol, endpoint, region, bucket, accessKeyID, keychainID, secret string
-		keychainVersion, revision, priority                            int
-		enabled                                                       bool
+		keychainVersion, revision, priority                                 int
+		enabled                                                             bool
 	)
 	if err := store.QueryRowContext(ctx, `
 		SELECT protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, revision, enabled
@@ -592,11 +630,164 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	if bobEnabled {
 		t.Fatal("runtime principal membership is enabled, want disabled")
 	}
+	for _, event := range []string{"group.create", "group_member.create"} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if event == "group_member.create" {
+			want = 2
+		}
+		if count != want {
+			t.Fatalf("%s activity count = %d, want %d", event, count, want)
+		}
+	}
+	var aliceID string
+	if err := database.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&aliceID); err != nil {
+		t.Fatal(err)
+	}
+	var memberTopicCount int
+	if err := database.QueryRow(`
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'group_member.create' AND topics.topic = ?
+	`, workspace.Id, "group_member/"+adminsID+"-"+aliceID).Scan(&memberTopicCount); err != nil {
+		t.Fatal(err)
+	}
+	if memberTopicCount != 1 {
+		t.Fatalf("group member activity topic count = %d, want 1", memberTopicCount)
+	}
+
+	state.Groups[0].Name = stringPointer("Platform administrators")
+	state.Groups[0].Members[0].Enabled = false
+	if err := migrateState(context.Background(), database, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"group.update", "group_member.update"} {
+		var count int
+		if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("%s activity count = %d, want 1", event, count)
+		}
+	}
 	if _, err := database.Exec(`
 		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
 		VALUES (?, ?, ?, TRUE)
 	`, workspace.Id, adminsID, newTypedID(t, typed_id.Principal)); err == nil {
 		t.Fatal("membership without a principal was accepted")
+	}
+}
+
+func TestMigrateSQLiteCoordinatesConfiguredGroupReconciliation(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: filepath.Join(t.TempDir(), "gatehouse.db")}
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+		Groups: []config.Group{{
+			WorkspaceID: "engineering",
+			Alias:       "admins",
+			Enabled:     true,
+			Members:     []config.GroupMember{{PrincipalID: "alice", Enabled: true}},
+		}},
+	}
+	err, first := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Close()
+	err, second := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	var wait sync.WaitGroup
+	for _, store := range []*database.Store{first, second} {
+		wait.Add(1)
+		go func(store *database.Store) {
+			defer wait.Done()
+			<-start
+			errors <- migrateState(ctx, store, configuration, state)
+		}(store)
+	}
+	close(start)
+	wait.Wait()
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	workspace := workspaceRef(t, ctx, first, "engineering")
+	for _, event := range []string{"group.create", "group_member.create"} {
+		var count int
+		if err := first.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("%s activity count = %d, want 1", event, count)
+		}
+	}
+}
+
+func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	state := config.State{
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{
+			Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello."}`, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
+		}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	var modelID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&modelID); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []string{"workspace_agent.create"} {
+		var count int
+		if err := store.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+			WHERE events.workspace = ? AND events.event = ? AND events.workspace_agent = ? AND topics.topic = ?
+		`, workspace.Id, event, modelID, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != 1 {
+			t.Fatalf("%s activity count = %d, want 1", event, count)
+		}
+	}
+
+	state.WorkspaceAgents[0].Priority = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	var count int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = 'workspace_agent.update' AND workspace_agent = ?`, workspace.Id, modelID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("workspace_agent.update activity count = %d, want 1", count)
 	}
 }
 
@@ -613,7 +804,7 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	state := config.State{
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: alice, Enabled: true}},
-		Groups: []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
+		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
 		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: "member", PrincipalID: &alice, Revision: 1, Enabled: true},
 			{WorkspaceID: "engineering", Role: "manager", GroupID: &members, Revision: 1, Enabled: true},

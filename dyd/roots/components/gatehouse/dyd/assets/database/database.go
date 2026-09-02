@@ -3,12 +3,17 @@ package database
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 
 	"gatehouse/config"
-	_ "modernc.org/sqlite"
+	"gatehouse/typed_id"
+	"modernc.org/sqlite"
 )
 
 type Store struct {
@@ -17,6 +22,11 @@ type Store struct {
 }
 
 const sqliteBusyTimeout = 30_000
+
+var sqliteFunctions struct {
+	once sync.Once
+	err  error
+}
 
 func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *Store) {
 	switch configuration.Kind {
@@ -58,6 +68,9 @@ func prepareSQLitePath(path string) error {
 }
 
 func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
+	if err := registerSQLiteFunctions(); err != nil {
+		return err, nil
+	}
 	database, err := sql.Open("sqlite", source)
 	if err != nil {
 		return fmt.Errorf("open SQLite database: %w", err), nil
@@ -78,4 +91,45 @@ func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
 		return fmt.Errorf("enable SQLite foreign keys: %w", err), nil
 	}
 	return nil, database
+}
+
+func registerSQLiteFunctions() error {
+	sqliteFunctions.once.Do(func() {
+		sqliteFunctions.err = sqlite.RegisterScalarFunction("gh_id_new", -1, func(_ *sqlite.FunctionContext, arguments []driver.Value) (driver.Value, error) {
+			if len(arguments) != 1 && len(arguments) != 2 {
+				return nil, fmt.Errorf("gh_id_new expects a prefix and optional Unix-millisecond timestamp")
+			}
+			prefix, ok := arguments[0].(string)
+			if !ok {
+				return nil, fmt.Errorf("gh_id_new prefix must be text")
+			}
+			if len(arguments) == 1 {
+				return typed_id.New(prefix)
+			}
+			milliseconds, ok := arguments[1].(int64)
+			if !ok {
+				return nil, fmt.Errorf("gh_id_new timestamp must be an integer number of Unix milliseconds")
+			}
+			return typed_id.NewAt(prefix, time.UnixMilli(milliseconds).UTC())
+		})
+		if sqliteFunctions.err != nil {
+			return
+		}
+		sqliteFunctions.err = sqlite.RegisterDeterministicScalarFunction("gh_id_timestamp", 1, func(_ *sqlite.FunctionContext, arguments []driver.Value) (driver.Value, error) {
+			value, ok := arguments[0].(string)
+			if !ok {
+				return nil, fmt.Errorf("gh_id_timestamp ID must be text")
+			}
+			prefix, _, found := strings.Cut(value, "_")
+			if !found {
+				return nil, fmt.Errorf("gh_id_timestamp ID has no prefix")
+			}
+			at, err := typed_id.Timestamp(prefix, value)
+			if err != nil {
+				return nil, err
+			}
+			return at.Format("2006-01-02T15:04:05.000Z"), nil
+		})
+	})
+	return sqliteFunctions.err
 }

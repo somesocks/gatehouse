@@ -329,6 +329,27 @@ let Group =
         , description = Some "A workspace-local authorization group."
         }
 
+let GroupMemberRef =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { group =
+                  s.reference.from
+                    s.reference.props::{ to = "GroupRef" }
+                    s.reference.meta::{ description = Some "assigned group identity" }
+              , principal =
+                  s.reference.from
+                    s.reference.props::{ to = "PrincipalRef" }
+                    s.reference.meta::{ description = Some "assigned principal identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{
+        , name = Some "GroupMemberRef"
+        , description = Some "The stable identity of a principal's group membership."
+        }
+
 let GroupMember =
       s.record.from
         s.record.props::{
@@ -896,11 +917,23 @@ let ActivityEvent =
                   s.reference.from
                     s.reference.props::{ to = "SessionEventRef" }
                     s.reference.meta::{ description = Some "session event activity subject" }
-               , project =
-                   s.reference.from
-                     s.reference.props::{ to = "ProjectRef" }
-                     s.reference.meta::{ description = Some "project activity subject" }
-               }
+                , project =
+                    s.reference.from
+                      s.reference.props::{ to = "ProjectRef" }
+                      s.reference.meta::{ description = Some "project activity subject" }
+                , group =
+                    s.reference.from
+                      s.reference.props::{ to = "GroupRef" }
+                      s.reference.meta::{ description = Some "group activity subject" }
+                , group_member =
+                    s.reference.from
+                      s.reference.props::{ to = "GroupMemberRef" }
+                      s.reference.meta::{ description = Some "group membership activity subject" }
+                , workspace_agent =
+                    s.reference.from
+                      s.reference.props::{ to = "WorkspaceAgentRef" }
+                      s.reference.meta::{ description = Some "workspace agent activity subject" }
+                }
         }
         s.record.meta::{ name = Some "ActivityEvent", description = Some "A durable workspace activity event with a typed resource subject." }
 
@@ -1022,10 +1055,11 @@ in  Document::{
             , s.root.from AgentModelRef s.root.meta::{ name = "AgentModelRef" }
            , s.root.from AgentModel s.root.meta::{ name = "AgentModel" }
            , s.root.from WorkspaceAgentRef s.root.meta::{ name = "WorkspaceAgentRef" }
-           , s.root.from WorkspaceAgent s.root.meta::{ name = "WorkspaceAgent" }
-           , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
-           , s.root.from Group s.root.meta::{ name = "Group" }
-          , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
+            , s.root.from WorkspaceAgent s.root.meta::{ name = "WorkspaceAgent" }
+            , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
+            , s.root.from Group s.root.meta::{ name = "Group" }
+           , s.root.from GroupMemberRef s.root.meta::{ name = "GroupMemberRef" }
+           , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
           , s.root.from ProjectRef s.root.meta::{ name = "ProjectRef" }
           , s.root.from Project s.root.meta::{ name = "Project" }
           , s.root.from ProjectPrincipalGrant s.root.meta::{ name = "ProjectPrincipalGrant" }

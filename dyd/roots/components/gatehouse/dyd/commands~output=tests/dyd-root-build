@@ -23,12 +23,17 @@ chmod -R u+w "$WORK_DIR/httpservice/web"
 cd "$WORK_DIR"
 GOWORK=off go list -f '{{if or .TestGoFiles .XTestGoFiles}}{{.ImportPath}}{{end}}' ./... > "$PACKAGES_FILE"
 : > "$MANIFEST"
+set --
 while IFS= read -r package; do
 	[ -n "$package" ] || continue
-	test_name=$(printf '%s' "$package" | tr '/' '_')
-	GOWORK=off go test -c -o "$TESTS_DIR/$test_name" "$package"
+	test_name=${package##*/}.test
 	printf '%s\t%s\n' "$package" "$test_name" >> "$MANIFEST"
+	set -- "$@" "$package"
 done < "$PACKAGES_FILE"
+
+if [ "$#" -gt 0 ]; then
+	GOWORK=off go test -trimpath -c -o "$TESTS_DIR/" "$@"
+fi
 cp -R "$WORK_DIR" "$SOURCE_DIR"
 rm -rf "$WORK_DIR" "$PACKAGES_FILE"
 

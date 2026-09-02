@@ -8,13 +8,21 @@ import (
 	"gatehouse/typed_id"
 )
 
-func workspaceMigrationBuilder(workspaces []config.Workspace) MigrationBuilder {
+func postgresMigrationR003ReconcileWorkspaces(state config.State) RepeatableMigration {
+	return RepeatableMigration{
+		Index:       3,
+		Description: "reconcile_workspaces",
+		Builder:     postgresMigrationR003ReconcileWorkspacesBuilder(state.Workspaces),
+	}
+}
+
+func postgresMigrationR003ReconcileWorkspacesBuilder(workspaces []config.Workspace) MigrationBuilder {
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		existing, err := workspaceIDsByAlias(ctx, session)
+		existing, err := postgresMigrationR003WorkspaceIDsByAlias(ctx, session)
 		if err != nil {
 			return err, ""
 		}
-		values := make([]workspaceMigrationValue, 0, len(workspaces))
+		values := make([]postgresMigrationR003WorkspaceValue, 0, len(workspaces))
 		for _, workspace := range workspaces {
 			id := existing[workspace.Alias]
 			if id == "" {
@@ -27,7 +35,7 @@ func workspaceMigrationBuilder(workspaces []config.Workspace) MigrationBuilder {
 			if workspace.Name != nil {
 				name = *workspace.Name
 			}
-			values = append(values, workspaceMigrationValue{ID: id, Alias: workspace.Alias, Name: name, Enabled: workspace.Enabled})
+			values = append(values, postgresMigrationR003WorkspaceValue{ID: id, Alias: workspace.Alias, Name: name, Enabled: workspace.Enabled})
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
@@ -42,12 +50,20 @@ func workspaceMigrationBuilder(workspaces []config.Workspace) MigrationBuilder {
 	}
 }
 
-func workspaceIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
+type postgresMigrationR003WorkspaceValue struct {
+	ID      string
+	Alias   string
+	Name    any
+	Enabled bool
+}
+
+func postgresMigrationR003WorkspaceIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
 	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_workspaces WHERE alias IS NOT NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("get workspace IDs by alias: %w", err)
 	}
 	defer rows.Close()
+
 	ids := map[string]string{}
 	for rows.Next() {
 		var alias, id string
