@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "build": "vite build",
+    "test": "vitest run"
   },
   "dependencies": {
     "dompurify": "^3.4.13",
@@ -17,6 +18,7 @@
     "@sveltejs/vite-plugin-svelte": "^6.0.0",
     "bulma": "^1.0.4",
     "svelte": "^5.0.0",
-    "vite": "^7.0.0"
+    "vite": "^7.0.0",
+    "vitest": "^4.1.11"
   }
 }
