@@ -2,7 +2,9 @@
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import { renderMarkdown } from "./markdown"
+  import { parseRoute, routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { ActivityTopicCheckpoint, ActivityTopicCheckpoints } from "./model"
+  import type { Route } from "./route"
 
   type Claims = {
     principal: {
@@ -155,7 +157,7 @@
   let workspaceStatus = $state<WorkspaceStatus>("checking")
   let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
   let claims = $state<Claims | null>(null)
-  let currentPath = $state("/app/")
+  let route = $state<Route>({ kind: "app-home" })
   let identity = $state("")
   let password = $state("")
   let submitting = $state(false)
@@ -273,10 +275,10 @@
   let projectSearchGeneration = 0
 
   onMount(() => {
-    currentPath = window.location.pathname
+    route = parseRoute(new URL(window.location.href))
     const handlePopState = () => {
-      currentPath = window.location.pathname
-      if (status === "authenticated" && activeWorkspace !== null && workspaceIDFromPath(currentPath) === activeWorkspace.id) {
+      route = parseRoute(new URL(window.location.href))
+      if (status === "authenticated" && activeWorkspace !== null && routeWorkspaceID(route) === activeWorkspace.id) {
         void selectWorkspace(activeWorkspace, true)
       } else if (status === "authenticated") {
         void loadWorkspaces()
@@ -312,11 +314,11 @@
   })
 
   function isLoginPath() {
-    return currentPath === "/app/login" || currentPath === "/app/login/"
+    return route.kind === "login"
   }
 
   function nextPath() {
-    const next = new URLSearchParams(window.location.search).get("next")
+    const next = route.kind === "login" ? route.next : null
     if (next === null) {
       return "/app/"
     }
@@ -330,90 +332,6 @@
       return "/app/"
     }
     return destination.pathname + destination.search + destination.hash
-  }
-
-  function workspaceIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/([^/]+)(?:\/|$)/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
-  }
-
-  function sessionIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/[^/]+\/ses\/([^/]+)(?:\/|$)/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
-  }
-
-  function projectIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/[^/]+\/prj\/([^/]+)(?:\/|$)/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
-  }
-
-  function projectNoteIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/pnt\/([^/]+)\/?$/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
-  }
-
-	function projectSecretIDFromPath(path: string) {
-		const match = /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/secrets\/([^/]+)\/?$/.exec(path)
-		if (match === null) {
-			return null
-		}
-		try {
-			return decodeURIComponent(match[1])
-		} catch {
-			return null
-		}
-	}
-
-  function sessionNoteIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes\/([^/]+)\/?$/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
-  }
-
-  function sessionSecretIDFromPath(path: string) {
-    const match = /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/secrets\/([^/]+)\/?$/.exec(path)
-    if (match === null) {
-      return null
-    }
-    try {
-      return decodeURIComponent(match[1])
-    } catch {
-      return null
-    }
   }
 
   function workspacePath(workspace: Workspace) {
@@ -481,7 +399,7 @@
   }
 
   function collectionSearchName() {
-    return new URLSearchParams(window.location.search).get("name") ?? ""
+    return route.kind === "session-collection" || route.kind === "project-collection" ? route.search : ""
   }
 
   function collectionSearchPath(path: string, name: string) {
@@ -489,36 +407,32 @@
     return query === "" ? path : `${path}?${new URLSearchParams({ name: query })}`
   }
 
-  function isCollectionPath(collection: "ses" | "prj" | "grp") {
-    return new RegExp(`^/app/wsp/[^/]+/${collection}/?$`).test(currentPath)
-  }
-
   function isChatCollection() {
-    return isCollectionPath("ses")
+    return route.kind === "session-collection"
   }
 
   function isSessionNotesRoute() {
-    return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/notes(?:\/[^/]+)?\/?$/.test(currentPath)
+    return route.kind === "session-notes" || route.kind === "session-note-new" || route.kind === "session-note"
   }
 
   function isSessionSecretsRoute() {
-    return /^\/app\/wsp\/[^/]+\/ses\/[^/]+\/secrets(?:\/[^/]+)?\/?$/.test(currentPath)
+    return route.kind === "session-secrets" || route.kind === "session-secret-new" || route.kind === "session-secret"
   }
 
   function isProjectNotesRoute() {
-    return /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/pnt(?:\/[^/]+)?\/?$/.test(currentPath)
+    return route.kind === "project-notes" || route.kind === "project-note-new" || route.kind === "project-note"
   }
 
-	function isProjectSecretsRoute() {
-		return /^\/app\/wsp\/[^/]+\/prj\/[^/]+\/secrets(?:\/[^/]+)?\/?$/.test(currentPath)
-	}
+  function isProjectSecretsRoute() {
+    return route.kind === "project-secrets" || route.kind === "project-secret-new" || route.kind === "project-secret"
+  }
 
   function isProjectCollection() {
-    return isCollectionPath("prj")
+    return route.kind === "project-collection"
   }
 
   function isGroupCollection() {
-    return isCollectionPath("grp")
+    return route.kind === "group-collection"
   }
 
   async function selectWorkspaceRoute(path: string) {
@@ -663,7 +577,7 @@
 
   function navigate(path: string, replace = true) {
     window.history[replace ? "replaceState" : "pushState"](null, "", path)
-    currentPath = new URL(path, window.location.origin).pathname
+    route = parseRoute(new URL(window.location.href))
   }
 
   function redirectToLogin() {
@@ -758,11 +672,11 @@
         return
       }
       workspaceStatus = "ready"
-      const requestedPath = isLoginPath() ? nextPath() : currentPath
-      const requestedID = preferFirstWorkspace ? null : workspaceIDFromPath(requestedPath)
+      const requestedRoute = isLoginPath() ? parseRoute(new URL(nextPath(), window.location.origin)) : route
+      const requestedID = preferFirstWorkspace ? null : routeWorkspaceID(requestedRoute)
       const workspace = workspaces.find((candidate) => candidate.id === requestedID) ?? workspaces[0]
       if (requestedID !== null && workspace.id === requestedID && isLoginPath()) {
-        navigate(requestedPath)
+        navigate(nextPath())
       }
       await selectWorkspace(workspace, true)
     } catch {
@@ -808,7 +722,7 @@
     events = []
     showJumpToLatest = false
     workspaceContentStatus = "checking"
-    if (workspaceIDFromPath(currentPath) !== workspace.id) {
+    if (routeWorkspaceID(route) !== workspace.id) {
       navigate(workspacePath(workspace), replace)
     }
     try {
@@ -830,16 +744,16 @@
       latestSessions = ((await sessionsResponse.json()) as SessionSearchResponse).sessions
       agents = (await agentsResponse.json()) as WorkspaceAgent[]
       workspaceContentStatus = "ready"
-      const sessionID = sessionIDFromPath(currentPath)
+      const sessionID = routeSessionID(route)
       const session = sessionID === null ? undefined : latestSessions.find((candidate) => candidate.id === sessionID) ?? await loadSession(workspace, sessionID)
       if (session !== undefined && session !== null) {
         await selectSession(session, true)
       } else {
-        const projectID = projectIDFromPath(currentPath)
+        const projectID = routeProjectID(route)
         activeProject = projectID === null ? null : latestProjects.find((candidate) => candidate.id === projectID) ?? await loadProject(workspace, projectID)
         if (activeProject !== null) {
 			await Promise.all([loadProjectSessions(activeProject), loadProjectFiles(activeProject), loadProjectNotes(activeProject), loadProjectSecrets(activeProject)])
-			const secretID = projectSecretIDFromPath(currentPath)
+			const secretID = routeProjectSecretID(route)
 			if (secretID === "new") {
 				startProjectSecretCreate(false)
 			} else if (secretID !== null) {
@@ -848,7 +762,7 @@
 					navigate(projectSecretsPath(workspace, activeProject), true)
 				}
 			}
-          const noteID = projectNoteIDFromPath(currentPath)
+          const noteID = routeProjectNoteID(route)
           if (noteID === "new") {
             startProjectNoteCreate()
           } else if (noteID !== null) {
@@ -896,12 +810,12 @@
     showJumpToLatest = false
     eventStatus = "checking"
     messageError = ""
-    if (sessionIDFromPath(currentPath) !== session.id) {
+    if (routeSessionID(route) !== session.id) {
       navigate(sessionPath(activeWorkspace, session), replace)
     }
     if (isSessionNotesRoute()) {
       await loadSessionNotes(session)
-      const noteID = sessionNoteIDFromPath(currentPath)
+      const noteID = routeSessionNoteID(route)
       if (noteID === "new") {
         startSessionNoteCreate(false)
       } else if (noteID !== null) {
@@ -912,7 +826,7 @@
       }
     } else if (isSessionSecretsRoute()) {
       await loadSessionSecrets(session)
-      const secretID = sessionSecretIDFromPath(currentPath)
+      const secretID = routeSessionSecretID(route)
       if (secretID === "new") {
         startSessionSecretCreate(false)
       } else if (secretID !== null) {
