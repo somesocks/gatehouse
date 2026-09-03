@@ -525,6 +525,9 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 			Enabled:     true,
 			Members:     []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
+		WorkspaceGrants: []config.WorkspaceGrant{{
+			WorkspaceID: "engineering", Role: "member", GroupID: stringPointer("developers"), Revision: 1, Enabled: true,
+		}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -564,6 +567,40 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 			t.Fatal(err)
 		}
 		return advanced
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, activity := range []struct {
+		kind, topic string
+	}{
+		{database.ActivityResourceKindWorkspace, database.ActivityTopicWorkspace(workspace)},
+		{database.ActivityResourceKindWorkspaceGrant, database.ActivityTopicWorkspaceGrant("member", bob.Id)},
+		{database.ActivityResourceKindWorkspaceStorageProvider, database.ActivityTopicWorkspaceStorageProvider("stp_test")},
+	} {
+		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+			Ref:          model.ActivityEventRef{Workspace: workspace},
+			Event:        activity.kind + ".update",
+			ResourceKind: activity.kind,
+		}, []string{activity.topic}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	for _, topic := range []string{
+		database.ActivityTopicWorkspace(workspace),
+		database.ActivityTopicWorkspaceGrant("member", bob.Id),
+		database.ActivityTopicWorkspaceStorageProvider("stp_test"),
+	} {
+		if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: topic}}); checkpoints[0].ID == "" {
+			t.Fatalf("ActivityTopicCheckpointsGet() for workspace topic %q = %#v, want a cursor", topic, checkpoints)
+		}
+		if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: topic}}); checkpoints[0].ID != "" {
+			t.Fatalf("ActivityTopicCheckpointsGet() for unavailable workspace topic %q = %#v, want no cursor", topic, checkpoints)
+		}
 	}
 	initial := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared)}})
 	if len(initial) != 1 || initial[0].ID == "" {
@@ -680,10 +717,10 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
+		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -1022,10 +1059,10 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {

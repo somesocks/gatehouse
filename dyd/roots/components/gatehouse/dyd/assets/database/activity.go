@@ -14,12 +14,15 @@ import (
 )
 
 const (
-	ActivityResourceKindProject        = "project"
-	ActivityResourceKindSession        = "session"
-	ActivityResourceKindSessionEvent   = "session_event"
-	ActivityResourceKindGroup          = "group"
-	ActivityResourceKindGroupMember    = "group_member"
-	ActivityResourceKindWorkspaceAgent = "workspace_agent"
+	ActivityResourceKindProject                  = "project"
+	ActivityResourceKindSession                  = "session"
+	ActivityResourceKindSessionEvent             = "session_event"
+	ActivityResourceKindGroup                    = "group"
+	ActivityResourceKindGroupMember              = "group_member"
+	ActivityResourceKindWorkspaceAgent           = "workspace_agent"
+	ActivityResourceKindWorkspace                = "workspace"
+	ActivityResourceKindWorkspaceGrant           = "workspace_grant"
+	ActivityResourceKindWorkspaceStorageProvider = "workspace_storage_provider"
 )
 
 type ActivityTopicCheckpoint struct {
@@ -45,6 +48,18 @@ func ActivityTopicGroupMember(member model.GroupMemberRef) string {
 
 func ActivityTopicWorkspaceAgent(agent model.WorkspaceAgentRef) string {
 	return "workspace_agent/" + agent.Model.Id
+}
+
+func ActivityTopicWorkspace(workspace model.WorkspaceRef) string {
+	return "workspace/" + workspace.Id
+}
+
+func ActivityTopicWorkspaceGrant(role, subjectID string) string {
+	return "workspace_grant/" + role + "-" + subjectID
+}
+
+func ActivityTopicWorkspaceStorageProvider(providerID string) string {
+	return "workspace_storage_provider/" + providerID
 }
 
 // ActivityEventAppend records a resource change in the caller's transaction.
@@ -217,6 +232,10 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 		if activity.WorkspaceAgent == nil || activity.Project != nil || activity.Session != nil || activity.SessionEvent != nil || activity.Group != nil || activity.GroupMember != nil {
 			return fmt.Errorf("append activity event: workspace agent subject requires only a workspace agent")
 		}
+	case ActivityResourceKindWorkspace, ActivityResourceKindWorkspaceGrant, ActivityResourceKindWorkspaceStorageProvider:
+		if activity.Project != nil || activity.Session != nil || activity.SessionEvent != nil || activity.Group != nil || activity.GroupMember != nil || activity.WorkspaceAgent != nil {
+			return fmt.Errorf("append activity event: workspace-scoped subject requires no additional resource")
+		}
 	default:
 		return fmt.Errorf("append activity event: unsupported resource kind %q", activity.ResourceKind)
 	}
@@ -278,7 +297,7 @@ func (store *Store) ActivityTopicCheckpointsGet(ctx context.Context, workspace m
 			return fmt.Errorf("get activity topic checkpoint: %w", err), nil
 		}
 		type candidate struct {
-			topic, id, resourceKind string
+			topic, id, resourceKind                            string
 			project, session, group, principal, workspaceAgent sql.NullString
 		}
 		candidates := []candidate{}
@@ -355,6 +374,9 @@ func (store *Store) activityTopicAuthorized(ctx context.Context, workspace model
 		if !workspaceAgent.Valid {
 			return false, nil
 		}
+		err, available := store.WorkspaceGet(ctx, workspace, principal)
+		return available != nil, err
+	case ActivityResourceKindWorkspace, ActivityResourceKindWorkspaceGrant, ActivityResourceKindWorkspaceStorageProvider:
 		err, available := store.WorkspaceGet(ctx, workspace, principal)
 		return available != nil, err
 	default:

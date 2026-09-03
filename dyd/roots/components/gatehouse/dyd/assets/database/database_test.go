@@ -124,6 +124,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	var activityCount int
 
 	var (
 		protocol, endpoint, region, bucket, accessKeyID, keychainID, secret string
@@ -154,6 +155,17 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 		t.Fatalf("documents storage provider ID = %q, want typed ID", documentsID)
 	}
 	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace_storage_provider.create' AND topics.topic = ?
+	`, workspace.Id, database.ActivityTopicWorkspaceStorageProvider(documentsID)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace storage provider create activity count = %d, want 1", activityCount)
+	}
+	if err := store.QueryRowContext(ctx, `
 		SELECT priority, enabled
 		FROM gatehouse_workspace_storage_providers
 		WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')
@@ -181,6 +193,17 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	}
 	if priority != 20 {
 		t.Fatalf("updated documents workspace priority = %d", priority)
+	}
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace_storage_provider.update' AND topics.topic = ?
+	`, workspace.Id, database.ActivityTopicWorkspaceStorageProvider(documentsID)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace storage provider update activity count = %d, want 1", activityCount)
 	}
 
 	state.StorageProviders[1].Alias = "documents-v2"
@@ -391,6 +414,18 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	}
 
 	firstWorkspace := workspaceRef(t, context.Background(), first, "engineering")
+	var activityCount int
+	if err := first.QueryRow(`
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace.create' AND topics.topic = ?
+	`, firstWorkspace.Id, database.ActivityTopicWorkspace(firstWorkspace)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace create activity count = %d, want 1", activityCount)
+	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -421,6 +456,17 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	}
 	if name != "Platform Engineering" || enabled {
 		t.Fatalf("workspace = (%q, %t), want (%q, %t)", name, enabled, "Platform Engineering", false)
+	}
+	if err := second.QueryRow(`
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace.update' AND topics.topic = ?
+	`, secondWorkspace.Id, database.ActivityTopicWorkspace(secondWorkspace)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace update activity count = %d, want 1", activityCount)
 	}
 	if err := second.Close(); err != nil {
 		t.Fatal(err)
@@ -898,6 +944,18 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if grants != 2 {
 		t.Fatalf("workspace grant count = %d, want 2", grants)
 	}
+	var activityCount int
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace_grant.create' AND topics.topic = ?
+	`, workspace.Id, database.ActivityTopicWorkspaceGrant("member", principalID)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace grant create activity count = %d, want 1", activityCount)
+	}
 
 	state.WorkspaceGrants[0].Enabled = false
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -928,6 +986,17 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	}
 	if enabled {
 		t.Fatal("newer revision did not change the grant")
+	}
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
+		WHERE events.workspace = ? AND events.event = 'workspace_grant.update' AND topics.topic = ?
+	`, workspace.Id, database.ActivityTopicWorkspaceGrant("member", principalID)).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("workspace grant update activity count = %d, want 1", activityCount)
 	}
 }
 

@@ -1,9 +1,9 @@
 package migrations
 
-func sqliteMigrationV033AddGroupAndWorkspaceAgentActivitySubjects() VersionedMigration {
+func sqliteMigrationV033AddWorkspaceActivitySubjects() VersionedMigration {
 	return VersionedMigration{
 		Index:       33,
-		Description: "add_group_and_workspace_agent_activity_subjects",
+		Description: "add_workspace_activity_subjects",
 		Builder: staticMigrationBuilder(`
 				CREATE TABLE gatehouse_activity_event_topics_migration_33 (
 					workspace TEXT NOT NULL,
@@ -21,7 +21,7 @@ func sqliteMigrationV033AddGroupAndWorkspaceAgentActivitySubjects() VersionedMig
 					workspace TEXT NOT NULL REFERENCES gatehouse_workspaces (id),
 					id TEXT NOT NULL CHECK (length(id) = 30 AND substr(id, 1, 4) = 'act_' AND substr(id, 5, 1) GLOB '[0-7]' AND substr(id, 5) NOT GLOB '*[^0-9a-hjkmnp-tv-z]*'),
 					event TEXT NOT NULL CHECK (length(trim(event)) > 0),
-					resource_kind TEXT NOT NULL CHECK (resource_kind IN ('project', 'session', 'session_event', 'group', 'group_member', 'workspace_agent')),
+					resource_kind TEXT NOT NULL CHECK (resource_kind IN ('project', 'session', 'session_event', 'group', 'group_member', 'workspace_agent', 'workspace', 'workspace_grant', 'workspace_storage_provider')),
 					project TEXT,
 					session TEXT,
 					session_event TEXT,
@@ -45,6 +45,7 @@ func sqliteMigrationV033AddGroupAndWorkspaceAgentActivitySubjects() VersionedMig
 						OR (resource_kind = 'group' AND "group" IS NOT NULL AND project IS NULL AND session IS NULL AND session_event IS NULL AND principal IS NULL AND workspace_agent IS NULL)
 						OR (resource_kind = 'group_member' AND "group" IS NOT NULL AND principal IS NOT NULL AND project IS NULL AND session IS NULL AND session_event IS NULL AND workspace_agent IS NULL)
 						OR (resource_kind = 'workspace_agent' AND workspace_agent IS NOT NULL AND project IS NULL AND session IS NULL AND session_event IS NULL AND "group" IS NULL AND principal IS NULL)
+						OR (resource_kind IN ('workspace', 'workspace_grant', 'workspace_storage_provider') AND project IS NULL AND session IS NULL AND session_event IS NULL AND "group" IS NULL AND principal IS NULL AND workspace_agent IS NULL)
 					)
 				) STRICT;
 

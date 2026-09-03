@@ -41,32 +41,94 @@ func sqliteMigrationR007ReconcileWorkspaceGrantsBuilder(grants []config.Workspac
 		}
 	}
 	return templateMigrationBuilder(`
-		SELECT 1;
+		DROP TABLE IF EXISTS gatehouse_migration_workspace_grant_principals_desired;
+		DROP TABLE IF EXISTS gatehouse_migration_workspace_grant_groups_desired;
+		DROP TABLE IF EXISTS gatehouse_migration_workspace_grant_principals_state;
+		DROP TABLE IF EXISTS gatehouse_migration_workspace_grant_groups_state;
+		DROP TABLE IF EXISTS gatehouse_migration_workspace_grant_activities;
+
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_principals_desired (
+			workspace_alias TEXT NOT NULL,
+			role TEXT NOT NULL,
+			principal_alias TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			enabled INTEGER NOT NULL,
+			PRIMARY KEY (workspace_alias, role, principal_alias)
+		) STRICT;
 		{{ range .Principals }}
+		INSERT INTO gatehouse_migration_workspace_grant_principals_desired (workspace_alias, role, principal_alias, revision, enabled)
+		VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Role }}, {{ sqlLiteral .SubjectID }}, {{ sqlLiteral .Revision }}, {{ sqlBool .Enabled }});
+		{{ end }}
+
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_groups_desired (
+			workspace_alias TEXT NOT NULL,
+			role TEXT NOT NULL,
+			group_alias TEXT NOT NULL,
+			revision INTEGER NOT NULL,
+			enabled INTEGER NOT NULL,
+			PRIMARY KEY (workspace_alias, role, group_alias)
+		) STRICT;
+		{{ range .Groups }}
+		INSERT INTO gatehouse_migration_workspace_grant_groups_desired (workspace_alias, role, group_alias, revision, enabled)
+		VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Role }}, {{ sqlLiteral .SubjectID }}, {{ sqlLiteral .Revision }}, {{ sqlBool .Enabled }});
+		{{ end }}
+
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_principals_state AS
+		SELECT desired.*, workspaces.id AS workspace, principals.id AS principal, grants.revision AS existing_revision
+		FROM gatehouse_migration_workspace_grant_principals_desired AS desired
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.alias = desired.workspace_alias
+		JOIN gatehouse_principals AS principals ON principals.alias = desired.principal_alias
+		LEFT JOIN gatehouse_workspace_grants AS grants
+			ON grants.workspace = workspaces.id AND grants.role = desired.role AND grants.principal = principals.id
+		WHERE grants.revision IS NULL OR grants.revision < desired.revision;
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_groups_state AS
+		SELECT desired.*, workspaces.id AS workspace, groups.id AS "group", grants.revision AS existing_revision
+		FROM gatehouse_migration_workspace_grant_groups_desired AS desired
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.alias = desired.workspace_alias
+		JOIN gatehouse_groups AS groups ON groups.workspace_id = workspaces.id AND groups.alias = desired.group_alias
+		LEFT JOIN gatehouse_workspace_grants AS grants
+			ON grants.workspace = workspaces.id AND grants.role = desired.role AND grants."group" = groups.id
+		WHERE grants.revision IS NULL OR grants.revision < desired.revision;
+
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_activities (
+			workspace TEXT NOT NULL,
+			id TEXT NOT NULL,
+			event TEXT NOT NULL,
+			topic TEXT NOT NULL
+		) STRICT;
+		INSERT INTO gatehouse_migration_workspace_grant_activities (workspace, id, event, topic)
+		SELECT workspace, gh_id_new('act'), CASE WHEN existing_revision IS NULL THEN 'workspace_grant.create' ELSE 'workspace_grant.update' END, 'workspace_grant/' || role || '-' || principal
+		FROM gatehouse_migration_workspace_grant_principals_state;
+		INSERT INTO gatehouse_migration_workspace_grant_activities (workspace, id, event, topic)
+		SELECT workspace, gh_id_new('act'), CASE WHEN existing_revision IS NULL THEN 'workspace_grant.create' ELSE 'workspace_grant.update' END, 'workspace_grant/' || role || '-' || "group"
+		FROM gatehouse_migration_workspace_grant_groups_state;
+
 		INSERT INTO gatehouse_workspace_grants (workspace, role, principal, "group", enabled, revision)
-		VALUES (
-			(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}),
-			{{ sqlLiteral .Role }},
-			(SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .SubjectID }}),
-			NULL,
-			{{ sqlBool .Enabled }},
-			{{ sqlLiteral .Revision }}
-		)
+		SELECT workspace, role, principal, NULL, enabled, revision
+		FROM gatehouse_migration_workspace_grant_principals_state
+		WHERE TRUE
 		ON CONFLICT (workspace, role, principal) WHERE principal IS NOT NULL DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
 		WHERE gatehouse_workspace_grants.revision < excluded.revision;
-		{{ end }}
-		{{ range .Groups }}
 		INSERT INTO gatehouse_workspace_grants (workspace, role, principal, "group", enabled, revision)
-		VALUES (
-			(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}),
-			{{ sqlLiteral .Role }},
-			NULL,
-			(SELECT id FROM gatehouse_groups WHERE workspace_id = (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}) AND alias = {{ sqlLiteral .SubjectID }}),
-			{{ sqlBool .Enabled }},
-			{{ sqlLiteral .Revision }}
-		)
+		SELECT workspace, role, NULL, "group", enabled, revision
+		FROM gatehouse_migration_workspace_grant_groups_state
+		WHERE TRUE
 		ON CONFLICT (workspace, role, "group") WHERE "group" IS NOT NULL DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
 		WHERE gatehouse_workspace_grants.revision < excluded.revision;
-		{{ end }}
+
+		INSERT INTO gatehouse_activity_events (
+			workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+		)
+		SELECT workspace, id, event, 'workspace_grant', NULL, NULL, NULL, NULL, NULL, NULL, gh_id_timestamp(id)
+		FROM gatehouse_migration_workspace_grant_activities;
+		INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
+		SELECT workspace, id, topic, gh_id_timestamp(id)
+		FROM gatehouse_migration_workspace_grant_activities;
+
+		DROP TABLE gatehouse_migration_workspace_grant_activities;
+		DROP TABLE gatehouse_migration_workspace_grant_groups_state;
+		DROP TABLE gatehouse_migration_workspace_grant_principals_state;
+		DROP TABLE gatehouse_migration_workspace_grant_groups_desired;
+		DROP TABLE gatehouse_migration_workspace_grant_principals_desired;
 	`, values)
 }

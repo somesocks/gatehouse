@@ -40,7 +40,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationV030CreateWorkspaceGrants(),
 			postgresMigrationV031MergeResourceGrants(),
 			postgresMigrationV032AddNoteRevisions(),
-			postgresMigrationV033AddGroupAndWorkspaceAgentActivitySubjects(),
+			postgresMigrationV033AddWorkspaceActivitySubjects(),
 		},
 		Repeatable: []RepeatableMigration{
 			postgresMigrationR001PrepareKeychains(keyring),
