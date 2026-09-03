@@ -9,6 +9,7 @@ func postgresMigrationV002CreatePrincipalsAndIdentities() VersionedMigration {
 				id TEXT PRIMARY KEY CHECK (id ~ '^prn_[0-7][0-9a-hjkmnp-tv-z]{25}$'),
 				alias TEXT UNIQUE CHECK (alias IS NULL OR alias ~ '^[a-z][a-z0-9_-]*$'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
+				revision INTEGER NOT NULL CHECK (revision > 0),
 				enabled BOOLEAN NOT NULL
 			);
 

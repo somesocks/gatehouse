@@ -12,6 +12,7 @@ import (
 type Principal struct {
 	Alias      string
 	Name       *string
+	Revision   int
 	Enabled    bool
 	Identities []Identity
 }
@@ -40,16 +41,18 @@ var identityKey = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:.+$`)
 var verifierKind = regexp.MustCompile(`^[a-z][a-z0-9+.-]*$`)
 
 const (
-	defaultPrincipalAlias   = "root"
-	defaultIdentityRevision = 1
-	passwordAlgorithm       = "pbkdf2-hmac-sha256-v1"
+	defaultPrincipalAlias    = "root"
+	DefaultPrincipalRevision = 1
+	defaultIdentityRevision  = 1
+	passwordAlgorithm        = "pbkdf2-hmac-sha256-v1"
 )
 
 func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principal) {
 	if document.Principals == nil {
 		return nil, []Principal{{
-			Alias:   defaultPrincipalAlias,
-			Enabled: true,
+			Alias:    defaultPrincipalAlias,
+			Revision: DefaultPrincipalRevision,
+			Enabled:  true,
 			Identities: []Identity{{
 				Alias:    "root",
 				Key:      "gatehouse:root",
@@ -80,6 +83,13 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 		enabled := true
 		if configured.Enabled != nil {
 			enabled = *configured.Enabled
+		}
+		revision := DefaultPrincipalRevision
+		if configured.Revision != nil {
+			revision = *configured.Revision
+		}
+		if revision <= 0 {
+			return fmt.Errorf("principals[%d].revision must be positive", principalIndex), nil
 		}
 		identities := make([]Identity, 0)
 		if configured.Identities != nil {
@@ -137,6 +147,7 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 		principals = append(principals, Principal{
 			Alias:      configured.Alias,
 			Name:       configured.Name,
+			Revision:   revision,
 			Enabled:    enabled,
 			Identities: identities,
 		})

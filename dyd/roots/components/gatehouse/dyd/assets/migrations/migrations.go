@@ -49,13 +49,6 @@ func Run(ctx context.Context, store *database.Store, migrations Set) error {
 	}
 }
 
-type principalMigrationValue struct {
-	ID      string
-	Alias   string
-	Name    any
-	Enabled bool
-}
-
 type groupMigrationValue struct {
 	WorkspaceID string
 	ID          string
@@ -106,40 +99,6 @@ func newActivityMigrationEvent(workspaceAlias, event, resourceKind, groupID, pri
 
 func sameOptionalString(value sql.NullString, expected *string) bool {
 	return (expected == nil && !value.Valid) || (expected != nil && value.Valid && value.String == *expected)
-}
-
-func principalMigrationBuilder(principals []config.Principal) MigrationBuilder {
-	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		existing, err := principalIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		values := make([]principalMigrationValue, 0, len(principals))
-		for _, principal := range principals {
-			id := existing[principal.Alias]
-			if id == "" {
-				id, err = typed_id.New(typed_id.Principal)
-				if err != nil {
-					return err, ""
-				}
-			}
-			var name any
-			if principal.Name != nil {
-				name = *principal.Name
-			}
-			values = append(values, principalMigrationValue{ID: id, Alias: principal.Alias, Name: name, Enabled: principal.Enabled})
-		}
-		return session.RenderTemplate(`
-			SELECT 1;
-			{{ range . }}
-			INSERT INTO gatehouse_principals (id, alias, name, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (alias) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-			{{ end }}
-		`, values)
-	}
 }
 
 func principalIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {

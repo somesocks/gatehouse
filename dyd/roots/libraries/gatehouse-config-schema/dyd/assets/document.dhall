@@ -275,11 +275,15 @@ let Principal =
               }
         , optional =
             toMap
-              { name =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
+               { name =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "principal display name" }
-              , enabled =
+               , revision =
+                   s.number.from
+                     s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "monotonic principal configuration revision" }
+               , enabled =
                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the principal is enabled" }

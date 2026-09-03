@@ -100,7 +100,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, enabled) VALUES (?, TRUE)`, principalID); err != nil {
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, revision, enabled) VALUES (?, 1, TRUE)`, principalID); err != nil {
 		t.Fatal(err)
 	}
 	principal := model.PrincipalRef{Id: principalID}

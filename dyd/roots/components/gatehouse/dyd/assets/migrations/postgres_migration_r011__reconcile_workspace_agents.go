@@ -1,6 +1,10 @@
 package migrations
 
 import (
+	"context"
+	"database/sql"
+	"fmt"
+
 	"gatehouse/config"
 )
 
@@ -8,6 +12,99 @@ func postgresMigrationR011ReconcileWorkspaceAgents(state config.State) Repeatabl
 	return RepeatableMigration{
 		Index:       11,
 		Description: "reconcile_workspace_agents",
-		Builder:     workspaceAgentMigrationBuilder(state.WorkspaceAgents),
+		Builder:     postgresMigrationR011ReconcileWorkspaceAgentsBuilder(state.WorkspaceAgents),
 	}
+}
+
+type postgresMigrationR011WorkspaceAgentAliasKey struct {
+	Workspace string
+	Model     string
+}
+
+type postgresMigrationR011StoredWorkspaceAgent struct {
+	Priority     int
+	Label        sql.NullString
+	SystemPrompt sql.NullString
+	Enabled      bool
+}
+
+func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.WorkspaceAgent) MigrationBuilder {
+	return func(ctx context.Context, session *MigrationSession) (error, string) {
+		existing, err := postgresMigrationR011WorkspaceAgentsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		modelIDs, err := postgresMigrationR010AgentModelIDsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		events := []activityMigrationEvent{}
+		for _, agent := range agents {
+			key := postgresMigrationR011WorkspaceAgentAliasKey{Workspace: agent.WorkspaceID, Model: agent.ModelAlias}
+			stored, exists := existing[key]
+			if !exists || stored.Priority != agent.Priority || stored.Enabled != agent.Enabled || !sameOptionalString(stored.Label, agent.Label) || !sameOptionalString(stored.SystemPrompt, agent.SystemPrompt) {
+				eventName := "workspace_agent.create"
+				if exists {
+					eventName = "workspace_agent.update"
+				}
+				modelID := modelIDs[agent.ModelAlias]
+				event, err := newActivityMigrationEvent(agent.WorkspaceID, eventName, "workspace_agent", "", "", modelID, "workspace_agent/"+modelID)
+				if err != nil {
+					return err, ""
+				}
+				events = append(events, event)
+			}
+		}
+		return session.RenderTemplate(`
+			SELECT 1;
+			{{ range .Agents }}
+			INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, label, system_prompt, enabled)
+				VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, model_id) DO UPDATE SET priority = excluded.priority, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled;
+			{{ end }}
+			{{ range .Events }}
+			{{ $event := . }}
+			INSERT INTO gatehouse_activity_events (
+				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+			) VALUES (
+				(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, NULL, NULL, NULL, NULL, NULL, {{ sqlLiteral .WorkspaceAgent }}, {{ sqlLiteral .CreatedAt }}
+			);
+			{{ range .Topics }}
+			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
+			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $event.WorkspaceAlias }}), {{ sqlLiteral $event.ID }}, {{ sqlLiteral . }}, {{ sqlLiteral $event.CreatedAt }});
+			{{ end }}
+			{{ end }}
+		`, struct {
+			Agents []config.WorkspaceAgent
+			Events []activityMigrationEvent
+		}{Agents: agents, Events: events})
+	}
+}
+
+func postgresMigrationR011WorkspaceAgentsByAlias(ctx context.Context, session *MigrationSession) (map[postgresMigrationR011WorkspaceAgentAliasKey]postgresMigrationR011StoredWorkspaceAgent, error) {
+	rows, err := session.QueryContext(ctx, `
+		SELECT workspaces.alias, models.alias, agents.priority, agents.label, agents.system_prompt, agents.enabled
+		FROM gatehouse_workspace_agents AS agents
+		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = agents.workspace_id
+		JOIN gatehouse_agent_models AS models ON models.id = agents.model_id
+		WHERE workspaces.alias IS NOT NULL AND models.alias IS NOT NULL
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("get workspace agents by alias: %w", err)
+	}
+	defer rows.Close()
+
+	agents := map[postgresMigrationR011WorkspaceAgentAliasKey]postgresMigrationR011StoredWorkspaceAgent{}
+	for rows.Next() {
+		var key postgresMigrationR011WorkspaceAgentAliasKey
+		var agent postgresMigrationR011StoredWorkspaceAgent
+		if err := rows.Scan(&key.Workspace, &key.Model, &agent.Priority, &agent.Label, &agent.SystemPrompt, &agent.Enabled); err != nil {
+			return nil, fmt.Errorf("scan workspace agent: %w", err)
+		}
+		agents[key] = agent
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workspace agents: %w", err)
+	}
+	return agents, nil
 }

@@ -463,9 +463,10 @@ func TestOpenSQLiteReconcilesUnnamedWorkspace(t *testing.T) {
 func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gatehouse.db")
 	principals := []config.Principal{{
-		Alias:   "alice",
-		Name:    stringPointer("Alice"),
-		Enabled: true,
+		Alias:    "alice",
+		Name:     stringPointer("Alice"),
+		Revision: 1,
+		Enabled:  true,
 	}}
 	err, first := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
@@ -486,9 +487,10 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	}
 
 	updated := []config.Principal{{
-		Alias:   "alice",
-		Name:    stringPointer("Alice Example"),
-		Enabled: false,
+		Alias:    "alice",
+		Name:     stringPointer("Alice Example"),
+		Revision: 2,
+		Enabled:  false,
 	}}
 	err, second := openConfigured(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindSQLite,
@@ -506,23 +508,35 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	}
 
 	var (
-		principalName string
-		principalOn   bool
-		identityOwner string
-		verifiers     string
-		identityOn    bool
-		revision      int
+		principalName     string
+		principalOn       bool
+		principalRevision int
+		identityOwner     string
+		verifiers         string
+		identityOn        bool
+		revision          int
 	)
 	if err := second.QueryRow(`
-		SELECT p.name, p.enabled, i.principal_id, i.verifiers, i.enabled, i.revision
+		SELECT p.name, p.enabled, p.revision, i.principal_id, i.verifiers, i.enabled, i.revision
 		FROM gatehouse_principals AS p
 		JOIN gatehouse_identities AS i ON i.principal_id = p.id
 		WHERE p.id = ? AND i.id = ?
-	`, alice.Id, identityID).Scan(&principalName, &principalOn, &identityOwner, &verifiers, &identityOn, &revision); err != nil {
+	`, alice.Id, identityID).Scan(&principalName, &principalOn, &principalRevision, &identityOwner, &verifiers, &identityOn, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if principalName != "Alice Example" || principalOn || identityOwner != alice.Id || verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
-		t.Fatalf("reconciled principal and identity = (%q, %t, %q, %q, %t, %d)", principalName, principalOn, identityOwner, verifiers, identityOn, revision)
+	if principalName != "Alice Example" || principalOn || principalRevision != 2 || identityOwner != alice.Id || verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
+		t.Fatalf("reconciled principal and identity = (%q, %t, %d, %q, %q, %t, %d)", principalName, principalOn, principalRevision, identityOwner, verifiers, identityOn, revision)
+	}
+	if err := migrateState(context.Background(), second, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.State{Principals: []config.Principal{{
+		Alias: "alice", Name: stringPointer("Older"), Revision: 1, Enabled: true,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.QueryRow(`SELECT name, enabled, revision FROM gatehouse_principals WHERE id = ?`, alice.Id).Scan(&principalName, &principalOn, &principalRevision); err != nil {
+		t.Fatal(err)
+	}
+	if principalName != "Alice Example" || principalOn || principalRevision != 2 {
+		t.Fatalf("older principal revision replaced principal = (%q, %t, %d)", principalName, principalOn, principalRevision)
 	}
 	if err := second.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
 		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 1, Verifiers: []interface{}{"gh-ver:older"}, Enabled: true,
@@ -539,7 +553,7 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES (?, 'matrix:@unknown:example.org', ?, '[{"kind":"matrix"}]', TRUE)`, newTypedID(t, typed_id.Identity), newTypedID(t, typed_id.Principal)); err == nil {
 		t.Fatal("identity without a principal was accepted")
 	}
-	if _, err := second.Exec(`INSERT INTO gatehouse_principals (id, enabled) VALUES ('alice', TRUE)`); err == nil {
+	if _, err := second.Exec(`INSERT INTO gatehouse_principals (id, revision, enabled) VALUES ('alice', 1, TRUE)`); err == nil {
 		t.Fatal("natural principal ID was accepted")
 	}
 	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES ('gatehouse:alice', 'matrix:@invalid:example.org', ?, '[{"kind":"matrix"}]', TRUE)`, alice.Id); err == nil {
@@ -570,8 +584,8 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 	bobID := newTypedID(t, typed_id.Principal)
 	bobIdentityID := newTypedID(t, typed_id.Identity)
 	if _, err := first.Exec(`
-		INSERT INTO gatehouse_principals (id, name, enabled)
-		VALUES (?, 'Bob', TRUE)
+		INSERT INTO gatehouse_principals (id, name, revision, enabled)
+		VALUES (?, 'Bob', 1, TRUE)
 	`, bobID); err != nil {
 		t.Fatal(err)
 	}
@@ -624,7 +638,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 	workspace := workspaceRef(t, context.Background(), database, "engineering")
 	bobID := newTypedID(t, typed_id.Principal)
-	if _, err := database.Exec(`INSERT INTO gatehouse_principals (id, alias, name, enabled) VALUES (?, 'bob', 'Bob', TRUE)`, bobID); err != nil {
+	if _, err := database.Exec(`INSERT INTO gatehouse_principals (id, alias, name, revision, enabled) VALUES (?, 'bob', 'Bob', 1, TRUE)`, bobID); err != nil {
 		t.Fatal(err)
 	}
 

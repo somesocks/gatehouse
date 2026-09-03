@@ -42,26 +42,28 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 	}
 	want := []Principal{
 		{
-			Alias:   "alpha-2",
-			Name:    stringPointer("Alpha"),
-			Enabled: false,
+			Alias:    "alpha-2",
+			Name:     stringPointer("Alpha"),
+			Revision: 1,
+			Enabled:  false,
 			Identities: []Identity{{
-				Alias:    "alpha-gatehouse",
-				Key:      "gatehouse:alpha",
-				Revision: 1,
+				Alias:     "alpha-gatehouse",
+				Key:       "gatehouse:alpha",
+				Revision:  1,
 				Verifiers: []Verifier{{Value: stringPointer("gh-ver:AAAA"), Stored: "gh-ver:AAAA"}},
-				Enabled:  true,
+				Enabled:   true,
 			}},
 		},
 		{
-			Alias:   "zebra",
-			Enabled: true,
+			Alias:    "zebra",
+			Revision: 1,
+			Enabled:  true,
 			Identities: []Identity{{
-				Alias:    "zebra-matrix",
-				Key:      "matrix:@zebra:example.org",
-				Revision: 1,
+				Alias:     "zebra-matrix",
+				Key:       "matrix:@zebra:example.org",
+				Revision:  1,
 				Verifiers: []Verifier{{Stored: map[string]any{"kind": "matrix"}}},
-				Enabled:  true,
+				Enabled:   true,
 			}},
 		},
 	}
@@ -71,6 +73,7 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 }
 
 func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
+	invalidRevision := 0
 	validGatehouseVerifier := []interface{}{map[string]any{
 		"value": "gh-ver:AAAA",
 	}}
@@ -93,6 +96,13 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 				{Alias: "alice"},
 			}},
 			contains: "duplicated",
+		},
+		{
+			name: "non-positive principal revision",
+			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
+				Alias: "alice", Revision: &invalidRevision,
+			}}},
+			contains: "revision must be positive",
 		},
 		{
 			name: "identity key without namespace",

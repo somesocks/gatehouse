@@ -11,6 +11,7 @@ func sqliteMigrationV002CreatePrincipalsAndIdentities() VersionedMigration {
 					CHECK (alias IS NULL OR alias GLOB '[a-z]*')
 					CHECK (alias IS NULL OR alias NOT GLOB '*[^a-z0-9_-]*'),
 				name TEXT CHECK (name IS NULL OR length(trim(name)) > 0),
+				revision INTEGER NOT NULL CHECK (revision > 0),
 				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
 			) STRICT;
 
