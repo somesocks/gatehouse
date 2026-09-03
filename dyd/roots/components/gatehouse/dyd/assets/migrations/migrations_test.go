@@ -233,6 +233,19 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 		t.Fatalf("identity at unchanged revision = %#v, want verifier %q", unchanged, firstVerifier)
 	}
 
+	state.Principals[0].Identities = append(state.Principals[0].Identities, config.Identity{
+		Alias: "alice-matrix", Key: "matrix:@alice:example.org", Revision: 1, Enabled: true,
+		Verifiers: []config.Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+	})
+	run()
+	var matrixRevision int
+	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE alias = 'alice-matrix'`).Scan(&matrixRevision); err != nil {
+		t.Fatal(err)
+	}
+	if matrixRevision != 1 {
+		t.Fatalf("matrix identity revision = %d, want 1", matrixRevision)
+	}
+
 	state.Principals[0].Identities[0].Revision = 2
 	t.Setenv("IDENTITY_PASSWORD", "second password")
 	run()

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"gatehouse/config"
+	"gatehouse/identity"
 	"gatehouse/typed_id"
 	"modernc.org/sqlite"
 )
@@ -129,6 +130,24 @@ func registerSQLiteFunctions() error {
 				return nil, err
 			}
 			return at.Format("2006-01-02T15:04:05.000Z"), nil
+		})
+		if sqliteFunctions.err != nil {
+			return
+		}
+		sqliteFunctions.err = sqlite.RegisterScalarFunction("gh_identity_verifiers", 2, func(_ *sqlite.FunctionContext, arguments []driver.Value) (driver.Value, error) {
+			identityID, ok := arguments[0].(string)
+			if !ok {
+				return nil, fmt.Errorf("gh_identity_verifiers identity ID must be text")
+			}
+			source, ok := arguments[1].(string)
+			if !ok {
+				return nil, fmt.Errorf("gh_identity_verifiers verifier sources must be text")
+			}
+			err, verifiers := identity.ResolveVerifiersJSON(identityID, source, identity.NewPasswordSourceResolver())
+			if err != nil {
+				return nil, err
+			}
+			return verifiers, nil
 		})
 	})
 	return sqliteFunctions.err

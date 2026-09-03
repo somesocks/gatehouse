@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	"gatehouse/config"
-	"gatehouse/identity"
 )
 
 func sqliteMigrationR005ReconcileIdentities(state config.State) RepeatableMigration {
@@ -18,53 +17,56 @@ func sqliteMigrationR005ReconcileIdentities(state config.State) RepeatableMigrat
 }
 
 type sqliteMigrationR005IdentityValue struct {
-	Alias       string
-	Key         string
-	PrincipalID string
-	Revision    int
-	Verifiers   string
-	Enabled     bool
+	PrincipalAlias string
+	Alias          string
+	Key            string
+	Revision       int
+	VerifierSource string
+	Enabled        bool
 }
 
 func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal) MigrationBuilder {
-	resolver := identity.NewPasswordSourceResolver()
-	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		principalIDs, err := principalIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		existing, err := sqliteMigrationR005IdentityRevisionsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
+	return func(_ context.Context, session *MigrationSession) (error, string) {
 		identities := make([]sqliteMigrationR005IdentityValue, 0)
 		for _, principal := range principals {
-			principalID := principalIDs[principal.Alias]
-			if principalID == "" {
-				return fmt.Errorf("principal %q was not reconciled", principal.Alias), ""
-			}
 			for _, configured := range principal.Identities {
-				if existing[configured.Alias] >= configured.Revision {
-					continue
-				}
-				err, verifiers := identity.ResolveVerifiers(configured.Key, configured.Verifiers, resolver)
+				encoded, err := json.Marshal(configured.Verifiers)
 				if err != nil {
-					return fmt.Errorf("resolve verifiers for identity %q: %w", configured.Key, err), ""
-				}
-				encoded, err := json.Marshal(verifiers)
-				if err != nil {
-					return fmt.Errorf("encode verifiers for identity %q: %w", configured.Key, err), ""
+					return fmt.Errorf("encode verifier sources for identity %q: %w", configured.Key, err), ""
 				}
 				identities = append(identities, sqliteMigrationR005IdentityValue{
-					Alias: configured.Alias, Key: configured.Key, PrincipalID: principalID, Revision: configured.Revision, Verifiers: string(encoded), Enabled: configured.Enabled,
+					PrincipalAlias: principal.Alias, Alias: configured.Alias, Key: configured.Key, Revision: configured.Revision, VerifierSource: string(encoded), Enabled: configured.Enabled,
 				})
 			}
 		}
 		return session.RenderTemplate(`
-			SELECT 1;
+			DROP TABLE IF EXISTS gatehouse_migration_identity_desired;
+			DROP TABLE IF EXISTS gatehouse_migration_identity_state;
+
+			CREATE TEMP TABLE gatehouse_migration_identity_desired (
+				principal_alias TEXT NOT NULL,
+				alias TEXT NOT NULL PRIMARY KEY,
+				key TEXT NOT NULL,
+				revision INTEGER NOT NULL,
+				verifier_source TEXT NOT NULL,
+				enabled INTEGER NOT NULL
+			) STRICT;
 			{{ range . }}
+			INSERT INTO gatehouse_migration_identity_desired (principal_alias, alias, key, revision, verifier_source, enabled)
+			VALUES ({{ sqlLiteral .PrincipalAlias }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Key }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .VerifierSource }}, {{ sqlBool .Enabled }});
+			{{ end }}
+
+			CREATE TEMP TABLE gatehouse_migration_identity_state AS
+			SELECT desired.*, principals.id AS principal_id, identities.id AS existing_id
+			FROM gatehouse_migration_identity_desired AS desired
+			JOIN gatehouse_principals AS principals ON principals.alias = desired.principal_alias
+			LEFT JOIN gatehouse_identities AS identities ON identities.alias = desired.alias
+			WHERE identities.id IS NULL OR identities.revision < desired.revision;
+
 			INSERT INTO gatehouse_identities (id, alias, key, principal_id, verifiers, enabled, revision)
-			VALUES (COALESCE((SELECT id FROM gatehouse_identities WHERE alias = {{ sqlLiteral .Alias }}), gh_id_new('idt')), {{ sqlLiteral .Alias }}, {{ sqlLiteral .Key }}, {{ sqlLiteral .PrincipalID }}, {{ sqlLiteral .Verifiers }}, {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
+			SELECT COALESCE(existing_id, gh_id_new('idt')), alias, key, principal_id, gh_identity_verifiers(key, verifier_source), enabled, revision
+			FROM gatehouse_migration_identity_state
+			WHERE TRUE
 			ON CONFLICT (alias) DO UPDATE SET
 				key = excluded.key,
 				principal_id = excluded.principal_id,
@@ -72,29 +74,9 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 				enabled = excluded.enabled,
 				revision = excluded.revision
 			WHERE gatehouse_identities.revision < excluded.revision;
-			{{ end }}
+
+			DROP TABLE gatehouse_migration_identity_state;
+			DROP TABLE gatehouse_migration_identity_desired;
 		`, identities)
 	}
-}
-
-func sqliteMigrationR005IdentityRevisionsByAlias(ctx context.Context, session *MigrationSession) (map[string]int, error) {
-	rows, err := session.QueryContext(ctx, `SELECT alias, revision FROM gatehouse_identities WHERE alias IS NOT NULL`)
-	if err != nil {
-		return nil, fmt.Errorf("get identity revisions: %w", err)
-	}
-	defer rows.Close()
-
-	revisions := map[string]int{}
-	for rows.Next() {
-		var alias string
-		var revision int
-		if err := rows.Scan(&alias, &revision); err != nil {
-			return nil, fmt.Errorf("scan identity revision: %w", err)
-		}
-		revisions[alias] = revision
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate identity revisions: %w", err)
-	}
-	return revisions, nil
 }

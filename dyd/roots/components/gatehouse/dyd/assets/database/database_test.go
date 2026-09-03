@@ -86,6 +86,13 @@ func TestSQLiteIDFunctions(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `SELECT gh_id_timestamp('act_invalid')`); err == nil {
 		t.Fatal("gh_id_timestamp accepted an invalid ID")
 	}
+	var verifiers string
+	if err := store.QueryRowContext(ctx, `SELECT gh_identity_verifiers('gatehouse:alice', '[{"Value":"gh-ver:AAAA"}]')`).Scan(&verifiers); err != nil {
+		t.Fatal(err)
+	}
+	if verifiers != `["gh-ver:AAAA"]` {
+		t.Fatalf("gh_identity_verifiers() = %q, want static verifier", verifiers)
+	}
 }
 
 func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {

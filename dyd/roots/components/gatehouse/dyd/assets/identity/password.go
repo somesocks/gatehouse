@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/url"
@@ -65,6 +66,23 @@ func ResolveVerifiers(identityID string, configured []config.Verifier, resolver 
 		verifiers = append(verifiers, resolved)
 	}
 	return nil, verifiers
+}
+
+// ResolveVerifiersJSON resolves stable verifier source descriptors at SQL execution time.
+func ResolveVerifiersJSON(identityID, source string, resolver *PasswordSourceResolver) (error, string) {
+	var configured []config.Verifier
+	if err := json.Unmarshal([]byte(source), &configured); err != nil {
+		return fmt.Errorf("decode verifier sources for identity %q: %w", identityID, err), ""
+	}
+	err, verifiers := ResolveVerifiers(identityID, configured, resolver)
+	if err != nil {
+		return err, ""
+	}
+	encoded, err := json.Marshal(verifiers)
+	if err != nil {
+		return fmt.Errorf("encode verifiers for identity %q: %w", identityID, err), ""
+	}
+	return nil, string(encoded)
 }
 
 func resolveVerifier(identityID string, configured config.Verifier, resolver *PasswordSourceResolver) (interface{}, error) {
