@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseRoute, routePath } from "./route"
+import { parseRoute, routePath, routeSessionID } from "./route"
 import type { NavigableRoute } from "./route"
 
 const origin = "https://gatehouse.test"
@@ -21,6 +21,8 @@ describe("routes", () => {
     { path: "/app/wsp/wsp_a/ses/ses_a/notes", route: { kind: "session-notes", workspaceID: "wsp_a", sessionID: "ses_a" } },
     { path: "/app/wsp/wsp_a/ses/ses_a/notes/new", route: { kind: "session-note-new", workspaceID: "wsp_a", sessionID: "ses_a" } },
     { path: "/app/wsp/wsp_a/ses/ses_a/notes/snt_a", route: { kind: "session-note", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" } },
+    { path: "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/edit", route: { kind: "session-note-edit", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" } },
+    { path: "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/2", route: { kind: "session-note-revision", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a", revision: 2 } },
     { path: "/app/wsp/wsp_a/ses/ses_a/secrets", route: { kind: "session-secrets", workspaceID: "wsp_a", sessionID: "ses_a" } },
     { path: "/app/wsp/wsp_a/ses/ses_a/secrets/new", route: { kind: "session-secret-new", workspaceID: "wsp_a", sessionID: "ses_a" } },
     { path: "/app/wsp/wsp_a/ses/ses_a/secrets/ssr_a", route: { kind: "session-secret", workspaceID: "wsp_a", sessionID: "ses_a", secretID: "ssr_a" } },
@@ -42,9 +44,14 @@ describe("routes", () => {
     })
   }
 
-  for (const path of ["/", "/app/wsp", "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/1", "/app/wsp/%ZZ", "/app/wsp//ses"]) {
+  for (const path of ["/", "/app/wsp", "/app/wsp/wsp_a/ses/ses_a/notes/new/edit", "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/0", "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/1.5", "/app/wsp/%ZZ", "/app/wsp//ses"]) {
     it(`rejects ${path}`, () => {
       expect(parseRoute(url(path))).toEqual({ kind: "not-found" })
     })
   }
+
+  it("identifies session routes", () => {
+    expect(routeSessionID(parseRoute(url("/app/wsp/wsp_a/ses/ses_a/notes/snt_a")))).toBe("ses_a")
+    expect(routeSessionID(parseRoute(url("/app/wsp/wsp_a/prj/prj_a")))).toBeNull()
+  })
 })

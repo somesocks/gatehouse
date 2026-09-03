@@ -14,6 +14,8 @@ export type Route =
   | ({ kind: "session-notes" } & SessionRoute)
   | ({ kind: "session-note-new" } & SessionRoute)
   | ({ kind: "session-note"; noteID: string } & SessionRoute)
+  | ({ kind: "session-note-edit"; noteID: string } & SessionRoute)
+  | ({ kind: "session-note-revision"; noteID: string; revision: number } & SessionRoute)
   | ({ kind: "session-secrets" } & SessionRoute)
   | ({ kind: "session-secret-new" } & SessionRoute)
   | ({ kind: "session-secret"; secretID: string } & SessionRoute)
@@ -107,6 +109,15 @@ export function parseRoute(url: URL): Route {
         ? { kind: "session-note-new", workspaceID, sessionID: resourceID }
         : { kind: "session-note", workspaceID, sessionID: resourceID, noteID: segments[6] }
     }
+    if (segments.length === 8 && section === "notes" && segments[7] === "edit" && segments[6] !== "new") {
+      return { kind: "session-note-edit", workspaceID, sessionID: resourceID, noteID: segments[6] }
+    }
+    if (segments.length === 9 && section === "notes" && segments[7] === "revisions" && segments[6] !== "new") {
+      const revision = Number(segments[8])
+      if (Number.isSafeInteger(revision) && revision > 0 && String(revision) === segments[8]) {
+        return { kind: "session-note-revision", workspaceID, sessionID: resourceID, noteID: segments[6], revision }
+      }
+    }
     if (segments.length === 6 && section === "secrets") {
       return { kind: "session-secrets", workspaceID, sessionID: resourceID }
     }
@@ -176,6 +187,10 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/new`
     case "session-note":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}`
+    case "session-note-edit":
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}/edit`
+    case "session-note-revision":
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}/revisions/${segment(String(route.revision))}`
     case "session-secrets":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/secrets`
     case "session-secret-new":
@@ -215,7 +230,11 @@ export function routeSessionNoteID(route: Route): string | null {
   if (route.kind === "session-note-new") {
     return "new"
   }
-  return route.kind === "session-note" ? route.noteID : null
+  return route.kind === "session-note" || route.kind === "session-note-edit" || route.kind === "session-note-revision" ? route.noteID : null
+}
+
+export function routeSessionNoteRevision(route: Route): number | null {
+  return route.kind === "session-note-revision" ? route.revision : null
 }
 
 export function routeSessionSecretID(route: Route): string | null {
