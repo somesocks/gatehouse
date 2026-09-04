@@ -112,7 +112,8 @@ func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *s
 			SELECT files.name, files.media_type, objects.size, objects.sha256
 			FROM gatehouse_session_files AS files
 			JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
-			WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND objects.state = 'success'
+			WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+`
+				AND files.enabled = TRUE AND objects.state = 'success'
 		`, session.Workspace.Id, session.Id, id)
 		var reference SessionFileSummary
 		reference.ID = id
@@ -139,7 +140,8 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
 		FROM gatehouse_session_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
-		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND objects.state = 'success'
+		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+`
+			AND files.enabled = TRUE AND objects.state = 'success'
 		ORDER BY files.created_at, files.id
 	`, session.Workspace.Id, session.Id)
 	if err != nil {
@@ -209,6 +211,7 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 		return fmt.Errorf("create session file: storage object ID is invalid"), model.SessionFile{}, ""
 	}
 	file.CreatedAt = fileCreatedAt.Format("2006-01-02T15:04:05.000Z")
+	file.Enabled = true
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_storage_objects (id, provider, object, state, created_at)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, 'pending', `+placeholder(4)+`)
@@ -227,10 +230,18 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 		mediaType = *file.MediaType
 	}
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_files (workspace, session, id, storage_object, name, media_type, created_at)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
-	`, file.Ref.Session.Workspace.Id, file.Ref.Session.Id, file.Ref.Id, storageObjectID, file.Name, mediaType, file.CreatedAt); err != nil {
+		INSERT INTO gatehouse_session_files (workspace, session, id, storage_object, name, media_type, enabled, created_at)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
+	`, file.Ref.Session.Workspace.Id, file.Ref.Session.Id, file.Ref.Id, storageObjectID, file.Name, mediaType, file.Enabled, file.CreatedAt); err != nil {
 		return fmt.Errorf("insert session file: %w", err), model.SessionFile{}, ""
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "session_file.create",
+		ResourceKind: ActivityResourceKindSessionFile,
+		ResourceSessionFile: &file.Ref.Id,
+	}, []string{ActivityTopicSessionFile(file.Ref)}); err != nil {
+		return fmt.Errorf("append session file creation activity: %w", err), model.SessionFile{}, ""
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit session file creation: %w", err), model.SessionFile{}, ""
@@ -304,11 +315,11 @@ func (store *Store) ProjectFileCreate(ctx context.Context, file model.ProjectFil
 		return fmt.Errorf("insert project file: %w", err), model.ProjectFile{}, ""
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: file.Ref.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_file.create",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &file.Ref.Project,
-	}, []string{ActivityTopicProject(file.Ref.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectFile,
+		ResourceProjectFile: &file.Ref.Id,
+	}, []string{ActivityTopicProjectFile(file.Ref)}); err != nil {
 		return fmt.Errorf("append project file creation activity: %w", err), model.ProjectFile{}, ""
 	}
 	if err := transaction.Commit(); err != nil {
@@ -353,11 +364,11 @@ func (store *Store) ProjectFileFinish(ctx context.Context, file model.ProjectFil
 		return nil, nil, nil
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: file.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_file.update",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &file.Project,
-	}, []string{ActivityTopicProject(file.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectFile,
+		ResourceProjectFile: &file.Id,
+	}, []string{ActivityTopicProjectFile(file)}); err != nil {
 		return fmt.Errorf("append project file update activity: %w", err), nil, nil
 	}
 	if err := transaction.Commit(); err != nil {
@@ -509,17 +520,17 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT files.storage_object, files.name, files.media_type, files.created_at, objects.provider, objects.object, objects.state, objects.sha256, objects.size
+		SELECT files.storage_object, files.name, files.media_type, files.enabled, files.created_at, objects.provider, objects.object, objects.state, objects.sha256, objects.size
 		FROM gatehouse_session_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
-		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+`
+		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND files.enabled = TRUE
 	`, file.Session.Workspace.Id, file.Session.Id, file.Id)
 	stored := model.SessionFile{Ref: file}
 	object := &StorageObject{ID: ""}
 	var mediaType sql.NullString
 	var digest []byte
 	var size sql.NullInt64
-	if err := row.Scan(&stored.StorageObject.Id, &stored.Name, &mediaType, &stored.CreatedAt, &object.Provider, &object.Object, &object.State, &digest, &size); err != nil {
+	if err := row.Scan(&stored.StorageObject.Id, &stored.Name, &mediaType, &stored.Enabled, &stored.CreatedAt, &object.Provider, &object.Object, &object.State, &digest, &size); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil, nil
 		}
@@ -534,6 +545,103 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 		object.Size = size.Int64
 	}
 	return nil, &stored, object
+}
+
+func (store *Store) SessionFileRemove(ctx context.Context, file model.SessionFileRef, principal model.PrincipalRef) (error, bool) {
+	if !typed_id.Valid(typed_id.SessionFile, file.Id) {
+		return fmt.Errorf("remove session file: ID is invalid"), false
+	}
+	err, session := store.SessionGet(ctx, file.Session, principal)
+	if err != nil {
+		return err, false
+	}
+	if session == nil {
+		return nil, false
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session file removal: %w", err), false
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	var storageObjectID string
+	err = transaction.QueryRowContext(ctx, `
+		UPDATE gatehouse_session_files SET enabled = FALSE
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+` AND enabled = TRUE
+		RETURNING storage_object
+	`, file.Session.Workspace.Id, file.Session.Id, file.Id).Scan(&storageObjectID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false
+		}
+		return fmt.Errorf("remove session file: %w", err), false
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_storage_objects SET state = 'failure'
+		WHERE id = `+placeholder(1)+` AND state = 'pending'
+	`, storageObjectID); err != nil {
+		return fmt.Errorf("revoke pending session file upload: %w", err), false
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "session_file.remove",
+		ResourceKind: ActivityResourceKindSessionFile,
+		ResourceSessionFile: &file.Id,
+	}, []string{ActivityTopicSessionFile(file)}); err != nil {
+		return fmt.Errorf("append session file removal activity: %w", err), false
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session file removal: %w", err), false
+	}
+	return nil, true
+}
+
+// SessionFileFinish publishes a successful session-file update to activity subscribers.
+func (store *Store) SessionFileFinish(ctx context.Context, file model.SessionFileRef, principal model.PrincipalRef) (error, *model.SessionFile, *StorageObject) {
+	err, stored, object := store.SessionFileGet(ctx, file, principal)
+	if err != nil || stored == nil || object == nil {
+		return err, stored, object
+	}
+	if object.State != "success" {
+		return fmt.Errorf("finish session file: storage object is not ready"), nil, nil
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session file finish: %w", err), nil, nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_session_files SET enabled = TRUE
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+`
+			AND enabled = TRUE AND storage_object = `+placeholder(4)+`
+			AND EXISTS (
+				SELECT 1 FROM gatehouse_storage_objects AS objects
+				WHERE objects.id = gatehouse_session_files.storage_object AND objects.state = 'success'
+			)
+	`, file.Session.Workspace.Id, file.Session.Id, file.Id, object.ID)
+	if err != nil {
+		return fmt.Errorf("lock finished session file: %w", err), nil, nil
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("lock finished session file: %w", err), nil, nil
+	}
+	if changed != 1 {
+		return nil, nil, nil
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "session_file.update",
+		ResourceKind: ActivityResourceKindSessionFile,
+		ResourceSessionFile: &file.Id,
+	}, []string{ActivityTopicSessionFile(file)}); err != nil {
+		return fmt.Errorf("append session file update activity: %w", err), nil, nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session file finish: %w", err), nil, nil
+	}
+	return nil, stored, object
 }
 
 func (store *Store) ProjectFileGet(ctx context.Context, file model.ProjectFileRef, principal model.PrincipalRef) (error, *model.ProjectFile, *StorageObject) {
@@ -608,11 +716,11 @@ func (store *Store) ProjectFileRemove(ctx context.Context, file model.ProjectFil
 		return fmt.Errorf("revoke pending project file upload: %w", err), false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: file.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_file.remove",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &file.Project,
-	}, []string{ActivityTopicProject(file.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectFile,
+		ResourceProjectFile: &file.Id,
+	}, []string{ActivityTopicProjectFile(file)}); err != nil {
 		return fmt.Errorf("append project file removal activity: %w", err), false
 	}
 	if err := transaction.Commit(); err != nil {

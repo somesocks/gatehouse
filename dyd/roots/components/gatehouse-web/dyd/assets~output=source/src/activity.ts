@@ -1,13 +1,17 @@
 export type ActivityCursor = { id: string }
 
 export type ActivityTopicCheckpoint = {
+  name: string
   topic: string
+  events: string[]
   cursor: ActivityCursor | null
 }
 
-export type ActivityRefresh = (input: { topics: ReadonlySet<string>; signal: AbortSignal }) => Promise<void>
+export type ActivitySelector = Pick<ActivityTopicCheckpoint, "name" | "topic" | "events">
 
-type ActivityRequest = (workspaceID: string, topics: ActivityTopicCheckpoint[], signal: AbortSignal) => Promise<ActivityTopicCheckpoint[]>
+export type ActivityRefresh = (input: { names: ReadonlySet<string>; signal: AbortSignal }) => Promise<void>
+
+type ActivityRequest = (topics: ActivityTopicCheckpoint[], signal: AbortSignal) => Promise<ActivityTopicCheckpoint[]>
 
 type Scheduler = {
   set: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>
@@ -15,7 +19,7 @@ type Scheduler = {
 }
 
 type Subscription = {
-  topics: Set<string>
+  selectors: Map<string, ActivitySelector>
   refresh: ActivityRefresh
   controller: AbortController | null
 }
@@ -29,8 +33,15 @@ function sameCursor(left: ActivityCursor | null, right: ActivityCursor | null): 
   return left?.id === right?.id
 }
 
+export function activitySelectorKey(selector: ActivitySelector): string {
+  return `${selector.topic}\u0000${[...new Set(selector.events)].sort().join("\u0000")}`
+}
+
+function normalizeSelector(selector: ActivitySelector): ActivitySelector {
+  return { name: selector.name, topic: selector.topic, events: [...new Set(selector.events)].sort() }
+}
+
 export class ActivityTopicPoller {
-  #workspaceID: string | null = null
   #checkpoints = new Map<string, ActivityCursor | null>()
   #subscriptions = new Set<Subscription>()
   #requestController: AbortController | null = null
@@ -38,22 +49,23 @@ export class ActivityTopicPoller {
 
   constructor(private readonly request: ActivityRequest, private readonly interval = 1000, private readonly scheduler: Scheduler = defaultScheduler, private readonly onPollComplete?: () => void) {}
 
-  setWorkspace(workspaceID: string | null): void {
-    if (this.#workspaceID === workspaceID) {
-      return
+  subscribe(selectors: Iterable<ActivitySelector>, refresh: ActivityRefresh): () => void {
+    const normalized = new Map<string, ActivitySelector>()
+    for (const selector of selectors) {
+      const value = normalizeSelector(selector)
+      if (normalized.has(value.name)) {
+        throw new Error(`duplicate activity subscription name ${JSON.stringify(value.name)}`)
+      }
+      normalized.set(value.name, value)
     }
-    this.#workspaceID = workspaceID
-    this.#checkpoints.clear()
-    this.#requestController?.abort()
-    this.#requestController = null
-    for (const subscription of this.#subscriptions) {
-      subscription.controller?.abort()
+    for (const existing of this.#subscriptions) {
+      for (const name of normalized.keys()) {
+        if (existing.selectors.has(name)) {
+          throw new Error(`duplicate activity subscription name ${JSON.stringify(name)}`)
+        }
+      }
     }
-    this.schedule(0)
-  }
-
-  subscribe(topics: Iterable<string>, refresh: ActivityRefresh): () => void {
-    const subscription: Subscription = { topics: new Set(topics), refresh, controller: null }
+    const subscription: Subscription = { selectors: normalized, refresh, controller: null }
     this.#subscriptions.add(subscription)
     this.schedule(0)
     return () => {
@@ -74,47 +86,61 @@ export class ActivityTopicPoller {
     }
     this.#subscriptions.clear()
     this.#checkpoints.clear()
-    this.#workspaceID = null
   }
 
   async poll(): Promise<void> {
-    if (this.#requestController !== null || this.#workspaceID === null || this.#subscriptions.size === 0) {
+    if (this.#requestController !== null || this.#subscriptions.size === 0) {
       return
     }
-    const workspaceID = this.#workspaceID
-    const topics = new Set<string>()
+    const selectors = new Map<string, { selector: ActivitySelector; names: Set<string> }>()
     for (const subscription of this.#subscriptions) {
-      for (const topic of subscription.topics) {
-        topics.add(topic)
+      for (const [name, selector] of subscription.selectors) {
+        const key = activitySelectorKey(selector)
+        const existing = selectors.get(key)
+        if (existing === undefined) {
+          selectors.set(key, { selector, names: new Set([name]) })
+        } else {
+          existing.names.add(name)
+        }
       }
     }
-    if (topics.size === 0) {
+    if (selectors.size === 0) {
       return
     }
 
     const subscriptions = [...this.#subscriptions]
     const controller = new AbortController()
     this.#requestController = controller
-    const input = [...topics].map((topic) => ({ topic, cursor: this.#checkpoints.get(topic) ?? null }))
+    const input = [...selectors].map(([key, { selector }]) => ({ ...selector, cursor: this.#checkpoints.get(key) ?? null }))
     try {
-      const output = await this.request(workspaceID, input, controller.signal)
-      if (controller.signal.aborted || this.#workspaceID !== workspaceID) {
+      const output = await this.request(input, controller.signal)
+      if (controller.signal.aborted) {
         return
       }
-      const next = new Map(output.map((checkpoint) => [checkpoint.topic, checkpoint.cursor]))
-      const dispatches: { subscription: Subscription; topics: Set<string> }[] = []
+      const inputKeysByName = new Map(input.map((checkpoint) => [checkpoint.name, activitySelectorKey(checkpoint)]))
+      const next = new Map<string, ActivityCursor | null>()
+      for (const checkpoint of output) {
+        const key = inputKeysByName.get(checkpoint.name)
+        if (key !== undefined) {
+          next.set(key, checkpoint.cursor)
+        }
+      }
+      const dispatches: { subscription: Subscription; names: Set<string> }[] = []
       for (const subscription of subscriptions) {
-        const changed = new Set([...subscription.topics].filter((topic) => this.#checkpoints.has(topic) && !sameCursor(this.#checkpoints.get(topic) ?? null, next.has(topic) ? next.get(topic) ?? null : this.#checkpoints.get(topic) ?? null)))
+        const changed = new Set([...subscription.selectors].filter(([, selector]) => {
+          const key = activitySelectorKey(selector)
+          return this.#checkpoints.has(key) && !sameCursor(this.#checkpoints.get(key) ?? null, next.has(key) ? next.get(key) ?? null : this.#checkpoints.get(key) ?? null)
+        }).map(([name]) => name))
         if (changed.size > 0) {
-          dispatches.push({ subscription, topics: changed })
+          dispatches.push({ subscription, names: changed })
         }
       }
 
-      const failedTopics = new Set<string>()
+      const failedSelectors = new Set<string>()
       await Promise.all(dispatches.map(async (dispatch) => {
         if (!this.#subscriptions.has(dispatch.subscription)) {
-          for (const topic of dispatch.topics) {
-            failedTopics.add(topic)
+          for (const name of dispatch.names) {
+            failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
           }
           return
         }
@@ -122,16 +148,16 @@ export class ActivityTopicPoller {
         dispatch.subscription.controller?.abort()
         dispatch.subscription.controller = refreshController
         try {
-          await dispatch.subscription.refresh({ topics: dispatch.topics, signal: refreshController.signal })
+          await dispatch.subscription.refresh({ names: dispatch.names, signal: refreshController.signal })
           if (refreshController.signal.aborted || !this.#subscriptions.has(dispatch.subscription)) {
-            for (const topic of dispatch.topics) {
-              failedTopics.add(topic)
+            for (const name of dispatch.names) {
+              failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
             }
             return
           }
         } catch {
-          for (const topic of dispatch.topics) {
-            failedTopics.add(topic)
+          for (const name of dispatch.names) {
+            failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
           }
         } finally {
           if (dispatch.subscription.controller === refreshController) {
@@ -140,12 +166,9 @@ export class ActivityTopicPoller {
         }
       }))
 
-      if (this.#workspaceID !== workspaceID) {
-        return
-      }
-      for (const topic of topics) {
-        if (!failedTopics.has(topic)) {
-          this.#checkpoints.set(topic, next.has(topic) ? next.get(topic) ?? null : this.#checkpoints.get(topic) ?? null)
+      for (const key of selectors.keys()) {
+        if (!failedSelectors.has(key)) {
+          this.#checkpoints.set(key, next.has(key) ? next.get(key) ?? null : this.#checkpoints.get(key) ?? null)
         }
       }
     } catch {
@@ -156,14 +179,14 @@ export class ActivityTopicPoller {
       }
       this.#requestController = null
       this.onPollComplete?.()
-      if (this.#workspaceID !== null && this.#subscriptions.size > 0) {
-        this.schedule(this.#workspaceID === workspaceID ? this.interval : 0)
+      if (this.#subscriptions.size > 0) {
+        this.schedule(this.interval)
       }
     }
   }
 
   private schedule(delay: number): void {
-    if (this.#workspaceID === null || this.#subscriptions.size === 0) {
+    if (this.#subscriptions.size === 0) {
       return
     }
     this.clearTimer()

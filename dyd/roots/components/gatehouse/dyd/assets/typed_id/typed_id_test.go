@@ -9,7 +9,7 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	for _, kind := range []string{Workspace, Principal, Identity, Group, AgentProvider, AgentModel, StorageProvider, StorageObject, SessionFile, ProjectFile, ProjectNote, ProjectSecret, SessionNote, SessionSecret, Gateway, Project, Session, SessionEvent, ActivityEvent} {
+	for _, kind := range []string{Workspace, Principal, Identity, Group, AgentProvider, AgentModel, StorageProvider, StorageObject, SessionFile, ProjectFile, ProjectNote, ProjectSecret, SessionNote, SessionSecret, Gateway, Project, Session, SessionEvent, WorkspaceGrant, ProjectGrant, SessionGrant, ActivityEvent} {
 		id, err := New(kind)
 		if err != nil || !Valid(kind, id) {
 			t.Fatalf("New(%q) = (%q, %v)", kind, id, err)

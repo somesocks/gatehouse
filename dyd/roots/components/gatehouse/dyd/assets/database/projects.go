@@ -46,28 +46,49 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 	`, project.Ref.Workspace.Id, project.Ref.Id, project.Name, project.Description, project.Enabled, project.CreatedAt); err != nil {
 		return fmt.Errorf("insert project: %w", err), model.Project{}
 	}
+	grantID, err := typed_id.New(typed_id.ProjectGrant)
+	if err != nil {
+		return fmt.Errorf("generate project creator grant ID: %w", err), model.Project{}
+	}
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE)
-	`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, creator.Id); err != nil {
+		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, NULL, TRUE)
+	`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, creator.Id); err != nil {
 		return fmt.Errorf("bind project creator role: %w", err), model.Project{}
 	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "project_grant.create",
+		ResourceKind: ActivityResourceKindProjectGrant,
+		ResourceProjectGrant: &grantID,
+	}, []string{ActivityTopicProjectGrant(project.Ref, grantID), ActivityTopicPrincipalGrant(creator, grantID)}); err != nil {
+		return fmt.Errorf("append project creator grant activity: %w", err), model.Project{}
+	}
 	for _, group := range groups {
-		if group.Workspace != project.Ref.Workspace {
-			return fmt.Errorf("bind project group role: group belongs to another workspace"), model.Project{}
+		grantID, err := typed_id.New(typed_id.ProjectGrant)
+		if err != nil {
+			return fmt.Errorf("generate project group grant ID: %w", err), model.Project{}
 		}
 		if _, err := transaction.ExecContext(ctx, `
-			INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled)
-			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, NULL, `+placeholder(4)+`, TRUE)
-		`, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, group.Id); err != nil {
+			INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
+			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, `+placeholder(5)+`, TRUE)
+		`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, group.Id); err != nil {
 			return fmt.Errorf("bind project group role: %w", err), model.Project{}
+		}
+		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+			Ref:          model.ActivityEventRef{},
+			Event:        "project_grant.create",
+			ResourceKind: ActivityResourceKindProjectGrant,
+			ResourceProjectGrant: &grantID,
+		}, []string{ActivityTopicProjectGrant(project.Ref, grantID), ActivityTopicGroupGrant(project.Ref.Workspace, group, grantID)}); err != nil {
+			return fmt.Errorf("append project group grant activity: %w", err), model.Project{}
 		}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: project.Ref.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project.create",
 		ResourceKind: ActivityResourceKindProject,
-		Project:      &project.Ref,
+		ResourceProject: &project.Ref.Id,
 	}, []string{ActivityTopicProject(project.Ref)}); err != nil {
 		return fmt.Errorf("append project creation activity: %w", err), model.Project{}
 	}
@@ -322,10 +343,10 @@ func (store *Store) ProjectDetailsSet(ctx context.Context, project model.Project
 	stored.Name = name
 	stored.Description = description
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project.update",
 		ResourceKind: ActivityResourceKindProject,
-		Project:      &project,
+		ResourceProject: &project.Id,
 	}, []string{ActivityTopicProject(project)}); err != nil {
 		return fmt.Errorf("append project update activity: %w", err), nil
 	}

@@ -63,22 +63,34 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	if err := row.Scan(&session.CreatedAt); err != nil {
 		return fmt.Errorf("insert session: %w", err), model.Session{}
 	}
+	grantID, err := typed_id.New(typed_id.SessionGrant)
+	if err != nil {
+		return fmt.Errorf("generate session grant ID: %w", err), model.Session{}
+	}
 	_, err = transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE)
-	`, session.Ref.Workspace.Id, session.Ref.Id, authz.Manager, grantee.Id)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, NULL, TRUE)
+	`, grantID, session.Ref.Workspace.Id, session.Ref.Id, authz.Manager, grantee.Id)
 	if err != nil {
 		return fmt.Errorf("bind session principal role: %w", err), model.Session{}
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "session_grant.create",
+		ResourceKind: ActivityResourceKindSessionGrant,
+		ResourceSessionGrant: &grantID,
+	}, []string{ActivityTopicSessionGrant(session.Ref, grantID), ActivityTopicPrincipalGrant(grantee, grantID)}); err != nil {
+		return fmt.Errorf("append session principal grant activity: %w", err), model.Session{}
 	}
 	topics := []string{ActivityTopicSession(session.Ref)}
 	if session.Project != nil {
 		topics = append(topics, ActivityTopicProject(*session.Project))
 	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: session.Ref.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session.create",
 		ResourceKind: ActivityResourceKindSession,
-		Session:      &session.Ref,
+		ResourceSession: &session.Ref.Id,
 		CreatedAt:    session.CreatedAt,
 	}, topics)
 	if err != nil {
@@ -210,10 +222,10 @@ func (store *Store) SessionProjectSet(ctx context.Context, session model.Session
 		event = "session.project.move"
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        event,
 		ResourceKind: ActivityResourceKindSession,
-		Session:      &session,
+		ResourceSession: &session.Id,
 	}, topics); err != nil {
 		return fmt.Errorf("append session project activity: %w", err), nil
 	}
@@ -417,24 +429,12 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 	if err := row.Scan(&event.CreatedAt); err != nil {
 		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
 	}
-	session := event.Ref.Session
-	var projectID sql.NullString
-	if err := transaction.QueryRow(ctx, `
-		SELECT project FROM gatehouse_sessions
-		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
-	`, session.Workspace.Id, session.Id).Scan(&projectID); err != nil {
-		return fmt.Errorf("get session project: %w", err), model.SessionEvent{}
-	}
-	topics := []string{ActivityTopicSession(session)}
-	if projectID.Valid {
-		topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: projectID.String}))
-	}
+	topics := []string{ActivityTopicSessionEvent(event.Ref)}
 	err, _ = store.ActivityEventAppendInTransaction(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_event.create",
 		ResourceKind: ActivityResourceKindSessionEvent,
-		Session:      &session,
-		SessionEvent: &event.Ref,
+		ResourceSessionEvent: &event.Ref.Id,
 		CreatedAt:    event.CreatedAt,
 	}, topics)
 	if err != nil {
@@ -651,24 +651,12 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if err := row.Scan(&insert.event.CreatedAt); err != nil {
 			return fmt.Errorf("insert session event: %w", err), nil
 		}
-		session := insert.event.Ref.Session
-		var projectID sql.NullString
-		if err := transaction.QueryRowContext(ctx, `
-			SELECT project FROM gatehouse_sessions
-			WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
-		`, session.Workspace.Id, session.Id).Scan(&projectID); err != nil {
-			return fmt.Errorf("get session project: %w", err), nil
-		}
-		topics := []string{ActivityTopicSession(session)}
-		if projectID.Valid {
-			topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: projectID.String}))
-		}
+		topics := []string{ActivityTopicSessionEvent(insert.event.Ref)}
 		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-			Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+			Ref:          model.ActivityEventRef{},
 			Event:        "session_event.create",
 			ResourceKind: ActivityResourceKindSessionEvent,
-			Session:      &session,
-			SessionEvent: &insert.event.Ref,
+			ResourceSessionEvent: &insert.event.Ref.Id,
 			CreatedAt:    insert.event.CreatedAt,
 		}, topics)
 		if err != nil {
@@ -1329,10 +1317,10 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 		topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: project.String}))
 	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session.update",
 		ResourceKind: ActivityResourceKindSession,
-		Session:      &session,
+		ResourceSession: &session.Id,
 	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session name activity: %w", err), false

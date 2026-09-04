@@ -116,7 +116,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	file := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: "report.txt"}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: "report.txt", Enabled: true}
 	err, storedFile, objectID := store.SessionFileCreate(ctx, file, objectID, principal)
 	if err != nil {
 		t.Fatal(err)
@@ -161,6 +161,22 @@ func TestClientStoresS3Objects(t *testing.T) {
 	err, bytes = client.Read(ctx, objectID, 6, 5)
 	if err != nil || string(bytes) != " S3 w" {
 		t.Fatalf("S3 range = (%q, %v)", bytes, err)
+	}
+	err, removed := store.SessionFileRemove(ctx, file.Ref, principal)
+	if err != nil || !removed {
+		t.Fatalf("SessionFileRemove() = (%t, %v)", removed, err)
+	}
+	err, unavailable, storedObject := store.SessionFileGet(ctx, file.Ref, principal)
+	if err != nil || unavailable != nil || storedObject != nil {
+		t.Fatalf("SessionFileGet() after removal = (%#v, %#v, %v)", unavailable, storedObject, err)
+	}
+	err, files := store.SessionFilesGet(ctx, session)
+	if err != nil || len(files) != 0 {
+		t.Fatalf("SessionFilesGet() after removal = (%#v, %v)", files, err)
+	}
+	err, references = store.SessionFileReferencesFilter(ctx, file.Ref.Session, []string{fileID})
+	if err != nil || len(references) != 0 {
+		t.Fatalf("SessionFileReferencesFilter() after removal = (%#v, %v)", references, err)
 	}
 }
 

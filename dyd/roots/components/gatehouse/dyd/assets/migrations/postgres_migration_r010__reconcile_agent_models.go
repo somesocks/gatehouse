@@ -29,13 +29,18 @@ func postgresMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel
 		if err != nil {
 			return err, ""
 		}
-		existing, err := postgresMigrationR010AgentModelIDsByAlias(ctx, session)
+		existing, err := postgresMigrationR010AgentModelsByAlias(ctx, session)
 		if err != nil {
 			return err, ""
 		}
 		values := make([]postgresMigrationR010AgentModelValue, 0, len(models))
+		events := make([]activityMigrationEvent, 0, len(models))
 		for _, model := range models {
-			id := existing[model.Alias]
+			previous := existing[model.Alias]
+			if previous.ID != "" && previous.Revision >= model.Revision {
+				continue
+			}
+			id := previous.ID
 			if id == "" {
 				id, err = typed_id.New(typed_id.AgentModel)
 				if err != nil {
@@ -56,16 +61,41 @@ func postgresMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel
 				return fmt.Errorf("encode agent model compaction %q: %w", model.Alias, err), ""
 			}
 			values = append(values, postgresMigrationR010AgentModelValue{ID: id, Alias: model.Alias, Revision: model.Revision, ProviderID: providers[model.ProviderAlias], Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, Enabled: model.Enabled})
+			eventName := "agent_model.create"
+			if previous.ID != "" {
+				eventName = "agent_model.update"
+			}
+			event, err := newActivityMigrationEvent("", eventName, "agent_model", "", "", "", "sys/"+id)
+			if err != nil {
+				return err, ""
+			}
+			event.AgentModelID = id
+			events = append(events, event)
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
-			{{ range . }}
+			{{ range .Values }}
 			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, enabled = excluded.enabled
 			WHERE gatehouse_agent_models.revision < excluded.revision;
 			{{ end }}
-		`, values)
+			{{ range .Events }}
+			{{ $event := . }}
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_agent_model, created_at
+			) VALUES (
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .AgentModelID }}, {{ sqlLiteral .CreatedAt }}
+			);
+			{{ range .Topics }}
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
+			{{ end }}
+			{{ end }}
+		`, struct {
+			Values []postgresMigrationR010AgentModelValue
+			Events []activityMigrationEvent
+		}{Values: values, Events: events})
 	}
 }
 
@@ -90,21 +120,39 @@ func postgresMigrationR010AgentProviderIDsByAlias(ctx context.Context, session *
 }
 
 func postgresMigrationR010AgentModelIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
-	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_agent_models WHERE alias IS NOT NULL`)
+	models, err := postgresMigrationR010AgentModelsByAlias(ctx, session)
 	if err != nil {
-		return nil, fmt.Errorf("get agent model IDs by alias: %w", err)
+		return nil, err
 	}
-	defer rows.Close()
-	ids := map[string]string{}
-	for rows.Next() {
-		var alias, id string
-		if err := rows.Scan(&alias, &id); err != nil {
-			return nil, fmt.Errorf("scan agent model ID: %w", err)
-		}
-		ids[alias] = id
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent model IDs: %w", err)
+	ids := make(map[string]string, len(models))
+	for alias, model := range models {
+		ids[alias] = model.ID
 	}
 	return ids, nil
+}
+
+type postgresMigrationR010AgentModel struct {
+	ID       string
+	Revision int
+}
+
+func postgresMigrationR010AgentModelsByAlias(ctx context.Context, session *MigrationSession) (map[string]postgresMigrationR010AgentModel, error) {
+	rows, err := session.QueryContext(ctx, `SELECT alias, id, revision FROM gatehouse_agent_models WHERE alias IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("get agent models by alias: %w", err)
+	}
+	defer rows.Close()
+	models := map[string]postgresMigrationR010AgentModel{}
+	for rows.Next() {
+		var alias string
+		var model postgresMigrationR010AgentModel
+		if err := rows.Scan(&alias, &model.ID, &model.Revision); err != nil {
+			return nil, fmt.Errorf("scan agent model: %w", err)
+		}
+		models[alias] = model
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate agent models: %w", err)
+	}
+	return models, nil
 }

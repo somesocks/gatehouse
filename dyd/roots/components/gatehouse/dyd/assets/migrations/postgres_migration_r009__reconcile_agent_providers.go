@@ -43,6 +43,7 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 			return err, ""
 		}
 		values := make([]postgresMigrationR009AgentProviderValue, 0, len(providers))
+		events := make([]activityMigrationEvent, 0, len(providers))
 		for _, provider := range providers {
 			previous := existing[provider.Alias]
 			if previous.Revision >= provider.Revision {
@@ -56,42 +57,65 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 				}
 			}
 			value := postgresMigrationR009AgentProviderValue{ID: id, Alias: provider.Alias, Revision: provider.Revision, Protocol: provider.Protocol, Enabled: provider.Enabled}
-			if provider.Protocol == "builtin" {
-				values = append(values, value)
-				continue
-			}
-			apiKeyErr, apiKey := resolver.Resolve(provider.Alias, provider.Sources)
-			if apiKeyErr != nil {
-				return apiKeyErr, ""
-			}
-			reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
-			keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
-			if keyringErr != nil {
+			if provider.Protocol != "builtin" {
+				apiKeyErr, apiKey := resolver.Resolve(provider.Alias, provider.Sources)
+				if apiKeyErr != nil {
+					return apiKeyErr, ""
+				}
+				reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
+				keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
+				if keyringErr != nil {
+					clear(apiKey)
+					return fmt.Errorf("get keychain for provider %q: %w", provider.Alias, keyringErr), ""
+				}
+				sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider|alias="+provider.Alias), apiKey)
 				clear(apiKey)
-				return fmt.Errorf("get keychain for provider %q: %w", provider.Alias, keyringErr), ""
+				clear(keys[reference])
+				if sealErr != nil {
+					return fmt.Errorf("encrypt API key for provider %q: %w", provider.Alias, sealErr), ""
+				}
+				encrypted.AAD = keychain.AADAlias
+				value.BaseURL = *provider.BaseURL
+				value.KeychainID = reference.Id
+				value.KeychainVersion = reference.Version
+				value.APIKey = encrypted.String()
 			}
-			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider|alias="+provider.Alias), apiKey)
-			clear(apiKey)
-			clear(keys[reference])
-			if sealErr != nil {
-				return fmt.Errorf("encrypt API key for provider %q: %w", provider.Alias, sealErr), ""
-			}
-			encrypted.AAD = keychain.AADAlias
-			value.BaseURL = *provider.BaseURL
-			value.KeychainID = reference.Id
-			value.KeychainVersion = reference.Version
-			value.APIKey = encrypted.String()
 			values = append(values, value)
+			eventName := "agent_provider.create"
+			if previous.ID != "" {
+				eventName = "agent_provider.update"
+			}
+			event, err := newActivityMigrationEvent("", eventName, "agent_provider", "", "", "", "sys/"+id)
+			if err != nil {
+				return err, ""
+			}
+			event.AgentProviderID = id
+			events = append(events, event)
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
-			{{ range . }}
+			{{ range .Values }}
 			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .BaseURL }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, base_url = excluded.base_url, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
 			{{ end }}
-		`, values)
+			{{ range .Events }}
+			{{ $event := . }}
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_agent_provider, created_at
+			) VALUES (
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .AgentProviderID }}, {{ sqlLiteral .CreatedAt }}
+			);
+			{{ range .Topics }}
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
+			{{ end }}
+			{{ end }}
+		`, struct {
+			Values []postgresMigrationR009AgentProviderValue
+			Events []activityMigrationEvent
+		}{Values: values, Events: events})
 	}
 }
 

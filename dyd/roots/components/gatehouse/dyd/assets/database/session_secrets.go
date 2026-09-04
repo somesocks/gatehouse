@@ -145,11 +145,11 @@ func (store *Store) SessionSecretCreate(ctx context.Context, secret model.Sessio
 		return fmt.Errorf("insert session secret: %w", err), model.SessionSecret{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Ref.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_secret.create",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &secret.Ref.Session,
-	}, []string{ActivityTopicSession(secret.Ref.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionSecret,
+		ResourceSessionSecret: &secret.Ref.Id,
+	}, []string{ActivityTopicSessionSecret(secret.Ref)}); err != nil {
 		return fmt.Errorf("append session secret creation activity: %w", err), model.SessionSecret{}
 	}
 	if err := transaction.Commit(); err != nil {
@@ -189,11 +189,11 @@ func (store *Store) SessionSecretDetailsSet(ctx context.Context, secret model.Se
 	}
 	detail.Secret.Description, detail.Secret.Ciphertext, detail.Secret.UpdatedAt = *description, *ciphertext, updatedAt
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_secret.update",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &secret.Session,
-	}, []string{ActivityTopicSession(secret.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionSecret,
+		ResourceSessionSecret: &secret.Id,
+	}, []string{ActivityTopicSessionSecret(secret)}); err != nil {
 		return fmt.Errorf("append session secret update activity: %w", err), nil
 	}
 	if err := transaction.Commit(); err != nil {
@@ -232,11 +232,11 @@ func (store *Store) SessionSecretRemove(ctx context.Context, secret model.Sessio
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_secret.remove",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &secret.Session,
-	}, []string{ActivityTopicSession(secret.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionSecret,
+		ResourceSessionSecret: &secret.Id,
+	}, []string{ActivityTopicSessionSecret(secret)}); err != nil {
 		return fmt.Errorf("append session secret removal activity: %w", err), false
 	}
 	if err := transaction.Commit(); err != nil {

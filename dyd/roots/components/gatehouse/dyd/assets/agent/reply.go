@@ -773,7 +773,7 @@ func (runtime *SessionEventReplyRuntime) sessionFileCreate(ctx dbos.Context, ses
 			}
 			mediaTypeValue := mediaType
 			err, file, objectID := runtime.store.SessionFileCreate(step, model.SessionFile{
-				Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: name, MediaType: &mediaTypeValue,
+				Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: name, MediaType: &mediaTypeValue, Enabled: true,
 			}, storageObjectID, principal)
 			if err != nil {
 				return "", err

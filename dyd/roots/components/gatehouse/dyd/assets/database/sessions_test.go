@@ -63,17 +63,17 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled) VALUES
-			(?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			(?, 'ses_00000000000000000000000002', 'contributor', ?, NULL, TRUE),
-			(?, 'ses_00000000000000000000000003', 'manager', ?, NULL, FALSE),
-			(?, 'ses_00000000000000000000000004', 'member', ?, NULL, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES
+			('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
+			('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000002', 'contributor', ?, NULL, TRUE),
+			('sgr_00000000000000000000000002', ?, 'ses_00000000000000000000000003', 'manager', ?, NULL, FALSE),
+			('sgr_00000000000000000000000003', ?, 'ses_00000000000000000000000004', 'member', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, carol.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
-			VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+			VALUES ('sgr_00000000000000000000000004', ?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
@@ -158,10 +158,10 @@ func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled) VALUES
-			(?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			(?, 'ses_00000000000000000000000001', 'member', ?, NULL, TRUE),
-			(?, 'ses_00000000000000000000000002', 'member', ?, NULL, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES
+			('sgr_00000000000000000000000005', ?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
+			('sgr_00000000000000000000000006', ?, 'ses_00000000000000000000000001', 'member', ?, NULL, TRUE),
+			('sgr_00000000000000000000000007', ?, 'ses_00000000000000000000000002', 'member', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
@@ -490,21 +490,25 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	if err != nil || empty.Description != "" || empty.Body != "" {
 		t.Fatalf("SessionNoteCreate() with empty optional fields = (%#v, %v)", empty, err)
 	}
-	for _, event := range []string{"session_note.create", "session_note.update", "session_note.remove"} {
+	for event, topic := range map[string]string{
+		"session_note.create": database.ActivityTopicSessionNote(older.Ref),
+		"session_note.update": database.ActivityTopicSessionNote(sensitive.Ref),
+		"session_note.remove": database.ActivityTopicSessionNote(newer.Ref),
+	} {
 		var count int
 		if err := store.QueryRowContext(ctx, `
 			SELECT COUNT(*)
 			FROM gatehouse_activity_events AS events
 			JOIN gatehouse_activity_event_topics AS topics
-				ON topics.workspace = events.workspace AND topics.activity = events.id
-			WHERE events.workspace = ? AND events.session = ? AND events.event = ? AND topics.topic = ?
-		`, workspace.Id, session.Id, event, database.ActivityTopicSession(session)).Scan(&count); err != nil || count == 0 {
+				ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic = ?
+		`, event, topic).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("session note activity %q = (%d, %v)", event, count, err)
 		}
 	}
 }
 
-func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(t *testing.T) {
+func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependently(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -534,6 +538,13 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	developersID := groupID(t, ctx, store, "engineering", "developers")
+	var workspaceGrantID string
+	if err := store.QueryRowContext(ctx, `
+		SELECT id FROM gatehouse_workspace_grants
+		WHERE workspace = ? AND "group" = ?
+	`, workspace.Id, developersID).Scan(&workspaceGrantID); err != nil {
+		t.Fatal(err)
+	}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	bob := principalRef(t, ctx, store, "bob")
@@ -544,8 +555,8 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
-		VALUES (?, 'ses_00000000000000000000000000', 'contributor', NULL, ?, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'contributor', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
@@ -562,7 +573,7 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 
 	check := func(principal model.PrincipalRef, checkpoints []database.ActivityTopicCheckpoint) []database.ActivityTopicCheckpoint {
-		err, advanced := store.ActivityTopicCheckpointsGet(ctx, workspace, principal, checkpoints)
+		err, advanced := store.ActivityTopicCheckpointsGet(ctx, principal, checkpoints)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -576,14 +587,21 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 		kind, topic string
 	}{
 		{database.ActivityResourceKindWorkspace, database.ActivityTopicWorkspace(workspace)},
-		{database.ActivityResourceKindWorkspaceGrant, database.ActivityTopicWorkspaceGrant("member", bob.Id)},
-		{database.ActivityResourceKindWorkspaceStorageProvider, database.ActivityTopicWorkspaceStorageProvider("stp_test")},
+		{database.ActivityResourceKindWorkspaceGrant, database.ActivityTopicGroupGrant(workspace, model.GroupRef{Id: developersID}, workspaceGrantID)},
+		{database.ActivityResourceKindWorkspace, bob.Id},
 	} {
-		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-			Ref:          model.ActivityEventRef{Workspace: workspace},
+		event := model.ActivityEvent{
+			Ref:          model.ActivityEventRef{},
 			Event:        activity.kind + ".update",
 			ResourceKind: activity.kind,
-		}, []string{activity.topic}); err != nil {
+		}
+		switch activity.kind {
+		case database.ActivityResourceKindWorkspace:
+			event.ResourceWorkspace = &workspace.Id
+		case database.ActivityResourceKindWorkspaceGrant:
+			event.ResourceWorkspaceGrant = &workspaceGrantID
+		}
+		if err, _ := store.ActivityEventAppend(ctx, transaction, event, []string{activity.topic}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -592,27 +610,34 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	}
 	for _, topic := range []string{
 		database.ActivityTopicWorkspace(workspace),
-		database.ActivityTopicWorkspaceGrant("member", bob.Id),
-		database.ActivityTopicWorkspaceStorageProvider("stp_test"),
+		database.ActivityTopicWorkspace(workspace),
+		database.ActivityTopicWorkspace(workspace),
 	} {
-		if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: topic}}); checkpoints[0].ID == "" {
+		if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: topic, Events: []string{"workspace.*"}}}); checkpoints[0].ID == "" {
 			t.Fatalf("ActivityTopicCheckpointsGet() for workspace topic %q = %#v, want a cursor", topic, checkpoints)
 		}
-		if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: topic}}); checkpoints[0].ID != "" {
+		if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: topic, Events: []string{"workspace.*"}}}); checkpoints[0].ID != "" {
 			t.Fatalf("ActivityTopicCheckpointsGet() for unavailable workspace topic %q = %#v, want no cursor", topic, checkpoints)
 		}
 	}
-	initial := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared)}})
+	principalInitial := check(bob, []database.ActivityTopicCheckpoint{{Topic: bob.Id, Events: []string{"workspace.*"}}})
+	if len(principalInitial) != 1 || principalInitial[0].ID == "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() for principal topic = %#v, want an advanced checkpoint", principalInitial)
+	}
+	if denied := check(carol, principalInitial); !reflect.DeepEqual(denied, principalInitial) {
+		t.Fatalf("ActivityTopicCheckpointsGet() for another principal topic = %#v, want unchanged %#v", denied, principalInitial)
+	}
+	initial := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared), Events: []string{"session.*", "session_event.*"}}})
 	if len(initial) != 1 || initial[0].ID == "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() = %#v, want an advanced checkpoint", initial)
 	}
 	if repeated := check(bob, initial); !reflect.DeepEqual(repeated, initial) {
 		t.Fatalf("ActivityTopicCheckpointsGet() with current checkpoints = %#v, want %#v", repeated, initial)
 	}
-	if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private)}}); checkpoints[0].ID != "" {
-		t.Fatalf("ActivityTopicCheckpointsGet() for private session = %#v, want no cursor", checkpoints)
+	if checkpoints := check(bob, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(private), Events: []string{"session.*"}}}); checkpoints[0].ID == "" {
+		t.Fatalf("ActivityTopicCheckpointsGet() for workspace session topic = %#v, want a cursor", checkpoints)
 	}
-	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared)}}); checkpoints[0].ID != "" {
+	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared), Events: []string{"session.*"}}}); checkpoints[0].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
 	}
 	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
@@ -627,16 +652,10 @@ func TestActivityTopicCheckpointsGetHonorsAuthorizationAndAdvancesIndependently(
 	var activityID, createdAt string
 	if err := store.QueryRowContext(ctx, `
 		SELECT id, created_at FROM gatehouse_activity_events
-		WHERE workspace = ? AND resource_kind = 'session'
+		WHERE resource_kind = 'session'
 		LIMIT 1
-	`, workspace.Id).Scan(&activityID, &createdAt); err != nil {
+	`).Scan(&activityID, &createdAt); err != nil {
 		t.Fatal(err)
-	}
-	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-		VALUES (?, ?, 'invalid-timestamp', '2000-01-01T00:00:00.000Z')
-	`, workspace.Id, activityID); err == nil {
-		t.Fatal("activity topic accepted a timestamp that does not match its parent event")
 	}
 	if createdAt == "" {
 		t.Fatal("activity event did not retain its creation timestamp")

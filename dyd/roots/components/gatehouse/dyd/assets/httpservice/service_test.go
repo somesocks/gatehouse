@@ -352,7 +352,7 @@ func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &project); err != nil || created.Code != http.StatusCreated {
 		t.Fatalf("POST project = (%d, %#v, %v)", created.Code, project, err)
 	}
-	if _, err := store.ExecContext(context.Background(), `DELETE FROM gatehouse_workspace_grants WHERE workspace = ?`, engineering.Id); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_workspace_grants SET enabled = FALSE WHERE workspace = ?`, engineering.Id); err != nil {
 		t.Fatal(err)
 	}
 	err, roles := store.WorkspaceRolesGet(context.Background(), engineering, principal)
@@ -669,6 +669,16 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	handler.ServeHTTP(wrongMethod, httptest.NewRequest(http.MethodGet, uploaded.UploadURL, nil))
 	if wrongMethod.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("GET upload URL = status %d", wrongMethod.Code)
+	}
+	removed := request(http.MethodDelete, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE session file = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if duplicate := request(http.MethodDelete, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, ""); duplicate.Code != http.StatusNotFound {
+		t.Fatalf("DELETE removed session file = status %d body %q", duplicate.Code, duplicate.Body.String())
+	}
+	if unavailable := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", ""); unavailable.Code != http.StatusNotFound {
+		t.Fatalf("GET removed session file = status %d body %q", unavailable.Code, unavailable.Body.String())
 	}
 }
 
@@ -1107,6 +1117,23 @@ func TestActivityAPI(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	privateWorkspace := refs["private"]
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:          model.ActivityEventRef{},
+		Event:        "workspace.update",
+		ResourceKind: database.ActivityResourceKindWorkspace,
+		ResourceWorkspace: &privateWorkspace.Id,
+	}, []string{privateWorkspace.Id}); err != nil {
+		_ = transaction.Rollback()
+		t.Fatal(err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
 	principal, identityID := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
 	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: principal, Enabled: true}, Identity: identityID})
 	if err != nil {
@@ -1119,7 +1146,7 @@ func TestActivityAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := httptest.NewRecorder()
-		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/workspaces/"+workspace.Id+"/activity", bytes.NewReader(body))
+		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/activity", bytes.NewReader(body))
 		httpRequest.Header.Set("Authorization", "Bearer "+token)
 		handler.ServeHTTP(response, httpRequest)
 		return response
@@ -1127,13 +1154,21 @@ func TestActivityAPI(t *testing.T) {
 	if response := request(model.ActivityTopicCheckpoints{}); response.Code != http.StatusBadRequest {
 		t.Fatalf("POST activity without topics = %d", response.Code)
 	}
-	empty := request(map[string]any{"topics": []map[string]any{{"topic": "session/ses_00000000000000000000000001", "cursor": nil}}})
+	empty := request(map[string]any{"topics": []map[string]any{{"topic": workspace.Id + "/ses_00000000000000000000000001", "events": []string{"session.*"}, "cursor": nil}}})
 	var emptyCheckpoints model.ActivityTopicCheckpoints
 	if err := json.Unmarshal(empty.Body.Bytes(), &emptyCheckpoints); err != nil || empty.Code != http.StatusOK || len(emptyCheckpoints.Topics) != 1 || emptyCheckpoints.Topics[0].Cursor != nil {
 		t.Fatalf("POST activity with null cursor = (%d, %#v, %v)", empty.Code, emptyCheckpoints, err)
 	}
+	denied := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
+		{Topic: privateWorkspace.Id, Events: []string{"workspace.*"}},
+	}})
+	var deniedCheckpoints model.ActivityTopicCheckpoints
+	if err := json.Unmarshal(denied.Body.Bytes(), &deniedCheckpoints); err != nil || denied.Code != http.StatusOK || len(deniedCheckpoints.Topics) != 1 || deniedCheckpoints.Topics[0].Cursor != nil {
+		t.Fatalf("POST activity for unavailable workspace = (%d, %#v, %v)", denied.Code, deniedCheckpoints, err)
+	}
+	name := "active-session"
 	response := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
-		{Topic: "session/" + session.Id},
+		{Name: &name, Topic: workspace.Id + "/" + session.Id, Events: []string{"session.*"}},
 	}})
 	if response.Code != http.StatusOK {
 		t.Fatalf("POST activity = %d body %q", response.Code, response.Body.String())
@@ -1142,11 +1177,11 @@ func TestActivityAPI(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &checkpoints); err != nil {
 		t.Fatal(err)
 	}
-	if len(checkpoints.Topics) != 1 || checkpoints.Topics[0].Cursor == nil {
+	if len(checkpoints.Topics) != 1 || checkpoints.Topics[0].Name == nil || *checkpoints.Topics[0].Name != name || checkpoints.Topics[0].Cursor == nil || strings.Contains(strings.Join(checkpoints.Topics[0].Events, ","), "*") {
 		t.Fatalf("POST activity = %#v, want an advanced topic checkpoint", checkpoints)
 	}
 	repeated := request(model.ActivityTopicCheckpoints{Topics: []model.ActivityTopicCheckpoint{
-		{Topic: checkpoints.Topics[0].Topic, Cursor: checkpoints.Topics[0].Cursor},
+		{Name: checkpoints.Topics[0].Name, Topic: checkpoints.Topics[0].Topic, Events: checkpoints.Topics[0].Events, Cursor: checkpoints.Topics[0].Cursor},
 	}})
 	var repeatedCheckpoints model.ActivityTopicCheckpoints
 	if err := json.Unmarshal(repeated.Body.Bytes(), &repeatedCheckpoints); err != nil || repeated.Code != http.StatusOK || !reflect.DeepEqual(repeatedCheckpoints, checkpoints) {
@@ -1246,14 +1281,14 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
-		VALUES (?, 'ses_00000000000000000000000000', 'manager', ?, NULL, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'manager', ?, NULL, TRUE)
 	`, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_grants (workspace, session, role, principal, "group", enabled)
-		VALUES (?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+		VALUES ('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}

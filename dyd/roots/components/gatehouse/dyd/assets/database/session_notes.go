@@ -197,11 +197,11 @@ func (store *Store) SessionNoteCreate(ctx context.Context, note model.SessionNot
 		return err, model.SessionNote{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Ref.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_note.create",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &note.Ref.Session,
-	}, []string{ActivityTopicSession(note.Ref.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionNote,
+		ResourceSessionNote: &note.Ref.Id,
+	}, []string{ActivityTopicSessionNote(note.Ref)}); err != nil {
 		return fmt.Errorf("append session note creation activity: %w", err), model.SessionNote{}
 	}
 	if err := transaction.Commit(); err != nil {
@@ -250,11 +250,11 @@ func (store *Store) SessionNoteDetailsSetAs(ctx context.Context, note model.Sess
 	detail.Note.AuthorPrincipal, detail.Note.AuthorAgent, detail.Note.AuthorGateway = author.Principal, author.Agent, author.Gateway
 	detail.AuthorName, detail.AuthorAgentLabel = nil, nil
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_note.update",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &note.Session,
-	}, []string{ActivityTopicSession(note.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionNote,
+		ResourceSessionNote: &note.Id,
+	}, []string{ActivityTopicSessionNote(note)}); err != nil {
 		return fmt.Errorf("append session note update activity: %w", err), nil
 	}
 	if err := transaction.Commit(); err != nil {
@@ -310,11 +310,11 @@ func (store *Store) SessionNoteRemove(ctx context.Context, note model.SessionNot
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Session.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "session_note.remove",
-		ResourceKind: ActivityResourceKindSession,
-		Session:      &note.Session,
-	}, []string{ActivityTopicSession(note.Session)}); err != nil {
+		ResourceKind: ActivityResourceKindSessionNote,
+		ResourceSessionNote: &note.Id,
+	}, []string{ActivityTopicSessionNote(note)}); err != nil {
 		return fmt.Errorf("append session note removal activity: %w", err), false
 	}
 	if err := transaction.Commit(); err != nil {

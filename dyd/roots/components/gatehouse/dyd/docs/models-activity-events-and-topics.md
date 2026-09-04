@@ -44,6 +44,19 @@ Prefix matching respects path boundaries. A `wsp_...` subscription matches
 `wsp_...` and `wsp_.../...`, but not another workspace whose ID shares that
 text prefix.
 
+## Activity Selectors
+
+An activity selector contains a topic prefix and a non-empty list of event
+selectors. An event selector is either an exact event name, such as
+`workspace.update`, or a namespace selector ending in `.*`, such as
+`workspace.*`. A namespace selector matches every documented event name in
+that namespace.
+
+An activity checkpoint belongs to a normalized `(topic, events)` selector. The
+event list is sorted and de-duplicated. A matching event advances the selector
+when its topic matches the topic prefix and its event name matches any event
+selector in the list.
+
 Some events have multiple root contexts. For example, a direct workspace grant
 affects both a workspace and a principal. The principal is not a child of the workspace,
 so the event emits separate topics:
@@ -181,11 +194,6 @@ and `sgr_...` IDs, respectively.
 - `project_note.update` - emitted when a project note is updated.
   - `wsp_.../prj_.../pnt_...`
 
-### Project-Note Revision
-
-- `project_note_revision.create` - emitted when a project-note revision is created.
-  - `wsp_.../prj_.../pnt_...`
-
 ### Project Secret
 
 - `project_secret.create` - emitted when a project secret is created.
@@ -243,11 +251,6 @@ and `sgr_...` IDs, respectively.
 - `session_note.create` - emitted when a session note is created.
   - `wsp_.../ses_.../snt_...`
 - `session_note.update` - emitted when a session note is updated.
-  - `wsp_.../ses_.../snt_...`
-
-### Session-Note Revision
-
-- `session_note_revision.create` - emitted when a session-note revision is created.
   - `wsp_.../ses_.../snt_...`
 
 ### Session Secret

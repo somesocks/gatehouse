@@ -47,9 +47,9 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 			SELECT COUNT(*)
 			FROM gatehouse_activity_events AS events
 			JOIN gatehouse_activity_event_topics AS topics
-				ON topics.workspace = events.workspace AND topics.activity = events.id
-			WHERE events.workspace = ? AND events.event = ? AND topics.topic = ?
-		`, workspace.Id, event, database.ActivityTopicProject(project)).Scan(&got); err != nil {
+				ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic LIKE ?
+		`, event, database.ActivityTopicProject(project)+"/%").Scan(&got); err != nil {
 			t.Fatal(err)
 		}
 		if got != want {
@@ -283,9 +283,18 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	if err != nil || empty.Description != "" || empty.Body != "" {
 		t.Fatalf("ProjectNoteCreate() with empty optional fields = (%#v, %v)", empty, err)
 	}
-	for _, event := range []string{"project_note.create", "project_note.update", "project_note.remove"} {
+	for event, topic := range map[string]string{
+		"project_note.create": database.ActivityTopicProjectNote(older.Ref),
+		"project_note.update": database.ActivityTopicProjectNote(sensitive.Ref),
+		"project_note.remove": database.ActivityTopicProjectNote(newer.Ref),
+	} {
 		var count int
-		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND project = ? AND event = ?`, workspace.Id, project.Id, event).Scan(&count); err != nil || count == 0 {
+		if err := store.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic = ?
+		`, event, topic).Scan(&count); err != nil || count == 0 {
 			t.Fatalf("project note activity %q = (%d, %v)", event, count, err)
 		}
 	}
@@ -303,12 +312,15 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
 		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: "reviewers", Enabled: true}},
+		WorkspaceGrants: []config.WorkspaceGrant{{
+			WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true,
+		}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	reviewers := model.GroupRef{Workspace: workspace, Id: groupID(t, ctx, store, "engineering", "reviewers")}
+	reviewers := model.GroupRef{Id: groupID(t, ctx, store, "engineering", "reviewers")}
 	alice := principalRef(t, ctx, store, "alice")
 	bob := principalRef(t, ctx, store, "bob")
 	projectID, err := typed_id.New(typed_id.Project)
@@ -396,14 +408,14 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkpoints := []database.ActivityTopicCheckpoint{
-		{Topic: "project/*"},
-		{Topic: database.ActivityTopicSession(session)},
+		{Topic: database.ActivityTopicProject(projectRef), Events: []string{"project.*"}},
+		{Topic: database.ActivityTopicSession(session), Events: []string{"session.*"}},
 	}
-	err, advanced := store.ActivityTopicCheckpointsGet(ctx, workspace, alice, checkpoints)
+	err, advanced := store.ActivityTopicCheckpointsGet(ctx, alice, checkpoints)
 	if err != nil || advanced[0].ID == "" || advanced[1].ID == "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for creator = (%#v, %v)", advanced, err)
 	}
-	err, hidden := store.ActivityTopicCheckpointsGet(ctx, workspace, bob, checkpoints)
+	err, hidden := store.ActivityTopicCheckpointsGet(ctx, bob, checkpoints)
 	if err != nil || hidden[0].ID != "" || hidden[1].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = (%#v, %v)", hidden, err)
 	}
@@ -439,10 +451,10 @@ func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_project_grants (workspace, project, role, principal, "group", enabled) VALUES
-			(?, 'prj_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			(?, 'prj_00000000000000000000000001', 'member', ?, NULL, TRUE),
-			(?, 'prj_00000000000000000000000002', 'member', ?, NULL, TRUE)
+		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled) VALUES
+			('pgr_00000000000000000000000000', ?, 'prj_00000000000000000000000000', 'member', ?, NULL, TRUE),
+			('pgr_00000000000000000000000001', ?, 'prj_00000000000000000000000001', 'member', ?, NULL, TRUE),
+			('pgr_00000000000000000000000002', ?, 'prj_00000000000000000000000002', 'member', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}

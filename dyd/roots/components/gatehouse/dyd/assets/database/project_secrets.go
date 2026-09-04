@@ -145,11 +145,11 @@ func (store *Store) ProjectSecretCreate(ctx context.Context, secret model.Projec
 		return fmt.Errorf("insert project secret: %w", err), model.ProjectSecret{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Ref.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_secret.create",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &secret.Ref.Project,
-	}, []string{ActivityTopicProject(secret.Ref.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectSecret,
+		ResourceProjectSecret: &secret.Ref.Id,
+	}, []string{ActivityTopicProjectSecret(secret.Ref)}); err != nil {
 		return fmt.Errorf("append project secret creation activity: %w", err), model.ProjectSecret{}
 	}
 	if err := transaction.Commit(); err != nil {
@@ -189,11 +189,11 @@ func (store *Store) ProjectSecretDetailsSet(ctx context.Context, secret model.Pr
 	}
 	detail.Secret.Description, detail.Secret.Ciphertext, detail.Secret.UpdatedAt = *description, *ciphertext, updatedAt
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_secret.update",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &secret.Project,
-	}, []string{ActivityTopicProject(secret.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectSecret,
+		ResourceProjectSecret: &secret.Id,
+	}, []string{ActivityTopicProjectSecret(secret)}); err != nil {
 		return fmt.Errorf("append project secret update activity: %w", err), nil
 	}
 	if err := transaction.Commit(); err != nil {
@@ -232,11 +232,11 @@ func (store *Store) ProjectSecretRemove(ctx context.Context, secret model.Projec
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: secret.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_secret.remove",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &secret.Project,
-	}, []string{ActivityTopicProject(secret.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectSecret,
+		ResourceProjectSecret: &secret.Id,
+	}, []string{ActivityTopicProjectSecret(secret)}); err != nil {
 		return fmt.Errorf("append project secret removal activity: %w", err), false
 	}
 	if err := transaction.Commit(); err != nil {

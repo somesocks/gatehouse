@@ -41,6 +41,9 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			sqliteMigrationV031MergeResourceGrants(),
 			sqliteMigrationV032AddNoteRevisions(),
 			sqliteMigrationV033AddWorkspaceActivitySubjects(),
+			sqliteMigrationV034AddGrantIDs(),
+			sqliteMigrationV035GlobalizeActivityEvents(),
+			sqliteMigrationV036AddSessionFileEnabled(),
 		},
 		Repeatable: []RepeatableMigration{
 			sqliteMigrationR001PrepareKeychains(keyring),

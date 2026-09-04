@@ -45,6 +45,7 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 			return err, ""
 		}
 		identities := make([]postgresMigrationR005IdentityValue, 0)
+		events := make([]activityMigrationEvent, 0)
 		for _, principal := range principals {
 			principalID := principalIDs[principal.Alias]
 			if principalID == "" {
@@ -73,11 +74,21 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 				identities = append(identities, postgresMigrationR005IdentityValue{
 					ID: id, Alias: configured.Alias, Key: configured.Key, PrincipalID: principalID, Revision: configured.Revision, Verifiers: string(encoded), Enabled: configured.Enabled,
 				})
+				eventName := "identity.create"
+				if exists {
+					eventName = "identity.update"
+				}
+				event, err := newActivityMigrationEvent("", eventName, "identity", "", principalID, "", principalID+"/"+id)
+				if err != nil {
+					return err, ""
+				}
+				event.IdentityID = id
+				events = append(events, event)
 			}
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
-			{{ range . }}
+			{{ range .Identities }}
 			INSERT INTO gatehouse_identities (id, alias, key, principal_id, verifiers, enabled, revision)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Key }}, {{ sqlLiteral .PrincipalID }}, {{ sqlLiteral .Verifiers }}, {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
 			ON CONFLICT (alias) DO UPDATE SET
@@ -88,7 +99,22 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 				revision = excluded.revision
 			WHERE gatehouse_identities.revision < excluded.revision;
 			{{ end }}
-		`, identities)
+			{{ range .Events }}
+			{{ $event := . }}
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_identity, created_at
+			) VALUES (
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .IdentityID }}, {{ sqlLiteral .CreatedAt }}
+			);
+			{{ range .Topics }}
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
+			{{ end }}
+			{{ end }}
+		`, struct {
+			Identities []postgresMigrationR005IdentityValue
+			Events     []activityMigrationEvent
+		}{Identities: identities, Events: events})
 	}
 }
 

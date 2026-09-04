@@ -63,12 +63,12 @@ func sqliteMigrationR003ReconcileWorkspacesBuilder(workspaces []config.Workspace
 			ON CONFLICT (alias) DO UPDATE SET name = excluded.name, enabled = excluded.enabled;
 
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_workspace, created_at
 			)
-			SELECT workspace, id, event, 'workspace', NULL, NULL, NULL, NULL, NULL, NULL, gh_id_timestamp(id)
+			SELECT id, event, 'workspace', workspace, gh_id_timestamp(id)
 			FROM gatehouse_migration_workspace_activities;
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			SELECT workspace, id, 'workspace/' || workspace, gh_id_timestamp(id)
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, workspace
 			FROM gatehouse_migration_workspace_activities;
 
 			DROP TABLE gatehouse_migration_workspace_activities;

@@ -64,15 +64,25 @@ type groupMemberMigrationValue struct {
 }
 
 type activityMigrationEvent struct {
-	WorkspaceAlias string
-	ID             string
-	CreatedAt      string
-	Event          string
-	ResourceKind   string
-	GroupID        string
-	PrincipalID    string
-	WorkspaceAgent string
-	Topics         []string
+	WorkspaceAlias                    string
+	ID                                string
+	CreatedAt                         string
+	Event                             string
+	ResourceKind                      string
+	GroupID                           string
+	PrincipalID                       string
+	WorkspaceAgent                    string
+	KeychainID                        string
+	KeychainVersion                   int
+	AgentProviderID                   string
+	AgentModelID                      string
+	IdentityID                        string
+	StorageProviderID                 string
+	WorkspaceID                       string
+	WorkspaceGrantID                  string
+	WorkspaceStorageProviderWorkspace string
+	WorkspaceStorageProviderProvider  string
+	Topics                            []string
 }
 
 func newActivityMigrationEvent(workspaceAlias, event, resourceKind, groupID, principalID, workspaceAgent string, topics ...string) (activityMigrationEvent, error) {
@@ -122,9 +132,34 @@ func principalIDsByAlias(ctx context.Context, session *MigrationSession) (map[st
 	return ids, nil
 }
 
+func workspaceIDsByAlias(ctx context.Context, session *MigrationSession) (map[string]string, error) {
+	rows, err := session.QueryContext(ctx, `SELECT alias, id FROM gatehouse_workspaces WHERE alias IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("get workspace IDs by alias: %w", err)
+	}
+	defer rows.Close()
+
+	ids := map[string]string{}
+	for rows.Next() {
+		var alias, id string
+		if err := rows.Scan(&alias, &id); err != nil {
+			return nil, fmt.Errorf("scan workspace ID: %w", err)
+		}
+		ids[alias] = id
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate workspace IDs: %w", err)
+	}
+	return ids, nil
+}
+
 func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
 		existing, err := groupsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		workspaces, err := workspaceIDsByAlias(ctx, session)
 		if err != nil {
 			return err, ""
 		}
@@ -140,6 +175,10 @@ func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 		events := []activityMigrationEvent{}
 		for _, group := range groups {
 			key := groupAliasKey{Workspace: group.WorkspaceID, Alias: group.Alias}
+			workspaceID := workspaces[group.WorkspaceID]
+			if workspaceID == "" {
+				return fmt.Errorf("workspace %q is unavailable", group.WorkspaceID), ""
+			}
 			stored, exists := existing[key]
 			id := stored.ID
 			if id == "" {
@@ -149,13 +188,13 @@ func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 				}
 			}
 			if !exists {
-				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.create", "group", id, "", "", "group/"+id)
+				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.create", "group", id, "", "", workspaceID+"/"+id)
 				if err != nil {
 					return err, ""
 				}
 				events = append(events, event)
 			} else if stored.Enabled != group.Enabled || !sameOptionalString(stored.Name, group.Name) {
-				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.update", "group", id, "", "", "group/"+id)
+				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.update", "group", id, "", "", workspaceID+"/"+id)
 				if err != nil {
 					return err, ""
 				}
@@ -175,7 +214,7 @@ func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 					if memberExists {
 						eventName = "group_member.update"
 					}
-					event, err := newActivityMigrationEvent(group.WorkspaceID, eventName, "group_member", id, principalID, "", "group_member/"+id+"-"+principalID, "group/"+id)
+					event, err := newActivityMigrationEvent(group.WorkspaceID, eventName, "group_member", id, principalID, "", workspaceID+"/"+id, principalID+"/"+id)
 					if err != nil {
 						return err, ""
 					}
@@ -203,13 +242,18 @@ func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 			{{ range .Events }}
 			{{ $event := . }}
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at
 			) VALUES (
-				(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, NULL, NULL, NULL, {{ sqlLiteral .GroupID }}, {{ if eq .ResourceKind "group_member" }}{{ sqlLiteral .PrincipalID }}{{ else }}NULL{{ end }}, NULL, {{ sqlLiteral .CreatedAt }}
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }},
+				{{ if eq .ResourceKind "group" }}{{ sqlLiteral .GroupID }}{{ else }}NULL{{ end }},
+				{{ if eq .ResourceKind "group_member" }}{{ sqlLiteral .GroupID }}{{ else }}NULL{{ end }},
+				{{ if eq .ResourceKind "group_member" }}{{ sqlLiteral .PrincipalID }}{{ else }}NULL{{ end }},
+				{{ if eq .ResourceKind "workspace_agent" }}(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}){{ else }}NULL{{ end }},
+				{{ if eq .ResourceKind "workspace_agent" }}{{ sqlLiteral .WorkspaceAgent }}{{ else }}NULL{{ end }}, {{ sqlLiteral .CreatedAt }}
 			);
 			{{ range .Topics }}
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $event.WorkspaceAlias }}), {{ sqlLiteral $event.ID }}, {{ sqlLiteral . }}, {{ sqlLiteral $event.CreatedAt }});
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
 			{{ end }}
 			{{ end }}
 		`, struct {

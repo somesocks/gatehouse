@@ -42,6 +42,7 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 		return session.RenderTemplate(`
 			DROP TABLE IF EXISTS gatehouse_migration_identity_desired;
 			DROP TABLE IF EXISTS gatehouse_migration_identity_state;
+			DROP TABLE IF EXISTS gatehouse_migration_identity_activities;
 
 			CREATE TEMP TABLE gatehouse_migration_identity_desired (
 				principal_alias TEXT NOT NULL,
@@ -57,14 +58,24 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_identity_state AS
-			SELECT desired.*, principals.id AS principal_id, identities.id AS existing_id
+			SELECT desired.*, principals.id AS principal_id, COALESCE(identities.id, gh_id_new('idt')) AS id, identities.id AS existing_id
 			FROM gatehouse_migration_identity_desired AS desired
 			JOIN gatehouse_principals AS principals ON principals.alias = desired.principal_alias
 			LEFT JOIN gatehouse_identities AS identities ON identities.alias = desired.alias
 			WHERE identities.id IS NULL OR identities.revision < desired.revision;
 
+			CREATE TEMP TABLE gatehouse_migration_identity_activities (
+				principal TEXT NOT NULL,
+				identity TEXT NOT NULL,
+				id TEXT NOT NULL,
+				event TEXT NOT NULL
+			) STRICT;
+			INSERT INTO gatehouse_migration_identity_activities (principal, identity, id, event)
+			SELECT principal_id, id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'identity.create' ELSE 'identity.update' END
+			FROM gatehouse_migration_identity_state;
+
 			INSERT INTO gatehouse_identities (id, alias, key, principal_id, verifiers, enabled, revision)
-			SELECT COALESCE(existing_id, gh_id_new('idt')), alias, key, principal_id, gh_identity_verifiers(key, verifier_source), enabled, revision
+			SELECT id, alias, key, principal_id, gh_identity_verifiers(key, verifier_source), enabled, revision
 			FROM gatehouse_migration_identity_state
 			WHERE TRUE
 			ON CONFLICT (alias) DO UPDATE SET
@@ -75,6 +86,15 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 				revision = excluded.revision
 			WHERE gatehouse_identities.revision < excluded.revision;
 
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_identity, created_at
+			)
+			SELECT id, event, 'identity', identity, gh_id_timestamp(id)
+			FROM gatehouse_migration_identity_activities;
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, principal || '/' || identity FROM gatehouse_migration_identity_activities;
+
+			DROP TABLE gatehouse_migration_identity_activities;
 			DROP TABLE gatehouse_migration_identity_state;
 			DROP TABLE gatehouse_migration_identity_desired;
 		`, identities)

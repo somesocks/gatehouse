@@ -11,12 +11,12 @@ import (
 )
 
 const (
-	Workspace     = "wsp"
-	Principal     = "prn"
-	Identity      = "idt"
-	Group         = "grp"
-	AgentProvider = "apr"
-	AgentModel    = "amd"
+	Workspace       = "wsp"
+	Principal       = "prn"
+	Identity        = "idt"
+	Group           = "grp"
+	AgentProvider   = "apr"
+	AgentModel      = "amd"
 	StorageProvider = "stp"
 	StorageObject   = "obj"
 	SessionFile     = "sfi"
@@ -29,7 +29,10 @@ const (
 	Project         = "prj"
 	Session         = "ses"
 	SessionEvent    = "sev"
-	ActivityEvent = "act"
+	WorkspaceGrant  = "wgr"
+	ProjectGrant    = "pgr"
+	SessionGrant    = "sgr"
+	ActivityEvent   = "act"
 )
 
 func New(kind string) (string, error) {

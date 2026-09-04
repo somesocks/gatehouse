@@ -282,11 +282,7 @@ let GroupRef =
         s.record.props::{
         , required =
             toMap
-              { workspace =
-                  s.reference.from
-                    s.reference.props::{ to = "WorkspaceRef" }
-                    s.reference.meta::{ description = Some "owning workspace identity" }
-              , id =
+               { id =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
                       s.text.meta::{ description = Some "durable typed group identity" }
@@ -540,11 +536,12 @@ let SessionFile =
       s.record.from
         s.record.props::{
         , required = toMap
-            { ref = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "session file identity" }
-            , storage_object = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "backing immutable storage object" }
-            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
-            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file creation timestamp" }
-            }
+             { ref = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "session file identity" }
+             , storage_object = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "backing immutable storage object" }
+             , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
+             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session file is available" }
+             , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file creation timestamp" }
+             }
         , optional = toMap
             { media_type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "declared media type" } }
         }
@@ -872,11 +869,7 @@ let ActivityEventRef =
         s.record.props::{
         , required =
             toMap
-              { workspace =
-                  s.reference.from
-                    s.reference.props::{ to = "WorkspaceRef" }
-                    s.reference.meta::{ description = Some "owning workspace identity" }
-              , id =
+              { id =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "durable typed activity identity" }
@@ -909,33 +902,36 @@ let ActivityEvent =
               }
         , optional =
             toMap
-              { session =
-                  s.reference.from
-                    s.reference.props::{ to = "SessionRef" }
-                    s.reference.meta::{ description = Some "session activity subject" }
-              , session_event =
-                  s.reference.from
-                    s.reference.props::{ to = "SessionEventRef" }
-                    s.reference.meta::{ description = Some "session event activity subject" }
-                , project =
-                    s.reference.from
-                      s.reference.props::{ to = "ProjectRef" }
-                      s.reference.meta::{ description = Some "project activity subject" }
-                , group =
-                    s.reference.from
-                      s.reference.props::{ to = "GroupRef" }
-                      s.reference.meta::{ description = Some "group activity subject" }
-                , group_member =
-                    s.reference.from
-                      s.reference.props::{ to = "GroupMemberRef" }
-                      s.reference.meta::{ description = Some "group membership activity subject" }
-                , workspace_agent =
-                    s.reference.from
-                      s.reference.props::{ to = "WorkspaceAgentRef" }
-                      s.reference.meta::{ description = Some "workspace agent activity subject" }
-                }
+               { resource_keychain_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain resource ID" }
+               , resource_keychain_version = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "keychain resource version" }
+               , resource_agent_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider resource ID" }
+               , resource_agent_model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model resource ID" }
+               , resource_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group resource ID" }
+               , resource_group_member_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership group ID" }
+               , resource_group_member_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership principal ID" }
+               , resource_identity = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "identity resource ID" }
+               , resource_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "principal resource ID" }
+               , resource_project = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project resource ID" }
+               , resource_project_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project file resource ID" }
+               , resource_project_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project grant resource ID" }
+               , resource_project_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note resource ID" }
+               , resource_project_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret resource ID" }
+               , resource_session = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session resource ID" }
+               , resource_session_event = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session event resource ID" }
+               , resource_session_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file resource ID" }
+               , resource_session_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session grant resource ID" }
+               , resource_session_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session note resource ID" }
+               , resource_session_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session secret resource ID" }
+               , resource_storage_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider resource ID" }
+               , resource_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace resource ID" }
+               , resource_workspace_agent_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent workspace ID" }
+               , resource_workspace_agent_model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent model ID" }
+               , resource_workspace_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace grant resource ID" }
+               , resource_workspace_storage_provider_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace storage provider workspace ID" }
+               , resource_workspace_storage_provider_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace storage provider provider ID" }
+               }
         }
-        s.record.meta::{ name = Some "ActivityEvent", description = Some "A durable workspace activity event with a typed resource subject." }
+        s.record.meta::{ name = Some "ActivityEvent", description = Some "A durable global activity event with a typed resource target." }
 
 let ActivityCursor =
       s.record.from
@@ -956,18 +952,31 @@ let ActivityTopicCheckpoint =
         s.record.props::{
         , required =
             toMap
-              { topic =
+               { topic =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "opaque activity topic" }
-              }
-        , optional =
-            toMap
-              { cursor =
-                  s.reference.from
-                    s.reference.props::{ to = "ActivityCursor" }
-                    s.reference.meta::{ description = Some "latest observed activity checkpoint" }
-              }
+                     s.text.meta::{ description = Some "opaque activity topic" }
+               , events =
+                   s.list.from
+                     s.list.props::{
+                     , values =
+                         s.text.from
+                           s.text.props::{ variant = s.text.variants.none }
+                           s.text.meta::{ description = Some "exact activity event names or terminal wildcard selectors" }
+                     }
+                     s.list.meta::{ description = Some "activity event selectors" }
+               }
+         , optional =
+             toMap
+               { name =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "opaque client checkpoint correlation name" }
+               , cursor =
+                   s.reference.from
+                     s.reference.props::{ to = "ActivityCursor" }
+                     s.reference.meta::{ description = Some "latest observed activity checkpoint" }
+               }
         }
         s.record.meta::{ name = Some "ActivityTopicCheckpoint", description = Some "A topic and its latest observed activity checkpoint." }
 

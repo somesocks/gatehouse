@@ -121,20 +121,24 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET enabled = excluded.enabled;
 
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, created_at
 			)
-			SELECT workspace_id, id, event, resource_kind, NULL, NULL, NULL, group_id, principal_id, NULL, gh_id_timestamp(id)
+			SELECT id, event, resource_kind,
+				CASE WHEN resource_kind = 'group' THEN group_id END,
+				CASE WHEN resource_kind = 'group_member' THEN group_id END,
+				CASE WHEN resource_kind = 'group_member' THEN principal_id END,
+				gh_id_timestamp(id)
 			FROM gatehouse_migration_group_activities;
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			SELECT workspace_id, id, 'group/' || group_id, gh_id_timestamp(id)
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, workspace_id || '/' || group_id
 			FROM gatehouse_migration_group_activities
 			WHERE resource_kind = 'group'
 			UNION ALL
-			SELECT workspace_id, id, 'group_member/' || group_id || '-' || principal_id, gh_id_timestamp(id)
+			SELECT id, principal_id || '/' || group_id
 			FROM gatehouse_migration_group_activities
 			WHERE resource_kind = 'group_member'
 			UNION ALL
-			SELECT workspace_id, id, 'group/' || group_id, gh_id_timestamp(id)
+			SELECT id, workspace_id || '/' || group_id
 			FROM gatehouse_migration_group_activities
 			WHERE resource_kind = 'group_member';
 

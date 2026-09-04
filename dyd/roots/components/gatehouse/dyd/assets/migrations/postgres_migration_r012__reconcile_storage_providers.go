@@ -40,6 +40,7 @@ func postgresMigrationR012ReconcileStorageProvidersBuilder(providers []config.St
 			return err, ""
 		}
 		values := make([]postgresMigrationR012StorageProviderValue, 0, len(providers))
+		events := make([]activityMigrationEvent, 0, len(providers))
 		for _, provider := range providers {
 			previous := existing[provider.Alias]
 			if previous.Revision >= provider.Revision {
@@ -53,45 +54,68 @@ func postgresMigrationR012ReconcileStorageProvidersBuilder(providers []config.St
 				}
 			}
 			value := postgresMigrationR012StorageProviderValue{ID: id, Alias: provider.Alias, Revision: provider.Revision, Protocol: provider.Protocol, Enabled: provider.Enabled}
-			if provider.Protocol == "embedded" {
-				values = append(values, value)
-				continue
-			}
-			secretErr, secret := resolver.Resolve(provider.Alias, provider.SecretKeySources)
-			if secretErr != nil {
-				return secretErr, ""
-			}
-			reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
-			keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
-			if keyringErr != nil {
+			if provider.Protocol != "embedded" {
+				secretErr, secret := resolver.Resolve(provider.Alias, provider.SecretKeySources)
+				if secretErr != nil {
+					return secretErr, ""
+				}
+				reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
+				keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
+				if keyringErr != nil {
+					clear(secret)
+					return fmt.Errorf("get keychain for storage provider %q: %w", provider.Alias, keyringErr), ""
+				}
+				sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|storage-provider|alias="+provider.Alias), secret)
 				clear(secret)
-				return fmt.Errorf("get keychain for storage provider %q: %w", provider.Alias, keyringErr), ""
+				clear(keys[reference])
+				if sealErr != nil {
+					return fmt.Errorf("encrypt secret access key for storage provider %q: %w", provider.Alias, sealErr), ""
+				}
+				encrypted.AAD = keychain.AADAlias
+				value.Endpoint = *provider.Endpoint
+				value.Region = *provider.Region
+				value.Bucket = *provider.Bucket
+				value.AccessKeyID = *provider.AccessKeyID
+				value.KeychainID = reference.Id
+				value.KeychainVersion = reference.Version
+				value.SecretKey = encrypted.String()
 			}
-			sealErr, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|storage-provider|alias="+provider.Alias), secret)
-			clear(secret)
-			clear(keys[reference])
-			if sealErr != nil {
-				return fmt.Errorf("encrypt secret access key for storage provider %q: %w", provider.Alias, sealErr), ""
-			}
-			encrypted.AAD = keychain.AADAlias
-			value.Endpoint = *provider.Endpoint
-			value.Region = *provider.Region
-			value.Bucket = *provider.Bucket
-			value.AccessKeyID = *provider.AccessKeyID
-			value.KeychainID = reference.Id
-			value.KeychainVersion = reference.Version
-			value.SecretKey = encrypted.String()
 			values = append(values, value)
+			eventName := "storage_provider.create"
+			if previous.ID != "" {
+				eventName = "storage_provider.update"
+			}
+			event, err := newActivityMigrationEvent("", eventName, "storage_provider", "", "", "", "sys/"+id)
+			if err != nil {
+				return err, ""
+			}
+			event.StorageProviderID = id
+			events = append(events, event)
 		}
 		return session.RenderTemplate(`
 			SELECT 1;
-			{{ range . }}
+			{{ range .Values }}
 			INSERT INTO gatehouse_storage_providers (id, alias, revision, protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, enabled)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .Region }}, {{ sqlLiteral .Bucket }}, {{ sqlLiteral .AccessKeyID }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .SecretKey }}, {{ sqlBool .Enabled }})
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, region = excluded.region, bucket = excluded.bucket, access_key_id = excluded.access_key_id, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, secret_access_key = excluded.secret_access_key, enabled = excluded.enabled
 			WHERE gatehouse_storage_providers.revision < excluded.revision;
 			{{ end }}
-		`, values)
+			{{ range .Events }}
+			{{ $event := . }}
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_storage_provider, created_at
+			) VALUES (
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .StorageProviderID }}, {{ sqlLiteral .CreatedAt }}
+			);
+			{{ range .Topics }}
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
+			{{ end }}
+			{{ end }}
+		`, struct {
+			Values []postgresMigrationR012StorageProviderValue
+			Events []activityMigrationEvent
+		}{Values: values, Events: events})
 	}
 }
 

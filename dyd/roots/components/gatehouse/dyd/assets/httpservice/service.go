@@ -141,12 +141,13 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}/revisions/{revision}", workspaceSessionNoteRevision(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets", workspaceSessionSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets/{secret}", workspaceSessionSecret(store, tokens[0]))
-		mux.HandleFunc("/api/v1/workspaces/{workspace}/activity", workspaceActivity(store, tokens[0]))
+		mux.HandleFunc("/api/v1/activity", activity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}", workspaceSessionFile(store, tokens[0]))
 		mux.HandleFunc("/api/v1/storage", storageProxy(tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
@@ -567,7 +568,7 @@ func workspaceProjects(store *database.Store, tokens *auth.BearerTokens) http.Ha
 					http.Error(response, "invalid project group", http.StatusBadRequest)
 					return
 				}
-				groups = append(groups, model.GroupRef{Workspace: workspace, Id: groupID})
+				groups = append(groups, model.GroupRef{Id: groupID})
 			}
 			err, project := store.ProjectsCreate(request.Context(), model.Project{Ref: model.ProjectRef{Workspace: workspace, Id: id}, Name: input.Name, Description: input.Description, Enabled: true}, claims.Principal.Ref, groups)
 			if err != nil {
@@ -903,17 +904,13 @@ func workspaceSessionProject(store *database.Store, tokens *auth.BearerTokens) h
 	}
 }
 
-func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+func activity(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
 		claims, ok := authenticate(response, request, tokens)
-		if !ok {
-			return
-		}
-		workspace, ok := authorizedWorkspace(response, request, store, claims)
 		if !ok {
 			return
 		}
@@ -924,19 +921,25 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			http.Error(response, "invalid activity topics", http.StatusBadRequest)
 			return
 		}
-		seenTopics := make(map[string]struct{}, len(input.Topics))
+		seenCheckpoints := make(map[string]struct{}, len(input.Topics))
 		checkpoints := make([]database.ActivityTopicCheckpoint, 0, len(input.Topics))
 		for _, topic := range input.Topics {
 			if strings.TrimSpace(topic.Topic) == "" {
 				http.Error(response, "invalid activity topic", http.StatusBadRequest)
 				return
 			}
-			if _, exists := seenTopics[topic.Topic]; exists {
-				http.Error(response, "duplicate activity topic", http.StatusBadRequest)
+			events, err := database.ActivityEventSelectorsNormalize(topic.Events)
+			if err != nil {
+				http.Error(response, "invalid activity event selectors", http.StatusBadRequest)
 				return
 			}
-			seenTopics[topic.Topic] = struct{}{}
-			checkpoint := database.ActivityTopicCheckpoint{Topic: topic.Topic}
+			identity := topic.Topic + "\x00" + strings.Join(events, "\x00")
+			if _, exists := seenCheckpoints[identity]; exists {
+				http.Error(response, "duplicate activity checkpoint", http.StatusBadRequest)
+				return
+			}
+			seenCheckpoints[identity] = struct{}{}
+			checkpoint := database.ActivityTopicCheckpoint{Name: topic.Name, Topic: topic.Topic, Events: events}
 			if topic.Cursor != nil {
 				if !typed_id.Valid(typed_id.ActivityEvent, topic.Cursor.Id) {
 					http.Error(response, "invalid activity cursor", http.StatusBadRequest)
@@ -946,14 +949,14 @@ func workspaceActivity(store *database.Store, tokens *auth.BearerTokens) http.Ha
 			}
 			checkpoints = append(checkpoints, checkpoint)
 		}
-		err, advanced := store.ActivityTopicCheckpointsGet(request.Context(), workspace, claims.Principal.Ref, checkpoints)
+		err, advanced := store.ActivityTopicCheckpointsGet(request.Context(), claims.Principal.Ref, checkpoints)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
 		result := make([]model.ActivityTopicCheckpoint, 0, len(advanced))
 		for _, checkpoint := range advanced {
-			entry := model.ActivityTopicCheckpoint{Topic: checkpoint.Topic}
+			entry := model.ActivityTopicCheckpoint{Name: checkpoint.Name, Topic: checkpoint.Topic, Events: checkpoint.Events}
 			if checkpoint.ID != "" {
 				entry.Cursor = &model.ActivityCursor{Id: checkpoint.ID}
 			}
@@ -1085,7 +1088,7 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		created := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: input.Name, MediaType: input.MediaType}
+		created := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: input.Name, MediaType: input.MediaType, Enabled: true}
 		err, stored, objectID := store.SessionFileCreate(request.Context(), created, storageObjectID, claims.Principal.Ref)
 		if err != nil {
 			if strings.Contains(err.Error(), "no available storage provider") {
@@ -1125,6 +1128,15 @@ func workspaceSessionFileFinish(store *database.Store, tokens *auth.BearerTokens
 			http.Error(response, "storage object is not ready", http.StatusConflict)
 			return
 		}
+		err, file, object := store.SessionFileFinish(request.Context(), file.Ref, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if file == nil || object == nil {
+			http.NotFound(response, request)
+			return
+		}
 		writeJSON(response, file)
 	}
 }
@@ -1154,6 +1166,37 @@ func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerToke
 		}
 		noStore(response)
 		http.Redirect(response, request, storageURL(request, token), http.StatusTemporaryRedirect)
+	}
+}
+
+func workspaceSessionFile(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		file, _, ok := authorizedSessionFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil {
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, file.Ref.Session, authz.SessionFileRemove) {
+			return
+		}
+		err, removed := store.SessionFileRemove(request.Context(), file.Ref, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !removed {
+			http.NotFound(response, request)
+			return
+		}
+		noStore(response)
+		response.WriteHeader(http.StatusNoContent)
 	}
 }
 

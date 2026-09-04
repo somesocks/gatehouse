@@ -197,11 +197,11 @@ func (store *Store) ProjectNoteCreate(ctx context.Context, note model.ProjectNot
 		return err, model.ProjectNote{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Ref.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_note.create",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &note.Ref.Project,
-	}, []string{ActivityTopicProject(note.Ref.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectNote,
+		ResourceProjectNote: &note.Ref.Id,
+	}, []string{ActivityTopicProjectNote(note.Ref)}); err != nil {
 		return fmt.Errorf("append project note creation activity: %w", err), model.ProjectNote{}
 	}
 	if err := transaction.Commit(); err != nil {
@@ -251,11 +251,11 @@ func (store *Store) ProjectNoteDetailsSetAs(ctx context.Context, note model.Proj
 	detail.Note.AuthorPrincipal, detail.Note.AuthorAgent, detail.Note.AuthorGateway = author.Principal, author.Agent, author.Gateway
 	detail.AuthorName, detail.AuthorAgentLabel = nil, nil
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_note.update",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &note.Project,
-	}, []string{ActivityTopicProject(note.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectNote,
+		ResourceProjectNote: &note.Id,
+	}, []string{ActivityTopicProjectNote(note)}); err != nil {
 		return fmt.Errorf("append project note update activity: %w", err), nil
 	}
 	if err := transaction.Commit(); err != nil {
@@ -311,11 +311,11 @@ func (store *Store) ProjectNoteRemove(ctx context.Context, note model.ProjectNot
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{Workspace: note.Project.Workspace},
+		Ref:          model.ActivityEventRef{},
 		Event:        "project_note.remove",
-		ResourceKind: ActivityResourceKindProject,
-		Project:      &note.Project,
-	}, []string{ActivityTopicProject(note.Project)}); err != nil {
+		ResourceKind: ActivityResourceKindProjectNote,
+		ResourceProjectNote: &note.Id,
+	}, []string{ActivityTopicProjectNote(note)}); err != nil {
 		return fmt.Errorf("append project note removal activity: %w", err), false
 	}
 	if err := transaction.Commit(); err != nil {

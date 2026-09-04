@@ -84,12 +84,12 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				enabled = excluded.enabled;
 
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at
 			)
-			SELECT workspace_id, id, event, 'workspace_agent', NULL, NULL, NULL, NULL, NULL, model_id, gh_id_timestamp(id)
+			SELECT id, event, 'workspace_agent', workspace_id, model_id, gh_id_timestamp(id)
 			FROM gatehouse_migration_workspace_agent_activities;
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			SELECT workspace_id, id, 'workspace_agent/' || model_id, gh_id_timestamp(id)
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, workspace_id
 			FROM gatehouse_migration_workspace_agent_activities;
 
 			DROP TABLE gatehouse_migration_workspace_agent_activities;

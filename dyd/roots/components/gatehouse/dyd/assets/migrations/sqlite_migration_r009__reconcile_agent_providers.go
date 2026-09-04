@@ -70,13 +70,57 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 			values = append(values, value)
 		}
 		return session.RenderTemplate(`
-			SELECT 1;
+			DROP TABLE IF EXISTS gatehouse_migration_agent_provider_desired;
+			DROP TABLE IF EXISTS gatehouse_migration_agent_provider_state;
+			DROP TABLE IF EXISTS gatehouse_migration_agent_provider_activities;
+
+			CREATE TEMP TABLE gatehouse_migration_agent_provider_desired (
+				alias TEXT NOT NULL PRIMARY KEY,
+				revision INTEGER NOT NULL,
+				protocol TEXT NOT NULL,
+				base_url TEXT,
+				keychain_id TEXT,
+				keychain_version INTEGER,
+				api_key TEXT,
+				enabled INTEGER NOT NULL
+			) STRICT;
 			{{ range . }}
+			INSERT INTO gatehouse_migration_agent_provider_desired (alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
+			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .BaseURL }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }});
+			{{ end }}
+
+			CREATE TEMP TABLE gatehouse_migration_agent_provider_state AS
+			SELECT desired.*, COALESCE(providers.id, gh_id_new('apr')) AS id, providers.id AS existing_id
+			FROM gatehouse_migration_agent_provider_desired AS desired
+			LEFT JOIN gatehouse_agent_providers AS providers ON providers.alias = desired.alias;
+
+			CREATE TEMP TABLE gatehouse_migration_agent_provider_activities (
+				provider TEXT NOT NULL,
+				id TEXT NOT NULL,
+				event TEXT NOT NULL
+			) STRICT;
+			INSERT INTO gatehouse_migration_agent_provider_activities (provider, id, event)
+			SELECT id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'agent_provider.create' ELSE 'agent_provider.update' END
+			FROM gatehouse_migration_agent_provider_state;
+
 			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-			VALUES (COALESCE((SELECT id FROM gatehouse_agent_providers WHERE alias = {{ sqlLiteral .Alias }}), gh_id_new('apr')), {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .BaseURL }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }})
+			SELECT id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled
+			FROM gatehouse_migration_agent_provider_state
+			WHERE TRUE
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, base_url = excluded.base_url, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
-			{{ end }}
+
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_agent_provider, created_at
+			)
+			SELECT id, event, 'agent_provider', provider, gh_id_timestamp(id)
+			FROM gatehouse_migration_agent_provider_activities;
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, 'sys/' || provider FROM gatehouse_migration_agent_provider_activities;
+
+			DROP TABLE gatehouse_migration_agent_provider_activities;
+			DROP TABLE gatehouse_migration_agent_provider_state;
+			DROP TABLE gatehouse_migration_agent_provider_desired;
 		`, values)
 	}
 }

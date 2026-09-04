@@ -183,7 +183,8 @@ func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.Work
 	for rows.Next() {
 		var group model.Group
 		var alias, name sql.NullString
-		if err := rows.Scan(&group.Ref.Workspace.Id, &group.Ref.Id, &alias, &name, &group.Enabled); err != nil {
+		var workspaceID string
+		if err := rows.Scan(&workspaceID, &group.Ref.Id, &alias, &name, &group.Enabled); err != nil {
 			return fmt.Errorf("scan workspace group: %w", err), nil
 		}
 		if name.Valid {

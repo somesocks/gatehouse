@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
-  import { ActivityTopicPoller, type ActivityTopicCheckpoint } from "./activity"
+  import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity"
   import { renderMarkdown } from "./markdown"
   import { parseRoute, routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
@@ -652,6 +652,8 @@
       }
       claims = (await response.json()) as Claims
       status = "authenticated"
+      configureActivityPolling()
+      await activityPoller.poll()
       await loadWorkspaces()
     } catch {
       claims = null
@@ -890,7 +892,7 @@
   }
 
   function activateWorkspacePage() {
-    stopActivityPolling(false)
+    stopActivityPolling()
     activeSession = null
     activeProject = null
     activeProjectNote = null
@@ -910,7 +912,7 @@
     }
     mobileMenuOpen = false
     const changedSession = activeSession?.id !== session.id
-    stopActivityPolling(false)
+    stopActivityPolling()
     activeSession = session
     activeProject = session.project ?? null
     if (changedSession) {
@@ -953,7 +955,7 @@
       return
     }
     mobileMenuOpen = false
-    stopActivityPolling(false)
+    stopActivityPolling()
     activeSession = null
     activeProject = project
     resetNoteHistory()
@@ -1496,8 +1498,8 @@
     }
   }
 
-  const activityPoller = new ActivityTopicPoller(async (workspaceID, topics, signal) => {
-    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/activity`, {
+  const activityPoller = new ActivityTopicPoller(async (topics, signal) => {
+    const response = await fetch("/api/v1/activity", {
       method: "POST",
       credentials: "same-origin",
       headers: { "Content-Type": "application/json" },
@@ -1511,17 +1513,20 @@
     if (!response.ok) {
       throw new Error("activity checkpoints could not be loaded")
     }
-    const output = (await response.json()) as { topics: { topic: string; cursor?: ActivityTopicCheckpoint["cursor"] }[] }
-    return output.topics.map((checkpoint) => ({ topic: checkpoint.topic, cursor: checkpoint.cursor ?? null }))
+    const output = (await response.json()) as { topics: { name?: string; topic: string; events: string[]; cursor?: ActivityTopicCheckpoint["cursor"] }[] }
+    return output.topics.map((checkpoint) => {
+      if (checkpoint.name === undefined) {
+        throw new Error("activity checkpoint name is missing")
+      }
+      return { name: checkpoint.name, topic: checkpoint.topic, events: checkpoint.events, cursor: checkpoint.cursor ?? null }
+    })
   }, 1000, undefined, () => {
     activityPollTimestamp = Date.now()
   })
 
-  function stopActivityPolling(clearWorkspace = true) {
+  function stopActivityPolling() {
     disposeActiveProjection()
-    if (clearWorkspace) {
-      activityPoller.setWorkspace(null)
-    }
+    activityPoller.stop()
     awaitingReplyFor = []
   }
 
@@ -1610,41 +1615,87 @@
 
   function configureActivityPolling() {
     disposeActiveProjection()
+    const principalID = claims?.principal.ref.id
+    if (principalID === undefined) {
+      return
+    }
+    const principalSelector: ActivitySelector = {
+      name: "principal",
+      topic: principalID,
+      events: ["workspace_grant.*", "group_member.*"],
+    }
     if (activeWorkspace === null) {
+      let unsubscribe: (() => void) | undefined
+      const projection: ActivityProjection = { stop: () => unsubscribe?.() }
+      activeProjection = projection
+      unsubscribe = activityPoller.subscribe([principalSelector], async ({ names, signal }) => {
+        if (signal.aborted || !isActiveProjection(projection)) {
+          return
+        }
+        const refreshed = !names.has(principalSelector.name) || await loadWorkspaces()
+        if (!refreshed || signal.aborted || !isActiveProjection(projection)) {
+          throw new Error("activity projection refresh failed")
+        }
+      })
       return
     }
     const workspace = activeWorkspace
     const session = activeSession
     const overview = session === null && activeProject === null
-    const sessionTopic = session === null ? (overview ? "session/*" : undefined) : `session/${session.id}`
+    const workspaceSelector: ActivitySelector = {
+      name: "workspace",
+      topic: workspace.id,
+      events: ["workspace.*", "workspace_grant.*"],
+    }
+    const groupSelector = isGroupCollection() ? {
+      name: "group",
+      topic: workspace.id,
+      events: ["group.*", "group_member.*"],
+    } satisfies ActivitySelector : undefined
+    const agentSelector = session === null ? undefined : {
+      name: "agent",
+      topic: workspace.id,
+      events: ["workspace_agent.*"],
+    } satisfies ActivitySelector
+    const sessionSelector = session === null ? (overview ? {
+      name: "session",
+      topic: workspace.id,
+      events: ["session.*"],
+    } satisfies ActivitySelector : undefined) : {
+      name: "session",
+      topic: `${workspace.id}/${session.id}`,
+      events: ["session.*", "session_event.*", "session_file.*", "session_note.*", "session_secret.*"],
+    } satisfies ActivitySelector
     const projectID = session?.project?.id ?? activeProject?.id
-    const projectTopic = projectID === undefined ? (overview ? "project/*" : undefined) : `project/${projectID}`
-    const workspaceTopic = `workspace/${workspace.id}`
-    const workspaceGrantTopic = "workspace_grant/*"
-    const groupTopic = isGroupCollection() ? "group/*" : undefined
-    const groupMemberTopic = isGroupCollection() ? "group_member/*" : undefined
-    const agentTopic = session === null ? undefined : "workspace_agent/*"
-    const activityTopics = [workspaceTopic, workspaceGrantTopic, groupTopic, groupMemberTopic, agentTopic, sessionTopic, projectTopic].filter((topic): topic is string => topic !== undefined)
-    activityPoller.setWorkspace(workspace.id)
+    const projectSelector = projectID === undefined ? (overview ? {
+      name: "project",
+      topic: workspace.id,
+      events: ["project.*"],
+    } satisfies ActivitySelector : undefined) : {
+      name: "project",
+      topic: `${workspace.id}/${projectID}`,
+      events: ["project.*", "project_file.*", "project_note.*", "project_secret.*", "session.*"],
+    } satisfies ActivitySelector
+    const activitySelectors = [principalSelector, workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
     const projection: ActivityProjection = { stop: () => unsubscribe?.() }
     activeProjection = projection
-    unsubscribe = activityPoller.subscribe(activityTopics, async ({ topics, signal }) => {
+    unsubscribe = activityPoller.subscribe(activitySelectors, async ({ names, signal }) => {
       if (signal.aborted || !isActiveProjection(projection)) {
         return
       }
 
-      const workspaceChanged = topics.has(workspaceTopic) || topics.has(workspaceGrantTopic)
-      const groupChanged = (groupTopic !== undefined && topics.has(groupTopic))
-        || (groupMemberTopic !== undefined && topics.has(groupMemberTopic))
-      const agentChanged = agentTopic !== undefined && topics.has(agentTopic)
-      const sessionChanged = sessionTopic !== undefined && topics.has(sessionTopic)
-      const projectChanged = projectTopic !== undefined && topics.has(projectTopic)
+      const principalChanged = names.has(principalSelector.name)
+      const workspaceChanged = names.has(workspaceSelector.name)
+      const groupChanged = groupSelector !== undefined && names.has(groupSelector.name)
+      const agentChanged = agentSelector !== undefined && names.has(agentSelector.name)
+      const sessionChanged = sessionSelector !== undefined && names.has(sessionSelector.name)
+      const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
 
       let refreshed = (await Promise.all([
-        ...(workspaceChanged ? [loadWorkspaces(false)] : []),
-        ...(sessionTopic !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
-        ...(projectTopic !== undefined ? [refreshWorkspaceProjects(workspace, projection)] : []),
+        ...(principalChanged || workspaceChanged ? [loadWorkspaces(false)] : []),
+        ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
+        ...(projectSelector !== undefined ? [refreshWorkspaceProjects(workspace, projection)] : []),
         ...(groupChanged ? [refreshWorkspaceGroups(workspace, projection)] : []),
         ...(agentChanged ? [refreshWorkspaceAgents(workspace, projection)] : []),
       ])).every(Boolean)

@@ -95,6 +95,133 @@ func TestSQLiteIDFunctions(t *testing.T) {
 	}
 }
 
+func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	state := config.State{
+		Keychains: []config.Keychain{{ID: "events", Sources: []config.KeychainPassphraseSource{"env:EVENTS_KEYCHAIN"}}},
+		Principals: []config.Principal{{
+			Alias: "alice", Revision: 1, Enabled: true,
+			Identities: []config.Identity{{
+				Alias: "alice-matrix", Key: "matrix:@alice:example.org", Revision: 1, Enabled: true,
+				Verifiers: []config.Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+			}},
+		}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{
+			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Fallback reply."}`,
+			MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
+		}},
+		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+	}
+	t.Setenv("EVENTS_KEYCHAIN", "events passphrase")
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+
+	principal := principalRef(t, ctx, store, "alice")
+	var identityID, providerID, modelID, storageProviderID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_identities WHERE alias = 'alice-matrix'`).Scan(&identityID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_providers WHERE alias = 'builtin'`).Scan(&providerID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'fallback'`).Scan(&modelID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_storage_providers WHERE alias = 'embedded'`).Scan(&storageProviderID); err != nil {
+		t.Fatal(err)
+	}
+
+	assertActivity := func(event, targetColumn, target, topic string, want int) {
+		t.Helper()
+		var count int
+		if err := store.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND events.`+targetColumn+` = ? AND topics.topic = ?
+		`, event, target, topic).Scan(&count); err != nil {
+			t.Fatal(err)
+		}
+		if count != want {
+			t.Fatalf("%s activity count = %d, want %d", event, count, want)
+		}
+	}
+
+	assertActivity("keychain.create", "resource_keychain_id", "events", "sys/kch/events/1", 1)
+	var keychainVersion int
+	if err := store.QueryRowContext(ctx, `
+		SELECT resource_keychain_version
+		FROM gatehouse_activity_events
+		WHERE event = 'keychain.create' AND resource_keychain_id = 'events'
+	`).Scan(&keychainVersion); err != nil {
+		t.Fatal(err)
+	}
+	if keychainVersion != 1 {
+		t.Fatalf("keychain activity target version = %d, want 1", keychainVersion)
+	}
+	assertActivity("principal.create", "resource_principal", principal.Id, principal.Id, 1)
+	assertActivity("identity.create", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("agent_provider.create", "resource_agent_provider", providerID, "sys/"+providerID, 1)
+	assertActivity("agent_model.create", "resource_agent_model", modelID, "sys/"+modelID, 1)
+	assertActivity("storage_provider.create", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
+
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	assertActivity("keychain.create", "resource_keychain_id", "events", "sys/kch/events/1", 1)
+	assertActivity("principal.create", "resource_principal", principal.Id, principal.Id, 1)
+	assertActivity("identity.create", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("agent_provider.create", "resource_agent_provider", providerID, "sys/"+providerID, 1)
+	assertActivity("agent_model.create", "resource_agent_model", modelID, "sys/"+modelID, 1)
+	assertActivity("storage_provider.create", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
+
+	state.Principals[0].Revision = 2
+	state.Principals[0].Identities[0].Revision = 2
+	state.AgentProviders[0].Revision = 2
+	state.AgentModels[0].Revision = 2
+	state.StorageProviders[0].Revision = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
+	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
+	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
+	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
+
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
+	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
+	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
+	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
+
+	state.Principals[0].Revision = 1
+	state.Principals[0].Identities[0].Revision = 1
+	state.AgentProviders[0].Revision = 1
+	state.AgentModels[0].Revision = 1
+	state.StorageProviders[0].Revision = 1
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
+	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
+	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
+	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
+}
+
 func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -157,13 +284,13 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace_storage_provider.create' AND topics.topic = ?
-	`, workspace.Id, database.ActivityTopicWorkspaceStorageProvider(documentsID)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_storage_provider.create' AND topics.topic = ?
+	`, database.ActivityTopicWorkspaceStorageProvider(workspace)).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
-	if activityCount != 1 {
-		t.Fatalf("workspace storage provider create activity count = %d, want 1", activityCount)
+	if activityCount != 2 {
+		t.Fatalf("workspace storage provider create activity count = %d, want 2", activityCount)
 	}
 	if err := store.QueryRowContext(ctx, `
 		SELECT priority, enabled
@@ -197,9 +324,9 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace_storage_provider.update' AND topics.topic = ?
-	`, workspace.Id, database.ActivityTopicWorkspaceStorageProvider(documentsID)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_storage_provider.update' AND topics.topic = ?
+	`, database.ActivityTopicWorkspaceStorageProvider(workspace)).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
 	if activityCount != 1 {
@@ -418,9 +545,9 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	if err := first.QueryRow(`
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace.create' AND topics.topic = ?
-	`, firstWorkspace.Id, database.ActivityTopicWorkspace(firstWorkspace)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace.create' AND topics.topic = ?
+	`, database.ActivityTopicWorkspace(firstWorkspace)).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
 	if activityCount != 1 {
@@ -460,9 +587,9 @@ func TestOpenSQLiteReconcilesWorkspaces(t *testing.T) {
 	if err := second.QueryRow(`
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace.update' AND topics.topic = ?
-	`, secondWorkspace.Id, database.ActivityTopicWorkspace(secondWorkspace)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace.update' AND topics.topic = ?
+	`, database.ActivityTopicWorkspace(secondWorkspace)).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
 	if activityCount != 1 {
@@ -742,7 +869,12 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 	for _, event := range []string{"group.create", "group_member.create"} {
 		var count int
-		if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+		if err := database.QueryRow(`
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic = ?
+		`, event, workspace.Id+"/"+adminsID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		want := 1
@@ -761,9 +893,9 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	if err := database.QueryRow(`
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'group_member.create' AND topics.topic = ?
-	`, workspace.Id, "group_member/"+adminsID+"-"+aliceID).Scan(&memberTopicCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'group_member.create' AND topics.topic = ?
+	`, aliceID+"/"+adminsID).Scan(&memberTopicCount); err != nil {
 		t.Fatal(err)
 	}
 	if memberTopicCount != 1 {
@@ -777,7 +909,12 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 	for _, event := range []string{"group.update", "group_member.update"} {
 		var count int
-		if err := database.QueryRow(`SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+		if err := database.QueryRow(`
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic = ?
+		`, event, workspace.Id+"/"+adminsID).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
@@ -839,7 +976,12 @@ func TestMigrateSQLiteCoordinatesConfiguredGroupReconciliation(t *testing.T) {
 	workspace := workspaceRef(t, ctx, first, "engineering")
 	for _, event := range []string{"group.create", "group_member.create"} {
 		var count int
-		if err := first.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = ?`, workspace.Id, event).Scan(&count); err != nil {
+		if err := first.QueryRowContext(ctx, `
+			SELECT COUNT(*)
+			FROM gatehouse_activity_events AS events
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic LIKE ?
+		`, event, workspace.Id+"/%").Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
@@ -878,9 +1020,9 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		if err := store.QueryRowContext(ctx, `
 			SELECT COUNT(*)
 			FROM gatehouse_activity_events AS events
-			JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-			WHERE events.workspace = ? AND events.event = ? AND events.workspace_agent = ? AND topics.topic = ?
-		`, workspace.Id, event, modelID, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
+			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+			WHERE events.event = ? AND topics.topic = ?
+		`, event, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
@@ -893,7 +1035,12 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		t.Fatal(err)
 	}
 	var count int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE workspace = ? AND event = 'workspace_agent.update' AND workspace_agent = ?`, workspace.Id, modelID).Scan(&count); err != nil {
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_agent.update' AND topics.topic = ?
+	`, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {
@@ -929,6 +1076,13 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	group := groupID(t, ctx, store, "engineering", "members")
+	var principalGrantID string
+	if err := store.QueryRowContext(ctx, `
+		SELECT id FROM gatehouse_workspace_grants
+		WHERE workspace = ? AND role = 'member' AND principal = ?
+	`, workspace.Id, principalID).Scan(&principalGrantID); err != nil {
+		t.Fatal(err)
+	}
 
 	var grants int
 	if err := store.QueryRowContext(ctx, `
@@ -948,13 +1102,24 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace_grant.create' AND topics.topic = ?
-	`, workspace.Id, database.ActivityTopicWorkspaceGrant("member", principalID)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_grant.create' AND topics.topic = ?
+	`, workspace.Id+"/"+principalGrantID).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
 	if activityCount != 1 {
 		t.Fatalf("workspace grant create activity count = %d, want 1", activityCount)
+	}
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*)
+		FROM gatehouse_activity_events AS events
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_grant.create' AND topics.topic = ?
+	`, principalID+"/"+principalGrantID).Scan(&activityCount); err != nil {
+		t.Fatal(err)
+	}
+	if activityCount != 1 {
+		t.Fatalf("principal workspace grant create activity count = %d, want 1", activityCount)
 	}
 
 	state.WorkspaceGrants[0].Enabled = false
@@ -990,9 +1155,9 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_activity_events AS events
-		JOIN gatehouse_activity_event_topics AS topics ON topics.workspace = events.workspace AND topics.activity = events.id
-		WHERE events.workspace = ? AND events.event = 'workspace_grant.update' AND topics.topic = ?
-	`, workspace.Id, database.ActivityTopicWorkspaceGrant("member", principalID)).Scan(&activityCount); err != nil {
+		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
+		WHERE events.event = 'workspace_grant.update' AND topics.topic = ?
+	`, workspace.Id+"/"+principalGrantID).Scan(&activityCount); err != nil {
 		t.Fatal(err)
 	}
 	if activityCount != 1 {

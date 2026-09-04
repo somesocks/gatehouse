@@ -17,6 +17,7 @@ import (
 	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
@@ -299,6 +300,154 @@ func TestMigrateRejectsChangedVersionedMigration(t *testing.T) {
 	err := migrateSQLite(context.Background(), database, registry)
 	if err == nil || !strings.Contains(err.Error(), "different checksum") {
 		t.Fatalf("migrate() error = %v, want changed checksum error", err)
+	}
+}
+
+func TestSQLiteMigrationV034BackfillsGrantIDs(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_workspaces (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_principals (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_groups (workspace_id TEXT, id TEXT, PRIMARY KEY (workspace_id, id)) STRICT;
+		CREATE TABLE gatehouse_projects (workspace TEXT, id TEXT, PRIMARY KEY (workspace, id)) STRICT;
+		CREATE TABLE gatehouse_sessions (workspace TEXT, id TEXT, PRIMARY KEY (workspace, id)) STRICT;
+		INSERT INTO gatehouse_workspaces VALUES ('workspace');
+		INSERT INTO gatehouse_principals VALUES ('principal');
+		INSERT INTO gatehouse_groups VALUES ('workspace', 'group');
+		INSERT INTO gatehouse_projects VALUES ('workspace', 'project');
+		INSERT INTO gatehouse_sessions VALUES ('workspace', 'session');
+		CREATE TABLE gatehouse_workspace_grants (workspace TEXT, role TEXT, principal TEXT, "group" TEXT, enabled INTEGER, revision INTEGER) STRICT;
+		CREATE TABLE gatehouse_project_grants (workspace TEXT, project TEXT, role TEXT, principal TEXT, "group" TEXT, enabled INTEGER) STRICT;
+		CREATE TABLE gatehouse_session_grants (workspace TEXT, session TEXT, role TEXT, principal TEXT, "group" TEXT, enabled INTEGER) STRICT;
+		INSERT INTO gatehouse_workspace_grants VALUES ('workspace', 'manager', 'principal', NULL, TRUE, 1);
+		INSERT INTO gatehouse_project_grants VALUES ('workspace', 'project', 'member', NULL, 'group', TRUE);
+		INSERT INTO gatehouse_session_grants VALUES ('workspace', 'session', 'contributor', 'principal', NULL, TRUE);
+	`); err != nil {
+		t.Fatal(err)
+	}
+
+	err, source := sqliteMigrationV034AddGrantIDs().Builder(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, grant := range []struct {
+		table string
+		kind  string
+	}{
+		{table: "gatehouse_workspace_grants", kind: typed_id.WorkspaceGrant},
+		{table: "gatehouse_project_grants", kind: typed_id.ProjectGrant},
+		{table: "gatehouse_session_grants", kind: typed_id.SessionGrant},
+	} {
+		var id string
+		if err := store.QueryRowContext(ctx, `SELECT id FROM `+grant.table).Scan(&id); err != nil {
+			t.Fatal(err)
+		}
+		if !typed_id.Valid(grant.kind, id) {
+			t.Fatalf("%s ID = %q, want a valid %s ID", grant.table, id, grant.kind)
+		}
+	}
+
+	var existingID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspace_grants`).Scan(&existingID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
+		VALUES (?, 'workspace', 'member', 'principal', NULL, TRUE, 1)
+	`, existingID); err == nil {
+		t.Fatal("workspace grant accepted a duplicate ID")
+	}
+
+	id, err := typed_id.New(typed_id.WorkspaceGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
+		VALUES (?, 'workspace', 'manager', 'principal', NULL, TRUE, 1)
+	`, id); err == nil {
+		t.Fatal("workspace grant accepted a duplicate natural key")
+	}
+}
+
+func TestSQLiteMigrationV035UsesGlobalResourceTargets(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_activity_events (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_activity_event_topics (activity TEXT, topic TEXT) STRICT;
+		CREATE TABLE gatehouse_workspaces (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_keychains (id TEXT, version INTEGER, PRIMARY KEY (id, version)) STRICT;
+		CREATE TABLE gatehouse_agent_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_agent_models (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_groups (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_group_members (group_id TEXT, principal_id TEXT, PRIMARY KEY (group_id, principal_id)) STRICT;
+		CREATE TABLE gatehouse_identities (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_principals (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_projects (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_sessions (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_events (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_storage_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
+		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_project_files (id) VALUES ('pfi_00000000000000000000000000')`); err != nil {
+		t.Fatal(err)
+	}
+
+	sourceErr, source := sqliteMigrationV035GlobalizeActivityEvents().Builder(ctx, nil)
+	if sourceErr != nil {
+		t.Fatal(sourceErr)
+	}
+	if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	var workspaceColumns int
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM pragma_table_info('gatehouse_activity_events') WHERE name = 'workspace'
+	`).Scan(&workspaceColumns); err != nil {
+		t.Fatal(err)
+	}
+	if workspaceColumns != 0 {
+		t.Fatalf("activity event workspace columns = %d, want 0", workspaceColumns)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_project_file, created_at)
+		VALUES ('act_00000000000000000000000000', 'project_file.create', 'project_file', 'pfi_00000000000000000000000000', '2026-01-01T00:00:00.000Z')
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_project, resource_project_file, created_at)
+		VALUES ('act_00000000000000000000000001', 'project_file.create', 'project_file', 'prj_00000000000000000000000000', 'pfi_00000000000000000000000001', '2026-01-01T00:00:00.000Z')
+	`); err == nil {
+		t.Fatal("activity event accepted mixed resource targets")
 	}
 }
 

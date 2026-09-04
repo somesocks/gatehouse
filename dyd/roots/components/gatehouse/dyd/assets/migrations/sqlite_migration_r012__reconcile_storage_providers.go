@@ -70,13 +70,60 @@ func sqliteMigrationR012ReconcileStorageProvidersBuilder(providers []config.Stor
 			values = append(values, value)
 		}
 		return session.RenderTemplate(`
-			SELECT 1;
+			DROP TABLE IF EXISTS gatehouse_migration_storage_provider_desired;
+			DROP TABLE IF EXISTS gatehouse_migration_storage_provider_state;
+			DROP TABLE IF EXISTS gatehouse_migration_storage_provider_activities;
+
+			CREATE TEMP TABLE gatehouse_migration_storage_provider_desired (
+				alias TEXT NOT NULL PRIMARY KEY,
+				revision INTEGER NOT NULL,
+				protocol TEXT NOT NULL,
+				endpoint TEXT,
+				region TEXT,
+				bucket TEXT,
+				access_key_id TEXT,
+				keychain_id TEXT,
+				keychain_version INTEGER,
+				secret_access_key TEXT,
+				enabled INTEGER NOT NULL
+			) STRICT;
 			{{ range . }}
+			INSERT INTO gatehouse_migration_storage_provider_desired (alias, revision, protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, enabled)
+			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .Region }}, {{ sqlLiteral .Bucket }}, {{ sqlLiteral .AccessKeyID }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .SecretKey }}, {{ sqlBool .Enabled }});
+			{{ end }}
+
+			CREATE TEMP TABLE gatehouse_migration_storage_provider_state AS
+			SELECT desired.*, COALESCE(providers.id, gh_id_new('stp')) AS id, providers.id AS existing_id
+			FROM gatehouse_migration_storage_provider_desired AS desired
+			LEFT JOIN gatehouse_storage_providers AS providers ON providers.alias = desired.alias;
+
+			CREATE TEMP TABLE gatehouse_migration_storage_provider_activities (
+				provider TEXT NOT NULL,
+				id TEXT NOT NULL,
+				event TEXT NOT NULL
+			) STRICT;
+			INSERT INTO gatehouse_migration_storage_provider_activities (provider, id, event)
+			SELECT id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'storage_provider.create' ELSE 'storage_provider.update' END
+			FROM gatehouse_migration_storage_provider_state;
+
 			INSERT INTO gatehouse_storage_providers (id, alias, revision, protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, enabled)
-			VALUES (COALESCE((SELECT id FROM gatehouse_storage_providers WHERE alias = {{ sqlLiteral .Alias }}), gh_id_new('stp')), {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .Region }}, {{ sqlLiteral .Bucket }}, {{ sqlLiteral .AccessKeyID }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .SecretKey }}, {{ sqlBool .Enabled }})
+			SELECT id, alias, revision, protocol, endpoint, region, bucket, access_key_id, keychain_id, keychain_version, secret_access_key, enabled
+			FROM gatehouse_migration_storage_provider_state
+			WHERE TRUE
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, region = excluded.region, bucket = excluded.bucket, access_key_id = excluded.access_key_id, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, secret_access_key = excluded.secret_access_key, enabled = excluded.enabled
 			WHERE gatehouse_storage_providers.revision < excluded.revision;
-			{{ end }}
+
+			INSERT INTO gatehouse_activity_events (
+				id, event, resource_kind, resource_storage_provider, created_at
+			)
+			SELECT id, event, 'storage_provider', provider, gh_id_timestamp(id)
+			FROM gatehouse_migration_storage_provider_activities;
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, 'sys/' || provider FROM gatehouse_migration_storage_provider_activities;
+
+			DROP TABLE gatehouse_migration_storage_provider_activities;
+			DROP TABLE gatehouse_migration_storage_provider_state;
+			DROP TABLE gatehouse_migration_storage_provider_desired;
 		`, values)
 	}
 }

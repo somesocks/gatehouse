@@ -69,12 +69,12 @@ func sqliteMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []co
 			ON CONFLICT (workspace, provider) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled;
 
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at
 			)
-			SELECT workspace, id, event, 'workspace_storage_provider', NULL, NULL, NULL, NULL, NULL, NULL, gh_id_timestamp(id)
+			SELECT id, event, 'workspace_storage_provider', workspace, provider, gh_id_timestamp(id)
 			FROM gatehouse_migration_workspace_storage_provider_activities;
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			SELECT workspace, id, 'workspace_storage_provider/' || provider, gh_id_timestamp(id)
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			SELECT id, workspace
 			FROM gatehouse_migration_workspace_storage_provider_activities;
 
 			DROP TABLE gatehouse_migration_workspace_storage_provider_activities;

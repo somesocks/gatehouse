@@ -34,6 +34,10 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 		if err != nil {
 			return err, ""
 		}
+		workspaceIDs, err := workspaceIDsByAlias(ctx, session)
+		if err != nil {
+			return err, ""
+		}
 		modelIDs, err := postgresMigrationR010AgentModelIDsByAlias(ctx, session)
 		if err != nil {
 			return err, ""
@@ -48,7 +52,11 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 					eventName = "workspace_agent.update"
 				}
 				modelID := modelIDs[agent.ModelAlias]
-				event, err := newActivityMigrationEvent(agent.WorkspaceID, eventName, "workspace_agent", "", "", modelID, "workspace_agent/"+modelID)
+				workspaceID := workspaceIDs[agent.WorkspaceID]
+				if workspaceID == "" {
+					return fmt.Errorf("workspace %q is unavailable", agent.WorkspaceID), ""
+				}
+				event, err := newActivityMigrationEvent(agent.WorkspaceID, eventName, "workspace_agent", "", "", modelID, workspaceID)
 				if err != nil {
 					return err, ""
 				}
@@ -65,13 +73,15 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 			{{ range .Events }}
 			{{ $event := . }}
 			INSERT INTO gatehouse_activity_events (
-				workspace, id, event, resource_kind, project, session, session_event, "group", principal, workspace_agent, created_at
+				id, event, resource_kind, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at
 			) VALUES (
-				(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, NULL, NULL, NULL, NULL, NULL, {{ sqlLiteral .WorkspaceAgent }}, {{ sqlLiteral .CreatedAt }}
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }},
+				(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}),
+				{{ sqlLiteral .WorkspaceAgent }}, {{ sqlLiteral .CreatedAt }}
 			);
 			{{ range .Topics }}
-			INSERT INTO gatehouse_activity_event_topics (workspace, activity, topic, created_at)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $event.WorkspaceAlias }}), {{ sqlLiteral $event.ID }}, {{ sqlLiteral . }}, {{ sqlLiteral $event.CreatedAt }});
+			INSERT INTO gatehouse_activity_event_topics (activity, topic)
+			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
 			{{ end }}
 			{{ end }}
 		`, struct {
