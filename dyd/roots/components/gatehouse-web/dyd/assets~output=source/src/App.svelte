@@ -8,6 +8,7 @@
   import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
+  import ChatCollectionPage from "./pages/chats/ChatCollectionPage.svelte"
   import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
@@ -234,9 +235,7 @@
     return access.start(principalID)
   })
   let activeProjection: ActivityProjection | null = null
-  let chatSearch = $state("")
   let projectSearch = $state("")
-  let searchedSessions = $state<Session[]>([])
   let searchedProjects = $state<Project[]>([])
   let projectSessions = $state<Session[]>([])
   let projectFiles = $state<ProjectFile[]>([])
@@ -254,11 +253,8 @@
   let sessionNotePageStatus = $state<WorkspaceContentStatus | "not-found">("checking")
   let sessionSecrets = $state<SessionSecret[]>([])
   let sessionSecretStatus = $state<WorkspaceContentStatus>("checking")
-  let sessionSearchCursor = $state<string | null>(null)
   let projectSearchCursor = $state<string | null>(null)
-  let sessionSearchLoading = $state(false)
   let projectSearchLoading = $state(false)
-  let sessionSearchGeneration = 0
   let projectSearchGeneration = 0
   let sessionNotesGeneration = 0
   let sessionNoteGeneration = 0
@@ -400,7 +396,7 @@
   }
 
   function collectionSearchName() {
-    return route.kind === "session-collection" || route.kind === "project-collection" ? route.search : ""
+    return route.kind === "project-collection" ? route.search : ""
   }
 
   function collectionSearchPath(path: string, name: string) {
@@ -434,13 +430,6 @@
 
   function isGroupCollection() {
     return route.kind === "group-collection"
-  }
-
-  async function submitSessionSearch() {
-    if (activeWorkspace === null) {
-      return
-    }
-    navigate(collectionSearchPath(sessionsPath(activeWorkspace), chatSearch))
   }
 
   async function submitProjectSearch() {
@@ -739,11 +728,9 @@
   }
 
   async function loadInitialWorkspaceProjection(workspace: Workspace) {
-    if (isChatCollection()) {
-      await loadSessionSearch(true)
-    } else if (isProjectCollection()) {
+    if (isProjectCollection()) {
       await loadProjectSearch(true)
-    } else if (!isGroupCollection()) {
+    } else if (!isChatCollection() && !isGroupCollection()) {
       await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
     }
   }
@@ -960,49 +947,6 @@
       throw new Error("project could not be loaded")
     }
     return (await response.json()) as Project
-  }
-
-  async function loadSessionSearch(reset = false) {
-    if (activeWorkspace === null || !isChatCollection() || sessionSearchLoading && !reset || !reset && sessionSearchCursor === null) {
-      return
-    }
-    const workspace = activeWorkspace
-    const name = collectionSearchName()
-    const cursor = reset ? "" : sessionSearchCursor ?? ""
-    const generation = reset ? ++sessionSearchGeneration : sessionSearchGeneration
-    if (reset) {
-      chatSearch = name
-      searchedSessions = []
-      sessionSearchCursor = null
-    }
-    sessionSearchLoading = true
-    try {
-      const parameters = new URLSearchParams({ limit: "50" })
-      if (name.trim() !== "") {
-        parameters.set("name", name)
-      }
-      if (cursor !== "") {
-        parameters.set("cursor", cursor)
-      }
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions?${parameters}`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("sessions could not be searched")
-      }
-      const loaded = (await response.json()) as SessionSearchResponse
-      if (generation !== sessionSearchGeneration || activeWorkspace?.id !== workspace.id || !isChatCollection()) {
-        return
-      }
-      searchedSessions = reset ? loaded.sessions : [...searchedSessions, ...loaded.sessions]
-      sessionSearchCursor = loaded.next_cursor ?? null
-    } finally {
-      if (generation === sessionSearchGeneration) {
-        sessionSearchLoading = false
-      }
-    }
   }
 
   async function loadProjectSearch(reset = false) {
@@ -2991,19 +2935,7 @@
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
       {:else if isChatCollection()}
-        <section class="collection-page">
-          <div class="collection-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession()}>New chat</button></div>
-          <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitSessionSearch() }}>
-            <label><span>Search chats</span><input class="input" type="search" autocomplete="off" placeholder="Search chats" bind:value={chatSearch} /></label>
-            <button class="button" type="submit" aria-label="Search chats" title="Search chats"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
-          </form>
-          <div class="collection-list">
-            {#each searchedSessions as session}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, session)) } }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
-            {:else}<p class="dashboard-empty">{sessionSearchLoading ? "Searching chats..." : "No chats match your search."}</p>{/each}
-          </div>
-          {#if sessionSearchCursor !== null}<button class="button is-small" type="button" disabled={sessionSearchLoading} onclick={() => void loadSessionSearch()}>{sessionSearchLoading ? "Loading..." : "Show more"}</button>{/if}
-        </section>
+        {#if activeWorkspace !== null}<ChatCollectionPage workspace={activeWorkspace} search={route.kind === "session-collection" ? route.search : ""} onAuthenticationLost={signInRequired} onCreate={() => void createSession()} onNavigate={navigate} />{/if}
       {:else if isProjectCollection()}
         <section class="collection-page">
           <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
