@@ -118,6 +118,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/auth/logout", logout)
 		mux.HandleFunc("/api/v1/system/grants", systemGrants(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/grants/{grant}", systemGrant(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/principals", systemPrincipals(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/principals/{principal}", systemPrincipal(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
@@ -310,6 +312,10 @@ type systemGrantCreateRequest struct {
 }
 
 type systemGrantUpdateRequest struct {
+	Enabled *bool `json:"enabled"`
+}
+
+type systemPrincipalUpdateRequest struct {
 	Enabled *bool `json:"enabled"`
 }
 

@@ -6,6 +6,9 @@ export type Route =
   | { kind: "app-home" }
   | { kind: "login"; next: string | null }
   | { kind: "no-access" }
+  | { kind: "system" }
+  | { kind: "system-grants" }
+  | { kind: "system-principals" }
   | ({ kind: "workspace" } & WorkspaceRoute)
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
@@ -65,6 +68,15 @@ export function parseRoute(url: URL): Route {
   }
   if (segments.length === 2 && segments[1] === "no-access") {
     return { kind: "no-access" }
+  }
+  if (segments.length === 2 && segments[1] === "system") {
+    return { kind: "system" }
+  }
+  if (segments.length === 3 && segments[1] === "system" && segments[2] === "grants") {
+    return { kind: "system-grants" }
+  }
+  if (segments.length === 3 && segments[1] === "system" && segments[2] === "principals") {
+    return { kind: "system-principals" }
   }
   if (segments.length < 3 || segments[1] !== "wsp") {
     return notFound()
@@ -171,6 +183,12 @@ export function routePath(route: NavigableRoute): string {
       return route.next === null ? "/app/login" : `/app/login?${new URLSearchParams({ next: route.next })}`
     case "no-access":
       return "/app/no-access"
+    case "system":
+      return "/app/system"
+    case "system-grants":
+      return "/app/system/grants"
+    case "system-principals":
+      return "/app/system/principals"
     case "workspace":
       return `/app/wsp/${segment(route.workspaceID)}`
     case "session-collection":

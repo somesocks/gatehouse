@@ -1227,6 +1227,50 @@ func TestSystemGrantAPI(t *testing.T) {
 	if denied := request(http.MethodGet, "/api/v1/system/grants", ""); denied.Code != http.StatusForbidden { t.Fatalf("GET system grants without manager = %d", denied.Code) }
 }
 
+func TestSystemPrincipalAPI(t *testing.T) {
+	tokens, store, _ := testBearerTokens(t)
+	ctx := context.Background()
+	alice, identityID := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: alice, Enabled: true}, Identity: identityID})
+	if err != nil { t.Fatal(err) }
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	initial := request(http.MethodGet, "/api/v1/system/principals", "")
+	var principals []database.SystemPrincipal
+	if err := json.Unmarshal(initial.Body.Bytes(), &principals); err != nil || initial.Code != http.StatusOK { t.Fatalf("GET system principals = (%d, %#v, %v)", initial.Code, principals, err) }
+	var alicePrincipal *database.SystemPrincipal
+	for index := range principals {
+		if principals[index].ID == alice.Id { alicePrincipal = &principals[index]; break }
+	}
+	if alicePrincipal == nil || alicePrincipal.Name == nil || *alicePrincipal.Name != "Alice" || len(alicePrincipal.Identities) != 1 || alicePrincipal.Identities[0].Key != "gatehouse:alice" || !alicePrincipal.Identities[0].Enabled { t.Fatalf("GET system principals alice = %#v", alicePrincipal) }
+	if strings.Contains(initial.Body.String(), "verifier") || strings.Contains(initial.Body.String(), "correct password") { t.Fatalf("GET system principals exposed credentials: %s", initial.Body.String()) }
+
+	var bob string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob); err != nil { t.Fatal(err) }
+	item := request(http.MethodGet, "/api/v1/system/principals/"+bob, "")
+	var principal database.SystemPrincipal
+	if err := json.Unmarshal(item.Body.Bytes(), &principal); err != nil || item.Code != http.StatusOK || principal.ID != bob || len(principal.Identities) != 0 { t.Fatalf("GET system principal = (%d, %#v, %v)", item.Code, principal, err) }
+	updated := request(http.MethodPatch, "/api/v1/system/principals/"+bob, `{"enabled":false}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &principal); err != nil || updated.Code != http.StatusOK || principal.Enabled || principal.Revision != 2 { t.Fatalf("PATCH system principal = (%d, %#v, %v)", updated.Code, principal, err) }
+	unchanged := request(http.MethodPatch, "/api/v1/system/principals/"+bob, `{"enabled":false}`)
+	if err := json.Unmarshal(unchanged.Body.Bytes(), &principal); err != nil || unchanged.Code != http.StatusOK || principal.Revision != 2 { t.Fatalf("PATCH unchanged system principal = (%d, %#v, %v)", unchanged.Code, principal, err) }
+	var activities int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = 'principal.update' AND topics.topic = ?`, bob).Scan(&activities); err != nil || activities != 1 { t.Fatalf("principal update activity = (%d, %v)", activities, err) }
+	if invalid := request(http.MethodPatch, "/api/v1/system/principals/invalid", `{"enabled":false}`); invalid.Code != http.StatusNotFound { t.Fatalf("PATCH invalid system principal = %d", invalid.Code) }
+	if invalid := request(http.MethodPatch, "/api/v1/system/principals/"+bob, `{}`); invalid.Code != http.StatusBadRequest { t.Fatalf("PATCH invalid system principal update = %d", invalid.Code) }
+	if missing, err := typed_id.New(typed_id.Principal); err != nil { t.Fatal(err) } else if response := request(http.MethodPatch, "/api/v1/system/principals/"+missing, `{"enabled":false}`); response.Code != http.StatusNotFound { t.Fatalf("PATCH missing system principal = %d", response.Code) }
+	selfDisabled := request(http.MethodPatch, "/api/v1/system/principals/"+alice.Id, `{"enabled":false}`)
+	if selfDisabled.Code != http.StatusOK { t.Fatalf("PATCH current system principal = %d", selfDisabled.Code) }
+	if unauthenticated := request(http.MethodGet, "/api/v1/system/principals", ""); unauthenticated.Code != http.StatusUnauthorized { t.Fatalf("GET system principals for disabled principal = %d", unauthenticated.Code) }
+}
+
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[string]model.WorkspaceRef) {
 	t.Helper()
 	ctx := context.Background()
