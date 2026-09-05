@@ -451,6 +451,46 @@ func TestSQLiteMigrationV035UsesGlobalResourceTargets(t *testing.T) {
 	}
 }
 
+func TestSQLiteMigrationV037PreservesActivityAndAddsSystemGrants(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil { t.Fatal(err) }
+	defer store.Close()
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_activity_events (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_activity_event_topics (activity TEXT, topic TEXT) STRICT;
+		CREATE TABLE gatehouse_workspaces (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_keychains (id TEXT, version INTEGER, PRIMARY KEY (id, version)) STRICT;
+		CREATE TABLE gatehouse_agent_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_agent_models (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_groups (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_group_members (group_id TEXT, principal_id TEXT, PRIMARY KEY (group_id, principal_id)) STRICT;
+		CREATE TABLE gatehouse_identities (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_principals (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_projects (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_sessions (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_events (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_storage_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
+		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
+	`); err != nil { t.Fatal(err) }
+	if err, source := sqliteMigrationV035GlobalizeActivityEvents().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id) VALUES ('prn_00000000000000000000000000'); INSERT INTO gatehouse_project_files (id) VALUES ('pfi_00000000000000000000000000'); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_project_file, created_at) VALUES ('act_00000000000000000000000000', 'project_file.create', 'project_file', 'pfi_00000000000000000000000000', '2026-01-01T00:00:00.000Z'); INSERT INTO gatehouse_activity_event_topics (activity, topic) VALUES ('act_00000000000000000000000000', 'wsp_00000000000000000000000000');`); err != nil { t.Fatal(err) }
+	if err, source := sqliteMigrationV037CreateSystemGrants().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
+	var topics int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_event_topics WHERE activity = 'act_00000000000000000000000000'`).Scan(&topics); err != nil || topics != 1 { t.Fatalf("preserved activity topics = (%d, %v), want 1", topics, err) }
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision) VALUES ('syg_00000000000000000000000000', 'prn_00000000000000000000000000', 'manager', TRUE, 1); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_system_grant, created_at) VALUES ('act_00000000000000000000000001', 'system_grant.create', 'system_grant', 'syg_00000000000000000000000000', '2026-01-01T00:00:00.000Z');`); err != nil { t.Fatal(err) }
+}
+
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{

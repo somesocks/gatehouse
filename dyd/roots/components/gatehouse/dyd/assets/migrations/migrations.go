@@ -80,6 +80,7 @@ type activityMigrationEvent struct {
 	StorageProviderID                 string
 	WorkspaceID                       string
 	WorkspaceGrantID                  string
+	SystemGrantID                     string
 	WorkspaceStorageProviderWorkspace string
 	WorkspaceStorageProviderProvider  string
 	Topics                            []string

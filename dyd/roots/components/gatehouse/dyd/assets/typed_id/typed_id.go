@@ -32,6 +32,7 @@ const (
 	WorkspaceGrant  = "wgr"
 	ProjectGrant    = "pgr"
 	SessionGrant    = "sgr"
+	SystemGrant     = "syg"
 	ActivityEvent   = "act"
 )
 

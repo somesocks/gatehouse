@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/keychain"
@@ -1163,6 +1164,31 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if activityCount != 1 {
 		t.Fatalf("workspace grant update activity count = %d, want 1", activityCount)
 	}
+}
+
+func TestMigrateSQLiteReconcilesSystemGrants(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil { t.Fatal(err) }
+	defer store.Close()
+	state := config.State{Principals: []config.Principal{{Alias: "alice", Enabled: true}}, SystemGrants: []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}}}
+	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
+	var id, principalID string
+	var enabled bool
+	var revision int
+	if err := store.QueryRowContext(ctx, `SELECT id, principal, enabled, revision FROM gatehouse_system_grants`).Scan(&id, &principalID, &enabled, &revision); err != nil { t.Fatal(err) }
+	if !typed_id.Valid(typed_id.SystemGrant, id) || !enabled || revision != 1 { t.Fatalf("system grant = (%q, %t, %d), want enabled revision 1", id, enabled, revision) }
+	err, roles := store.SystemRolesGet(ctx, model.PrincipalRef{Id: principalID})
+	if err != nil || !authz.SystemAllows(roles, authz.SystemManage) { t.Fatalf("SystemRolesGet() = (%#v, %v), want manager", roles, err) }
+	state.SystemGrants[0].Enabled = false
+	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
+	if err := store.QueryRowContext(ctx, `SELECT enabled FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled); err != nil || !enabled { t.Fatalf("equal revision changed system grant = (%t, %v)", enabled, err) }
+	state.SystemGrants[0].Revision = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled, &revision); err != nil || enabled || revision != 2 { t.Fatalf("newer revision did not change system grant = (%t, %d, %v)", enabled, revision, err) }
+	var activities int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = 'system_grant.update' AND topics.topic = ?`, "sys/"+id).Scan(&activities); err != nil || activities != 1 { t.Fatalf("system grant update activity = (%d, %v), want 1", activities, err) }
 }
 
 func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {

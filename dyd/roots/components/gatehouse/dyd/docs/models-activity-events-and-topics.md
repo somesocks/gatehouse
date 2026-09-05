@@ -72,7 +72,7 @@ prn_...
 This section defines the activity emitted for each client-meaningful resource.
 
 Workspace, project, and session grants have immutable `wgr_...`, `pgr_...`,
-and `sgr_...` IDs, respectively.
+`sgr_...`, and `syg_...` IDs, respectively.
 
 ### Principal
 
@@ -121,6 +121,18 @@ and `sgr_...` IDs, respectively.
   - `wsp_.../wgr_...` when the subject is a principal.
   - `prn_.../wgr_...` when the subject is a principal.
   - `wsp_.../grp_.../wgr_...` when the subject is a group.
+
+### System Grant
+
+- `system_grant.create` - emitted when a principal receives a system manager grant.
+  - `sys/syg_...`
+  - `prn_.../syg_...`
+- `system_grant.update` - emitted when a system manager grant's enabled state or revision changes.
+  - `sys/syg_...`
+  - `prn_.../syg_...`
+
+`sys/...` topics are available only to enabled system managers. The granted
+principal can always observe its own `prn_.../syg_...` topic.
 
 ### Keychain Version
 

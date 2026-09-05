@@ -297,6 +297,25 @@ let Principals =
         s.list.props::{ values = Principal }
         s.list.meta::{ description = Some "configured principals" }
 
+let SystemGrant =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "principal reconciliation alias" } }
+        , optional =
+            toMap
+              { revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic system grant configuration revision" }
+              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the system grant is enabled" }
+              }
+        }
+        s.record.meta::{ name = Some "SystemGrant" }
+
+let SystemGrants =
+      s.list.from
+        s.list.props::{ values = SystemGrant }
+        s.list.meta::{ description = Some "configured system manager grants" }
+
 let KeychainPassphraseSource =
       s.text.from
         s.text.props::{ variant = s.text.variants.none }
@@ -510,7 +529,8 @@ let GatehouseConfig =
         , optional = toMap
             { database = Database
              , workspaces = Workspaces
-             , principals = Principals
+              , principals = Principals
+			  , system_grants = SystemGrants
               , keychains = Keychains
                , agent_providers = AgentProviders
                , agent_models = AgentModels

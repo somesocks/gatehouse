@@ -1189,6 +1189,44 @@ func TestActivityAPI(t *testing.T) {
 	}
 }
 
+func TestSystemGrantAPI(t *testing.T) {
+	tokens, store, _ := testBearerTokens(t)
+	ctx := context.Background()
+	alice, identityID := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: alice, Enabled: true}, Identity: identityID})
+	if err != nil { t.Fatal(err) }
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	initial := request(http.MethodGet, "/api/v1/system/grants", "")
+	var grants []model.SystemGrant
+	if err := json.Unmarshal(initial.Body.Bytes(), &grants); err != nil || initial.Code != http.StatusOK || len(grants) != 1 || grants[0].Principal.Id != alice.Id || !grants[0].Enabled || grants[0].Revision != 1 { t.Fatalf("GET system grants = (%d, %#v, %v)", initial.Code, grants, err) }
+	aliceGrant := grants[0]
+	var bob string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob); err != nil { t.Fatal(err) }
+	created := request(http.MethodPost, "/api/v1/system/grants", `{"principal":"`+bob+`"}`)
+	var grant model.SystemGrant
+	if err := json.Unmarshal(created.Body.Bytes(), &grant); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SystemGrant, grant.Ref.Id) || grant.Principal.Id != bob || !grant.Enabled || grant.Revision != 1 { t.Fatalf("POST system grant = (%d, %#v, %v)", created.Code, grant, err) }
+	if duplicate := request(http.MethodPost, "/api/v1/system/grants", `{"principal":"`+bob+`"}`); duplicate.Code != http.StatusConflict { t.Fatalf("POST duplicate system grant = %d", duplicate.Code) }
+	missing, err := typed_id.New(typed_id.Principal)
+	if err != nil { t.Fatal(err) }
+	if unavailable := request(http.MethodPost, "/api/v1/system/grants", `{"principal":"`+missing+`"}`); unavailable.Code != http.StatusNotFound { t.Fatalf("POST unavailable system grant principal = %d", unavailable.Code) }
+	updated := request(http.MethodPatch, "/api/v1/system/grants/"+grant.Ref.Id, `{"enabled":false}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &grant); err != nil || updated.Code != http.StatusOK || grant.Enabled || grant.Revision != 2 { t.Fatalf("PATCH system grant = (%d, %#v, %v)", updated.Code, grant, err) }
+	activity := request(http.MethodPost, "/api/v1/activity", `{"topics":[{"name":"system-grant","topic":"sys/`+aliceGrant.Ref.Id+`","events":["system_grant.*"]}]}`)
+	var checkpoints model.ActivityTopicCheckpoints
+	if err := json.Unmarshal(activity.Body.Bytes(), &checkpoints); err != nil || activity.Code != http.StatusOK || len(checkpoints.Topics) != 1 || checkpoints.Topics[0].Cursor == nil { t.Fatalf("POST system activity = (%d, %#v, %v)", activity.Code, checkpoints, err) }
+	if denied := request(http.MethodPost, "/api/v1/system/grants", `{"principal":"invalid"}`); denied.Code != http.StatusBadRequest { t.Fatalf("POST invalid system grant = %d", denied.Code) }
+	noManagers := request(http.MethodPatch, "/api/v1/system/grants/"+aliceGrant.Ref.Id, `{"enabled":false}`)
+	if noManagers.Code != http.StatusOK { t.Fatalf("PATCH final system manager = %d", noManagers.Code) }
+	if denied := request(http.MethodGet, "/api/v1/system/grants", ""); denied.Code != http.StatusForbidden { t.Fatalf("GET system grants without manager = %d", denied.Code) }
+}
+
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[string]model.WorkspaceRef) {
 	t.Helper()
 	ctx := context.Background()
@@ -1222,7 +1260,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 				Alias: "alice-gatehouse", Key: "gatehouse:alice", Revision: 1, Enabled: true,
 				Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
 			}},
-		}},
+		}, {Alias: "bob", Enabled: true}},
 		Groups: []config.Group{
 			{
 				WorkspaceID: "engineering", Alias: developersGroup, Name: &developers, Enabled: true,
@@ -1238,6 +1276,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{WorkspaceID: "engineering", Role: string(authz.Manager), GroupID: &developersGroup, Revision: 1, Enabled: true},
 			{WorkspaceID: "operations", Role: string(authz.Member), GroupID: &operatorsGroup, Revision: 1, Enabled: true},
 		},
+		SystemGrants: []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},

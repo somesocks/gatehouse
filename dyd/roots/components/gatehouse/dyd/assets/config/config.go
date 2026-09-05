@@ -31,6 +31,7 @@ type State struct {
 	Keychains             []Keychain
 	Groups                []Group
 	WorkspaceGrants      []WorkspaceGrant
+	SystemGrants         []SystemGrant
 	AgentProviders []AgentProvider
 	AgentModels []AgentModel
 	WorkspaceAgents []WorkspaceAgent
@@ -96,6 +97,10 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil {
 		return err, State{}
 	}
+	err, systemGrants := ResolveSystemGrants(document, principals)
+	if err != nil {
+		return err, State{}
+	}
 	err, providers := ResolveAgentProviders(document)
 	if err != nil { return err, State{} }
 	err, models := ResolveAgentModels(document, providers)
@@ -106,7 +111,7 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil { return err, State{} }
 	err, workspaceStorageProviders := ResolveWorkspaceStorageProviders(document, storageProviders)
 	if err != nil { return err, State{} }
-	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, WorkspaceGrants: workspaceGrants, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
+	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, WorkspaceGrants: workspaceGrants, SystemGrants: systemGrants, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
 }
 
 func configJSON(path string, contents []byte) (error, []byte) {

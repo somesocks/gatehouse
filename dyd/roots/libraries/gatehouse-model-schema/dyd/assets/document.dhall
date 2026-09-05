@@ -878,6 +878,27 @@ let ActivityEventRef =
         }
         s.record.meta::{ name = Some "ActivityEventRef", description = Some "The stable identity of an activity event." }
 
+let SystemGrantRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed system grant identity" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SystemGrantRef", description = Some "The stable identity of a system manager grant." }
+
+let SystemGrant =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SystemGrantRef" } s.reference.meta::{ description = Some "system grant identity" }
+            , principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "granted principal identity" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the system manager grant is enabled" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic system grant revision" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SystemGrant", description = Some "A principal system manager grant." }
+
 let ActivityEvent =
       s.record.from
         s.record.props::{
@@ -902,7 +923,8 @@ let ActivityEvent =
               }
         , optional =
             toMap
-               { resource_keychain_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain resource ID" }
+                { resource_keychain_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain resource ID" }
+				, resource_system_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "system grant resource ID" }
                , resource_keychain_version = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "keychain resource version" }
                , resource_agent_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider resource ID" }
                , resource_agent_model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model resource ID" }
@@ -1075,7 +1097,9 @@ in  Document::{
           , s.root.from ProjectGroupGrant s.root.meta::{ name = "ProjectGroupGrant" }
             , s.root.from SessionRef s.root.meta::{ name = "SessionRef" }
            , s.root.from Session s.root.meta::{ name = "Session" }
-           , s.root.from StorageObjectRef s.root.meta::{ name = "StorageObjectRef" }
+			, s.root.from SystemGrantRef s.root.meta::{ name = "SystemGrantRef" }
+			, s.root.from SystemGrant s.root.meta::{ name = "SystemGrant" }
+            , s.root.from StorageObjectRef s.root.meta::{ name = "StorageObjectRef" }
            , s.root.from StorageObject s.root.meta::{ name = "StorageObject" }
            , s.root.from SessionFileRef s.root.meta::{ name = "SessionFileRef" }
            , s.root.from SessionFile s.root.meta::{ name = "SessionFile" }
