@@ -5,9 +5,10 @@
   import { fetchSystemGrants, type Workspace } from "./app/access"
   import { createActivityClient } from "./app/activity"
   import { createAccess, type SystemAccessStatus } from "./app/access.svelte"
-  import { signIn, signOut } from "./app/auth"
+  import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
+  import LoginPage from "./pages/login/LoginPage.svelte"
   import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
@@ -170,10 +171,6 @@
   let updatingSystemGrantIDs = $state<Set<string>>(new Set())
   let updatingSystemPrincipalIDs = $state<Set<string>>(new Set())
   let route = $state<Route>({ kind: "app-home" })
-  let identity = $state("")
-  let password = $state("")
-  let submitting = $state(false)
-  let loginError = $state("")
   let activeWorkspace = $state<Workspace | null>(null)
   let groups = $state<Group[]>([])
   let latestProjects = $state<Project[]>([])
@@ -3049,23 +3046,6 @@
     return agents.find((agent) => agent.id === id)?.label ?? id
   }
 
-  async function login() {
-    loginError = ""
-    submitting = true
-    try {
-      if (!await signIn(identity, password)) {
-        loginError = "The username or password is incorrect."
-        return
-      }
-      password = ""
-      await checkSession()
-    } catch {
-      loginError = "Gatehouse could not be reached. Try again."
-    } finally {
-      submitting = false
-    }
-  }
-
   async function logout() {
     try {
       await signOut()
@@ -3098,37 +3078,7 @@
     </section>
   </main>
 {:else if auth.state.status === "anonymous"}
-  <main class="auth-shell">
-    <section class="login-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-2">Welcome back.</h1>
-      <p class="subtitle is-6">Sign in to continue to your workspace.</p>
-      <form autocomplete="off" onsubmit={(event) => { event.preventDefault(); void login() }}>
-        <div class="field">
-          <label class="label" for="identity">Username</label>
-          <div class="control">
-            <input class="input" id="identity" name="identity" autocomplete="off" required bind:value={identity} />
-          </div>
-        </div>
-        <div class="field">
-          <label class="label" for="password">Password</label>
-          <div class="control">
-            <input class="input" id="password" name="password" type="password" autocomplete="off" required bind:value={password} />
-          </div>
-        </div>
-        {#if loginError !== ""}
-          <p class="help is-danger" aria-live="polite">{loginError}</p>
-        {/if}
-        <div class="field login-action">
-          <div class="control">
-            <button class="button is-primary is-fullwidth" type="submit" disabled={submitting}>
-              {submitting ? "Signing in..." : "Sign in"}
-            </button>
-          </div>
-        </div>
-      </form>
-    </section>
-  </main>
+  <LoginPage {auth} onAuthenticated={resolveRoute} />
 {:else if isSystemRoute()}
   <div class="app-shell">
     {#if mobileMenuOpen}<button class="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onclick={() => mobileMenuOpen = false}></button>{/if}

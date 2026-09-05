@@ -1,12 +1,15 @@
-import { checkAuthentication, type Claims } from "./auth"
+import { checkAuthentication, signIn as submitCredentials, type Claims } from "./auth"
 
 export type AuthenticationStatus = "checking" | "anonymous" | "authenticated" | "unavailable"
 
 type AuthenticationTransport = {
   check: () => Promise<Claims | null>
+  signIn: (identity: string, password: string) => Promise<boolean>
 }
 
-export function createAuth(transport: AuthenticationTransport = { check: checkAuthentication }) {
+export type Auth = ReturnType<typeof createAuth>
+
+export function createAuth(transport: AuthenticationTransport = { check: checkAuthentication, signIn: submitCredentials }) {
   const state = $state<{ status: AuthenticationStatus; claims: Claims | null }>({ status: "checking", claims: null })
   let checkPromise: Promise<AuthenticationStatus> | null = null
   let generation = 0
@@ -49,5 +52,16 @@ export function createAuth(transport: AuthenticationTransport = { check: checkAu
     state.status = "anonymous"
   }
 
-  return { state, check, clear }
+  async function signIn(identity: string, password: string): Promise<AuthenticationStatus | "invalid"> {
+    try {
+      if (!await transport.signIn(identity, password)) {
+        return "invalid"
+      }
+      return await check()
+    } catch {
+      return "unavailable"
+    }
+  }
+
+  return { state, check, clear, signIn }
 }
