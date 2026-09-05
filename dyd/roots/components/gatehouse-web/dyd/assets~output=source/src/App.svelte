@@ -8,16 +8,12 @@
   import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
+  import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
-
-  type Group = {
-    id: string
-    name?: string
-  }
 
   type Session = {
     id: string
@@ -149,7 +145,6 @@
   let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
   let route = $state<Route>({ kind: "app-home" })
   let activeWorkspace = $state<Workspace | null>(null)
-  let groups = $state<Group[]>([])
   let latestProjects = $state<Project[]>([])
   let agents = $state<WorkspaceAgent[]>([])
   let selectedAgent = $state("")
@@ -241,7 +236,6 @@
   let activeProjection: ActivityProjection | null = null
   let chatSearch = $state("")
   let projectSearch = $state("")
-  let groupSearch = $state("")
   let searchedSessions = $state<Session[]>([])
   let searchedProjects = $state<Project[]>([])
   let projectSessions = $state<Session[]>([])
@@ -456,15 +450,6 @@
     navigate(collectionSearchPath(projectsPath(activeWorkspace), projectSearch))
   }
 
-  function ordered<T extends { id: string }>(items: T[]) {
-    return [...items].sort((left, right) => right.id.localeCompare(left.id))
-  }
-
-  function matchesSearch(item: { id: string; name?: string }, search: string) {
-    const query = search.trim().toLocaleLowerCase()
-    return query === "" || item.id.toLocaleLowerCase().includes(query) || item.name?.toLocaleLowerCase().includes(query) === true
-  }
-
   function createdAtLabel(value: string) {
     const date = new Date(value)
     if (Number.isNaN(date.getTime())) {
@@ -598,7 +583,6 @@
     auth.clear()
     access.clear()
     activeWorkspace = null
-    groups = []
     latestProjects = []
     agents = []
     selectedAgent = ""
@@ -663,7 +647,6 @@
     const workspaces = access.state.workspaces
     if (access.state.workspaceStatus === "empty") {
       activeWorkspace = null
-      groups = []
       latestProjects = []
       latestSessions = []
       if (route.kind !== "no-access" && !isSystemRoute()) {
@@ -760,9 +743,7 @@
       await loadSessionSearch(true)
     } else if (isProjectCollection()) {
       await loadProjectSearch(true)
-    } else if (isGroupCollection()) {
-      await refreshWorkspaceGroups(workspace)
-    } else {
+    } else if (!isGroupCollection()) {
       await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
     }
   }
@@ -827,7 +808,6 @@
     stopActivityPolling()
     activeWorkspace = workspace
     resetNoteHistory()
-    groups = []
     latestProjects = []
     agents = []
     selectedAgent = ""
@@ -1521,23 +1501,6 @@
     return true
   }
 
-  async function refreshWorkspaceGroups(workspace: Workspace, projection?: ActivityProjection) {
-    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/groups`, { credentials: "same-origin" })
-    if (response.status === 401) {
-      signInRequired()
-      return false
-    }
-    if (!response.ok) {
-      throw new Error("groups could not be refreshed")
-    }
-    const loaded = (await response.json()) as Group[]
-    if ((projection !== undefined && !isActiveProjection(projection)) || activeWorkspace?.id !== workspace.id || !isGroupCollection()) {
-      return false
-    }
-    groups = loaded
-    return true
-  }
-
   async function refreshWorkspaceAgents(workspace: Workspace, projection?: ActivityProjection) {
     const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/agents`, { credentials: "same-origin" })
     if (response.status === 401) {
@@ -1571,11 +1534,6 @@
       topic: workspace.id,
       events: ["workspace.*", "workspace_grant.*"],
     }
-    const groupSelector = isGroupCollection() ? {
-      name: "group",
-      topic: workspace.id,
-      events: ["group.*", "group_member.*"],
-    } satisfies ActivitySelector : undefined
     const agentSelector = session === null ? undefined : {
       name: "agent",
       topic: workspace.id,
@@ -1600,7 +1558,7 @@
       topic: `${workspace.id}/${projectID}`,
       events: ["project.*", "project_file.*", "project_note.*", "project_secret.*", "session.*"],
     } satisfies ActivitySelector
-    const activitySelectors = [workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
+    const activitySelectors = [workspaceSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
     const projection: ActivityProjection = { stop: () => unsubscribe?.() }
     activeProjection = projection
@@ -1610,7 +1568,6 @@
       }
 
       const workspaceChanged = names.has(workspaceSelector.name)
-      const groupChanged = groupSelector !== undefined && names.has(groupSelector.name)
       const agentChanged = agentSelector !== undefined && names.has(agentSelector.name)
       const sessionChanged = sessionSelector !== undefined && names.has(sessionSelector.name)
       const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
@@ -1619,7 +1576,6 @@
         ...(workspaceChanged ? [loadWorkspaces(false)] : []),
         ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
         ...(projectSelector !== undefined ? [refreshWorkspaceProjects(workspace, projection)] : []),
-        ...(groupChanged ? [refreshWorkspaceGroups(workspace, projection)] : []),
         ...(agentChanged ? [refreshWorkspaceAgents(workspace, projection)] : []),
       ])).every(Boolean)
       if (!isActiveProjection(projection) || signal.aborted) {
@@ -3063,15 +3019,7 @@
           {#if projectSearchCursor !== null}<button class="button is-small" type="button" disabled={projectSearchLoading} onclick={() => void loadProjectSearch()}>{projectSearchLoading ? "Loading..." : "Show more"}</button>{/if}
         </section>
       {:else if isGroupCollection()}
-        <section class="collection-page">
-          <div class="collection-heading"><h2>Groups</h2></div>
-          <div class="collection-search"><label><span>Search groups</span><input class="input" type="search" autocomplete="off" placeholder="Search groups" bind:value={groupSearch} /></label></div>
-          <div class="collection-list">
-            {#each ordered(groups.filter((group) => matchesSearch(group, groupSearch))) as group}
-              <div class="dashboard-row"><span>{group.name ?? "New Group"}</span><small>{group.id}</small></div>
-            {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
-          </div>
-        </section>
+        {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
 		{:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
 			<section class="project-note-page">
 				{#if editingProjectSecret}
