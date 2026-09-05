@@ -8,13 +8,15 @@
   import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
+  import type { SessionSecret } from "./app/session-secrets"
   import ChatCollectionPage from "./pages/chats/ChatCollectionPage.svelte"
   import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
   import ProjectCollectionPage from "./pages/projects/ProjectCollectionPage.svelte"
+  import SessionSecretsPage from "./pages/session-secrets/SessionSecretsPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
-  import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
+  import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
 
   type Session = {
@@ -70,14 +72,6 @@
 
   type NoteRevision = NoteRevisionSummary & {
     body?: string
-  }
-
-  type SessionSecret = {
-    id: string
-    description: string
-    author: { id: string; name?: string }
-    created_at: string
-    updated_at: string
   }
 
   function noteAuthorLabel(author: NoteAuthor): string {
@@ -191,14 +185,7 @@
   let sessionNoteBody = $state("")
   let sessionNoteSensitive = $state(false)
   let sessionNoteError = $state("")
-  let activeSessionSecret = $state<SessionSecret | null>(null)
-  let creatingSessionSecret = $state(false)
-  let editingSessionSecret = $state(false)
-  let savingSessionSecret = $state(false)
-  let deletingSessionSecret = $state(false)
-  let sessionSecretDescription = $state("")
-  let sessionSecretValue = $state("")
-  let sessionSecretError = $state("")
+  let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
   let updatingProject = $state(false)
   let projectEditName = $state("")
@@ -250,8 +237,6 @@
   let sessionNotes = $state<SessionNote[]>([])
   let sessionNoteStatus = $state<WorkspaceContentStatus>("checking")
   let sessionNotePageStatus = $state<WorkspaceContentStatus | "not-found">("checking")
-  let sessionSecrets = $state<SessionSecret[]>([])
-  let sessionSecretStatus = $state<WorkspaceContentStatus>("checking")
   let sessionNotesGeneration = 0
   let sessionNoteGeneration = 0
   let sessionNoteRevisionGeneration = 0
@@ -350,11 +335,6 @@
 
   function sessionSecretsPath(workspace: Workspace, session: Session) {
     return `${sessionPath(workspace, session)}/secrets`
-  }
-
-  function sessionSecretPath(workspace: Workspace, session: Session, secret: SessionSecret | string) {
-    const id = typeof secret === "string" ? secret : secret.id
-    return `${sessionSecretsPath(workspace, session)}/${encodeURIComponent(id)}`
   }
 
   function projectsPath(workspace: Workspace) {
@@ -561,13 +541,7 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
-    activeSessionSecret = null
-    creatingSessionSecret = false
-    editingSessionSecret = false
-    sessionSecretValue = ""
-    sessionSecretDescription = ""
-    sessionSecretError = ""
-    sessionSecrets = []
+    sessionSecretBreadcrumb = null
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -726,18 +700,7 @@
           await loadSessionNoteRevision(session, noteID, route.revision)
         }
       }
-    } else if (isSessionSecretsRoute()) {
-      await loadSessionSecrets(session)
-      const secretID = routeSessionSecretID(route)
-      if (secretID !== null && secretID !== "new") {
-        const secret = await loadSessionSecret(session, secretID)
-        if (secret === null) {
-          navigate(sessionSecretsPath(workspace, session), true)
-        } else {
-          activeSessionSecret = secret
-        }
-      }
-    } else {
+    } else if (!isSessionSecretsRoute()) {
       await Promise.all([loadSessionEvents(session), refreshWorkspaceAgents(workspace)])
     }
   }
@@ -782,13 +745,7 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
-    activeSessionSecret = null
-    creatingSessionSecret = false
-    editingSessionSecret = false
-    sessionSecretValue = ""
-    sessionSecretDescription = ""
-    sessionSecretError = ""
-    sessionSecrets = []
+    sessionSecretBreadcrumb = null
     activeProject = null
     activeProjectNote = null
     creatingProjectNote = false
@@ -815,11 +772,9 @@
     activeProjectNote = null
     activeProjectSecret = null
     activeSessionNote = null
-    activeSessionSecret = null
     creatingProjectNote = false
     creatingProjectSecret = false
     creatingSessionNote = false
-    creatingSessionSecret = false
     events = []
   }
 
@@ -841,11 +796,7 @@
     creatingSessionNote = false
     editingSessionNote = false
     sessionNotes = []
-    activeSessionSecret = null
-    creatingSessionSecret = false
-    editingSessionSecret = false
-    sessionSecretValue = ""
-    sessionSecrets = []
+    sessionSecretBreadcrumb = null
     activeProjectNote = null
     creatingProjectNote = false
     activeProjectSecret = null
@@ -856,12 +807,7 @@
 		projectSecrets = []
     if (isSessionNotesRoute()) {
       initializeSessionNotesRoute()
-    } else if (isSessionSecretsRoute()) {
-      const secretID = routeSessionSecretID(route)
-      if (secretID === "new") {
-        activateSessionSecretCreate()
-      }
-    } else {
+    } else if (!isSessionSecretsRoute()) {
       events = []
       eventStatus = "checking"
     }
@@ -1230,60 +1176,6 @@
     }
   }
 
-  async function loadSessionSecrets(session: Session, showLoading = true, projection?: ActivityProjection) {
-    if (activeWorkspace === null || !isSessionSecretsRoute()) {
-      return false
-    }
-    const workspace = activeWorkspace
-    if (showLoading) {
-      sessionSecretStatus = "checking"
-    }
-    try {
-      const response = await fetch(sessionSecretsAPIPath(workspace, session), { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("session secrets could not be loaded")
-      }
-      const loaded = (await response.json()) as SessionSecret[]
-      if (projection !== undefined && !isActiveProjection(projection) || activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || !isSessionSecretsRoute()) {
-        return false
-      }
-      sessionSecrets = [...loaded].sort((left, right) => {
-        const difference = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
-        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
-      })
-      sessionSecretStatus = "ready"
-      return true
-    } catch {
-      if ((projection === undefined || isActiveProjection(projection)) && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && isSessionSecretsRoute()) {
-        sessionSecretStatus = "unavailable"
-      }
-      return false
-    }
-  }
-
-  async function loadSessionSecret(session: Session, id: string) {
-    if (activeWorkspace === null || !isSessionSecretsRoute()) {
-      return null
-    }
-    const workspace = activeWorkspace
-    const response = await fetch(`${sessionSecretsAPIPath(workspace, session)}/${encodeURIComponent(id)}`, { credentials: "same-origin" })
-    if (response.status === 401) {
-      signInRequired()
-      return null
-    }
-    if (response.status === 404) {
-      return null
-    }
-    if (!response.ok) {
-      throw new Error("session secret could not be loaded")
-    }
-    return (await response.json()) as SessionSecret
-  }
-
   async function loadSessionEvents(session: Session, showLoading = true, projection?: ActivityProjection) {
     if (activeWorkspace === null) {
       return false
@@ -1425,7 +1317,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
-      events: ["session.*", "session_event.*", "session_file.*", "session_note.*", "session_secret.*"],
+      events: ["session.*", "session_event.*", "session_file.*", "session_note.*", ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
     } satisfies ActivitySelector
     const projectID = session?.project?.id ?? activeProject?.id
     const projectSelector = projectID === undefined ? (overview ? {
@@ -1478,39 +1370,7 @@
             }
             refreshed = notesLoaded && noteLoaded
           }
-        } else if (isSessionSecretsRoute()) {
-          if (sessionChanged) {
-            refreshed = await loadSessionSecrets(session, false, projection)
-            const secretID = routeSessionSecretID(route)
-            if (refreshed && isActiveProjection(projection) && secretID !== null && secretID !== "new") {
-              const secret = await loadSessionSecret(session, secretID)
-              if (!isActiveProjection(projection)) {
-                throw new Error("activity projection refresh failed")
-              }
-              if (secret === null) {
-                activeSessionSecret = null
-                editingSessionSecret = false
-                sessionSecretValue = ""
-                navigate(sessionSecretsPath(workspace, session), true)
-              } else {
-                activeSessionSecret = secret
-              }
-            } else if (refreshed && isActiveProjection(projection) && activeSessionSecret !== null) {
-              const secret = activeSessionSecret
-              const loaded = await loadSessionSecret(session, secret.id)
-              if (!isActiveProjection(projection)) {
-                throw new Error("activity projection refresh failed")
-              }
-              if (loaded === null && activeSessionSecret?.id === secret.id) {
-                activeSessionSecret = null
-                editingSessionSecret = false
-                sessionSecretValue = ""
-              } else if (loaded !== null && activeSessionSecret?.id === secret.id) {
-                activeSessionSecret = loaded
-              }
-            }
-          }
-        } else {
+        } else if (!isSessionSecretsRoute()) {
           refreshed = await loadSessionEvents(session, false, projection)
         }
       }
@@ -2258,137 +2118,6 @@
     return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes`
   }
 
-  function activateSessionSecretCreate() {
-    if (activeWorkspace === null || activeSession === null) {
-      return
-    }
-    activeSessionSecret = null
-    creatingSessionSecret = true
-    editingSessionSecret = true
-    sessionSecretDescription = ""
-    sessionSecretValue = ""
-    sessionSecretError = ""
-  }
-
-  function startSessionSecretCreate() {
-    if (activeWorkspace !== null && activeSession !== null) {
-      navigate(sessionSecretPath(activeWorkspace, activeSession, "new"))
-    }
-  }
-
-  function startSessionSecretEdit() {
-    if (activeSessionSecret === null) {
-      return
-    }
-    sessionSecretDescription = activeSessionSecret.description
-    sessionSecretValue = ""
-    sessionSecretError = ""
-    editingSessionSecret = true
-  }
-
-  function cancelSessionSecretEdit() {
-    if (savingSessionSecret || activeWorkspace === null || activeSession === null) {
-      return
-    }
-    sessionSecretError = ""
-    sessionSecretValue = ""
-    if (creatingSessionSecret) {
-      creatingSessionSecret = false
-      editingSessionSecret = false
-      navigate(sessionSecretsPath(activeWorkspace, activeSession))
-      return
-    }
-    editingSessionSecret = false
-  }
-
-  async function saveSessionSecret() {
-    if (activeWorkspace === null || activeSession === null || sessionSecretDescription.trim() === "") {
-      sessionSecretError = "Description is required."
-      return
-    }
-    if (creatingSessionSecret && sessionSecretValue === "") {
-      sessionSecretError = "Value is required."
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    const creating = creatingSessionSecret
-    const secret = activeSessionSecret
-    const input: { description: string; value?: string } = { description: sessionSecretDescription }
-    if (creating || sessionSecretValue !== "") {
-      input.value = sessionSecretValue
-    }
-    sessionSecretError = ""
-    savingSessionSecret = true
-    try {
-      const secretsPath = sessionSecretsAPIPath(workspace, session)
-      const path = creating ? secretsPath : `${secretsPath}/${encodeURIComponent(secret?.id ?? "")}`
-      const response = await fetch(path, {
-        method: creating ? "POST" : "PATCH",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("session secret could not be saved")
-      }
-      const saved = (await response.json()) as SessionSecret
-      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
-        return
-      }
-      sessionSecretValue = ""
-      activeSessionSecret = saved
-      creatingSessionSecret = false
-      editingSessionSecret = false
-      sessionSecrets = [saved, ...sessionSecrets.filter((candidate) => candidate.id !== saved.id)]
-      navigate(sessionSecretPath(workspace, session, saved))
-    } catch {
-      sessionSecretError = "The secret could not be saved. Try again."
-    } finally {
-      savingSessionSecret = false
-    }
-  }
-
-  async function removeSessionSecret() {
-    if (activeWorkspace === null || activeSession === null || activeSessionSecret === null || deletingSessionSecret || !window.confirm(`Remove ${activeSessionSecret.description}?`)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    const secret = activeSessionSecret
-    deletingSessionSecret = true
-    sessionSecretError = ""
-    try {
-      const response = await fetch(`${sessionSecretsAPIPath(workspace, session)}/${encodeURIComponent(secret.id)}`, { method: "DELETE", credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("session secret could not be removed")
-      }
-      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionSecret?.id === secret.id) {
-        activeSessionSecret = null
-        editingSessionSecret = false
-        sessionSecretValue = ""
-        sessionSecrets = sessionSecrets.filter((candidate) => candidate.id !== secret.id)
-        navigate(sessionSecretsPath(workspace, session))
-      }
-    } catch {
-      sessionSecretError = "The secret could not be removed. Try again."
-    } finally {
-      deletingSessionSecret = false
-    }
-  }
-
-  function sessionSecretsAPIPath(workspace: Workspace, session: Session) {
-    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/secrets`
-  }
-
   function openProjectEdit() {
     if (activeProject === null) {
       return
@@ -2786,7 +2515,7 @@
               {:else if isSessionSecretsRoute()}
                 <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                {#if activeSessionSecret !== null || creatingSessionSecret}
+                {#if route.kind === "session-secret" || route.kind === "session-secret-new"}
                   <a href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionSecretsPath(activeWorkspace, activeSession)) } }}>Secrets</a>
                 {:else}
                   <span>Secrets</span>
@@ -2817,9 +2546,9 @@
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{activeSessionNote?.title ?? "New Note"}</span>
             {/if}
-            {#if activeSession !== null && (activeSessionSecret !== null || creatingSessionSecret)}
+            {#if activeSession !== null && sessionSecretBreadcrumb !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{activeSessionSecret?.description ?? "New Secret"}</span>
+              <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{sessionSecretBreadcrumb}</span>
             {/if}
 			{#if activeSession === null && activeProject !== null && (activeProjectSecret !== null || creatingProjectSecret)}
 				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
@@ -2970,35 +2699,7 @@
           {/if}
         </section>
       {:else if activeSession !== null && isSessionSecretsRoute()}
-        <section class="project-note-page">
-          {#if editingSessionSecret}
-            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveSessionSecret() }}>
-              <div class="project-note-page-heading"><div><p class="eyebrow">Session Secret</p><h2>{creatingSessionSecret ? "New Secret" : "Edit Secret"}</h2></div></div>
-              <div class="field"><label class="label" for="session-secret-description">Description</label><div class="control"><textarea class="textarea" id="session-secret-description" autocomplete="off" rows="3" maxlength="4096" required bind:value={sessionSecretDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="session-secret-value">{creatingSessionSecret ? "Value" : "New value (optional)"}</label><div class="control"><textarea class="textarea" id="session-secret-value" autocomplete="new-password" rows="5" maxlength="1048576" required={creatingSessionSecret} bind:value={sessionSecretValue}></textarea></div>{#if !creatingSessionSecret}<p class="help">Leave blank to keep the current value.</p>{/if}</div>
-              {#if sessionSecretError !== ""}<p class="help is-danger" aria-live="polite">{sessionSecretError}</p>{/if}
-              <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionSecret} onclick={cancelSessionSecretEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionSecret}>{savingSessionSecret ? "Saving..." : "Save secret"}</button></div>
-            </form>
-          {:else if activeSessionSecret !== null}
-            <article class="project-note-view">
-              <header class="project-note-page-heading"><div><p class="eyebrow">Session Secret</p><h2>{activeSessionSecret.description}</h2><small>By {activeSessionSecret.author.name ?? activeSessionSecret.author.id} on {createdAtLabel(activeSessionSecret.created_at)}{#if activeSessionSecret.updated_at !== activeSessionSecret.created_at} / Updated {createdAtLabel(activeSessionSecret.updated_at)}{/if}</small></div><div class="project-note-actions"><button class="button is-small" type="button" onclick={startSessionSecretEdit}>Edit</button><button class="button is-small is-danger is-light" type="button" disabled={deletingSessionSecret} onclick={() => void removeSessionSecret()}>{deletingSessionSecret ? "Removing..." : "Remove"}</button></div></header>
-              {#if sessionSecretError !== ""}<p class="help is-danger" aria-live="polite">{sessionSecretError}</p>{/if}
-            </article>
-          {:else}
-            <div class="collection-heading"><h2>Session Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionSecretCreate()}>New secret</button></div>
-            <div class="collection-list">
-              {#if sessionSecretStatus === "checking"}
-                <p class="dashboard-empty">Loading secrets...</p>
-              {:else if sessionSecretStatus === "unavailable"}
-                <p class="dashboard-empty">Secrets could not be loaded.</p>
-              {:else}
-                {#each sessionSecrets as secret (secret.id)}
-                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionSecretPath(activeWorkspace, activeSession, secret) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null && activeSession !== null) { navigate(sessionSecretPath(activeWorkspace, activeSession, secret)) } }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
-                {:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
-              {/if}
-            </div>
-          {/if}
-        </section>
+        <SessionSecretsPage workspace={activeWorkspace!} session={activeSession} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">
