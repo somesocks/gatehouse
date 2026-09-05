@@ -3,7 +3,8 @@
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity"
   import { fetchSystemGrants, fetchWorkspaces, type Workspace } from "./app/access"
-  import { checkAuthentication, signIn, signOut, type Claims } from "./app/auth"
+  import { signIn, signOut } from "./app/auth"
+  import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
   import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
@@ -153,16 +154,14 @@
     children: SessionEventTree[]
   }
 
-  type AuthenticationStatus = "checking" | "anonymous" | "authenticated" | "unavailable"
   type WorkspaceStatus = "checking" | "ready" | "empty" | "unavailable"
   type WorkspaceContentStatus = "checking" | "ready" | "unavailable"
   type SystemAccessStatus = "checking" | "available" | "denied" | "unavailable"
   type ActivityProjection = { stop: () => void }
 
-  let status = $state<AuthenticationStatus>("checking")
+  const auth = createAuth()
   let workspaceStatus = $state<WorkspaceStatus>("checking")
   let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
-  let claims = $state<Claims | null>(null)
   let systemAccess = $state<SystemAccessStatus>("checking")
   let systemGrants = $state<SystemGrant[]>([])
   let systemPrincipals = $state<SystemPrincipal[]>([])
@@ -289,7 +288,7 @@
   let sessionNoteRevisionGeneration = 0
   let routeGeneration = 0
   let routeAbortController: AbortController | null = null
-  let checkingSession = false
+  let initializingAuthenticatedSession = false
   let loadingWorkspaces = false
   const router = createRouter((next) => {
     routeAbortController?.abort()
@@ -612,7 +611,7 @@
     routeGeneration += 1
     stopActivityPolling()
     resetNoteHistory()
-    claims = null
+    auth.clear()
     systemAccess = "checking"
     systemGrants = []
     systemPrincipals = []
@@ -656,7 +655,6 @@
 		projectSecrets = []
     events = []
     showJumpToLatest = false
-    status = "anonymous"
     workspaceStatus = "checking"
     if (!isLoginPath()) {
       redirectToLogin()
@@ -664,28 +662,24 @@
   }
 
   async function checkSession() {
-    if (checkingSession) {
+    if (initializingAuthenticatedSession) {
       return
     }
-    checkingSession = true
-    status = "checking"
+    initializingAuthenticatedSession = true
     try {
-      const loadedClaims = await checkAuthentication()
-      if (loadedClaims === null) {
+      const next = await auth.check()
+      if (next === "anonymous") {
         signInRequired()
         return
       }
-      claims = loadedClaims
-      status = "authenticated"
-      await loadSystemGrants()
-      configureActivityPolling()
-      await activityPoller.poll()
-      await loadWorkspaces()
-    } catch {
-      claims = null
-      status = "unavailable"
+      if (next === "authenticated") {
+        await loadSystemGrants()
+        configureActivityPolling()
+        await activityPoller.poll()
+        await loadWorkspaces()
+      }
     } finally {
-      checkingSession = false
+      initializingAuthenticatedSession = false
     }
   }
 
@@ -773,7 +767,7 @@
   function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">, previous = systemAccess) {
     const changed = previous !== next
     systemAccess = next
-    if (changed && status === "authenticated") {
+    if (changed && auth.state.status === "authenticated") {
       configureActivityPolling()
     }
   }
@@ -826,7 +820,7 @@
       }
       const updated = await response.json() as SystemPrincipal
       systemPrincipals = systemPrincipals.map((entry) => entry.id === updated.id ? updated : entry)
-      if (!updated.enabled && claims?.principal.ref.id === updated.id) {
+      if (!updated.enabled && auth.state.claims?.principal.ref.id === updated.id) {
         signInRequired()
       }
     } catch {
@@ -902,7 +896,7 @@
       }
       const updated = await response.json() as SystemGrant
       systemGrants = systemGrants.map((entry) => entry.ref.id === updated.ref.id ? updated : entry)
-      if (!updated.enabled && claims?.principal.ref.id === updated.principal.id) {
+      if (!updated.enabled && auth.state.claims?.principal.ref.id === updated.principal.id) {
         setSystemAccess("denied")
         systemGrants = []
       }
@@ -916,10 +910,8 @@
   }
 
   async function activateRoute(generation: number, signal: AbortSignal) {
-    if (status !== "authenticated") {
-      if (!checkingSession) {
-        void checkSession()
-      }
+    if (auth.state.status !== "authenticated") {
+      void checkSession()
       return
     }
     if (isSystemRoute()) {
@@ -1824,7 +1816,7 @@
 
   function configureActivityPolling() {
     disposeActiveProjection()
-    const principalID = claims?.principal.ref.id
+    const principalID = auth.state.claims?.principal.ref.id
     if (principalID === undefined) {
       return
     }
@@ -3142,15 +3134,15 @@
   <title>Gatehouse</title>
 </svelte:head>
 
-{#if status === "checking" || (status === "authenticated" && workspaceStatus === "checking")}
+{#if auth.state.status === "checking" || (auth.state.status === "authenticated" && workspaceStatus === "checking")}
   <main class="auth-shell" aria-busy="true" aria-live="polite">
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
       <div class="loading-mark" aria-hidden="true"></div>
-      <p>{status === "checking" ? "Checking your session." : "Loading your workspaces."}</p>
+      <p>{auth.state.status === "checking" ? "Checking your session." : "Loading your workspaces."}</p>
     </section>
   </main>
-{:else if status === "unavailable" || workspaceStatus === "unavailable"}
+{:else if auth.state.status === "unavailable" || workspaceStatus === "unavailable"}
   <main class="auth-shell">
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
@@ -3159,7 +3151,7 @@
       <button class="button is-primary" type="button" onclick={() => void checkSession()}>Try again</button>
     </section>
   </main>
-{:else if status === "anonymous"}
+{:else if auth.state.status === "anonymous"}
   <main class="auth-shell">
     <section class="login-card">
       <p class="eyebrow">Gatehouse</p>
@@ -3207,7 +3199,7 @@
         </section>
       </nav>
       <div class="sidebar-footer">
-        <span>{claims?.principal.name ?? "User"}</span>
+        <span>{auth.state.claims?.principal.name ?? "User"}</span>
         <button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button>
       </div>
     </aside>
@@ -3278,7 +3270,7 @@
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
       <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">Ask an administrator to add {claims?.principal.name ?? "User"} to a workspace group.</p>
+      <p class="subtitle is-6">Ask an administrator to add {auth.state.claims?.principal.name ?? "User"} to a workspace group.</p>
       {#if systemAccess === "available"}<button class="button is-primary is-light is-fullwidth" type="button" onclick={() => navigate("/app/system")}>System</button>{/if}
       <button class="button is-danger is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
     </section>
@@ -3324,7 +3316,7 @@
         </div>
       {/if}
       <div class="sidebar-footer">
-        <span>{claims?.principal.name ?? "User"}</span>
+        <span>{auth.state.claims?.principal.name ?? "User"}</span>
         <button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button>
       </div>
     </aside>
