@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchSystemGrants, fetchWorkspaces } from "./access"
+import { fetchWorkspaces } from "./access"
+import { fetchSystemGrants } from "./system"
 
 afterEach(() => {
   vi.unstubAllGlobals()

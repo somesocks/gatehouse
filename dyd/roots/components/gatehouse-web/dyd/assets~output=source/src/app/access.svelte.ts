@@ -1,5 +1,6 @@
-import { fetchSystemGrants, fetchWorkspaces, type Workspace } from "./access"
+import { fetchWorkspaces, type Workspace } from "./access"
 import type { ActivityClient } from "./activity"
+import { fetchSystemGrants } from "./system"
 
 export type WorkspaceStatus = "checking" | "ready" | "empty" | "unavailable"
 export type SystemAccessStatus = "checking" | "available" | "denied" | "unavailable"
@@ -7,10 +8,9 @@ export type SystemAccessStatus = "checking" | "available" | "denied" | "unavaila
 type AccessOptions = {
   activity: ActivityClient
   onAuthenticationLost: () => void
-  onSystemAccessChange?: () => void
 }
 
-export function createAccess({ activity, onAuthenticationLost, onSystemAccessChange }: AccessOptions) {
+export function createAccess({ activity, onAuthenticationLost }: AccessOptions) {
   const state = $state<{ workspaceStatus: WorkspaceStatus; workspaces: Workspace[]; systemAccess: SystemAccessStatus }>({
     workspaceStatus: "checking",
     workspaces: [],
@@ -25,7 +25,6 @@ export function createAccess({ activity, onAuthenticationLost, onSystemAccessCha
       return await refreshPromise
     }
     const currentGeneration = generation
-    const previousSystemAccess = state.systemAccess
     state.workspaceStatus = "checking"
     state.systemAccess = "checking"
     const pending = (async () => {
@@ -36,7 +35,7 @@ export function createAccess({ activity, onAuthenticationLost, onSystemAccessCha
           onAuthenticationLost()
           return false
         }
-        updateSystemAccess(systemResponse.status === 403 ? "denied" : systemResponse.ok ? "available" : "unavailable", previousSystemAccess)
+        updateSystemAccess(systemResponse.status === 403 ? "denied" : systemResponse.ok ? "available" : "unavailable")
 
         const workspaceResponse = await fetchWorkspaces()
         if (currentGeneration !== generation) return false
@@ -54,7 +53,7 @@ export function createAccess({ activity, onAuthenticationLost, onSystemAccessCha
       } catch {
         if (currentGeneration === generation) {
           state.workspaceStatus = "unavailable"
-          updateSystemAccess("unavailable", previousSystemAccess)
+          updateSystemAccess("unavailable")
         }
         return false
       }
@@ -93,14 +92,11 @@ export function createAccess({ activity, onAuthenticationLost, onSystemAccessCha
   }
 
   function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">): void {
-    updateSystemAccess(next, state.systemAccess)
+    updateSystemAccess(next)
   }
 
-  function updateSystemAccess(next: Exclude<SystemAccessStatus, "checking">, previous: SystemAccessStatus): void {
+  function updateSystemAccess(next: Exclude<SystemAccessStatus, "checking">): void {
     state.systemAccess = next
-    if (previous !== next) {
-      onSystemAccessChange?.()
-    }
   }
 
   return { state, refresh, start, stop, clear, setSystemAccess }

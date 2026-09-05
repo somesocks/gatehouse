@@ -2,32 +2,17 @@
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import type { ActivitySelector } from "./utils/activity-poller"
-  import { fetchSystemGrants, type Workspace } from "./app/access"
+  import type { Workspace } from "./app/access"
   import { createActivityClient } from "./app/activity"
-  import { createAccess, type SystemAccessStatus } from "./app/access.svelte"
+  import { createAccess } from "./app/access.svelte"
   import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
   import LoginPage from "./pages/login/LoginPage.svelte"
+  import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
-
-  type SystemGrant = {
-    ref: { id: string }
-    principal: { id: string }
-    enabled: boolean
-    revision: number
-  }
-
-  type SystemPrincipal = {
-    id: string
-    alias?: string
-    name?: string
-    enabled: boolean
-    revision: number
-    identities: { id: string; key: string; enabled: boolean; revision: number }[]
-  }
 
   type Group = {
     id: string
@@ -162,14 +147,6 @@
 
   const auth = createAuth()
   let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
-  let systemGrants = $state<SystemGrant[]>([])
-  let systemPrincipals = $state<SystemPrincipal[]>([])
-  let systemGrantPrincipal = $state("")
-  let systemGrantError = $state("")
-  let systemPrincipalError = $state("")
-  let creatingSystemGrant = $state(false)
-  let updatingSystemGrantIDs = $state<Set<string>>(new Set())
-  let updatingSystemPrincipalIDs = $state<Set<string>>(new Set())
   let route = $state<Route>({ kind: "app-home" })
   let activeWorkspace = $state<Workspace | null>(null)
   let groups = $state<Group[]>([])
@@ -252,11 +229,7 @@
   const activity = createActivityClient({ onAuthenticationLost: signInRequired, onPollComplete: () => {
     activityPollTimestamp = Date.now()
   } })
-  const access = createAccess({ activity, onAuthenticationLost: signInRequired, onSystemAccessChange: () => {
-    if (auth.state.status === "authenticated") {
-      configureActivityPolling()
-    }
-  } })
+  const access = createAccess({ activity, onAuthenticationLost: signInRequired })
   $effect(() => {
     const principalID = auth.state.claims?.principal.ref.id
     if (auth.state.status !== "authenticated" || principalID === undefined) {
@@ -624,14 +597,6 @@
     resetNoteHistory()
     auth.clear()
     access.clear()
-    systemGrants = []
-    systemPrincipals = []
-    systemGrantPrincipal = ""
-    systemGrantError = ""
-    systemPrincipalError = ""
-    creatingSystemGrant = false
-    updatingSystemGrantIDs = new Set()
-    updatingSystemPrincipalIDs = new Set()
     activeWorkspace = null
     groups = []
     latestProjects = []
@@ -682,10 +647,9 @@
         return
       }
       if (next === "authenticated") {
-        await loadSystemGrants()
+        await loadWorkspaces()
         configureActivityPolling()
         await activity.poll()
-        await loadWorkspaces()
       }
     } finally {
       initializingAuthenticatedSession = false
@@ -723,186 +687,12 @@
     return true
   }
 
-  async function loadSystemGrants() {
-    systemGrantError = ""
-    try {
-      const response = await fetchSystemGrants()
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (response.status === 403) {
-        setSystemAccess("denied")
-        systemGrants = []
-        return false
-      }
-      if (!response.ok) {
-        setSystemAccess("unavailable")
-        systemGrantError = "System grants could not be loaded."
-        return false
-      }
-      systemGrants = (await response.json()) as SystemGrant[]
-      setSystemAccess("available")
-      return true
-    } catch {
-      setSystemAccess("unavailable")
-      systemGrantError = "System grants could not be loaded."
-      return false
-    }
-  }
-
-  function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">) {
-    access.setSystemAccess(next)
-  }
-
-  async function loadSystemPrincipals() {
-    systemPrincipalError = ""
-    try {
-      const response = await fetch("/api/v1/system/principals", { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (response.status === 403) {
-        setSystemAccess("denied")
-        systemPrincipals = []
-        return false
-      }
-      if (!response.ok) {
-        systemPrincipalError = "Principals could not be loaded."
-        return false
-      }
-      systemPrincipals = (await response.json()) as SystemPrincipal[]
-      return true
-    } catch {
-      systemPrincipalError = "Principals could not be loaded."
-      return false
-    }
-  }
-
-  async function setSystemPrincipalEnabled(principal: SystemPrincipal, enabled: boolean) {
-    if (!enabled && !window.confirm(`Disable ${principal.name ?? principal.id}?`)) {
-      return
-    }
-    systemPrincipalError = ""
-    updatingSystemPrincipalIDs = new Set(updatingSystemPrincipalIDs).add(principal.id)
-    try {
-      const response = await fetch(`/api/v1/system/principals/${encodeURIComponent(principal.id)}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (response.status === 403) {
-        setSystemAccess("denied")
-        systemPrincipals = []
-        return
-      }
-      if (!response.ok) {
-        systemPrincipalError = "Principal could not be updated."
-        return
-      }
-      const updated = await response.json() as SystemPrincipal
-      systemPrincipals = systemPrincipals.map((entry) => entry.id === updated.id ? updated : entry)
-      if (!updated.enabled && auth.state.claims?.principal.ref.id === updated.id) {
-        signInRequired()
-      }
-    } catch {
-      systemPrincipalError = "Principal could not be updated."
-    } finally {
-      const next = new Set(updatingSystemPrincipalIDs)
-      next.delete(principal.id)
-      updatingSystemPrincipalIDs = next
-    }
-  }
-
-  async function createSystemGrant() {
-    systemGrantError = ""
-    const principal = systemGrantPrincipal.trim()
-    if (principal === "") {
-      systemGrantError = "A principal ID is required."
-      return
-    }
-    creatingSystemGrant = true
-    try {
-      const response = await fetch("/api/v1/system/grants", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ principal }) })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (response.status === 403) {
-        setSystemAccess("denied")
-        systemGrants = []
-        return
-      }
-      if (response.status === 404) {
-        systemGrantError = "That principal does not exist."
-        return
-      }
-      if (response.status === 409) {
-        systemGrantError = "That principal already has a system grant."
-        return
-      }
-      if (!response.ok) {
-        systemGrantError = "System grant could not be created."
-        return
-      }
-      const grant = await response.json() as SystemGrant
-      systemGrants = [...systemGrants, grant].sort((left, right) => left.ref.id.localeCompare(right.ref.id))
-      systemGrantPrincipal = ""
-    } catch {
-      systemGrantError = "System grant could not be created."
-    } finally {
-      creatingSystemGrant = false
-    }
-  }
-
-  async function setSystemGrantEnabled(grant: SystemGrant, enabled: boolean) {
-    if (!enabled && !window.confirm(`Disable system access for ${grant.principal.id}?`)) {
-      return
-    }
-    systemGrantError = ""
-    updatingSystemGrantIDs = new Set(updatingSystemGrantIDs).add(grant.ref.id)
-    try {
-      const response = await fetch(`/api/v1/system/grants/${encodeURIComponent(grant.ref.id)}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled }) })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (response.status === 403) {
-        setSystemAccess("denied")
-        systemGrants = []
-        return
-      }
-      if (!response.ok) {
-        systemGrantError = "System grant could not be updated."
-        return
-      }
-      const updated = await response.json() as SystemGrant
-      systemGrants = systemGrants.map((entry) => entry.ref.id === updated.ref.id ? updated : entry)
-      if (!updated.enabled && auth.state.claims?.principal.ref.id === updated.principal.id) {
-        setSystemAccess("denied")
-        systemGrants = []
-      }
-    } catch {
-      systemGrantError = "System grant could not be updated."
-    } finally {
-      const next = new Set(updatingSystemGrantIDs)
-      next.delete(grant.ref.id)
-      updatingSystemGrantIDs = next
-    }
-  }
-
   async function activateRoute(generation: number, signal: AbortSignal) {
     if (auth.state.status !== "authenticated") {
       void checkSession()
       return
     }
     if (isSystemRoute()) {
-      await loadSystemGrants()
-      if (route.kind === "system-principals") {
-        await loadSystemPrincipals()
-      }
-      configureActivityPolling()
       return
     }
     if (access.state.workspaceStatus !== "ready") {
@@ -1770,27 +1560,7 @@
 
   function configureActivityPolling() {
     disposeActiveProjection()
-    const systemSelector = access.state.systemAccess === "available" ? {
-      name: "system",
-      topic: "sys",
-      events: ["system_grant.*"],
-    } satisfies ActivitySelector : undefined
     if (activeWorkspace === null) {
-      if (systemSelector === undefined) {
-        return
-      }
-      let unsubscribe: (() => void) | undefined
-      const projection: ActivityProjection = { stop: () => unsubscribe?.() }
-      activeProjection = projection
-      unsubscribe = activity.subscribe([systemSelector], async ({ signal }) => {
-        if (signal.aborted || !isActiveProjection(projection)) {
-          return
-        }
-        const refreshed = await loadSystemGrants()
-        if (!refreshed || signal.aborted || !isActiveProjection(projection)) {
-          throw new Error("activity projection refresh failed")
-        }
-      })
       return
     }
     const workspace = activeWorkspace
@@ -1830,7 +1600,7 @@
       topic: `${workspace.id}/${projectID}`,
       events: ["project.*", "project_file.*", "project_note.*", "project_secret.*", "session.*"],
     } satisfies ActivitySelector
-    const activitySelectors = [systemSelector, workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
+    const activitySelectors = [workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
     const projection: ActivityProjection = { stop: () => unsubscribe?.() }
     activeProjection = projection
@@ -1839,16 +1609,12 @@
         return
       }
 
-      const systemChanged = systemSelector !== undefined && names.has(systemSelector.name)
       const workspaceChanged = names.has(workspaceSelector.name)
       const groupChanged = groupSelector !== undefined && names.has(groupSelector.name)
       const agentChanged = agentSelector !== undefined && names.has(agentSelector.name)
       const sessionChanged = sessionSelector !== undefined && names.has(sessionSelector.name)
       const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
 
-      if (systemChanged) {
-        await loadSystemGrants()
-      }
       let refreshed = (await Promise.all([
         ...(workspaceChanged ? [loadWorkspaces(false)] : []),
         ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
@@ -3080,87 +2846,18 @@
 {:else if auth.state.status === "anonymous"}
   <LoginPage {auth} onAuthenticated={resolveRoute} />
 {:else if isSystemRoute()}
-  <div class="app-shell">
-    {#if mobileMenuOpen}<button class="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onclick={() => mobileMenuOpen = false}></button>{/if}
-    <aside class:mobile-menu-open={mobileMenuOpen} class="sidebar">
-      <a class="brand" href="/app/">Gatehouse</a>
-      <nav class="sidebar-nav" aria-label="System navigation">
-        <section class="sidebar-section">
-          <h2>System</h2>
-          <ul>
-            <li><a class:active={route.kind === "system"} href="/app/system" onclick={(event) => { event.preventDefault(); navigate("/app/system") }}>Overview</a></li>
-            {#if access.state.systemAccess === "available"}<li><a class:active={route.kind === "system-principals"} href="/app/system/principals" onclick={(event) => { event.preventDefault(); navigate("/app/system/principals") }}>Principals</a></li>{/if}
-            {#if access.state.systemAccess === "available"}<li><a class:active={route.kind === "system-grants"} href="/app/system/grants" onclick={(event) => { event.preventDefault(); navigate("/app/system/grants") }}>System grants</a></li>{/if}
-          </ul>
-        </section>
-      </nav>
-      <div class="sidebar-footer">
-        <span>{auth.state.claims?.principal.name ?? "User"}</span>
-        <button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button>
-      </div>
-    </aside>
-    <main class="workspace-main">
-      <header class="workspace-header system-header">
-        <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}><Menu size={20} strokeWidth={2} aria-hidden="true" /></button>
-        <h1 class="workspace-breadcrumb">
-          {#if route.kind === "system-grants" || route.kind === "system-principals"}
-            <a class="workspace-breadcrumb-segment" href="/app/system" onclick={(event) => { event.preventDefault(); navigate("/app/system") }}><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></a>
-            <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-            <span>{route.kind === "system-principals" ? "Principals" : "System grants"}</span>
-          {:else}
-            <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
-          {/if}
-        </h1>
-      </header>
-      {#if access.state.systemAccess === "checking"}
-        <section class="system-page"><p class="dashboard-empty">Loading system access...</p></section>
-      {:else if access.state.systemAccess !== "available"}
-        <section class="system-page system-access-denied"><p class="eyebrow">System</p><h2 class="title is-3">System access required</h2><p>You do not currently have an enabled system manager grant.</p></section>
-      {:else if route.kind === "system"}
-        <section class="system-page">
-          <p class="eyebrow">System</p>
-          <h2 class="title is-3">System administration</h2>
-          <p class="subtitle is-6">Manage global Gatehouse state.</p>
-          <a class="system-section-link" href="/app/system/principals" onclick={(event) => { event.preventDefault(); navigate("/app/system/principals") }}>
-            <span><strong>Principals</strong><small>View and enable or disable principals and their identities.</small></span>
-          </a>
-          <a class="system-section-link" href="/app/system/grants" onclick={(event) => { event.preventDefault(); navigate("/app/system/grants") }}>
-            <span><strong>System grants</strong><small>Grant or revoke system-manager access.</small></span>
-          </a>
-        </section>
-      {:else if route.kind === "system-principals"}
-        <section class="system-page">
-          <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Principals</h2><p class="subtitle is-6">Identity associations are shown without credential verifiers.</p></div></div>
-          {#if systemPrincipalError !== ""}<p class="help is-danger" aria-live="polite">{systemPrincipalError}</p>{/if}
-          <div class="system-principal-list">
-            {#each systemPrincipals as principal (principal.id)}
-              <article class:system-principal-disabled={!principal.enabled} class="system-principal-row">
-                <div><strong>{principal.name ?? principal.alias ?? principal.id}</strong><small>{principal.id}{principal.alias === undefined ? "" : ` / ${principal.alias}`} / revision {principal.revision}</small>{#if principal.identities.length > 0}<div class="system-principal-identities">{#each principal.identities as identity (identity.id)}<span class:has-text-grey={!identity.enabled}>{identity.key} / {identity.id} / revision {identity.revision}{identity.enabled ? "" : " / Disabled"}</span>{/each}</div>{:else}<small>No identities</small>{/if}</div>
-                <div class="system-principal-actions"><span class:has-text-success={principal.enabled} class:has-text-grey={!principal.enabled}>{principal.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={updatingSystemPrincipalIDs.has(principal.id)} onclick={() => void setSystemPrincipalEnabled(principal, !principal.enabled)}>{updatingSystemPrincipalIDs.has(principal.id) ? "Saving..." : principal.enabled ? "Disable" : "Enable"}</button></div>
-              </article>
-            {:else}<p class="dashboard-empty">No principals are configured.</p>{/each}
-          </div>
-        </section>
-      {:else}
-        <section class="system-page">
-          <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">System grants</h2><p class="subtitle is-6">System managers can modify global Gatehouse state.</p></div></div>
-          <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createSystemGrant() }}>
-            <label class="field"><span class="label">Principal ID</span><input class="input" autocomplete="off" placeholder="prn_..." bind:value={systemGrantPrincipal} /></label>
-            <button class="button is-primary" type="submit" disabled={creatingSystemGrant}>{creatingSystemGrant ? "Granting..." : "Add manager"}</button>
-          </form>
-          {#if systemGrantError !== ""}<p class="help is-danger" aria-live="polite">{systemGrantError}</p>{/if}
-          <div class="system-grant-list">
-            {#each systemGrants as grant (grant.ref.id)}
-              <article class:system-grant-disabled={!grant.enabled} class="system-grant-row">
-                <div><strong>{grant.principal.id}</strong><small>{grant.ref.id} / revision {grant.revision}</small></div>
-                <div class="system-grant-actions"><span class:has-text-success={grant.enabled} class:has-text-grey={!grant.enabled}>{grant.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={updatingSystemGrantIDs.has(grant.ref.id)} onclick={() => void setSystemGrantEnabled(grant, !grant.enabled)}>{updatingSystemGrantIDs.has(grant.ref.id) ? "Saving..." : grant.enabled ? "Disable" : "Enable"}</button></div>
-              </article>
-            {:else}<p class="dashboard-empty">No system grants are configured.</p>{/each}
-          </div>
-        </section>
-      {/if}
-    </main>
-  </div>
+  <SystemPage
+    route={route}
+    systemAccess={access.state.systemAccess}
+    {activity}
+    principalID={() => auth.state.claims?.principal.ref.id}
+    principalName={auth.state.claims?.principal.name ?? "User"}
+    onAuthenticationLost={signInRequired}
+    onSystemAccessChange={access.setSystemAccess}
+    onNavigate={navigate}
+    onLogout={() => void logout()}
+    bind:mobileMenuOpen
+  />
 {:else if access.state.workspaceStatus === "empty"}
   <main class="auth-shell">
     <section class="status-card">
