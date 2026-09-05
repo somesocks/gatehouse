@@ -2,8 +2,9 @@
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import type { ActivitySelector } from "./utils/activity-poller"
-  import { fetchSystemGrants, fetchWorkspaces, type Workspace } from "./app/access"
+  import { fetchSystemGrants, type Workspace } from "./app/access"
   import { createActivityClient } from "./app/activity"
+  import { createAccess, type SystemAccessStatus } from "./app/access.svelte"
   import { signIn, signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
@@ -155,15 +156,11 @@
     children: SessionEventTree[]
   }
 
-  type WorkspaceStatus = "checking" | "ready" | "empty" | "unavailable"
   type WorkspaceContentStatus = "checking" | "ready" | "unavailable"
-  type SystemAccessStatus = "checking" | "available" | "denied" | "unavailable"
   type ActivityProjection = { stop: () => void }
 
   const auth = createAuth()
-  let workspaceStatus = $state<WorkspaceStatus>("checking")
   let workspaceContentStatus = $state<WorkspaceContentStatus>("checking")
-  let systemAccess = $state<SystemAccessStatus>("checking")
   let systemGrants = $state<SystemGrant[]>([])
   let systemPrincipals = $state<SystemPrincipal[]>([])
   let systemGrantPrincipal = $state("")
@@ -177,7 +174,6 @@
   let password = $state("")
   let submitting = $state(false)
   let loginError = $state("")
-  let workspaces = $state<Workspace[]>([])
   let activeWorkspace = $state<Workspace | null>(null)
   let groups = $state<Group[]>([])
   let latestProjects = $state<Project[]>([])
@@ -256,6 +252,22 @@
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let activityPollTimestamp = $state(Date.now())
+  const activity = createActivityClient({ onAuthenticationLost: signInRequired, onPollComplete: () => {
+    activityPollTimestamp = Date.now()
+  } })
+  const access = createAccess({ activity, onAuthenticationLost: signInRequired, onSystemAccessChange: () => {
+    if (auth.state.status === "authenticated") {
+      configureActivityPolling()
+    }
+  } })
+  $effect(() => {
+    const principalID = auth.state.claims?.principal.ref.id
+    if (auth.state.status !== "authenticated" || principalID === undefined) {
+      access.clear()
+      return
+    }
+    return access.start(principalID)
+  })
   let activeProjection: ActivityProjection | null = null
   let chatSearch = $state("")
   let projectSearch = $state("")
@@ -290,7 +302,6 @@
   let routeGeneration = 0
   let routeAbortController: AbortController | null = null
   let initializingAuthenticatedSession = false
-  let loadingWorkspaces = false
   const router = createRouter((next) => {
     routeAbortController?.abort()
     routeAbortController = new AbortController()
@@ -323,6 +334,7 @@
       document.removeEventListener("click", copyCodeBlock)
       routeAbortController?.abort()
       stopActivityPolling()
+      activity.dispose()
     }
   })
 
@@ -611,9 +623,10 @@
     routeAbortController?.abort()
     routeGeneration += 1
     stopActivityPolling()
+    activity.dispose()
     resetNoteHistory()
     auth.clear()
-    systemAccess = "checking"
+    access.clear()
     systemGrants = []
     systemPrincipals = []
     systemGrantPrincipal = ""
@@ -622,7 +635,6 @@
     creatingSystemGrant = false
     updatingSystemGrantIDs = new Set()
     updatingSystemPrincipalIDs = new Set()
-    workspaces = []
     activeWorkspace = null
     groups = []
     latestProjects = []
@@ -656,7 +668,6 @@
 		projectSecrets = []
     events = []
     showJumpToLatest = false
-    workspaceStatus = "checking"
     if (!isLoginPath()) {
       redirectToLogin()
     }
@@ -685,60 +696,38 @@
   }
 
   async function loadWorkspaces(resolveAfterLoad = true) {
-    if (loadingWorkspaces) {
+    if (!await access.refresh()) {
       return false
     }
-    loadingWorkspaces = true
-    workspaceStatus = "checking"
-    try {
-      const response = await fetchWorkspaces()
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error(`workspace catalog returned ${response.status}`)
-      }
-      workspaces = (await response.json()) as Workspace[]
-      if (workspaces.length === 0) {
-        activeWorkspace = null
-        groups = []
-    latestProjects = []
-        latestSessions = []
-        workspaceStatus = "empty"
-        if (route.kind !== "no-access" && !isSystemRoute()) {
-          navigate("/app/no-access", true)
-        }
-        return true
-      }
-      const currentWorkspaceID = activeWorkspace?.id ?? routeWorkspaceID(route)
-      const currentWorkspace = currentWorkspaceID === null ? undefined : workspaces.find((workspace) => workspace.id === currentWorkspaceID)
-      if (currentWorkspaceID !== null && currentWorkspace === undefined) {
-        activeWorkspace = null
-        workspaceStatus = "ready"
-        navigate(workspacePath(workspaces[0]), true)
-        return true
-      }
-      if (currentWorkspace !== undefined) {
-        activeWorkspace = currentWorkspace
-      }
-      workspaceStatus = "ready"
-      if (resolveAfterLoad) {
-        resolveRoute()
+    const workspaces = access.state.workspaces
+    if (access.state.workspaceStatus === "empty") {
+      activeWorkspace = null
+      groups = []
+      latestProjects = []
+      latestSessions = []
+      if (route.kind !== "no-access" && !isSystemRoute()) {
+        navigate("/app/no-access", true)
       }
       return true
-    } catch {
-      workspaceStatus = "unavailable"
-      return false
-    } finally {
-      loadingWorkspaces = false
     }
+    const currentWorkspaceID = activeWorkspace?.id ?? routeWorkspaceID(route)
+    const currentWorkspace = currentWorkspaceID === null ? undefined : workspaces.find((workspace) => workspace.id === currentWorkspaceID)
+    if (currentWorkspaceID !== null && currentWorkspace === undefined) {
+      activeWorkspace = null
+      navigate(workspacePath(workspaces[0]), true)
+      return true
+    }
+    if (currentWorkspace !== undefined) {
+      activeWorkspace = currentWorkspace
+    }
+    if (resolveAfterLoad) {
+      resolveRoute()
+    }
+    return true
   }
 
   async function loadSystemGrants() {
-    const previousSystemAccess = systemAccess
     systemGrantError = ""
-    systemAccess = "checking"
     try {
       const response = await fetchSystemGrants()
       if (response.status === 401) {
@@ -746,31 +735,27 @@
         return false
       }
       if (response.status === 403) {
-        setSystemAccess("denied", previousSystemAccess)
+        setSystemAccess("denied")
         systemGrants = []
         return false
       }
       if (!response.ok) {
-        setSystemAccess("unavailable", previousSystemAccess)
+        setSystemAccess("unavailable")
         systemGrantError = "System grants could not be loaded."
         return false
       }
       systemGrants = (await response.json()) as SystemGrant[]
-      setSystemAccess("available", previousSystemAccess)
+      setSystemAccess("available")
       return true
     } catch {
-      setSystemAccess("unavailable", previousSystemAccess)
+      setSystemAccess("unavailable")
       systemGrantError = "System grants could not be loaded."
       return false
     }
   }
 
-  function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">, previous = systemAccess) {
-    const changed = previous !== next
-    systemAccess = next
-    if (changed && auth.state.status === "authenticated") {
-      configureActivityPolling()
-    }
+  function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">) {
+    access.setSystemAccess(next)
   }
 
   async function loadSystemPrincipals() {
@@ -923,10 +908,8 @@
       configureActivityPolling()
       return
     }
-    if (workspaceStatus !== "ready") {
-      if (!loadingWorkspaces) {
-        void loadWorkspaces()
-      }
+    if (access.state.workspaceStatus !== "ready") {
+      void loadWorkspaces()
       return
     }
     if (route.kind === "login") {
@@ -934,7 +917,7 @@
       return
     }
     const requestedWorkspaceID = routeWorkspaceID(route)
-    const workspace = workspaces.find((candidate) => candidate.id === requestedWorkspaceID) ?? workspaces[0]
+    const workspace = access.state.workspaces.find((candidate) => candidate.id === requestedWorkspaceID) ?? access.state.workspaces[0]
     if (requestedWorkspaceID !== workspace.id) {
       navigate(workspacePath(workspace), true)
       return
@@ -1700,13 +1683,8 @@
     }
   }
 
-  const activity = createActivityClient({ onAuthenticationLost: signInRequired, onPollComplete: () => {
-    activityPollTimestamp = Date.now()
-  } })
-
   function stopActivityPolling() {
     disposeActiveProjection()
-    activity.dispose()
     awaitingReplyFor = []
   }
 
@@ -1795,33 +1773,23 @@
 
   function configureActivityPolling() {
     disposeActiveProjection()
-    const principalID = auth.state.claims?.principal.ref.id
-    if (principalID === undefined) {
-      return
-    }
-    const principalSelector: ActivitySelector = {
-      name: "principal",
-      topic: principalID,
-      events: ["workspace_grant.*", "group_member.*", "system_grant.*"],
-    }
-    const systemSelector = systemAccess === "available" ? {
+    const systemSelector = access.state.systemAccess === "available" ? {
       name: "system",
       topic: "sys",
       events: ["system_grant.*"],
     } satisfies ActivitySelector : undefined
     if (activeWorkspace === null) {
+      if (systemSelector === undefined) {
+        return
+      }
       let unsubscribe: (() => void) | undefined
       const projection: ActivityProjection = { stop: () => unsubscribe?.() }
       activeProjection = projection
-      unsubscribe = activity.subscribe([principalSelector, systemSelector].filter((selector): selector is ActivitySelector => selector !== undefined), async ({ names, signal }) => {
+      unsubscribe = activity.subscribe([systemSelector], async ({ signal }) => {
         if (signal.aborted || !isActiveProjection(projection)) {
           return
         }
-        const principalChanged = names.has(principalSelector.name)
-        if (principalChanged || names.has(systemSelector?.name ?? "")) {
-          await loadSystemGrants()
-        }
-        const refreshed = !principalChanged || await loadWorkspaces()
+        const refreshed = await loadSystemGrants()
         if (!refreshed || signal.aborted || !isActiveProjection(projection)) {
           throw new Error("activity projection refresh failed")
         }
@@ -1865,7 +1833,7 @@
       topic: `${workspace.id}/${projectID}`,
       events: ["project.*", "project_file.*", "project_note.*", "project_secret.*", "session.*"],
     } satisfies ActivitySelector
-    const activitySelectors = [principalSelector, systemSelector, workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
+    const activitySelectors = [systemSelector, workspaceSelector, groupSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
     const projection: ActivityProjection = { stop: () => unsubscribe?.() }
     activeProjection = projection
@@ -1874,7 +1842,6 @@
         return
       }
 
-      const principalChanged = names.has(principalSelector.name)
       const systemChanged = systemSelector !== undefined && names.has(systemSelector.name)
       const workspaceChanged = names.has(workspaceSelector.name)
       const groupChanged = groupSelector !== undefined && names.has(groupSelector.name)
@@ -1882,11 +1849,11 @@
       const sessionChanged = sessionSelector !== undefined && names.has(sessionSelector.name)
       const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
 
-      if (principalChanged || systemChanged) {
+      if (systemChanged) {
         await loadSystemGrants()
       }
       let refreshed = (await Promise.all([
-        ...(principalChanged || workspaceChanged ? [loadWorkspaces(false)] : []),
+        ...(workspaceChanged ? [loadWorkspaces(false)] : []),
         ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
         ...(projectSelector !== undefined ? [refreshWorkspaceProjects(workspace, projection)] : []),
         ...(groupChanged ? [refreshWorkspaceGroups(workspace, projection)] : []),
@@ -3113,7 +3080,7 @@
   <title>Gatehouse</title>
 </svelte:head>
 
-{#if auth.state.status === "checking" || (auth.state.status === "authenticated" && workspaceStatus === "checking")}
+{#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <main class="auth-shell" aria-busy="true" aria-live="polite">
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
@@ -3121,7 +3088,7 @@
       <p>{auth.state.status === "checking" ? "Checking your session." : "Loading your workspaces."}</p>
     </section>
   </main>
-{:else if auth.state.status === "unavailable" || workspaceStatus === "unavailable"}
+{:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
   <main class="auth-shell">
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
@@ -3172,8 +3139,8 @@
           <h2>System</h2>
           <ul>
             <li><a class:active={route.kind === "system"} href="/app/system" onclick={(event) => { event.preventDefault(); navigate("/app/system") }}>Overview</a></li>
-            {#if systemAccess === "available"}<li><a class:active={route.kind === "system-principals"} href="/app/system/principals" onclick={(event) => { event.preventDefault(); navigate("/app/system/principals") }}>Principals</a></li>{/if}
-            {#if systemAccess === "available"}<li><a class:active={route.kind === "system-grants"} href="/app/system/grants" onclick={(event) => { event.preventDefault(); navigate("/app/system/grants") }}>System grants</a></li>{/if}
+            {#if access.state.systemAccess === "available"}<li><a class:active={route.kind === "system-principals"} href="/app/system/principals" onclick={(event) => { event.preventDefault(); navigate("/app/system/principals") }}>Principals</a></li>{/if}
+            {#if access.state.systemAccess === "available"}<li><a class:active={route.kind === "system-grants"} href="/app/system/grants" onclick={(event) => { event.preventDefault(); navigate("/app/system/grants") }}>System grants</a></li>{/if}
           </ul>
         </section>
       </nav>
@@ -3195,9 +3162,9 @@
           {/if}
         </h1>
       </header>
-      {#if systemAccess === "checking"}
+      {#if access.state.systemAccess === "checking"}
         <section class="system-page"><p class="dashboard-empty">Loading system access...</p></section>
-      {:else if systemAccess !== "available"}
+      {:else if access.state.systemAccess !== "available"}
         <section class="system-page system-access-denied"><p class="eyebrow">System</p><h2 class="title is-3">System access required</h2><p>You do not currently have an enabled system manager grant.</p></section>
       {:else if route.kind === "system"}
         <section class="system-page">
@@ -3244,13 +3211,13 @@
       {/if}
     </main>
   </div>
-{:else if workspaceStatus === "empty"}
+{:else if access.state.workspaceStatus === "empty"}
   <main class="auth-shell">
     <section class="status-card">
       <p class="eyebrow">Gatehouse</p>
       <h1 class="title is-3">No workspace access</h1>
       <p class="subtitle is-6">Ask an administrator to add {auth.state.claims?.principal.name ?? "User"} to a workspace group.</p>
-      {#if systemAccess === "available"}<button class="button is-primary is-light is-fullwidth" type="button" onclick={() => navigate("/app/system")}>System</button>{/if}
+      {#if access.state.systemAccess === "available"}<button class="button is-primary is-light is-fullwidth" type="button" onclick={() => navigate("/app/system")}>System</button>{/if}
       <button class="button is-danger is-light is-fullwidth" type="button" onclick={() => void logout()}>Log out</button>
     </section>
   </main>
@@ -3267,12 +3234,12 @@
         <div class="select is-fullwidth">
           <select id="workspace" value={activeWorkspace?.id ?? ""} onchange={(event) => {
             const target = event.currentTarget as HTMLSelectElement
-            const workspace = workspaces.find((candidate) => candidate.id === target.value)
+            const workspace = access.state.workspaces.find((candidate) => candidate.id === target.value)
             if (workspace !== undefined) {
               navigate(workspacePath(workspace))
             }
           }}>
-            {#each workspaces as workspace}
+            {#each access.state.workspaces as workspace}
               <option value={workspace.id}>{workspace.name ?? workspace.id}</option>
             {/each}
           </select>
@@ -3289,7 +3256,7 @@
         </section>
       </nav>
 
-      {#if systemAccess === "available"}
+      {#if access.state.systemAccess === "available"}
         <div class="sidebar-system-link">
           <a href="/app/system" target="_blank" rel="noopener">System</a>
         </div>

@@ -1,6 +1,7 @@
 import { ActivityTopicPoller, type ActivityRefresh, type ActivitySelector, type ActivityTopicCheckpoint } from "../utils/activity-poller"
 
 export type { ActivityRefresh, ActivitySelector }
+export type ActivityClient = ReturnType<typeof createActivityClient>
 
 type ActivityClientOptions = {
   onAuthenticationLost: () => void
