@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
-  import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity"
+  import type { ActivitySelector } from "./utils/activity-poller"
   import { fetchSystemGrants, fetchWorkspaces, type Workspace } from "./app/access"
+  import { createActivityClient } from "./app/activity"
   import { signIn, signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
@@ -675,7 +676,7 @@
       if (next === "authenticated") {
         await loadSystemGrants()
         configureActivityPolling()
-        await activityPoller.poll()
+        await activity.poll()
         await loadWorkspaces()
       }
     } finally {
@@ -978,7 +979,7 @@
       return
     }
     configureActivityPolling()
-    await activityPoller.poll()
+    await activity.poll()
     if (isCurrentRoute(generation)) {
       await load()
     }
@@ -1699,35 +1700,13 @@
     }
   }
 
-  const activityPoller = new ActivityTopicPoller(async (topics, signal) => {
-    const response = await fetch("/api/v1/activity", {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topics }),
-      signal,
-    })
-    if (response.status === 401) {
-      signInRequired()
-      throw new Error("activity polling requires authentication")
-    }
-    if (!response.ok) {
-      throw new Error("activity checkpoints could not be loaded")
-    }
-    const output = (await response.json()) as { topics: { name?: string; topic: string; events: string[]; cursor?: ActivityTopicCheckpoint["cursor"] }[] }
-    return output.topics.map((checkpoint) => {
-      if (checkpoint.name === undefined) {
-        throw new Error("activity checkpoint name is missing")
-      }
-      return { name: checkpoint.name, topic: checkpoint.topic, events: checkpoint.events, cursor: checkpoint.cursor ?? null }
-    })
-  }, 1000, undefined, () => {
+  const activity = createActivityClient({ onAuthenticationLost: signInRequired, onPollComplete: () => {
     activityPollTimestamp = Date.now()
-  })
+  } })
 
   function stopActivityPolling() {
     disposeActiveProjection()
-    activityPoller.stop()
+    activity.dispose()
     awaitingReplyFor = []
   }
 
@@ -1834,7 +1813,7 @@
       let unsubscribe: (() => void) | undefined
       const projection: ActivityProjection = { stop: () => unsubscribe?.() }
       activeProjection = projection
-      unsubscribe = activityPoller.subscribe([principalSelector, systemSelector].filter((selector): selector is ActivitySelector => selector !== undefined), async ({ names, signal }) => {
+      unsubscribe = activity.subscribe([principalSelector, systemSelector].filter((selector): selector is ActivitySelector => selector !== undefined), async ({ names, signal }) => {
         if (signal.aborted || !isActiveProjection(projection)) {
           return
         }
@@ -1890,7 +1869,7 @@
     let unsubscribe: (() => void) | undefined
     const projection: ActivityProjection = { stop: () => unsubscribe?.() }
     activeProjection = projection
-    unsubscribe = activityPoller.subscribe(activitySelectors, async ({ names, signal }) => {
+    unsubscribe = activity.subscribe(activitySelectors, async ({ names, signal }) => {
       if (signal.aborted || !isActiveProjection(projection)) {
         return
       }

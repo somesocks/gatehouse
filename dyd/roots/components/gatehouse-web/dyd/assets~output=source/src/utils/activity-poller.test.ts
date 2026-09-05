@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity"
+import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity-poller"
 
 const scheduler = {
   set: () => 0 as ReturnType<typeof setTimeout>,
