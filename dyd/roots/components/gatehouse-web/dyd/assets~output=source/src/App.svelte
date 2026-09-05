@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte"
-  import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
+  import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import type { ActivitySelector } from "./utils/activity-poller"
   import type { Workspace } from "./app/access"
   import { createActivityClient } from "./app/activity"
@@ -11,6 +11,7 @@
   import ChatCollectionPage from "./pages/chats/ChatCollectionPage.svelte"
   import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
+  import ProjectCollectionPage from "./pages/projects/ProjectCollectionPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
@@ -235,8 +236,6 @@
     return access.start(principalID)
   })
   let activeProjection: ActivityProjection | null = null
-  let projectSearch = $state("")
-  let searchedProjects = $state<Project[]>([])
   let projectSessions = $state<Session[]>([])
   let projectFiles = $state<ProjectFile[]>([])
   let projectFileStatus = $state<WorkspaceContentStatus>("checking")
@@ -253,9 +252,6 @@
   let sessionNotePageStatus = $state<WorkspaceContentStatus | "not-found">("checking")
   let sessionSecrets = $state<SessionSecret[]>([])
   let sessionSecretStatus = $state<WorkspaceContentStatus>("checking")
-  let projectSearchCursor = $state<string | null>(null)
-  let projectSearchLoading = $state(false)
-  let projectSearchGeneration = 0
   let sessionNotesGeneration = 0
   let sessionNoteGeneration = 0
   let sessionNoteRevisionGeneration = 0
@@ -395,15 +391,6 @@
     return `${workspacePath(workspace)}/grp`
   }
 
-  function collectionSearchName() {
-    return route.kind === "project-collection" ? route.search : ""
-  }
-
-  function collectionSearchPath(path: string, name: string) {
-    const query = name.trim()
-    return query === "" ? path : `${path}?${new URLSearchParams({ name: query })}`
-  }
-
   function isChatCollection() {
     return route.kind === "session-collection"
   }
@@ -430,13 +417,6 @@
 
   function isGroupCollection() {
     return route.kind === "group-collection"
-  }
-
-  async function submitProjectSearch() {
-    if (activeWorkspace === null) {
-      return
-    }
-    navigate(collectionSearchPath(projectsPath(activeWorkspace), projectSearch))
   }
 
   function createdAtLabel(value: string) {
@@ -728,9 +708,7 @@
   }
 
   async function loadInitialWorkspaceProjection(workspace: Workspace) {
-    if (isProjectCollection()) {
-      await loadProjectSearch(true)
-    } else if (!isChatCollection() && !isGroupCollection()) {
+    if (!isChatCollection() && !isProjectCollection() && !isGroupCollection()) {
       await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
     }
   }
@@ -947,49 +925,6 @@
       throw new Error("project could not be loaded")
     }
     return (await response.json()) as Project
-  }
-
-  async function loadProjectSearch(reset = false) {
-    if (activeWorkspace === null || !isProjectCollection() || projectSearchLoading && !reset || !reset && projectSearchCursor === null) {
-      return
-    }
-    const workspace = activeWorkspace
-    const name = collectionSearchName()
-    const cursor = reset ? "" : projectSearchCursor ?? ""
-    const generation = reset ? ++projectSearchGeneration : projectSearchGeneration
-    if (reset) {
-      projectSearch = name
-      searchedProjects = []
-      projectSearchCursor = null
-    }
-    projectSearchLoading = true
-    try {
-      const parameters = new URLSearchParams({ limit: "50" })
-      if (name.trim() !== "") {
-        parameters.set("name", name)
-      }
-      if (cursor !== "") {
-        parameters.set("cursor", cursor)
-      }
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects?${parameters}`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("projects could not be searched")
-      }
-      const loaded = (await response.json()) as ProjectSearchResponse
-      if (generation !== projectSearchGeneration || activeWorkspace?.id !== workspace.id || !isProjectCollection()) {
-        return
-      }
-      searchedProjects = reset ? loaded.projects : [...searchedProjects, ...loaded.projects]
-      projectSearchCursor = loaded.next_cursor ?? null
-    } finally {
-      if (generation === projectSearchGeneration) {
-        projectSearchLoading = false
-      }
-    }
   }
 
   async function loadProjectSessions(project: Project, projection?: ActivityProjection) {
@@ -2937,19 +2872,7 @@
       {:else if isChatCollection()}
         {#if activeWorkspace !== null}<ChatCollectionPage workspace={activeWorkspace} search={route.kind === "session-collection" ? route.search : ""} onAuthenticationLost={signInRequired} onCreate={() => void createSession()} onNavigate={navigate} />{/if}
       {:else if isProjectCollection()}
-        <section class="collection-page">
-          <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void createProject()}>New project</button></div>
-          <form class="collection-search" onsubmit={(event) => { event.preventDefault(); void submitProjectSearch() }}>
-            <label><span>Search projects</span><input class="input" type="search" autocomplete="off" placeholder="Search projects" bind:value={projectSearch} /></label>
-            <button class="button" type="submit" aria-label="Search projects" title="Search projects"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>
-          </form>
-          <div class="collection-list">
-            {#each searchedProjects as project}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj/${encodeURIComponent(project.id)}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectPath(activeWorkspace, project)) } }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
-            {:else}<p class="dashboard-empty">{projectSearchLoading ? "Searching projects..." : "No projects match your search."}</p>{/each}
-          </div>
-          {#if projectSearchCursor !== null}<button class="button is-small" type="button" disabled={projectSearchLoading} onclick={() => void loadProjectSearch()}>{projectSearchLoading ? "Loading..." : "Show more"}</button>{/if}
-        </section>
+        {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
 		{:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
