@@ -2,17 +2,12 @@
   import { onMount, tick } from "svelte"
   import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Search, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
   import { ActivityTopicPoller, type ActivitySelector, type ActivityTopicCheckpoint } from "./activity"
+  import { fetchSystemGrants, fetchWorkspaces, type Workspace } from "./app/access"
+  import { checkAuthentication, signIn, signOut, type Claims } from "./app/auth"
+  import { createRouter } from "./app/router"
   import { renderMarkdown } from "./markdown"
-  import { parseRoute, routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
+  import { routeProjectID, routeProjectNoteID, routeProjectSecretID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeSessionSecretID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
-
-  type Claims = {
-    principal: {
-      ref: { id: string }
-      name?: string
-    }
-    identity: string
-  }
 
   type SystemGrant = {
     ref: { id: string }
@@ -28,11 +23,6 @@
     enabled: boolean
     revision: number
     identities: { id: string; key: string; enabled: boolean; revision: number }[]
-  }
-
-  type Workspace = {
-    id: string
-    name?: string
   }
 
   type Group = {
@@ -301,10 +291,13 @@
   let routeAbortController: AbortController | null = null
   let checkingSession = false
   let loadingWorkspaces = false
+  const router = createRouter((next) => {
+    routeAbortController?.abort()
+    routeAbortController = new AbortController()
+    route = next
+    void activateRoute(++routeGeneration, routeAbortController.signal)
+  })
   onMount(() => {
-    const handlePopState = () => {
-      resolveRoute()
-    }
     const closeProjectActionMenu = (event: MouseEvent) => {
       if (projectActionMenuElement?.open && event.target instanceof Node && !projectActionMenuElement.contains(event.target)) {
         projectActionMenuElement.open = false
@@ -320,12 +313,12 @@
         void copyMarkdown(code.textContent ?? "")
       }
     }
-    window.addEventListener("popstate", handlePopState)
+    const stopRouter = router.start()
     document.addEventListener("click", closeProjectActionMenu)
     document.addEventListener("click", copyCodeBlock)
     resolveRoute()
     return () => {
-      window.removeEventListener("popstate", handlePopState)
+      stopRouter()
       document.removeEventListener("click", closeProjectActionMenu)
       document.removeEventListener("click", copyCodeBlock)
       routeAbortController?.abort()
@@ -598,15 +591,11 @@
   }
 
   function navigate(path: string, replace = false) {
-    window.history[replace ? "replaceState" : "pushState"](null, "", path)
-    resolveRoute()
+    router.navigate(path, replace)
   }
 
   function resolveRoute() {
-    routeAbortController?.abort()
-    routeAbortController = new AbortController()
-    route = parseRoute(new URL(window.location.href))
-    void activateRoute(++routeGeneration, routeAbortController.signal)
+    router.resolve()
   }
 
   function isCurrentRoute(generation: number) {
@@ -681,15 +670,12 @@
     checkingSession = true
     status = "checking"
     try {
-      const response = await fetch("/api/v1/auth/me", { credentials: "same-origin" })
-      if (response.status === 401) {
+      const loadedClaims = await checkAuthentication()
+      if (loadedClaims === null) {
         signInRequired()
         return
       }
-      if (!response.ok) {
-        throw new Error(`authentication check returned ${response.status}`)
-      }
-      claims = (await response.json()) as Claims
+      claims = loadedClaims
       status = "authenticated"
       await loadSystemGrants()
       configureActivityPolling()
@@ -710,7 +696,7 @@
     loadingWorkspaces = true
     workspaceStatus = "checking"
     try {
-      const response = await fetch("/api/v1/workspaces", { credentials: "same-origin" })
+      const response = await fetchWorkspaces()
       if (response.status === 401) {
         signInRequired()
         return false
@@ -759,7 +745,7 @@
     systemGrantError = ""
     systemAccess = "checking"
     try {
-      const response = await fetch("/api/v1/system/grants", { credentials: "same-origin" })
+      const response = await fetchSystemGrants()
       if (response.status === 401) {
         signInRequired()
         return false
@@ -3129,18 +3115,9 @@
     loginError = ""
     submitting = true
     try {
-      const response = await fetch("/api/v1/auth/login", {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identity, password }),
-      })
-      if (response.status === 401) {
+      if (!await signIn(identity, password)) {
         loginError = "The username or password is incorrect."
         return
-      }
-      if (!response.ok) {
-        throw new Error(`login returned ${response.status}`)
       }
       password = ""
       await checkSession()
@@ -3153,7 +3130,7 @@
 
   async function logout() {
     try {
-      await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" })
+      await signOut()
     } finally {
       signInRequired()
     }
