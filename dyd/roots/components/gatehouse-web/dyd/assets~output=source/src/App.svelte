@@ -8,17 +8,19 @@
   import { signOut } from "./app/auth"
   import { createAuth } from "./app/auth.svelte"
   import { createRouter } from "./app/router"
+  import { type NoteAuthor, type ProjectNote } from "./app/project-notes"
   import { fetchProjectSecrets, type ProjectSecret } from "./app/project-secrets"
   import ChatCollectionPage from "./pages/chats/ChatCollectionPage.svelte"
   import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
   import ProjectCollectionPage from "./pages/projects/ProjectCollectionPage.svelte"
+  import ProjectNotesPage from "./pages/project-notes/ProjectNotesPage.svelte"
   import ProjectSecretsPage from "./pages/project-secrets/ProjectSecretsPage.svelte"
   import SessionSecretsPage from "./pages/session-secrets/SessionSecretsPage.svelte"
   import WorkspaceDashboardPage from "./pages/workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
-  import { routeProjectID, routeProjectNoteID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeWorkspaceID } from "./route"
+  import { routeProjectID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
 
   type Session = {
@@ -42,23 +44,6 @@
     size: number
     fingerprint: string
     created_at: string
-  }
-
-  type NoteAuthor = {
-    principal?: { id: string; name?: string }
-    agent?: { id: string; label?: string }
-    gateway?: string
-  }
-
-  type ProjectNote = {
-    id: string
-    title: string
-    description: string
-    body?: string
-    sensitive: boolean
-    author: NoteAuthor
-    created_at: string
-    revision: number
   }
 
   type SessionNote = ProjectNote & { sensitive: boolean }
@@ -147,17 +132,8 @@
   let latestSessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
-  let activeProjectNote = $state<ProjectNote | null>(null)
-  let creatingProjectNote = $state(false)
-  let editingProjectNote = $state(false)
-  let savingProjectNote = $state(false)
-  let deletingProjectNote = $state(false)
-  let projectNoteTitle = $state("")
-  let projectNoteDescription = $state("")
-  let projectNoteBody = $state("")
-  let projectNoteSensitive = $state(false)
-  let projectNoteError = $state("")
   let noteHistoryNoteID = $state<string | null>(null)
+  let noteHistoryNotesPath = $state<string | null>(null)
   let noteRevisionSummaries = $state<NoteRevisionSummary[]>([])
   let selectedNoteRevision = $state<NoteRevision | null>(null)
   let selectedNoteRevisionNumber = $state<number | null>(null)
@@ -168,6 +144,8 @@
   let noteRevisionGeneration = 0
   let noteHistoryDialogElement = $state<HTMLDialogElement | undefined>()
   let projectSecretBreadcrumb = $state<string | null>(null)
+  let projectNoteBreadcrumb = $state<string | null>(null)
+  let projectNoteHistoryRevision = $state<number | null>(null)
   let activeSessionNote = $state<SessionNote | null>(null)
   let creatingSessionNote = $state(false)
   let editingSessionNote = $state(false)
@@ -342,10 +320,6 @@
     return `${projectPath(workspace, project)}/pnt`
   }
 
-  function projectNotesAPIPath(workspace: Workspace, project: Project) {
-    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes`
-  }
-
   function projectNotePath(workspace: Workspace, project: Project, note: ProjectNote | string) {
     const id = typeof note === "string" ? note : note.id
     return `${projectNotesPath(workspace, project)}/${encodeURIComponent(id)}`
@@ -404,6 +378,7 @@
     noteHistoryGeneration += 1
     noteRevisionGeneration += 1
     noteHistoryNoteID = null
+    noteHistoryNotesPath = null
     noteRevisionSummaries = []
     noteHistoryLoading = false
     noteRevisionLoading = false
@@ -414,13 +389,20 @@
     clearNoteHistoryPicker()
     selectedNoteRevision = null
     selectedNoteRevisionNumber = null
+    projectNoteHistoryRevision = null
   }
 
   function openNoteHistory(notesPath: string, noteID: string) {
     if (!noteHistoryDialogElement?.open) {
       noteHistoryDialogElement?.showModal()
     }
+    noteHistoryNotesPath = notesPath
     void loadNoteHistory(notesPath, noteID)
+  }
+
+  function openProjectNoteHistory(notesPath: string, noteID: string, revision: number) {
+    projectNoteHistoryRevision = revision
+    openNoteHistory(notesPath, noteID)
   }
 
   function closeNoteHistory() {
@@ -535,8 +517,7 @@
     sessionNotes = []
     sessionSecretBreadcrumb = null
     activeProject = null
-    activeProjectNote = null
-    creatingProjectNote = false
+    projectNoteBreadcrumb = null
     projectSecretBreadcrumb = null
     projectFiles = []
     projectFileError = ""
@@ -694,15 +675,6 @@
 
   async function loadInitialProjectProjection(workspace: Workspace, project: Project) {
     await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project), loadProjectSecrets(project)])
-    const noteID = routeProjectNoteID(route)
-    if (noteID !== null && noteID !== "new") {
-      const note = await loadProjectNote(project, noteID)
-      if (note === null) {
-        navigate(`${projectsPath(workspace)}/${encodeURIComponent(project.id)}`, true)
-      } else {
-        activeProjectNote = note
-      }
-    }
   }
 
   async function activateWorkspace(workspace: Workspace, generation: number, signal: AbortSignal) {
@@ -725,8 +697,7 @@
     sessionNotes = []
     sessionSecretBreadcrumb = null
     activeProject = null
-    activeProjectNote = null
-    creatingProjectNote = false
+    projectNoteBreadcrumb = null
     projectSecretBreadcrumb = null
     projectFiles = []
     projectFileError = ""
@@ -742,9 +713,8 @@
     stopActivityPolling()
     activeSession = null
     activeProject = null
-    activeProjectNote = null
     activeSessionNote = null
-    creatingProjectNote = false
+    projectNoteBreadcrumb = null
     creatingSessionNote = false
     events = []
   }
@@ -768,8 +738,7 @@
     editingSessionNote = false
     sessionNotes = []
     sessionSecretBreadcrumb = null
-    activeProjectNote = null
-    creatingProjectNote = false
+    projectNoteBreadcrumb = null
     projectFiles = []
     projectNotes = []
 		projectSecrets = []
@@ -790,18 +759,13 @@
     activeSession = null
     activeProject = project
     resetNoteHistory()
-    activeProjectNote = null
-    creatingProjectNote = false
+    projectNoteBreadcrumb = null
     projectSecretBreadcrumb = null
     projectFiles = []
     projectFileError = ""
     projectNotes = []
 		projectSecrets = []
     events = []
-    const noteID = routeProjectNoteID(route)
-    if (noteID === "new") {
-      activateProjectNoteCreate()
-    }
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -922,25 +886,6 @@
       }
       return false
     }
-  }
-
-  async function loadProjectNote(project: Project, id: string) {
-    if (activeWorkspace === null) {
-      return null
-    }
-    const workspace = activeWorkspace
-    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(id)}`, { credentials: "same-origin" })
-    if (response.status === 401) {
-      signInRequired()
-      return null
-    }
-    if (response.status === 404) {
-      return null
-    }
-    if (!response.ok) {
-      throw new Error("project note could not be loaded")
-    }
-    return (await response.json()) as ProjectNote
   }
 
 	async function loadProjectSecrets(project: Project, showLoading = true, projection?: ActivityProjection) {
@@ -1264,7 +1209,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "project",
       topic: `${workspace.id}/${projectID}`,
-      events: ["project.*", "project_file.*", "project_note.*", ...(isProjectSecretsRoute() ? [] : ["project_secret.*"]), "session.*"],
+      events: ["project.*", "project_file.*", ...(isProjectNotesRoute() ? [] : ["project_note.*"]), ...(isProjectSecretsRoute() ? [] : ["project_secret.*"]), "session.*"],
     } satisfies ActivitySelector
     const activitySelectors = [workspaceSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
@@ -1312,24 +1257,7 @@
         }
       }
       if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
-		refreshed = (await Promise.all([loadProjectSessions(activeProject, projection), loadProjectFiles(activeProject, false, projection), loadProjectNotes(activeProject, false, projection), loadProjectSecrets(activeProject, false, projection)])).every(Boolean)
-        const noteID = routeProjectNoteID(route)
-        if (refreshed && noteID !== null && noteID !== "new") {
-          const loaded = await loadProjectNote(activeProject, noteID)
-          if (!isActiveProjection(projection)) {
-            throw new Error("activity projection refresh failed")
-          }
-          if (loaded !== null) {
-            if (activeProjectNote?.id === noteID && loaded.revision !== activeProjectNote.revision) {
-              resetNoteHistory()
-            }
-            activeProjectNote = loaded
-          } else {
-            activeProjectNote = null
-            editingProjectNote = false
-            navigate(`${projectsPath(workspace)}/${encodeURIComponent(activeProject.id)}`, true)
-          }
-        }
+		refreshed = (await Promise.all([loadProjectSessions(activeProject, projection), loadProjectFiles(activeProject, false, projection), ...(isProjectNotesRoute() ? [] : [loadProjectNotes(activeProject, false, projection)]), loadProjectSecrets(activeProject, false, projection)])).every(Boolean)
       }
       if (!refreshed || signal.aborted || !isActiveProjection(projection)) {
         throw new Error("activity projection refresh failed")
@@ -1631,126 +1559,9 @@
     }
   }
 
-  function activateProjectNoteCreate() {
-    if (activeWorkspace === null || activeProject === null) {
-      return
-    }
-    resetNoteHistory()
-    activeProjectNote = null
-    creatingProjectNote = true
-    editingProjectNote = true
-    projectNoteTitle = ""
-    projectNoteDescription = ""
-    projectNoteBody = ""
-    projectNoteSensitive = false
-    projectNoteError = ""
-  }
-
   function startProjectNoteCreate() {
     if (activeWorkspace !== null && activeProject !== null) {
       navigate(projectNotePath(activeWorkspace, activeProject, "new"))
-    }
-  }
-
-  function startProjectNoteEdit() {
-    if (activeProjectNote === null) {
-      return
-    }
-    projectNoteTitle = activeProjectNote.title
-    projectNoteDescription = activeProjectNote.description
-    projectNoteBody = activeProjectNote.body ?? ""
-    projectNoteSensitive = activeProjectNote.sensitive
-    projectNoteError = ""
-    editingProjectNote = true
-  }
-
-  function cancelProjectNoteEdit() {
-    if (savingProjectNote || activeWorkspace === null || activeProject === null) {
-      return
-    }
-    projectNoteError = ""
-    if (creatingProjectNote) {
-      creatingProjectNote = false
-      editingProjectNote = false
-      navigate(`${projectsPath(activeWorkspace)}/${encodeURIComponent(activeProject.id)}`)
-      return
-    }
-    editingProjectNote = false
-  }
-
-  async function saveProjectNote() {
-    if (activeWorkspace === null || activeProject === null || projectNoteTitle.trim() === "") {
-      projectNoteError = "Title is required."
-      return
-    }
-    const workspace = activeWorkspace
-    const project = activeProject
-    const creating = creatingProjectNote
-    const note = activeProjectNote
-    projectNoteError = ""
-    savingProjectNote = true
-    try {
-      const notesPath = projectNotesAPIPath(workspace, project)
-      const path = creating ? notesPath : `${notesPath}/${encodeURIComponent(note?.id ?? "")}`
-      const response = await fetch(path, {
-        method: creating ? "POST" : "PATCH",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: projectNoteTitle, description: projectNoteDescription, body: projectNoteBody, sensitive: projectNoteSensitive }),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("project note could not be saved")
-      }
-      const saved = (await response.json()) as ProjectNote
-      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
-        return
-      }
-      activeProjectNote = saved
-      resetNoteHistory()
-      creatingProjectNote = false
-      editingProjectNote = false
-      projectNotes = [saved, ...projectNotes.filter((candidate) => candidate.id !== saved.id)]
-      navigate(projectNotePath(workspace, project, saved))
-    } catch {
-      projectNoteError = "The note could not be saved. Try again."
-    } finally {
-      savingProjectNote = false
-    }
-  }
-
-  async function removeProjectNote() {
-    if (activeWorkspace === null || activeProject === null || activeProjectNote === null || deletingProjectNote || !window.confirm(`Remove ${activeProjectNote.title}?`)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const project = activeProject
-    const note = activeProjectNote
-    deletingProjectNote = true
-    projectNoteError = ""
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes/${encodeURIComponent(note.id)}`, { method: "DELETE", credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("project note could not be removed")
-      }
-      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeProjectNote?.id === note.id) {
-        resetNoteHistory()
-        activeProjectNote = null
-        editingProjectNote = false
-        projectNotes = projectNotes.filter((candidate) => candidate.id !== note.id)
-        navigate(`${projectsPath(workspace)}/${encodeURIComponent(project.id)}`)
-      }
-    } catch {
-      projectNoteError = "The note could not be removed. Try again."
-    } finally {
-      deletingProjectNote = false
     }
   }
 
@@ -2278,7 +2089,7 @@
               <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-				{#if activeSession === null && activeProjectNote === null && !creatingProjectNote && !isProjectNotesRoute() && !isProjectSecretsRoute()}
+				{#if activeSession === null && !isProjectNotesRoute() && !isProjectSecretsRoute()}
                 <span class="workspace-breadcrumb-segment"><Folder size={16} strokeWidth={2} aria-hidden="true" />{activeProject.name ?? "New Project"}</span>
               {:else}
                 <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectPath(activeWorkspace, activeProject)) } }}><Folder size={16} strokeWidth={2} aria-hidden="true" /><span>{activeProject.name ?? "New Project"}</span></a>
@@ -2312,16 +2123,16 @@
                 {:else}
                   <span>Secrets</span>
 				{/if}
-			{:else if activeProject !== null && (isProjectNotesRoute() || activeProjectNote !== null || creatingProjectNote)}
+			{:else if activeProject !== null && isProjectNotesRoute()}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if activeProjectNote !== null || creatingProjectNote}
+              {#if route.kind === "project-note" || route.kind === "project-note-new"}
                 <a href={activeWorkspace !== null ? projectNotesPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectNotesPath(activeWorkspace, activeProject)) } }}>Notes</a>
               {:else}
                 <span>Notes</span>
               {/if}
-              {#if activeProjectNote !== null || creatingProjectNote}
+              {#if route.kind === "project-note" || route.kind === "project-note-new"}
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{activeProjectNote?.title ?? "New Note"}</span>
+                <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{projectNoteBreadcrumb ?? (route.kind === "project-note-new" ? "New Note" : "Note")}</span>
               {/if}
             {/if}
             {#if activeSession !== null && (activeSessionNote !== null || creatingSessionNote)}
@@ -2350,7 +2161,7 @@
             </select>
           {/if}
       </header>
-		{#if activeSession === null && activeProject !== null && activeProjectNote === null && !creatingProjectNote && !isProjectSecretsRoute()}
+		{#if activeSession === null && activeProject !== null && !isProjectNotesRoute() && !isProjectSecretsRoute()}
         <section class="project-dashboard-heading">
           <div>
             <h2 class="title is-3">{activeProject.name ?? "New Project"}</h2>
@@ -2370,28 +2181,10 @@
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
+      {:else if activeSession === null && activeProject !== null && isProjectNotesRoute()}
+			<ProjectNotesPage workspace={activeWorkspace!} project={activeProject} {route} {activity} previewNotes={projectNotes} previewStatus={projectNoteStatus} selectedRevision={selectedNoteRevision} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectNoteBreadcrumb = title} onPreviewChanged={() => loadProjectNotes(activeProject!, false)} onResetHistory={resetNoteHistory} onOpenHistory={openProjectNoteHistory} onShowCurrentRevision={showCurrentNoteRevision} />
       {:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
 			<ProjectSecretsPage workspace={activeWorkspace!} project={activeProject} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} onChanged={() => void loadProjectSecrets(activeProject!, false)} />
-		{:else if activeSession === null && (activeProjectNote !== null || creatingProjectNote)}
-        <section class="project-note-page">
-          {#if editingProjectNote}
-            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveProjectNote() }}>
-              <div class="project-note-page-heading"><div><p class="eyebrow">Project Note</p><h2>{creatingProjectNote ? "New Note" : "Edit Note"}</h2></div></div>
-              <div class="field"><label class="label" for="project-note-title">Title</label><div class="control"><input class="input" id="project-note-title" autocomplete="off" maxlength="256" required bind:value={projectNoteTitle} /></div></div>
-              <div class="field"><label class="label" for="project-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="project-note-description" autocomplete="off" rows="3" maxlength="4096" bind:value={projectNoteDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="project-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="project-note-body" autocomplete="off" rows="18" maxlength="1048576" bind:value={projectNoteBody}></textarea></div></div>
-              <div class="field"><label class="checkbox"><input type="checkbox" autocomplete="off" bind:checked={projectNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>
-              {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
-              <div class="project-note-actions"><button class="button" type="button" disabled={savingProjectNote} onclick={cancelProjectNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingProjectNote}>{savingProjectNote ? "Saving..." : "Save note"}</button></div>
-            </form>
-          {:else if activeProjectNote !== null}
-            <article class="project-note-view">
-              <header class="project-note-page-heading"><div>{#if selectedNoteRevision !== null}<p class="eyebrow">Project Note Revision {selectedNoteRevision.revision}</p><h2><span class="project-note-title">{selectedNoteRevision.title}{#if selectedNoteRevision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if selectedNoteRevision.description !== ""}<p>{selectedNoteRevision.description}</p>{/if}<small>By {noteAuthorLabel(selectedNoteRevision.author)} on {createdAtLabel(selectedNoteRevision.created_at)}</small>{:else}<p class="eyebrow">Project Note</p><h2><span class="project-note-title">{activeProjectNote.title}{#if activeProjectNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeProjectNote.description !== ""}<p>{activeProjectNote.description}</p>{/if}<small>By {noteAuthorLabel(activeProjectNote.author)} on {createdAtLabel(activeProjectNote.created_at)}</small>{/if}</div><div class="project-note-actions">{#if selectedNoteRevision === null}<button class="button is-small" type="button" onclick={startProjectNoteEdit}>Edit</button>{:else}<button class="button is-small" type="button" onclick={showCurrentNoteRevision}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => openNoteHistory(projectNotesAPIPath(activeWorkspace!, activeProject!), activeProjectNote!.id)}>History</button>{#if selectedNoteRevision === null}<button class="button is-small is-danger is-light" type="button" disabled={deletingProjectNote} onclick={() => void removeProjectNote()}>{deletingProjectNote ? "Removing..." : "Remove"}</button>{/if}</div></header>
-              {#if selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeProjectNote.body !== undefined && activeProjectNote.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(activeProjectNote.body)}</div>{/if}
-              {#if projectNoteError !== ""}<p class="help is-danger" aria-live="polite">{projectNoteError}</p>{/if}
-            </article>
-          {/if}
-        </section>
       {:else if activeSession !== null && isSessionNotesRoute()}
         <section class="project-note-page">
           {#if route.kind === "session-note-new" || route.kind === "session-note-edit"}
@@ -2706,9 +2499,9 @@
           {#each noteRevisionSummaries as revision (revision.revision)}
             <button class="dashboard-row project-note-row" class:is-selected={selectedNoteRevisionNumber === revision.revision} type="button" disabled={noteRevisionLoading} onclick={() => revision.revision === activeSessionNote!.revision ? showCurrentSessionNoteRevision() : void openSessionNoteRevision(revision.revision)}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
           {:else}<p class="dashboard-empty">No revisions found.</p>{/each}
-        {:else if activeProject !== null && activeProjectNote !== null && activeWorkspace !== null}
+        {:else if activeProject !== null && projectNoteHistoryRevision !== null && noteHistoryNoteID !== null && noteHistoryNotesPath !== null}
           {#each noteRevisionSummaries as revision (revision.revision)}
-            <button class="dashboard-row project-note-row" class:is-selected={selectedNoteRevisionNumber === revision.revision} type="button" disabled={noteRevisionLoading} onclick={() => revision.revision === activeProjectNote!.revision ? showCurrentNoteRevision() : void loadNoteRevision(projectNotesAPIPath(activeWorkspace!, activeProject!), activeProjectNote!.id, revision.revision)}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
+            <button class="dashboard-row project-note-row" class:is-selected={selectedNoteRevisionNumber === revision.revision} type="button" disabled={noteRevisionLoading} onclick={() => revision.revision === projectNoteHistoryRevision ? showCurrentNoteRevision() : void loadNoteRevision(noteHistoryNotesPath!, noteHistoryNoteID!, revision.revision)}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
           {:else}<p class="dashboard-empty">No revisions found.</p>{/each}
         {/if}
       </div>
