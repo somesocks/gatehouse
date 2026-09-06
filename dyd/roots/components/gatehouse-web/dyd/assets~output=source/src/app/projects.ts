@@ -4,6 +4,14 @@ export type ProjectSummary = {
   name?: string
 }
 
+export type Project = ProjectSummary & {
+  description?: string
+}
+
+export async function fetchProject(workspaceID: string, projectID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`, { credentials: "same-origin", signal })
+}
+
 export type ProjectSearchResponse = {
   projects: ProjectSummary[]
   next_cursor?: string
