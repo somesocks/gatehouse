@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createChat, createProjectChat, fetchChats, fetchProjectChats } from "./chats"
+import { createChat, createProjectChat, fetchChats, fetchDashboardChats, fetchProjectChats } from "./chats"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -24,6 +24,16 @@ describe("chats transport", () => {
     await createChat("wsp/test", controller.signal)
 
     expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/sessions", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}), signal: controller.signal })
+  })
+
+  it("loads the five latest chats for a dashboard", async () => {
+    const fetch = vi.fn(async () => Response.json({ sessions: [] }))
+    vi.stubGlobal("fetch", fetch)
+    const controller = new AbortController()
+
+    await fetchDashboardChats("wsp/test", controller.signal)
+
+    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/sessions?limit=5", { credentials: "same-origin", signal: controller.signal })
   })
 
   it("loads and creates chats scoped to a project", async () => {

@@ -35,3 +35,7 @@ export async function fetchProjects(workspaceID: string, name: string, cursor: s
 export async function createProject(workspaceID: string, signal?: AbortSignal): Promise<Response> {
   return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/projects`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}), ...(signal === undefined ? {} : { signal }) })
 }
+
+export async function fetchDashboardProjects(workspaceID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/projects?limit=5`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+}

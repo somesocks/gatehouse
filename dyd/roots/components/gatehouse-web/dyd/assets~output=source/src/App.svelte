@@ -12,6 +12,7 @@
   import ChatCollectionRoute from "./pages/chats/ChatCollectionRoute.svelte"
   import ProjectCollectionRoute from "./pages/projects/ProjectCollectionRoute.svelte"
   import SystemRoute from "./pages/system/SystemRoute.svelte"
+  import WorkspaceDashboardRoute from "./pages/workspace/WorkspaceDashboardRoute.svelte"
   import { routeOwner } from "./route-owner"
 
   const runtime = provideRuntime(createApplicationRuntime())
@@ -47,6 +48,8 @@
   <ProjectCollectionRoute />
 {:else if routeOwner(runtime.state.route) === "system"}
   <SystemRoute />
+{:else if routeOwner(runtime.state.route) === "workspace-dashboard"}
+  <WorkspaceDashboardRoute />
 {:else}
   <LegacyApplication />
 {/if}

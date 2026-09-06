@@ -48,6 +48,12 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "system-principals" })).toBe("system")
   })
 
+  it("assigns workspace fallback URLs to the dashboard owner", () => {
+    expect(routeOwner({ kind: "app-home" })).toBe("workspace-dashboard")
+    expect(routeOwner({ kind: "workspace", workspaceID: "wsp_a" })).toBe("workspace-dashboard")
+    expect(routeOwner({ kind: "not-found" })).toBe("workspace-dashboard")
+  })
+
   it("keeps non-Project Notes routes on the legacy outlet", () => {
     expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
   })
