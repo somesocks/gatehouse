@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "legacy"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "legacy"
 
 export function routeOwner(route: Route): RouteOwner {
   switch (route.kind) {
@@ -16,6 +16,12 @@ export function routeOwner(route: Route): RouteOwner {
       return "project-secrets"
     case "session-chat":
       return "session-chat"
+    case "session-notes":
+    case "session-note-new":
+    case "session-note":
+    case "session-note-edit":
+    case "session-note-revision":
+      return "session-notes"
     default:
       return "legacy"
   }

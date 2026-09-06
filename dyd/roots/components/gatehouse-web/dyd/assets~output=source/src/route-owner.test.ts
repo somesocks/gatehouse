@@ -18,8 +18,13 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-secret", workspaceID: "wsp_a", projectID: "prj_a", secretID: "sec_a" })).toBe("project-secrets")
   })
 
-  it("assigns a session chat URL to its route owner", () => {
+  it("assigns session Chat and every Session Notes URL to their route owners", () => {
     expect(routeOwner({ kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-chat")
+    expect(routeOwner({ kind: "session-notes", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-note-new", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-note", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-note-edit", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-note-revision", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a", revision: 2 })).toBe("session-notes")
   })
 
   it("keeps non-Project Notes routes on the legacy outlet", () => {

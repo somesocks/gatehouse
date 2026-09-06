@@ -1,16 +1,14 @@
 <script lang="ts">
-  import { Building, Folder, Lock, Menu, MessageSquare, NotebookPen, X } from "@lucide/svelte"
+  import { Building, Folder, Lock, Menu, MessageSquare } from "@lucide/svelte"
   import type { ActivitySelector } from "../../utils/activity-poller"
   import type { Workspace } from "../../app/access"
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
-  import type { NoteAuthor } from "../../app/project-notes"
   import ChatCollectionPage from "../chats/ChatCollectionPage.svelte"
   import GroupsPage from "../groups/GroupsPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
   import SessionSecretsPage from "../session-secrets/SessionSecretsPage.svelte"
-  import SessionNotesPage from "../session-notes/SessionNotesPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "../system/SystemPage.svelte"
   import { routeProjectID, routeSessionID, routeWorkspaceID } from "../../route"
@@ -28,25 +26,6 @@
     created_at: string
     name?: string
     description?: string
-  }
-
-  type NoteRevisionSummary = {
-    revision: number
-    title: string
-    description: string
-    sensitive: boolean
-    author: NoteAuthor
-    created_at: string
-  }
-
-  function noteAuthorLabel(author: NoteAuthor): string {
-    if (author.principal !== undefined) {
-      return author.principal.name ?? author.principal.id
-    }
-    if (author.agent !== undefined) {
-      return author.agent.label ?? author.agent.id
-    }
-    return author.gateway ?? "Unknown"
   }
 
   type SessionSearchResponse = {
@@ -71,16 +50,6 @@
   let latestSessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
-  let noteHistoryNoteID = $state<string | null>(null)
-  let noteHistoryNotesPath = $state<string | null>(null)
-  let noteRevisionSummaries = $state<NoteRevisionSummary[]>([])
-  let noteHistoryLoading = $state(false)
-  let noteRevisionLoading = $state(false)
-  let noteHistoryError = $state("")
-  let noteHistoryGeneration = 0
-  let noteRevisionGeneration = 0
-  let noteHistoryDialogElement = $state<HTMLDialogElement | undefined>()
-  let sessionNoteBreadcrumb = $state<string | null>(null)
   let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
   let messageError = $state("")
@@ -160,10 +129,6 @@
     return route.kind === "session-collection"
   }
 
-  function isSessionNotesRoute() {
-    return route.kind === "session-notes" || route.kind === "session-note-new" || route.kind === "session-note" || route.kind === "session-note-edit" || route.kind === "session-note-revision"
-  }
-
   function isSessionSecretsRoute() {
     return route.kind === "session-secrets" || route.kind === "session-secret-new" || route.kind === "session-secret"
   }
@@ -174,80 +139,6 @@
 
   function isGroupCollection() {
     return route.kind === "group-collection"
-  }
-
-  function createdAtLabel(value: string) {
-    const date = new Date(value)
-    if (Number.isNaN(date.getTime())) {
-      return value
-    }
-    const number = (part: number) => part.toString().padStart(2, "0")
-    return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}`
-  }
-
-  function clearNoteHistoryPicker() {
-    noteHistoryGeneration += 1
-    noteRevisionGeneration += 1
-    noteHistoryNoteID = null
-    noteHistoryNotesPath = null
-    noteRevisionSummaries = []
-    noteHistoryLoading = false
-    noteRevisionLoading = false
-    noteHistoryError = ""
-    sessionNoteHistorySelection = null
-  }
-
-  function resetNoteHistory() {
-    clearNoteHistoryPicker()
-  }
-
-  function openNoteHistory(notesPath: string, noteID: string) {
-    if (!noteHistoryDialogElement?.open) {
-      noteHistoryDialogElement?.showModal()
-    }
-    noteHistoryNotesPath = notesPath
-    void loadNoteHistory(notesPath, noteID)
-  }
-
-  let sessionNoteHistorySelection = $state<((revision: number) => void) | null>(null)
-
-  function openSessionNoteHistory(notesPath: string, noteID: string, onRevision: (revision: number) => void) {
-    openNoteHistory(notesPath, noteID)
-    sessionNoteHistorySelection = onRevision
-  }
-
-  function closeNoteHistory() {
-    clearNoteHistoryPicker()
-  }
-
-  async function loadNoteHistory(notesPath: string, noteID: string) {
-    clearNoteHistoryPicker()
-    const historyGeneration = noteHistoryGeneration
-    noteHistoryNoteID = noteID
-    noteHistoryLoading = true
-    try {
-      const response = await fetch(`${notesPath}/${encodeURIComponent(noteID)}/revisions`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("note history could not be loaded")
-      }
-      const revisions = (await response.json()) as NoteRevisionSummary[]
-      if (historyGeneration !== noteHistoryGeneration || noteHistoryNoteID !== noteID) {
-        return
-      }
-      noteRevisionSummaries = [...revisions].sort((left, right) => right.revision - left.revision)
-    } catch {
-      if (historyGeneration === noteHistoryGeneration && noteHistoryNoteID === noteID) {
-        noteHistoryError = "The note history could not be loaded. Try again."
-      }
-    } finally {
-      if (historyGeneration === noteHistoryGeneration && noteHistoryNoteID === noteID) {
-        noteHistoryLoading = false
-      }
-    }
   }
 
   function navigate(path: string, replace = false) {
@@ -262,12 +153,10 @@
     routeAbortController?.abort()
     routeGeneration += 1
     stopActivityPolling()
-    resetNoteHistory()
     activeWorkspace = null
     latestProjects = []
     latestSessions = []
     activeSession = null
-    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
     runtime.requireLogin()
@@ -392,11 +281,9 @@
     mobileMenuOpen = false
     stopActivityPolling()
     activeWorkspace = workspace
-    resetNoteHistory()
     latestProjects = []
     latestSessions = []
     activeSession = null
-    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
     workspaceContentStatus = "checking"
@@ -421,8 +308,6 @@
     if (changedSession) {
       messageError = ""
     }
-    resetNoteHistory()
-    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
   }
 
@@ -434,7 +319,6 @@
     stopActivityPolling()
     activeSession = null
     activeProject = project
-    resetNoteHistory()
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -546,7 +430,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
-      events: ["session.*", "session_event.*", "session_file.*", ...(isSessionNotesRoute() ? [] : ["session_note.*"]), ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
+      events: ["session.*", "session_event.*", "session_file.*", ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
     } satisfies ActivitySelector
     const projectID = session?.project?.id ?? activeProject?.id
     const projectSelector = projectID === undefined ? (overview ? {
@@ -768,15 +652,7 @@
             {/if}
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if isSessionNotesRoute()}
-                <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
-                <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                {#if route.kind !== "session-notes"}
-                  <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionNotesPath(activeWorkspace, activeSession)) } }}>Notes</a>
-                {:else}
-                  <span>Notes</span>
-                {/if}
-              {:else if isSessionSecretsRoute()}
+              {#if isSessionSecretsRoute()}
                 <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
                 {#if route.kind === "session-secret" || route.kind === "session-secret-new"}
@@ -788,10 +664,6 @@
                 <span class="workspace-breadcrumb-segment"><MessageSquare size={16} strokeWidth={2} aria-hidden="true" />{activeSession.name ?? "New Chat"}</span>
               {/if}
             {/if}
-            {#if activeSession !== null && sessionNoteBreadcrumb !== null}
-              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{sessionNoteBreadcrumb}</span>
-            {/if}
             {#if activeSession !== null && sessionSecretBreadcrumb !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{sessionSecretBreadcrumb}</span>
@@ -799,11 +671,11 @@
           </h1>
           {#if activeSession !== null}
             <nav class="session-tabs" aria-label="Session navigation">
-              <a class:active={!isSessionNotesRoute() && !isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}>Chat</a>
-              <a class:active={isSessionNotesRoute()} href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionNotesPath(activeWorkspace, activeSession)) } }}>Notes</a>
+              <a class:active={!isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}>Chat</a>
+              <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionNotesPath(activeWorkspace, activeSession)) } }}>Notes</a>
               <a class:active={isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionSecretsPath(activeWorkspace, activeSession)) } }}>Secrets</a>
             </nav>
-            <select class="session-tabs-select" aria-label="Session view" value={isSessionNotesRoute() ? "notes" : isSessionSecretsRoute() ? "secrets" : "chat"} onchange={(event) => { if (activeWorkspace !== null) { navigate(event.currentTarget.value === "notes" ? sessionNotesPath(activeWorkspace, activeSession) : event.currentTarget.value === "secrets" ? sessionSecretsPath(activeWorkspace, activeSession) : sessionPath(activeWorkspace, activeSession)) } }}>
+            <select class="session-tabs-select" aria-label="Session view" value={isSessionSecretsRoute() ? "secrets" : "chat"} onchange={(event) => { if (activeWorkspace !== null) { navigate(event.currentTarget.value === "notes" ? sessionNotesPath(activeWorkspace, activeSession) : event.currentTarget.value === "secrets" ? sessionSecretsPath(activeWorkspace, activeSession) : sessionPath(activeWorkspace, activeSession)) } }}>
               <option value="chat">Chat</option>
               <option value="notes">Notes</option>
               <option value="secrets">Secrets</option>
@@ -820,8 +692,6 @@
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
-      {:else if activeSession !== null && isSessionNotesRoute()}
-        <SessionNotesPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
       {:else if activeSession !== null && isSessionSecretsRoute()}
         <SessionSecretsPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
@@ -831,19 +701,4 @@
       {/if}
     </main>
   </div>
-  <dialog class="note-history-dialog" aria-labelledby="note-history-heading" bind:this={noteHistoryDialogElement} onclose={closeNoteHistory}>
-    <div class="note-history-heading"><h2 id="note-history-heading">Revision history</h2><button class="button is-ghost is-small" type="button" aria-label="Close" onclick={() => noteHistoryDialogElement?.close()}><X size={18} strokeWidth={2} aria-hidden="true" /></button></div>
-    {#if noteHistoryLoading}
-      <p class="dashboard-empty">Loading history...</p>
-    {:else}
-      {#if noteHistoryError !== ""}<p class="help is-danger" aria-live="polite">{noteHistoryError}</p>{/if}
-      <div class="collection-list note-history-list">
-        {#if sessionNoteHistorySelection !== null}
-          {#each noteRevisionSummaries as revision (revision.revision)}
-            <button class="dashboard-row project-note-row" type="button" onclick={() => { sessionNoteHistorySelection?.(revision.revision); noteHistoryDialogElement?.close() }}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
-          {:else}<p class="dashboard-empty">No revisions found.</p>{/each}
-        {/if}
-      </div>
-    {/if}
-  </dialog>
 {/if}
