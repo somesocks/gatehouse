@@ -1,14 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
-  import type { Workspace } from "../../app/access"
   import type { Route } from "../../route"
   import { createProjectSecretsController } from "./project-secrets-controller.svelte"
-  let { workspace, project, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange, onChanged }: { workspace: Workspace; project: { id: string }; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onChanged: () => void } = $props()
+  let { workspaceID, projectID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange, onChanged }: { workspaceID: string; projectID: string; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onChanged: () => void } = $props()
   const controller = untrack(() => createProjectSecretsController({ activity, onAuthenticationLost, onNavigate, onChanged }))
-  $effect(() => { const workspaceID = workspace.id; const projectID = project.id; const currentRoute = route; if (currentRoute.kind === "project-secrets" || currentRoute.kind === "project-secret-new" || currentRoute.kind === "project-secret") return untrack(() => controller.start(workspaceID, projectID, currentRoute)) })
+  $effect(() => { const currentRoute = route; if (currentRoute.kind === "project-secrets" || currentRoute.kind === "project-secret-new" || currentRoute.kind === "project-secret") return untrack(() => controller.start(workspaceID, projectID, currentRoute)) })
   $effect(() => { onBreadcrumbChange(controller.state.creating ? "New Secret" : controller.state.active?.description ?? null); return () => onBreadcrumbChange(null) })
-  const secretPath = (id: string) => `/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/secrets/${encodeURIComponent(id)}`
+  const secretPath = (id: string) => `/app/wsp/${encodeURIComponent(workspaceID)}/prj/${encodeURIComponent(projectID)}/secrets/${encodeURIComponent(id)}`
   function label(value: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) return value; const number = (part: number) => part.toString().padStart(2, "0"); return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}` }
 </script>
 <section class="project-note-page">

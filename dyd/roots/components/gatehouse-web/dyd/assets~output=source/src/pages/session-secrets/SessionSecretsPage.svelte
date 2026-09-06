@@ -1,14 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
-  import type { Workspace } from "../../app/access"
   import type { Route } from "../../route"
   import { createSessionSecretsController } from "./session-secrets-controller.svelte"
 
   type SessionSecretsRoute = Extract<Route, { kind: "session-secrets" | "session-secret-new" | "session-secret" }>
-  let { workspace, session, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange }: {
-    workspace: Workspace
-    session: { id: string }
+  let { workspaceID, sessionID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange }: {
+    workspaceID: string
+    sessionID: string
     route: Route
     activity: ActivityClient
     onAuthenticationLost: () => void
@@ -18,8 +17,6 @@
   const controller = untrack(() => createSessionSecretsController({ activity, onAuthenticationLost, onNavigate }))
 
   $effect(() => {
-    const workspaceID = workspace.id
-    const sessionID = session.id
     const currentRoute = route
     if (currentRoute.kind === "session-secrets" || currentRoute.kind === "session-secret-new" || currentRoute.kind === "session-secret") {
       return untrack(() => controller.start(workspaceID, sessionID, currentRoute))
@@ -32,7 +29,7 @@
   })
 
   function secretPath(secretID: string) {
-    return `/app/wsp/${encodeURIComponent(workspace.id)}/ses/${encodeURIComponent(session.id)}/secrets/${encodeURIComponent(secretID)}`
+    return `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}/secrets/${encodeURIComponent(secretID)}`
   }
 
   function createdAtLabel(value: string) {

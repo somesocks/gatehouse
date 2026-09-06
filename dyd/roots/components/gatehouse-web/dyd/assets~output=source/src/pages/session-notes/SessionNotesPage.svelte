@@ -2,20 +2,19 @@
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
   import { sessionNotesAPIPath, type SessionNote } from "../../app/session-notes"
-  import type { Workspace } from "../../app/access"
   import { renderMarkdown } from "../../markdown"
   import type { Route } from "../../route"
   import { createSessionNotesController } from "./session-notes-controller.svelte"
 
   type SessionNotesRoute = Extract<Route, { kind: "session-notes" | "session-note-new" | "session-note" | "session-note-edit" | "session-note-revision" }>
-  let { workspace, session, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange, onResetHistory, onOpenHistory }: { workspace: Workspace; session: { id: string }; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onResetHistory: () => void; onOpenHistory: (notesPath: string, noteID: string, onRevision: (revision: number) => void) => void } = $props()
+  let { workspaceID, sessionID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange, onResetHistory, onOpenHistory }: { workspaceID: string; sessionID: string; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onResetHistory: () => void; onOpenHistory: (notesPath: string, noteID: string, onRevision: (revision: number) => void) => void } = $props()
   const controller = untrack(() => createSessionNotesController({ activity, onAuthenticationLost, onNavigate, onResetHistory }))
   $effect(() => {
     const currentRoute = route
-    if (currentRoute.kind === "session-notes" || currentRoute.kind === "session-note-new" || currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") return untrack(() => controller.start(workspace.id, session.id, currentRoute))
+    if (currentRoute.kind === "session-notes" || currentRoute.kind === "session-note-new" || currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") return untrack(() => controller.start(workspaceID, sessionID, currentRoute))
   })
   $effect(() => { onBreadcrumbChange(controller.state.creating ? "New Note" : controller.state.active?.title ?? null); return () => onBreadcrumbChange(null) })
-  const notePath = (id: string) => `/app/wsp/${encodeURIComponent(workspace.id)}/ses/${encodeURIComponent(session.id)}/notes/${encodeURIComponent(id)}`
+  const notePath = (id: string) => `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}/notes/${encodeURIComponent(id)}`
   function authorLabel(author: SessionNote["author"]) { if (author.principal !== undefined) return author.principal.name ?? author.principal.id; if (author.agent !== undefined) return author.agent.label ?? author.agent.id; return author.gateway ?? "Unknown" }
   function dateLabel(value: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) return value; const number = (part: number) => part.toString().padStart(2, "0"); return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}` }
 </script>
@@ -41,7 +40,7 @@
     {@const note = controller.state.active}
     {@const displayed = controller.state.revision ?? note}
     <article class="project-note-view">
-      <header class="project-note-page-heading"><div><p class="eyebrow">{controller.state.revision === null ? "Session Note" : `Session Note Revision ${controller.state.revision.revision}`}</p><h2><span class="project-note-title">{displayed.title}{#if displayed.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if displayed.description !== ""}<p>{displayed.description}</p>{/if}<small>By {authorLabel(displayed.author)} on {dateLabel(displayed.created_at)}</small></div><div class="project-note-actions">{#if controller.state.revision === null}<button class="button is-small" type="button" onclick={() => controller.startEdit()}>Edit</button>{:else}<button class="button is-small" type="button" onclick={() => controller.showCurrentRevision()}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => onOpenHistory(sessionNotesAPIPath(workspace.id, session.id), note.id, controller.openRevision)} >History</button>{#if controller.state.revision === null}<button class="button is-small is-danger is-light" type="button" disabled={controller.state.deleting} onclick={() => void controller.remove()}>{controller.state.deleting ? "Removing..." : "Remove"}</button>{/if}</div></header>
+      <header class="project-note-page-heading"><div><p class="eyebrow">{controller.state.revision === null ? "Session Note" : `Session Note Revision ${controller.state.revision.revision}`}</p><h2><span class="project-note-title">{displayed.title}{#if displayed.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if displayed.description !== ""}<p>{displayed.description}</p>{/if}<small>By {authorLabel(displayed.author)} on {dateLabel(displayed.created_at)}</small></div><div class="project-note-actions">{#if controller.state.revision === null}<button class="button is-small" type="button" onclick={() => controller.startEdit()}>Edit</button>{:else}<button class="button is-small" type="button" onclick={() => controller.showCurrentRevision()}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => onOpenHistory(sessionNotesAPIPath(workspaceID, sessionID), note.id, controller.openRevision)} >History</button>{#if controller.state.revision === null}<button class="button is-small is-danger is-light" type="button" disabled={controller.state.deleting} onclick={() => void controller.remove()}>{controller.state.deleting ? "Removing..." : "Remove"}</button>{/if}</div></header>
       {#if displayed.body !== undefined && displayed.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(displayed.body)}</div>{/if}
       {#if controller.state.error !== ""}<p class="help is-danger" aria-live="polite">{controller.state.error}</p>{/if}
     </article>

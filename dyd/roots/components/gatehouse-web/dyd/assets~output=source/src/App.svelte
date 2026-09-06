@@ -1334,13 +1334,13 @@
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
       {:else if activeSession === null && activeProject !== null && isProjectNotesRoute()}
-			<ProjectNotesPage workspace={activeWorkspace!} project={activeProject} {route} {activity} previewNotes={projectNotes} previewStatus={projectNoteStatus} selectedRevision={selectedNoteRevision} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectNoteBreadcrumb = title} onPreviewChanged={() => loadProjectNotes(activeProject!, false)} onResetHistory={resetNoteHistory} onOpenHistory={openProjectNoteHistory} onShowCurrentRevision={showCurrentNoteRevision} />
+			<ProjectNotesPage workspaceID={activeWorkspace!.id} projectID={activeProject.id} {route} {activity} previewNotes={projectNotes} previewStatus={projectNoteStatus} selectedRevision={selectedNoteRevision} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectNoteBreadcrumb = title} onPreviewChanged={() => loadProjectNotes(activeProject!, false)} onResetHistory={resetNoteHistory} onOpenHistory={openProjectNoteHistory} onShowCurrentRevision={showCurrentNoteRevision} />
       {:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
-			<ProjectSecretsPage workspace={activeWorkspace!} project={activeProject} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} onChanged={() => void loadProjectSecrets(activeProject!, false)} />
+			<ProjectSecretsPage workspaceID={activeWorkspace!.id} projectID={activeProject.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} onChanged={() => void loadProjectSecrets(activeProject!, false)} />
       {:else if activeSession !== null && isSessionNotesRoute()}
-        <SessionNotesPage workspace={activeWorkspace!} session={activeSession} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
+        <SessionNotesPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
       {:else if activeSession !== null && isSessionSecretsRoute()}
-        <SessionSecretsPage workspace={activeWorkspace!} session={activeSession} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
+        <SessionSecretsPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
         <section class="dashboard-grid">
           <section class="dashboard-widget dashboard-widget-wide">

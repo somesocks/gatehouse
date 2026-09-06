@@ -2,24 +2,21 @@
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
   import { projectNotesAPIPath, type ProjectNote } from "../../app/project-notes"
-  import type { Workspace } from "../../app/access"
   import { renderMarkdown } from "../../markdown"
   import type { Route } from "../../route"
   import { createProjectNotesController } from "./project-notes-controller.svelte"
 
   type NoteRevision = { revision: number; title: string; description: string; sensitive: boolean; author: ProjectNote["author"]; created_at: string; body?: string }
-  let { workspace, project, route, activity, previewNotes, previewStatus, selectedRevision, onAuthenticationLost, onNavigate, onBreadcrumbChange, onPreviewChanged, onResetHistory, onOpenHistory, onShowCurrentRevision }: { workspace: Workspace; project: { id: string }; route: Route; activity: ActivityClient; previewNotes: ProjectNote[]; previewStatus: "checking" | "ready" | "unavailable"; selectedRevision: NoteRevision | null; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onPreviewChanged: () => Promise<boolean>; onResetHistory: () => void; onOpenHistory: (notesPath: string, noteID: string, revision: number) => void; onShowCurrentRevision: () => void } = $props()
+  let { workspaceID, projectID, route, activity, previewNotes, previewStatus, selectedRevision, onAuthenticationLost, onNavigate, onBreadcrumbChange, onPreviewChanged, onResetHistory, onOpenHistory, onShowCurrentRevision }: { workspaceID: string; projectID: string; route: Route; activity: ActivityClient; previewNotes: ProjectNote[]; previewStatus: "checking" | "ready" | "unavailable"; selectedRevision: NoteRevision | null; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onPreviewChanged: () => Promise<boolean>; onResetHistory: () => void; onOpenHistory: (notesPath: string, noteID: string, revision: number) => void; onShowCurrentRevision: () => void } = $props()
   const controller = untrack(() => createProjectNotesController({ activity, onAuthenticationLost, onNavigate, onPreviewChanged, onResetHistory }))
 
   $effect(() => {
-    const workspaceID = workspace.id
-    const projectID = project.id
     const currentRoute = route
     if (currentRoute.kind === "project-notes" || currentRoute.kind === "project-note-new" || currentRoute.kind === "project-note") return untrack(() => controller.start(workspaceID, projectID, currentRoute))
   })
   $effect(() => { onBreadcrumbChange(controller.state.creating ? "New Note" : controller.state.active?.title ?? null); return () => onBreadcrumbChange(null) })
 
-  const notePath = (id: string) => `/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/pnt/${encodeURIComponent(id)}`
+  const notePath = (id: string) => `/app/wsp/${encodeURIComponent(workspaceID)}/prj/${encodeURIComponent(projectID)}/pnt/${encodeURIComponent(id)}`
   function authorLabel(author: ProjectNote["author"]) { if (author.principal !== undefined) return author.principal.name ?? author.principal.id; if (author.agent !== undefined) return author.agent.label ?? author.agent.id; return author.gateway ?? "Unknown" }
   function dateLabel(value: string) { const date = new Date(value); if (Number.isNaN(date.getTime())) return value; const number = (part: number) => part.toString().padStart(2, "0"); return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}` }
 </script>
@@ -39,7 +36,7 @@
     {@const note = controller.state.active}
     {@const displayed = selectedRevision ?? note}
     <article class="project-note-view">
-      <header class="project-note-page-heading"><div><p class="eyebrow">{selectedRevision === null ? "Project Note" : `Project Note Revision ${selectedRevision.revision}`}</p><h2><span class="project-note-title">{displayed.title}{#if displayed.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if displayed.description !== ""}<p>{displayed.description}</p>{/if}<small>By {authorLabel(displayed.author)} on {dateLabel(displayed.created_at)}</small></div><div class="project-note-actions">{#if selectedRevision === null}<button class="button is-small" type="button" onclick={() => controller.startEdit()}>Edit</button>{:else}<button class="button is-small" type="button" onclick={onShowCurrentRevision}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => onOpenHistory(projectNotesAPIPath(workspace.id, project.id), note.id, note.revision)}>History</button>{#if selectedRevision === null}<button class="button is-small is-danger is-light" type="button" disabled={controller.state.deleting} onclick={() => void controller.remove()}>{controller.state.deleting ? "Removing..." : "Remove"}</button>{/if}</div></header>
+      <header class="project-note-page-heading"><div><p class="eyebrow">{selectedRevision === null ? "Project Note" : `Project Note Revision ${selectedRevision.revision}`}</p><h2><span class="project-note-title">{displayed.title}{#if displayed.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if displayed.description !== ""}<p>{displayed.description}</p>{/if}<small>By {authorLabel(displayed.author)} on {dateLabel(displayed.created_at)}</small></div><div class="project-note-actions">{#if selectedRevision === null}<button class="button is-small" type="button" onclick={() => controller.startEdit()}>Edit</button>{:else}<button class="button is-small" type="button" onclick={onShowCurrentRevision}>Current revision</button>{/if}<button class="button is-small" type="button" onclick={() => onOpenHistory(projectNotesAPIPath(workspaceID, projectID), note.id, note.revision)}>History</button>{#if selectedRevision === null}<button class="button is-small is-danger is-light" type="button" disabled={controller.state.deleting} onclick={() => void controller.remove()}>{controller.state.deleting ? "Removing..." : "Remove"}</button>{/if}</div></header>
       {#if displayed.body !== undefined && displayed.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(displayed.body)}</div>{/if}
       {#if controller.state.error !== ""}<p class="help is-danger" aria-live="polite">{controller.state.error}</p>{/if}
     </article>
