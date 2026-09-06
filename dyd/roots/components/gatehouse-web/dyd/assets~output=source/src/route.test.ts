@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseRoute, routePath, routeSessionID } from "./route"
+import { parseRoute, routePath } from "./route"
 import type { NavigableRoute } from "./route"
 
 const origin = "https://gatehouse.test"
@@ -54,7 +54,7 @@ describe("routes", () => {
   }
 
   it("identifies session routes", () => {
-    expect(routeSessionID(parseRoute(url("/app/wsp/wsp_a/ses/ses_a/notes/snt_a")))).toBe("ses_a")
-    expect(routeSessionID(parseRoute(url("/app/wsp/wsp_a/prj/prj_a")))).toBeNull()
+    expect(parseRoute(url("/app/wsp/wsp_a/ses/ses_a/notes/snt_a"))).toMatchObject({ sessionID: "ses_a" })
+    expect(parseRoute(url("/app/wsp/wsp_a/prj/prj_a"))).not.toHaveProperty("sessionID")
   })
 })
