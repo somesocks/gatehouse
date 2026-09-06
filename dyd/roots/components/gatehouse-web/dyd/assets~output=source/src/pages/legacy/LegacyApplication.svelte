@@ -10,7 +10,6 @@
   import GroupsPage from "../groups/GroupsPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
-  import ProjectSecretsPage from "../project-secrets/ProjectSecretsPage.svelte"
   import SessionSecretsPage from "../session-secrets/SessionSecretsPage.svelte"
   import SessionNotesPage from "../session-notes/SessionNotesPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
@@ -82,7 +81,6 @@
   let noteHistoryGeneration = 0
   let noteRevisionGeneration = 0
   let noteHistoryDialogElement = $state<HTMLDialogElement | undefined>()
-  let projectSecretBreadcrumb = $state<string | null>(null)
   let sessionNoteBreadcrumb = $state<string | null>(null)
   let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
@@ -156,10 +154,6 @@
     return `${projectsPath(workspace)}/${encodeURIComponent(project.id)}`
   }
 
-  function projectSecretsPath(workspace: Workspace, project: Project) {
-    return `${projectPath(workspace, project)}/secrets`
-  }
-
   function groupsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/grp`
   }
@@ -174,10 +168,6 @@
 
   function isSessionSecretsRoute() {
     return route.kind === "session-secrets" || route.kind === "session-secret-new" || route.kind === "session-secret"
-  }
-
-  function isProjectSecretsRoute() {
-    return route.kind === "project-secrets" || route.kind === "project-secret-new" || route.kind === "project-secret"
   }
 
   function isProjectCollection() {
@@ -282,7 +272,6 @@
     sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
-    projectSecretBreadcrumb = null
     runtime.requireLogin()
   }
 
@@ -412,7 +401,6 @@
     sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
-    projectSecretBreadcrumb = null
     workspaceContentStatus = "checking"
     return !signal.aborted && isCurrentRoute(generation)
   }
@@ -449,7 +437,6 @@
     activeSession = null
     activeProject = project
     resetNoteHistory()
-    projectSecretBreadcrumb = null
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -571,7 +558,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "project",
       topic: `${workspace.id}/${projectID}`,
-      events: ["project.*", ...(isProjectSecretsRoute() ? [] : ["project_secret.*"])],
+      events: ["project.*"],
     } satisfies ActivitySelector
     const activitySelectors = [workspaceSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
@@ -775,7 +762,7 @@
               <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-				{#if activeSession === null && !isProjectSecretsRoute()}
+				{#if activeSession === null}
                 <span class="workspace-breadcrumb-segment"><Folder size={16} strokeWidth={2} aria-hidden="true" />{activeProject.name ?? "New Project"}</span>
               {:else}
                 <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? projectPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectPath(activeWorkspace, activeProject)) } }}><Folder size={16} strokeWidth={2} aria-hidden="true" /><span>{activeProject.name ?? "New Project"}</span></a>
@@ -802,13 +789,6 @@
               {:else}
                 <span class="workspace-breadcrumb-segment"><MessageSquare size={16} strokeWidth={2} aria-hidden="true" />{activeSession.name ?? "New Chat"}</span>
               {/if}
-			{:else if activeProject !== null && isProjectSecretsRoute()}
-				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-				{#if route.kind === "project-secret" || route.kind === "project-secret-new"}
-                  <a href={activeWorkspace !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectSecretsPath(activeWorkspace, activeProject)) } }}>Secrets</a>
-                {:else}
-                  <span>Secrets</span>
-				{/if}
             {/if}
             {#if activeSession !== null && sessionNoteBreadcrumb !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
@@ -818,10 +798,6 @@
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{sessionSecretBreadcrumb}</span>
             {/if}
-			{#if activeSession === null && activeProject !== null && projectSecretBreadcrumb !== null}
-				<span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{projectSecretBreadcrumb}</span>
-			{/if}
           </h1>
           {#if activeSession !== null}
             <nav class="session-tabs" aria-label="Session navigation">
@@ -846,8 +822,6 @@
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
-      {:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
-			<ProjectSecretsPage workspaceID={activeWorkspace!.id} projectID={activeProject.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} />
       {:else if activeSession !== null && isSessionNotesRoute()}
         <SessionNotesPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
       {:else if activeSession !== null && isSessionSecretsRoute()}

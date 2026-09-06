@@ -12,6 +12,12 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-note", workspaceID: "wsp_a", projectID: "prj_a", noteID: "pnt_a" })).toBe("project-notes")
   })
 
+  it("assigns every Project Secrets URL to its route owner", () => {
+    expect(routeOwner({ kind: "project-secrets", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-secrets")
+    expect(routeOwner({ kind: "project-secret-new", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-secrets")
+    expect(routeOwner({ kind: "project-secret", workspaceID: "wsp_a", projectID: "prj_a", secretID: "sec_a" })).toBe("project-secrets")
+  })
+
   it("keeps non-Project Notes routes on the legacy outlet", () => {
     expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
   })
