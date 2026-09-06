@@ -8,6 +8,7 @@
   import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
   import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
   import SessionSecretsRoute from "./pages/session-secrets/SessionSecretsRoute.svelte"
+  import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
   import { routeOwner } from "./route-owner"
 
   const runtime = provideRuntime(createApplicationRuntime())
@@ -35,6 +36,8 @@
   <SessionNotesRoute />
 {:else if routeOwner(runtime.state.route) === "session-secrets"}
   <SessionSecretsRoute />
+{:else if routeOwner(runtime.state.route) === "groups"}
+  <GroupsRoute />
 {:else}
   <LegacyApplication />
 {/if}

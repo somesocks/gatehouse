@@ -5,7 +5,6 @@
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
   import ChatCollectionPage from "../chats/ChatCollectionPage.svelte"
-  import GroupsPage from "../groups/GroupsPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
@@ -131,10 +130,6 @@
     return route.kind === "project-collection"
   }
 
-  function isGroupCollection() {
-    return route.kind === "group-collection"
-  }
-
   function navigate(path: string, replace = false) {
     runtime.navigate(path, replace)
   }
@@ -257,7 +252,7 @@
   }
 
   async function loadInitialWorkspaceProjection(workspace: Workspace) {
-    if (!isChatCollection() && !isProjectCollection() && !isGroupCollection()) {
+    if (!isChatCollection() && !isProjectCollection()) {
       await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
     }
   }
@@ -601,7 +596,7 @@
           <ul>
             <li><a class:active={isChatCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionsPath(activeWorkspace)) } }}>Chats</a></li>
             <li><a class:active={isProjectCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectsPath(activeWorkspace)) } }}>Projects</a></li>
-            <li><a class:active={isGroupCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/grp`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(groupsPath(activeWorkspace)) } }}>Groups</a></li>
+            <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/grp`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(groupsPath(activeWorkspace)) } }}>Groups</a></li>
           </ul>
         </section>
       </nav>
@@ -630,9 +625,6 @@
             {:else if isProjectCollection()}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>Projects</span>
-            {:else if isGroupCollection()}
-              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>Groups</span>
             {:else if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
 				{#if activeSession === null}
@@ -661,14 +653,12 @@
       </header>
       {#if routeSessionID(route) !== null && activeSession?.id !== routeSessionID(route)}
         <p class="dashboard-empty" aria-busy="true" aria-live="polite">Loading chat...</p>
-      {:else if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
+      {:else if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection()}
         {#if activeWorkspace !== null}<WorkspaceDashboardPage workspace={activeWorkspace} sessions={latestSessions} projects={latestProjects} creatingProject={creatingProject} error={messageError} onCreateSession={() => void createSession()} onCreateProject={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isChatCollection()}
         {#if activeWorkspace !== null}<ChatCollectionPage workspace={activeWorkspace} search={route.kind === "session-collection" ? route.search : ""} onAuthenticationLost={signInRequired} onCreate={() => void createSession()} onNavigate={navigate} />{/if}
       {:else if isProjectCollection()}
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
-      {:else if isGroupCollection()}
-        {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
       {:else if activeSession === null}
         <p class="dashboard-empty">This page is unavailable.</p>
       {:else}

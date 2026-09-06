@@ -30,6 +30,10 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "session-secret", workspaceID: "wsp_a", sessionID: "ses_a", secretID: "sec_a" })).toBe("session-secrets")
   })
 
+  it("assigns the Groups collection URL to its route owner", () => {
+    expect(routeOwner({ kind: "group-collection", workspaceID: "wsp_a" })).toBe("groups")
+  })
+
   it("keeps non-Project Notes routes on the legacy outlet", () => {
     expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
   })

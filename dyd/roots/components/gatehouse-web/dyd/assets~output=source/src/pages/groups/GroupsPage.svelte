@@ -4,10 +4,10 @@
   import type { Workspace } from "../../app/access"
   import { createGroupsController } from "./groups-controller.svelte"
 
-  let { workspace, activity, onAuthenticationLost }: { workspace: Workspace; activity: ActivityClient; onAuthenticationLost: () => void } = $props()
+  let { workspace, signal, activity, onAuthenticationLost }: { workspace: Workspace; signal: AbortSignal; activity: ActivityClient; onAuthenticationLost: () => void } = $props()
   const controller = untrack(() => createGroupsController({ activity, onAuthenticationLost }))
 
-  $effect(() => controller.start(workspace.id))
+  $effect(() => controller.start(workspace.id, signal))
 
   function ordered<T extends { id: string }>(items: T[]) {
     return [...items].sort((left, right) => right.id.localeCompare(left.id))

@@ -11,9 +11,9 @@ export function createGroupsController({ activity, onAuthenticationLost }: Group
   let unsubscribe: (() => void) | undefined
   let generation = 0
 
-  async function load(workspaceID: string, currentGeneration = generation): Promise<boolean> {
-    const response = await fetchWorkspaceGroups(workspaceID)
-    if (currentGeneration !== generation) {
+  async function load(workspaceID: string, signal: AbortSignal, currentGeneration = generation): Promise<boolean> {
+    const response = await fetchWorkspaceGroups(workspaceID, signal)
+    if (currentGeneration !== generation || signal.aborted) {
       return false
     }
     if (response.status === 401) {
@@ -24,23 +24,23 @@ export function createGroupsController({ activity, onAuthenticationLost }: Group
       throw new Error("groups could not be refreshed")
     }
     const groups = await response.json() as Group[]
-    if (currentGeneration !== generation) {
+    if (currentGeneration !== generation || signal.aborted) {
       return false
     }
     state.groups = groups
     return true
   }
 
-  function start(workspaceID: string): () => void {
+  function start(workspaceID: string, routeSignal: AbortSignal): () => void {
     stop()
     const currentGeneration = ++generation
     state.groups = []
-    void load(workspaceID, currentGeneration)
+    void load(workspaceID, routeSignal, currentGeneration)
     unsubscribe = activity.subscribe([{ name: "group", topic: workspaceID, events: ["group.*", "group_member.*"] }], async ({ signal }) => {
-      if (signal.aborted) {
+      if (signal.aborted || routeSignal.aborted) {
         return
       }
-      if (!await load(workspaceID, currentGeneration) || signal.aborted) {
+      if (!await load(workspaceID, routeSignal, currentGeneration) || signal.aborted || routeSignal.aborted) {
         throw new Error("groups refresh failed")
       }
     })
