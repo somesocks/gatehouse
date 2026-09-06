@@ -8,7 +8,7 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
   const state = $state({ chats: [] as Chat[], search: "", cursor: null as string | null, loading: false })
   let generation = 0
 
-  async function load(workspaceID: string, search: string, reset: boolean, currentGeneration = generation): Promise<void> {
+  async function load(workspaceID: string, search: string, reset: boolean, signal: AbortSignal, currentGeneration = generation): Promise<void> {
     if (state.loading && !reset || !reset && state.cursor === null) {
       return
     }
@@ -20,8 +20,8 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
     }
     state.loading = true
     try {
-      const response = await fetchChats(workspaceID, search, cursor)
-      if (currentGeneration !== generation) {
+      const response = await fetchChats(workspaceID, search, cursor, signal)
+      if (currentGeneration !== generation || signal.aborted) {
         return
       }
       if (response.status === 401) {
@@ -32,7 +32,7 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
         throw new Error("sessions could not be searched")
       }
       const loaded = await response.json() as ChatSearchResponse
-      if (currentGeneration !== generation) {
+      if (currentGeneration !== generation || signal.aborted) {
         return
       }
       state.chats = reset ? loaded.sessions : [...state.chats, ...loaded.sessions]
@@ -44,14 +44,14 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
     }
   }
 
-  function start(workspaceID: string, search: string): () => void {
+  function start(workspaceID: string, search: string, signal: AbortSignal): () => void {
     const currentGeneration = ++generation
-    void load(workspaceID, search, true, currentGeneration)
+    void load(workspaceID, search, true, signal, currentGeneration)
     return stop
   }
 
-  function loadMore(workspaceID: string, search: string): void {
-    void load(workspaceID, search, false)
+  function loadMore(workspaceID: string, search: string, signal: AbortSignal): void {
+    void load(workspaceID, search, false, signal)
   }
 
   function stop(): void {

@@ -2,11 +2,13 @@
   import { untrack } from "svelte"
   import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
+  import RouterLink from "../../components/RouterLink.svelte"
   import { createChatCollectionController } from "./chat-collection-controller.svelte"
 
-  let { workspace, search, onAuthenticationLost, onCreate, onNavigate }: {
+  let { workspace, search, signal, onAuthenticationLost, onCreate, onNavigate }: {
     workspace: Workspace
     search: string
+    signal: AbortSignal
     onAuthenticationLost: () => void
     onCreate: () => void | Promise<void>
     onNavigate: (path: string) => void
@@ -16,7 +18,7 @@
   $effect(() => {
     const workspaceID = workspace.id
     const routeSearch = search
-    return untrack(() => controller.start(workspaceID, routeSearch))
+    return untrack(() => controller.start(workspaceID, routeSearch, signal))
   })
 
   function sessionsPath() {
@@ -50,8 +52,8 @@
   </form>
   <div class="collection-list">
     {#each controller.state.chats as chat}
-      <a class="dashboard-row" href={sessionPath(chat.id)} onclick={(event) => { event.preventDefault(); onNavigate(sessionPath(chat.id)) }}><span class="dashboard-row-content"><span>{chat.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={chat.created_at}>{createdAtLabel(chat.created_at)}</time>{#if chat.project !== undefined}<span aria-hidden="true">/</span><span>{chat.project.name ?? "New Project"}</span>{/if}</span></span></a>
+      <RouterLink class="dashboard-row" href={sessionPath(chat.id)}><span class="dashboard-row-content"><span>{chat.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={chat.created_at}>{createdAtLabel(chat.created_at)}</time>{#if chat.project !== undefined}<span aria-hidden="true">/</span><span>{chat.project.name ?? "New Project"}</span>{/if}</span></span></RouterLink>
     {:else}<p class="dashboard-empty">{controller.state.loading ? "Searching chats..." : "No chats match your search."}</p>{/each}
   </div>
-  {#if controller.state.cursor !== null}<button class="button is-small" type="button" disabled={controller.state.loading} onclick={() => controller.loadMore(workspace.id, search)}>{controller.state.loading ? "Loading..." : "Show more"}</button>{/if}
+  {#if controller.state.cursor !== null}<button class="button is-small" type="button" disabled={controller.state.loading} onclick={() => controller.loadMore(workspace.id, search, signal)}>{controller.state.loading ? "Loading..." : "Show more"}</button>{/if}
 </section>

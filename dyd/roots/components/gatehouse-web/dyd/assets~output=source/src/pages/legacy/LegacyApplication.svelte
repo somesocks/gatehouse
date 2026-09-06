@@ -4,7 +4,6 @@
   import type { Workspace } from "../../app/access"
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
-  import ChatCollectionPage from "../chats/ChatCollectionPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
@@ -120,10 +119,6 @@
 
   function groupsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/grp`
-  }
-
-  function isChatCollection() {
-    return route.kind === "session-collection"
   }
 
   function isProjectCollection() {
@@ -252,7 +247,7 @@
   }
 
   async function loadInitialWorkspaceProjection(workspace: Workspace) {
-    if (!isChatCollection() && !isProjectCollection()) {
+    if (!isProjectCollection()) {
       await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
     }
   }
@@ -594,7 +589,7 @@
       <nav class="sidebar-nav" aria-label="Workspace navigation">
         <section class="sidebar-section">
           <ul>
-            <li><a class:active={isChatCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionsPath(activeWorkspace)) } }}>Chats</a></li>
+            <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionsPath(activeWorkspace)) } }}>Chats</a></li>
             <li><a class:active={isProjectCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectsPath(activeWorkspace)) } }}>Projects</a></li>
             <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/grp`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(groupsPath(activeWorkspace)) } }}>Groups</a></li>
           </ul>
@@ -619,10 +614,7 @@
           </button>
           <h1 class="workspace-breadcrumb">
             <a class="workspace-breadcrumb-segment" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(workspacePath(activeWorkspace)) } }}><Building size={16} strokeWidth={2} aria-hidden="true" /><span>{activeWorkspace?.name ?? "New Workspace"}</span></a>
-            {#if isChatCollection()}
-              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>Chats</span>
-            {:else if isProjectCollection()}
+            {#if isProjectCollection()}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
               <span>Projects</span>
             {:else if activeProject !== null}
@@ -653,10 +645,8 @@
       </header>
       {#if routeSessionID(route) !== null && activeSession?.id !== routeSessionID(route)}
         <p class="dashboard-empty" aria-busy="true" aria-live="polite">Loading chat...</p>
-      {:else if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection()}
+      {:else if activeSession === null && activeProject === null && !isProjectCollection()}
         {#if activeWorkspace !== null}<WorkspaceDashboardPage workspace={activeWorkspace} sessions={latestSessions} projects={latestProjects} creatingProject={creatingProject} error={messageError} onCreateSession={() => void createSession()} onCreateProject={() => void createProject()} onNavigate={navigate} />{/if}
-      {:else if isChatCollection()}
-        {#if activeWorkspace !== null}<ChatCollectionPage workspace={activeWorkspace} search={route.kind === "session-collection" ? route.search : ""} onAuthenticationLost={signInRequired} onCreate={() => void createSession()} onNavigate={navigate} />{/if}
       {:else if isProjectCollection()}
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if activeSession === null}

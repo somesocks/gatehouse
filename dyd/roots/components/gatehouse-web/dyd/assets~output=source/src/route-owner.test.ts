@@ -34,6 +34,10 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "group-collection", workspaceID: "wsp_a" })).toBe("groups")
   })
 
+  it("assigns the Chat collection URL to its route owner", () => {
+    expect(routeOwner({ kind: "session-collection", workspaceID: "wsp_a", search: "" })).toBe("chat-collection")
+  })
+
   it("keeps non-Project Notes routes on the legacy outlet", () => {
     expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
   })
