@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte"
-  import { Bot, Building, CircleCheck, CircleX, Copy, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, Send, ShieldCheck, ShieldQuestionMark, ShieldX, X } from "@lucide/svelte"
+  import { onMount } from "svelte"
+  import { Building, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, X } from "@lucide/svelte"
   import type { ActivitySelector } from "./utils/activity-poller"
   import type { Workspace } from "./app/access"
   import { createActivityClient } from "./app/activity"
@@ -11,6 +11,7 @@
   import { type NoteAuthor, type ProjectNote } from "./app/project-notes"
   import { fetchProjectSecrets, type ProjectSecret } from "./app/project-secrets"
   import ChatCollectionPage from "./pages/chats/ChatCollectionPage.svelte"
+  import ChatPage from "./pages/chat/ChatPage.svelte"
   import GroupsPage from "./pages/groups/GroupsPage.svelte"
   import LoginPage from "./pages/login/LoginPage.svelte"
   import ProjectCollectionPage from "./pages/projects/ProjectCollectionPage.svelte"
@@ -20,7 +21,6 @@
   import SessionNotesPage from "./pages/session-notes/SessionNotesPage.svelte"
   import WorkspaceDashboardPage from "./pages/workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
-  import { renderMarkdown } from "./markdown"
   import { routeProjectID, routeSessionID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
 
@@ -80,44 +80,6 @@
     next_cursor?: string
   }
 
-  type WorkspaceAgent = {
-    id: string
-    label?: string
-  }
-
-  type SessionEvent = {
-    created_at: string
-    kind: string
-    payload: { agent?: string; text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; attachments?: MessageFile[] }
-    ref: { id: string }
-    parent?: { id: string }
-    author_principal?: {
-      ref: { id: string }
-      name?: string
-    }
-    author_agent?: { model: { id: string } }
-  }
-
-  type MessageFile = {
-    id: string
-    name: string
-    media_type?: string
-    size: number
-    fingerprint: string
-  }
-
-  type ComposerFile = {
-    file: File
-    id?: string
-    status: "pending" | "uploading" | "failed"
-    error?: string
-  }
-
-  type SessionEventTree = {
-    event: SessionEvent
-    children: SessionEventTree[]
-  }
-
   type WorkspaceContentStatus = "checking" | "ready" | "unavailable"
   type ActivityProjection = { stop: () => void }
 
@@ -126,8 +88,6 @@
   let route = $state<Route>({ kind: "app-home" })
   let activeWorkspace = $state<Workspace | null>(null)
   let latestProjects = $state<Project[]>([])
-  let agents = $state<WorkspaceAgent[]>([])
-  let selectedAgent = $state("")
   let latestSessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
@@ -154,26 +114,10 @@
   let projectEditError = $state("")
   let projectEditDialogElement = $state<HTMLDialogElement | undefined>()
   let projectActionMenuElement = $state<HTMLDetailsElement | undefined>()
-  let events = $state<SessionEventTree[]>([])
-  let eventStatus = $state<WorkspaceContentStatus>("checking")
-  let messageText = $state("")
-  let composerFiles = $state<ComposerFile[]>([])
   let messageError = $state("")
-  let sendingMessage = $state(false)
-  let awaitingReplyFor = $state<string[]>([])
-  let cancellingReplyFor = $state<Set<string>>(new Set())
-  let submittingApprovals = $state<Set<string>>(new Set())
-  let approvalErrors = $state<Map<string, string>>(new Map())
-  let expandedActivity = $state<Set<string>>(new Set())
   let mobileMenuOpen = $state(false)
-  let showJumpToLatest = $state(false)
   let workspaceMainElement = $state<HTMLElement | undefined>()
-  let messageInputElement = $state<HTMLTextAreaElement | undefined>()
-  let fileInputElement = $state<HTMLInputElement | undefined>()
-  let activityPollTimestamp = $state(Date.now())
-  const activity = createActivityClient({ onAuthenticationLost: signInRequired, onPollComplete: () => {
-    activityPollTimestamp = Date.now()
-  } })
+  const activity = createActivityClient({ onAuthenticationLost: signInRequired })
   const access = createAccess({ activity, onAuthenticationLost: signInRequired })
   $effect(() => {
     const principalID = auth.state.claims?.principal.ref.id
@@ -210,24 +154,12 @@
         projectActionMenuElement.open = false
       }
     }
-    const copyCodeBlock = (event: MouseEvent) => {
-      if (!(event.target instanceof Element)) {
-        return
-      }
-      const button = event.target.closest<HTMLButtonElement>(".markdown-code-copy")
-      const code = button?.parentElement?.querySelector("pre > code")
-      if (code !== null && code !== undefined) {
-        void copyMarkdown(code.textContent ?? "")
-      }
-    }
     const stopRouter = router.start()
     document.addEventListener("click", closeProjectActionMenu)
-    document.addEventListener("click", copyCodeBlock)
     resolveRoute()
     return () => {
       stopRouter()
       document.removeEventListener("click", closeProjectActionMenu)
-      document.removeEventListener("click", copyCodeBlock)
       routeAbortController?.abort()
       stopActivityPolling()
       activity.dispose()
@@ -487,8 +419,6 @@
     access.clear()
     activeWorkspace = null
     latestProjects = []
-    agents = []
-    selectedAgent = ""
     latestSessions = []
     activeSession = null
     sessionNoteBreadcrumb = null
@@ -500,8 +430,6 @@
     projectFileError = ""
     projectNotes = []
 		projectSecrets = []
-    events = []
-    showJumpToLatest = false
     if (!isLoginPath()) {
       redirectToLogin()
     }
@@ -594,7 +522,7 @@
         return
       }
       await activateSession(session, generation)
-      await initializeRouteProjection(generation, () => loadInitialSessionProjection(workspace, session))
+       await initializeRouteProjection(generation, () => loadInitialSessionProjection())
       return
     }
     const projectID = routeProjectID(route)
@@ -632,11 +560,7 @@
     }
   }
 
-  async function loadInitialSessionProjection(workspace: Workspace, session: Session) {
-    if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
-      await Promise.all([loadSessionEvents(session), refreshWorkspaceAgents(workspace)])
-    }
-  }
+  async function loadInitialSessionProjection(): Promise<void> {}
 
   async function loadInitialProjectProjection(workspace: Workspace, project: Project) {
     await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project), loadProjectSecrets(project)])
@@ -652,8 +576,6 @@
     activeWorkspace = workspace
     resetNoteHistory()
     latestProjects = []
-    agents = []
-    selectedAgent = ""
     latestSessions = []
     activeSession = null
     sessionNoteBreadcrumb = null
@@ -665,8 +587,6 @@
     projectFileError = ""
     projectNotes = []
 		projectSecrets = []
-    events = []
-    showJumpToLatest = false
     workspaceContentStatus = "checking"
     return !signal.aborted && isCurrentRoute(generation)
   }
@@ -676,7 +596,6 @@
     activeSession = null
     activeProject = null
     projectNoteBreadcrumb = null
-    events = []
   }
 
   async function activateSession(session: Session, generation: number) {
@@ -690,7 +609,6 @@
     activeProject = session.project ?? null
     if (changedSession) {
       messageError = ""
-      showJumpToLatest = false
     }
     resetNoteHistory()
     sessionNoteBreadcrumb = null
@@ -699,10 +617,6 @@
     projectFiles = []
     projectNotes = []
 		projectSecrets = []
-    if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
-      events = []
-      eventStatus = "checking"
-    }
   }
 
   async function activateProject(project: Project, generation: number) {
@@ -720,7 +634,6 @@
     projectFileError = ""
     projectNotes = []
 		projectSecrets = []
-    events = []
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -881,54 +794,8 @@
     return activeProjection === projection
   }
 
-  async function loadSessionEvents(session: Session, showLoading = true, projection?: ActivityProjection) {
-    if (activeWorkspace === null) {
-      return false
-    }
-    if (showLoading) {
-      eventStatus = "checking"
-    }
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions/${encodeURIComponent(session.id)}/events?limit=100`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("session events could not be loaded")
-      }
-      const loaded = (await response.json()) as SessionEventTree[]
-      if (projection !== undefined && !isActiveProjection(projection) || activeSession?.id !== session.id || route.kind !== "session-chat") {
-        return false
-      }
-      const knownEvents = new Set(events.flatMap(eventTreeIDs))
-      const hasNewEvents = loaded.some((tree) => eventTreeIDs(tree).some((id) => !knownEvents.has(id)))
-      const shouldFollow = showLoading || isNearChatBottom()
-      events = loaded
-      eventStatus = "ready"
-      if (showLoading || hasNewEvents) {
-        if (shouldFollow) {
-          void scrollToLatest(showLoading ? "instant" : "smooth")
-        } else {
-          showJumpToLatest = true
-        }
-      }
-      const finishedReplies = new Set(loaded.filter((tree) => finalReplies(tree).length > 0 || hasThinkingFailure(tree) || hasCancellationSuccess(tree)).map((tree) => tree.event.ref.id))
-      if (awaitingReplyFor.length > 0 && awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))) {
-        awaitingReplyFor = awaitingReplyFor.filter((eventID) => !finishedReplies.has(eventID))
-      }
-      return true
-    } catch {
-      if ((projection === undefined || isActiveProjection(projection)) && activeSession?.id === session.id && route.kind === "session-chat") {
-        eventStatus = "unavailable"
-      }
-      return false
-    }
-  }
-
   function stopActivityPolling() {
     disposeActiveProjection()
-    awaitingReplyFor = []
   }
 
   function disposeActiveProjection() {
@@ -977,26 +844,6 @@
     return true
   }
 
-  async function refreshWorkspaceAgents(workspace: Workspace, projection?: ActivityProjection) {
-    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/agents`, { credentials: "same-origin" })
-    if (response.status === 401) {
-      signInRequired()
-      return false
-    }
-    if (!response.ok) {
-      throw new Error("agents could not be refreshed")
-    }
-    const loaded = (await response.json()) as WorkspaceAgent[]
-    if ((projection !== undefined && !isActiveProjection(projection)) || activeWorkspace?.id !== workspace.id || activeSession === null) {
-      return false
-    }
-    agents = loaded
-    if (!agents.some((agent) => agent.id === selectedAgent)) {
-      selectedAgent = ""
-    }
-    return true
-  }
-
   function configureActivityPolling() {
     disposeActiveProjection()
     if (activeWorkspace === null) {
@@ -1010,7 +857,7 @@
       topic: workspace.id,
       events: ["workspace.*", "workspace_grant.*"],
     }
-    const agentSelector = session === null ? undefined : {
+    const agentSelector = session === null || route.kind === "session-chat" ? undefined : {
       name: "agent",
       topic: workspace.id,
       events: ["workspace_agent.*"],
@@ -1019,7 +866,7 @@
       name: "session",
       topic: workspace.id,
       events: ["session.*"],
-    } satisfies ActivitySelector : undefined) : {
+    } satisfies ActivitySelector : undefined) : route.kind === "session-chat" ? undefined : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
       events: ["session.*", "session_event.*", "session_file.*", ...(isSessionNotesRoute() ? [] : ["session_note.*"]), ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
@@ -1044,23 +891,15 @@
       }
 
       const workspaceChanged = names.has(workspaceSelector.name)
-      const agentChanged = agentSelector !== undefined && names.has(agentSelector.name)
-      const sessionChanged = sessionSelector !== undefined && names.has(sessionSelector.name)
       const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
 
       let refreshed = (await Promise.all([
         ...(workspaceChanged ? [loadWorkspaces(false)] : []),
         ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
         ...(projectSelector !== undefined ? [refreshWorkspaceProjects(workspace, projection)] : []),
-        ...(agentChanged ? [refreshWorkspaceAgents(workspace, projection)] : []),
       ])).every(Boolean)
       if (!isActiveProjection(projection) || signal.aborted) {
         throw new Error("activity projection refresh failed")
-      }
-      if (session !== null && (sessionChanged || projectChanged)) {
-        if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
-          refreshed = await loadSessionEvents(session, false, projection)
-        }
       }
       if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
 		refreshed = (await Promise.all([loadProjectSessions(activeProject, projection), loadProjectFiles(activeProject, false, projection), ...(isProjectNotesRoute() ? [] : [loadProjectNotes(activeProject, false, projection)]), loadProjectSecrets(activeProject, false, projection)])).every(Boolean)
@@ -1069,242 +908,6 @@
         throw new Error("activity projection refresh failed")
       }
     })
-  }
-
-  function eventTreeIDs(tree: SessionEventTree): string[] {
-    return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)]
-  }
-
-  function finalReplies(tree: SessionEventTree) {
-    return tree.children.filter((child) => child.event.kind === "message.text" && child.event.author_agent !== undefined && child.event.payload.text !== undefined)
-  }
-
-  function activityEvents(tree: SessionEventTree) {
-    return tree.children.filter((child) => !finalReplies(tree).includes(child))
-  }
-
-  function renderedActivityEvents(tree: SessionEventTree) {
-    return activityEvents(tree).filter((activity) => activity.event.kind === "tool.request" || activity.event.kind === "thinking.started")
-  }
-
-  function displayedActivityEvents(tree: SessionEventTree) {
-    const activity = renderedActivityEvents(tree)
-    if (expandedActivity.has(tree.event.ref.id) || activity.length <= 5) {
-      return activity
-    }
-    return activity.slice(-5)
-  }
-
-  function toggleActivity(tree: SessionEventTree) {
-    const next = new Set(expandedActivity)
-    if (next.has(tree.event.ref.id)) {
-      next.delete(tree.event.ref.id)
-    } else {
-      next.add(tree.event.ref.id)
-    }
-    expandedActivity = next
-  }
-
-  function replyDuration(tree: SessionEventTree) {
-    const replies = finalReplies(tree)
-    if (replies.length === 0) {
-      return ""
-    }
-    return elapsedDuration(tree.event.created_at, replies[replies.length - 1].event.created_at)
-  }
-
-  function activityAgentLabel(tree: SessionEventTree) {
-    if (tree.event.payload.agent !== undefined) {
-      return agentLabel(tree.event.payload.agent)
-    }
-    const activity = activityEvents(tree).find((child) => child.event.author_agent !== undefined)
-    if (activity?.event.author_agent !== undefined) {
-      return agentLabel(activity.event.author_agent.model.id)
-    }
-    const reply = finalReplies(tree)[0]
-    return reply?.event.author_agent === undefined ? "Agent" : agentLabel(reply.event.author_agent.model.id)
-  }
-
-  function workingReplyDuration(tree: SessionEventTree) {
-    return elapsedDuration(tree.event.created_at, activityPollTimestamp)
-  }
-
-  function toolStatus(tree: SessionEventTree) {
-    return activityStatus(tree, "tool.success", "tool.failure")
-  }
-
-  function thinkingStatus(tree: SessionEventTree) {
-    return activityStatus(tree, "thinking.completed", "thinking.failed")
-  }
-
-  function activityStatus(tree: SessionEventTree, completedKind: string, failedKind: string) {
-    if (tree.children.some((child) => child.event.kind === failedKind)) {
-      return "failed"
-    }
-    if (tree.children.some((child) => child.event.kind === completedKind)) {
-      return "succeeded"
-    }
-    return "working"
-  }
-
-  function toolCallDuration(tree: SessionEventTree) {
-    return activityDuration(tree, "tool.success", "tool.failure")
-  }
-
-  function approvalRequests(tree: SessionEventTree) {
-    return tree.children.filter((child) => child.event.kind === "approval.request")
-  }
-
-  function approvalResponse(tree: SessionEventTree) {
-    return tree.children.find((child) => child.event.kind === "approval.approved" || child.event.kind === "approval.rejected")
-  }
-
-  function approvalError(tree: SessionEventTree) {
-    return approvalErrors.get(tree.event.ref.id) ?? ""
-  }
-
-  function approvalDescription(approval: SessionEventTree, task: SessionEventTree) {
-    return approval.event.payload.description ?? task.event.payload.reason ?? `Run ${task.event.payload.name ?? "tool"}`
-  }
-
-  function thinkingDuration(tree: SessionEventTree) {
-    return activityDuration(tree, "thinking.completed", "thinking.failed")
-  }
-
-  function activityDuration(tree: SessionEventTree, completedKind: string, failedKind: string) {
-    const completed = tree.children.find((child) => child.event.kind === completedKind || child.event.kind === failedKind)
-    if (completed === undefined) {
-      return ""
-    }
-    return elapsedDuration(tree.event.created_at, completed.event.created_at)
-  }
-
-  function elapsedDuration(startedAt: string, completedAt: string | number) {
-    const elapsed = new Date(completedAt).getTime() - new Date(startedAt).getTime()
-    if (!Number.isFinite(elapsed) || elapsed < 0) {
-      return ""
-    }
-    if (elapsed < 100) {
-      return "<0.1s"
-    }
-    if (elapsed >= 60_000) {
-      const seconds = Math.floor(elapsed / 1000)
-      return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-    }
-    return `${(elapsed / 1000).toFixed(1)}s`
-  }
-
-  function hasThinkingFailure(tree: SessionEventTree) {
-    return tree.children.some((child) => child.event.kind === "thinking.started" && thinkingStatus(child) === "failed")
-  }
-
-  function cancellationRequest(tree: SessionEventTree) {
-    return tree.children.find((child) => child.event.kind === "cancel.request")
-  }
-
-  function hasCancellationSuccess(tree: SessionEventTree) {
-    const request = cancellationRequest(tree)
-    return request?.children.some((child) => child.event.kind === "cancel.success") ?? false
-  }
-
-  function replyCanBeCancelled(tree: SessionEventTree) {
-    return finalReplies(tree).length === 0 && !hasThinkingFailure(tree) && cancellationRequest(tree) === undefined
-  }
-
-  async function cancelReply(tree: SessionEventTree) {
-    if (activeWorkspace === null || activeSession === null || cancellingReplyFor.has(tree.event.ref.id)) {
-      return
-    }
-    const next = new Set(cancellingReplyFor)
-    next.add(tree.event.ref.id)
-    cancellingReplyFor = next
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(activeWorkspace.id)}/sessions/${encodeURIComponent(activeSession.id)}/messages/${encodeURIComponent(tree.event.ref.id)}/cancel`, {
-        method: "POST",
-        credentials: "same-origin",
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("reply cancellation failed")
-      }
-      await loadSessionEvents(activeSession, false)
-    } catch {
-      messageError = "The reply could not be cancelled. Try again."
-    } finally {
-      const completed = new Set(cancellingReplyFor)
-      completed.delete(tree.event.ref.id)
-      cancellingReplyFor = completed
-    }
-  }
-
-  async function respondToApproval(approval: SessionEventTree, decision: "approved" | "rejected") {
-    if (activeWorkspace === null || activeSession === null || submittingApprovals.has(approval.event.ref.id)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    const submitting = new Set(submittingApprovals)
-    submitting.add(approval.event.ref.id)
-    submittingApprovals = submitting
-    const clearedErrors = new Map(approvalErrors)
-    clearedErrors.delete(approval.event.ref.id)
-    approvalErrors = clearedErrors
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/approvals/${encodeURIComponent(approval.event.ref.id)}`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ decision }),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (response.status === 409) {
-        throw new Error("This approval has already been decided.")
-      }
-      if (!response.ok) {
-        throw new Error("The approval response could not be submitted. Try again.")
-      }
-      await loadSessionEvents(session, false)
-    } catch (error) {
-      const nextErrors = new Map(approvalErrors)
-      nextErrors.set(approval.event.ref.id, error instanceof Error ? error.message : "The approval response could not be submitted. Try again.")
-      approvalErrors = nextErrors
-    } finally {
-      const completed = new Set(submittingApprovals)
-      completed.delete(approval.event.ref.id)
-      submittingApprovals = completed
-    }
-  }
-
-  async function copyMarkdown(text: string) {
-    await navigator.clipboard.writeText(text)
-  }
-
-  function isNearChatBottom() {
-    if (workspaceMainElement === undefined) {
-      return true
-    }
-    return workspaceMainElement.scrollHeight - workspaceMainElement.scrollTop - workspaceMainElement.clientHeight < 64
-  }
-
-  async function scrollToLatest(behavior: ScrollBehavior = "smooth") {
-    await tick()
-    if (workspaceMainElement === undefined) {
-      return
-    }
-    workspaceMainElement.scrollTo({ top: workspaceMainElement.scrollHeight, behavior })
-    showJumpToLatest = false
-  }
-
-  function trackChatScroll() {
-    if (isNearChatBottom()) {
-      showJumpToLatest = false
-    }
   }
 
   async function createSession(project?: Project) {
@@ -1424,84 +1027,6 @@
     }
   }
 
-  async function sendMessage() {
-    if (activeWorkspace === null || activeSession === null || (messageText.trim() === "" && composerFiles.length === 0)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    messageError = ""
-    sendingMessage = true
-    try {
-      const fileIDs = await Promise.all(composerFiles.map((entry) => uploadComposerFile(workspace, session, entry)))
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/messages`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...(messageText.trim() === "" ? {} : { text: messageText }), ...(selectedAgent === "" ? {} : { agent: selectedAgent }), ...(fileIDs.length === 0 ? {} : { attachments: fileIDs }) }),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("message could not be sent")
-      }
-      const event = (await response.json()) as SessionEvent
-      messageText = ""
-      composerFiles = []
-      await tick()
-      resizeMessageInput()
-      if (activeSession?.id !== session.id) {
-        return
-      }
-      events = [...events, { event, children: [] }]
-      void scrollToLatest()
-      awaitingReplyFor = [...awaitingReplyFor, event.ref.id]
-    } catch {
-      messageError = "Your message or file upload could not be sent. Try again."
-    } finally {
-      sendingMessage = false
-      await tick()
-      messageInputElement?.focus()
-    }
-  }
-
-  async function uploadComposerFile(workspace: Workspace, session: Session, entry: ComposerFile) {
-    if (entry.id !== undefined) {
-      return entry.id
-    }
-    updateComposerFile(entry.file, { status: "uploading", error: undefined })
-    try {
-      const created = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files`, {
-        method: "POST",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: entry.file.name, ...(entry.file.type === "" ? {} : { media_type: entry.file.type }) }),
-      })
-      if (!created.ok) {
-        throw new Error("create file failed")
-      }
-      const upload = (await created.json()) as { file: { ref: { id: string } }; upload_url: string }
-      const put = await fetch(upload.upload_url, { method: "PUT", body: entry.file, ...(entry.file.type === "" ? {} : { headers: { "Content-Type": entry.file.type } }) })
-      if (!put.ok) {
-        throw new Error("upload file failed")
-      }
-      const finished = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files/${encodeURIComponent(upload.file.ref.id)}/finish`, {
-        method: "POST",
-        credentials: "same-origin",
-      })
-      if (!finished.ok) {
-        throw new Error("finish file failed")
-      }
-      updateComposerFile(entry.file, { id: upload.file.ref.id, status: "pending", error: undefined })
-      return upload.file.ref.id
-    } catch {
-      updateComposerFile(entry.file, { status: "failed", error: "Upload failed" })
-      throw new Error("upload failed")
-    }
-  }
-
   async function uploadProjectFiles(input: HTMLInputElement) {
     if (activeWorkspace === null || activeProject === null) {
       return
@@ -1594,39 +1119,6 @@
 
   function projectFileDownloadPath(workspace: Workspace, project: Project, file: ProjectFile) {
     return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}/download`
-  }
-
-  function sessionFileDownloadPath(workspace: Workspace, session: Session, file: MessageFile) {
-    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/files/${encodeURIComponent(file.id)}/download`
-  }
-
-  function updateComposerFile(file: File, update: Partial<ComposerFile>) {
-    composerFiles = composerFiles.map((entry) => entry.file === file ? { ...entry, ...update } : entry)
-  }
-
-  function selectComposerFiles(input: HTMLInputElement) {
-    const selected = Array.from(input.files ?? [])
-    composerFiles = [...composerFiles, ...selected.map((file) => ({ file, status: "pending" as const }))]
-    input.value = ""
-  }
-
-  function removeComposerFile(file: File) {
-    composerFiles = composerFiles.filter((entry) => entry.file !== file)
-  }
-
-  function resizeMessageInput(input = messageInputElement) {
-    if (input === undefined) {
-      return
-    }
-    input.style.height = "auto"
-    const styles = window.getComputedStyle(input)
-    const maximumHeight = Number.parseFloat(styles.lineHeight) * 6 + Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom)
-    input.style.height = `${Math.min(input.scrollHeight, maximumHeight)}px`
-    input.style.overflowY = input.scrollHeight > maximumHeight ? "auto" : "hidden"
-  }
-
-  function agentLabel(id: string) {
-    return agents.find((agent) => agent.id === id)?.label ?? id
   }
 
   async function logout() {
@@ -1731,7 +1223,7 @@
       </div>
     </aside>
 
-    <main class="workspace-main" bind:this={workspaceMainElement} onscroll={trackChatScroll}>
+    <main class="workspace-main" bind:this={workspaceMainElement}>
       <header class="workspace-header">
           <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}>
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
@@ -1905,204 +1397,10 @@
 			</section>
           {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
         </section>
+      {:else if activeSession !== null && route.kind === "session-chat"}
+        <ChatPage workspace={activeWorkspace!} sessionID={activeSession.id} {activity} scrollElement={workspaceMainElement} onAuthenticationLost={signInRequired} onSessionChanged={() => refreshWorkspaceSessions(activeWorkspace!)} />
       {:else}
-        <section class="chat-pane">
-          <div class="chat-events" aria-live="polite">
-            {#if eventStatus === "checking"}
-              <p class="chat-status">Loading chat...</p>
-            {:else if eventStatus === "unavailable"}
-              <p class="chat-status">This chat could not be loaded.</p>
-            {:else if events.length === 0}
-              <p class="chat-status">Send the first message to begin.</p>
-            {:else}
-              {#each events as tree (tree.event.ref.id)}
-                {#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0))}
-                  <article class="chat-message message-own">
-                    <p class="chat-message-author">{tree.event.author_principal?.name ?? "User"}</p>
-                    {#if tree.event.payload.text !== undefined}
-                      <button class="chat-message-copy" type="button" aria-label="Copy message Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(tree.event.payload.text)}>
-                        <Copy size={16} strokeWidth={2} />
-                      </button>
-                      <div class="markdown-content chat-message-text">{@html renderMarkdown(tree.event.payload.text)}</div>
-                    {/if}
-                    {#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}
-                        <div class="message-files" aria-label="Attached files">
-                          {#each tree.event.payload.attachments as file (file.id)}
-                          <a class="message-file" href={activeWorkspace !== null && activeSession !== null ? sessionFileDownloadPath(activeWorkspace, activeSession, file) : "#"} target="_blank" rel="noopener noreferrer" download={file.name} title={file.fingerprint}>
-                            <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
-                            <span>{file.name}</span>
-                            <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
-                          </a>
-                        {/each}
-                      </div>
-                    {/if}
-                  </article>
-                  {#if activityEvents(tree).length > 0 || awaitingReplyFor.includes(tree.event.ref.id) || replyCanBeCancelled(tree)}
-                    <section class="agent-activity-section">
-                      <p class="agent-activity-heading">
-                        {hasCancellationSuccess(tree) ? "Cancelled" : cancellationRequest(tree) !== undefined ? "Cancellation requested" : finalReplies(tree).length === 0 ? `${activityAgentLabel(tree)} is working` : activityAgentLabel(tree)}
-                        {#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}
-                          <span class="agent-activity-duration">{replyDuration(tree)}</span>
-                        {/if}
-                        {#if replyCanBeCancelled(tree) && workingReplyDuration(tree) !== ""}
-                          <span class="agent-activity-duration">{workingReplyDuration(tree)}</span>
-                        {/if}
-                        {#if replyCanBeCancelled(tree)}
-                          <button class="agent-activity-cancel" type="button" disabled={cancellingReplyFor.has(tree.event.ref.id)} onclick={() => void cancelReply(tree)}>{cancellingReplyFor.has(tree.event.ref.id) ? "Cancelling..." : "Cancel"}</button>
-                        {/if}
-                      </p>
-                      {#if renderedActivityEvents(tree).length > 0}
-                        <div class="agent-activity">
-                          {#if renderedActivityEvents(tree).length > 5 && !expandedActivity.has(tree.event.ref.id)}
-                            <p class="agent-activity-overflow">
-                              <span>({renderedActivityEvents(tree).length - 5} more)</span>
-                              <button type="button" onclick={() => toggleActivity(tree)}>Show all</button>
-                            </p>
-                          {/if}
-                          {#each displayedActivityEvents(tree) as activity (activity.event.ref.id)}
-                            {#if activity.event.kind === "tool.request"}
-                              <p class:tool-call-failed={toolStatus(activity) === "failed"} class:tool-call-succeeded={toolStatus(activity) === "succeeded"} class="tool-call" title={activity.event.payload.name ?? "tool"}>
-                                {#if toolStatus(activity) === "working"}
-                                  <span class="tool-status tool-status-working" aria-hidden="true"></span>
-                                {:else if toolStatus(activity) === "succeeded"}
-                                  <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {:else}
-                                  <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {/if}
-                                Task: {activity.event.payload.reason ?? `Running ${activity.event.payload.name ?? "tool"}`}
-                                {#if toolCallDuration(activity) !== ""}
-                                  <span class="tool-call-duration">{toolCallDuration(activity)}</span>
-                                {/if}
-                              </p>
-                              {#each approvalRequests(activity) as approval (approval.event.ref.id)}
-                                {@const response = approvalResponse(approval)}
-                                <section class:approval-request-resolved={response !== undefined} class="approval-request">
-                                  {#if response === undefined}
-                                    <ShieldQuestionMark class="approval-request-icon" size={15} strokeWidth={2} aria-hidden="true" />
-                                    <span class="approval-request-heading">Action approval required:</span>
-                                    <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
-                                    <span class="approval-request-actions">
-                                      <button class="approval-approve" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "approved")}>{submittingApprovals.has(approval.event.ref.id) ? "Submitting..." : "Approve"}</button>
-                                      <button class="approval-reject" type="button" disabled={submittingApprovals.has(approval.event.ref.id)} onclick={() => void respondToApproval(approval, "rejected")}>Reject</button>
-                                    </span>
-                                  {:else}
-                                    {#if response.event.kind === "approval.approved"}
-                                      <ShieldCheck class="approval-request-icon approval-request-approved" size={15} strokeWidth={2} aria-hidden="true" />
-                                      <span class="approval-request-heading">Action approved:</span>
-                                      <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
-                                    {:else}
-                                      <ShieldX class="approval-request-icon approval-request-rejected" size={15} strokeWidth={2} aria-hidden="true" />
-                                      <span class="approval-request-heading">Action rejected:</span>
-                                      <span class="approval-request-detail">{approvalDescription(approval, activity)}</span>
-                                    {/if}
-                                  {/if}
-                                </section>
-                                {#if response === undefined && approvalError(approval) !== ""}<p class="approval-request-error" role="alert">{approvalError(approval)}</p>{/if}
-                              {/each}
-                            {:else if activity.event.kind === "thinking.started"}
-                              <p class:tool-call-failed={thinkingStatus(activity) === "failed"} class:tool-call-succeeded={thinkingStatus(activity) === "succeeded"} class="tool-call">
-                                {#if thinkingStatus(activity) === "working"}
-                                  <span class="tool-status tool-status-working" aria-hidden="true"></span>
-                                {:else if thinkingStatus(activity) === "succeeded"}
-                                  <CircleCheck class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {:else}
-                                  <CircleX class="tool-status" size={14} strokeWidth={2} aria-hidden="true" />
-                                {/if}
-                                {thinkingStatus(activity) === "working" ? "Thinking" : thinkingStatus(activity) === "succeeded" ? "Thought" : "Thinking failed after"}
-                                {#if thinkingDuration(activity) !== ""}
-                                  <span class="tool-call-duration">{thinkingDuration(activity)}</span>
-                                {/if}
-                              </p>
-                            {/if}
-                          {/each}
-                          {#if renderedActivityEvents(tree).length > 5 && expandedActivity.has(tree.event.ref.id)}
-                            <p class="agent-activity-overflow">
-                              <span>({renderedActivityEvents(tree).length} steps)</span>
-                              <button type="button" onclick={() => toggleActivity(tree)}>Show less</button>
-                            </p>
-                          {/if}
-                        </div>
-                      {/if}
-                    </section>
-                  {/if}
-                  {#each finalReplies(tree) as reply (reply.event.ref.id)}
-                    <article class="chat-message">
-                      <p class="chat-message-author">{reply.event.author_agent === undefined ? "Gatehouse" : agentLabel(reply.event.author_agent.model.id)}</p>
-                      {#if reply.event.payload.text !== ""}
-                        <button class="chat-message-copy" type="button" aria-label="Copy response Markdown" title="Copy Markdown" onclick={() => void copyMarkdown(reply.event.payload.text)}>
-                          <Copy size={16} strokeWidth={2} />
-                        </button>
-                        <div class="markdown-content chat-message-text">{@html renderMarkdown(reply.event.payload.text)}</div>
-                      {:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}
-                        <div class="chat-message-text"><em>No reply.</em></div>
-                      {/if}
-                      {#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}
-                        <div class="message-files" aria-label="Attached files">
-                          {#each reply.event.payload.attachments as file (file.id)}
-                            <a class="message-file" href={activeWorkspace !== null && activeSession !== null ? sessionFileDownloadPath(activeWorkspace, activeSession, file) : "#"} target="_blank" rel="noopener noreferrer" download={file.name} title={file.fingerprint}>
-                              <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
-                              <span>{file.name}</span>
-                              <small>{file.size} bytes{file.media_type === undefined ? "" : ` · ${file.media_type}`}</small>
-                            </a>
-                          {/each}
-                        </div>
-                      {/if}
-                    </article>
-                  {/each}
-                {/if}
-              {/each}
-            {/if}
-            {#if showJumpToLatest}
-              <button class="button is-small chat-jump" type="button" onclick={() => void scrollToLatest()}>Jump to latest</button>
-            {/if}
-          </div>
-          <form class:sending={sendingMessage} class="chat-composer" autocomplete="off" onsubmit={(event) => { event.preventDefault(); void sendMessage() }}>
-            <label class="is-sr-only" for="message">Message</label>
-            <input class="is-sr-only" id="files" type="file" autocomplete="off" multiple bind:this={fileInputElement} onchange={(event) => selectComposerFiles(event.currentTarget)} />
-            {#if composerFiles.length > 0}
-              <div class="composer-files" aria-label="Selected files">
-                {#each composerFiles as entry (entry.file)}
-                  <span class:failed={entry.status === "failed"} class="composer-file">
-                    {#if entry.status === "uploading"}
-                      <span class="composer-file-spinner" aria-hidden="true"></span>
-                    {:else}
-                      <Paperclip size={14} strokeWidth={2} aria-hidden="true" />
-                    {/if}
-                    <span>{entry.file.name}</span>
-                    <small>{entry.status === "uploading" ? "Uploading" : entry.status === "failed" ? entry.error : entry.id === undefined ? `${entry.file.size} bytes` : "Ready"}</small>
-                    <button type="button" aria-label={`Remove ${entry.file.name}`} disabled={sendingMessage} onclick={() => removeComposerFile(entry.file)}><X size={14} strokeWidth={2} /></button>
-                  </span>
-                {/each}
-              </div>
-            {/if}
-            <div class="chat-composer-row">
-              <button class="chat-composer-attach" type="button" aria-label="Attach files" title="Attach files" disabled={sendingMessage} onclick={() => fileInputElement?.click()}>
-                  <Paperclip size={20} strokeWidth={2.25} aria-hidden="true" />
-              </button>
-              <div class:agent-selected={selectedAgent !== ""} class="chat-composer-agent" title="Select agent">
-                <Bot size={20} strokeWidth={2.25} aria-hidden="true" />
-                <select id="agent" aria-label="Agent" bind:value={selectedAgent}>
-                  <option value="">Automatic</option>
-                  {#each agents as agent}
-                    <option value={agent.id}>{agent.label ?? agent.id}</option>
-                  {/each}
-                </select>
-              </div>
-              <textarea id="message" class="textarea" rows="1" autocomplete="off" placeholder="Write a message" bind:this={messageInputElement} bind:value={messageText} disabled={sendingMessage} oninput={(event) => resizeMessageInput(event.currentTarget)} onkeydown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault()
-                  void sendMessage()
-                }
-              }}></textarea>
-              <button class="button is-primary chat-composer-send" type="submit" aria-label="Send message" title="Send message" disabled={sendingMessage || (messageText.trim() === "" && composerFiles.length === 0)}>
-                <Send size={20} strokeWidth={2.25} aria-hidden="true" />
-              </button>
-            </div>
-            {#if messageError !== ""}
-              <p class="help is-danger" aria-live="polite">{messageError}</p>
-            {/if}
-          </form>
-        </section>
+        <p class="dashboard-empty">This page is unavailable.</p>
       {/if}
     </main>
   </div>
