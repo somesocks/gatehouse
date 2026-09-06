@@ -18,13 +18,16 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-secret", workspaceID: "wsp_a", projectID: "prj_a", secretID: "sec_a" })).toBe("project-secrets")
   })
 
-  it("assigns session Chat and every Session Notes URL to their route owners", () => {
+  it("assigns session detail URLs to their route owners", () => {
     expect(routeOwner({ kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-chat")
     expect(routeOwner({ kind: "session-notes", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note-new", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note-edit", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note-revision", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a", revision: 2 })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-secrets", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-secrets")
+    expect(routeOwner({ kind: "session-secret-new", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-secrets")
+    expect(routeOwner({ kind: "session-secret", workspaceID: "wsp_a", sessionID: "ses_a", secretID: "sec_a" })).toBe("session-secrets")
   })
 
   it("keeps non-Project Notes routes on the legacy outlet", () => {

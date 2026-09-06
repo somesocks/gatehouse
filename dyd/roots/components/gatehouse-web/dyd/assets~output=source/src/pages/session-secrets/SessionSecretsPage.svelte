@@ -1,14 +1,16 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
+  import RouterLink from "../../components/RouterLink.svelte"
   import type { Route } from "../../route"
   import { createSessionSecretsController } from "./session-secrets-controller.svelte"
 
   type SessionSecretsRoute = Extract<Route, { kind: "session-secrets" | "session-secret-new" | "session-secret" }>
-  let { workspaceID, sessionID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange }: {
+  let { workspaceID, sessionID, route, signal, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange }: {
     workspaceID: string
     sessionID: string
     route: Route
+    signal: AbortSignal
     activity: ActivityClient
     onAuthenticationLost: () => void
     onNavigate: (path: string, replace?: boolean) => void
@@ -19,7 +21,7 @@
   $effect(() => {
     const currentRoute = route
     if (currentRoute.kind === "session-secrets" || currentRoute.kind === "session-secret-new" || currentRoute.kind === "session-secret") {
-      return untrack(() => controller.start(workspaceID, sessionID, currentRoute))
+      return untrack(() => controller.start(workspaceID, sessionID, currentRoute, signal))
     }
   })
 
@@ -65,7 +67,7 @@
         <p class="dashboard-empty">Secrets could not be loaded.</p>
       {:else}
         {#each controller.state.secrets as secret (secret.id)}
-          <a class="dashboard-row project-note-row" href={secretPath(secret.id)} onclick={(event) => { event.preventDefault(); onNavigate(secretPath(secret.id)) }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
+          <RouterLink class="dashboard-row project-note-row" href={secretPath(secret.id)}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></RouterLink>
         {:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
       {/if}
     </div>

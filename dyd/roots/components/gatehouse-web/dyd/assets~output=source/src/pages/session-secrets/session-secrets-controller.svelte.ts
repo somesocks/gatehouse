@@ -24,7 +24,7 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
     value: "",
     error: "",
   })
-  let context: { workspaceID: string; sessionID: string } | null = null
+  let context: { workspaceID: string; sessionID: string; signal: AbortSignal } | null = null
   let generation = 0
   let unsubscribe: (() => void) | undefined
 
@@ -53,7 +53,7 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
       state.status = "checking"
     }
     try {
-      const response = await fetchSessionSecrets(workspaceID, sessionID)
+      const response = await fetchSessionSecrets(workspaceID, sessionID, context.signal)
       if (!isCurrent(currentGeneration)) {
         return false
       }
@@ -87,7 +87,7 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
       return null
     }
     const { workspaceID, sessionID } = context
-    const response = await fetchSessionSecret(workspaceID, sessionID, secretID)
+    const response = await fetchSessionSecret(workspaceID, sessionID, secretID, context.signal)
     if (!isCurrent(currentGeneration)) {
       return null
     }
@@ -101,7 +101,8 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
     if (!response.ok) {
       throw new Error("session secret could not be loaded")
     }
-    return await response.json() as SessionSecret
+    const loaded = await response.json() as SessionSecret
+    return isCurrent(currentGeneration) && context?.workspaceID === workspaceID && context?.sessionID === sessionID ? loaded : null
   }
 
   async function refresh(route: SessionSecretsRoute, currentGeneration: number, showLoading = false): Promise<boolean> {
@@ -134,9 +135,9 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
     state.error = ""
   }
 
-  function start(workspaceID: string, sessionID: string, route: SessionSecretsRoute): () => void {
+  function start(workspaceID: string, sessionID: string, route: SessionSecretsRoute, signal: AbortSignal): () => void {
     stop()
-    context = { workspaceID, sessionID }
+    context = { workspaceID, sessionID, signal }
     const currentGeneration = ++generation
     state.active = null
     state.creating = false
@@ -223,8 +224,8 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
     state.saving = true
     try {
       const response = creating
-        ? await createSessionSecret(workspaceID, sessionID, { description: input.description, value: input.value ?? "" })
-        : active === null ? undefined : await updateSessionSecret(workspaceID, sessionID, active.id, input)
+        ? await createSessionSecret(workspaceID, sessionID, { description: input.description, value: input.value ?? "" }, context.signal)
+        : active === null ? undefined : await updateSessionSecret(workspaceID, sessionID, active.id, input, context.signal)
       if (response === undefined || !isCurrent(currentGeneration) || context?.workspaceID !== workspaceID || context?.sessionID !== sessionID) {
         return
       }
@@ -264,7 +265,7 @@ export function createSessionSecretsController({ activity, onAuthenticationLost,
     state.deleting = true
     state.error = ""
     try {
-      const response = await removeSessionSecret(workspaceID, sessionID, secret.id)
+      const response = await removeSessionSecret(workspaceID, sessionID, secret.id, context.signal)
       if (!isCurrent(currentGeneration) || context?.workspaceID !== workspaceID || context?.sessionID !== sessionID || state.active?.id !== secret.id) {
         return
       }

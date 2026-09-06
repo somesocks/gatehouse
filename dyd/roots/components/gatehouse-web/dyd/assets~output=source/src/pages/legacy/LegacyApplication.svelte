@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Building, Folder, Lock, Menu, MessageSquare } from "@lucide/svelte"
+  import { Building, Folder, Menu, MessageSquare } from "@lucide/svelte"
   import type { ActivitySelector } from "../../utils/activity-poller"
   import type { Workspace } from "../../app/access"
   import { signOut } from "../../app/auth"
@@ -8,7 +8,6 @@
   import GroupsPage from "../groups/GroupsPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
-  import SessionSecretsPage from "../session-secrets/SessionSecretsPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "../system/SystemPage.svelte"
   import { routeProjectID, routeSessionID, routeWorkspaceID } from "../../route"
@@ -50,7 +49,6 @@
   let latestSessions = $state<Session[]>([])
   let activeSession = $state<Session | null>(null)
   let activeProject = $state<Project | null>(null)
-  let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
   let messageError = $state("")
   let mobileMenuOpen = $state(false)
@@ -129,10 +127,6 @@
     return route.kind === "session-collection"
   }
 
-  function isSessionSecretsRoute() {
-    return route.kind === "session-secrets" || route.kind === "session-secret-new" || route.kind === "session-secret"
-  }
-
   function isProjectCollection() {
     return route.kind === "project-collection"
   }
@@ -157,7 +151,6 @@
     latestProjects = []
     latestSessions = []
     activeSession = null
-    sessionSecretBreadcrumb = null
     activeProject = null
     runtime.requireLogin()
   }
@@ -284,7 +277,6 @@
     latestProjects = []
     latestSessions = []
     activeSession = null
-    sessionSecretBreadcrumb = null
     activeProject = null
     workspaceContentStatus = "checking"
     return !signal.aborted && isCurrentRoute(generation)
@@ -308,7 +300,6 @@
     if (changedSession) {
       messageError = ""
     }
-    sessionSecretBreadcrumb = null
   }
 
   async function activateProject(project: Project, generation: number) {
@@ -430,7 +421,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
-      events: ["session.*", "session_event.*", "session_file.*", ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
+      events: ["session.*", "session_event.*", "session_file.*", "session_secret.*"],
     } satisfies ActivitySelector
     const projectID = session?.project?.id ?? activeProject?.id
     const projectSelector = projectID === undefined ? (overview ? {
@@ -652,30 +643,16 @@
             {/if}
             {#if activeSession !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              {#if isSessionSecretsRoute()}
-                <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
-                <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                {#if route.kind === "session-secret" || route.kind === "session-secret-new"}
-                  <a href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionSecretsPath(activeWorkspace, activeSession)) } }}>Secrets</a>
-                {:else}
-                  <span>Secrets</span>
-                {/if}
-              {:else}
-                <span class="workspace-breadcrumb-segment"><MessageSquare size={16} strokeWidth={2} aria-hidden="true" />{activeSession.name ?? "New Chat"}</span>
-              {/if}
-            {/if}
-            {#if activeSession !== null && sessionSecretBreadcrumb !== null}
-              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span class="workspace-breadcrumb-segment"><Lock size={16} strokeWidth={2} aria-hidden="true" />{sessionSecretBreadcrumb}</span>
+              <span class="workspace-breadcrumb-segment"><MessageSquare size={16} strokeWidth={2} aria-hidden="true" />{activeSession.name ?? "New Chat"}</span>
             {/if}
           </h1>
           {#if activeSession !== null}
             <nav class="session-tabs" aria-label="Session navigation">
-              <a class:active={!isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}>Chat</a>
+              <a href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}>Chat</a>
               <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionNotesPath(activeWorkspace, activeSession)) } }}>Notes</a>
-              <a class:active={isSessionSecretsRoute()} href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionSecretsPath(activeWorkspace, activeSession)) } }}>Secrets</a>
+              <a href={activeWorkspace !== null ? sessionSecretsPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionSecretsPath(activeWorkspace, activeSession)) } }}>Secrets</a>
             </nav>
-            <select class="session-tabs-select" aria-label="Session view" value={isSessionSecretsRoute() ? "secrets" : "chat"} onchange={(event) => { if (activeWorkspace !== null) { navigate(event.currentTarget.value === "notes" ? sessionNotesPath(activeWorkspace, activeSession) : event.currentTarget.value === "secrets" ? sessionSecretsPath(activeWorkspace, activeSession) : sessionPath(activeWorkspace, activeSession)) } }}>
+            <select class="session-tabs-select" aria-label="Session view" value="chat" onchange={(event) => { if (activeWorkspace !== null) { navigate(event.currentTarget.value === "notes" ? sessionNotesPath(activeWorkspace, activeSession) : event.currentTarget.value === "secrets" ? sessionSecretsPath(activeWorkspace, activeSession) : sessionPath(activeWorkspace, activeSession)) } }}>
               <option value="chat">Chat</option>
               <option value="notes">Notes</option>
               <option value="secrets">Secrets</option>
@@ -692,8 +669,6 @@
         {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
-      {:else if activeSession !== null && isSessionSecretsRoute()}
-        <SessionSecretsPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
         <p class="dashboard-empty">This page is unavailable.</p>
       {:else}
