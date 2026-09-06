@@ -6,7 +6,6 @@
   import { useRuntime } from "../../app/runtime.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
-  import SystemPage from "../system/SystemPage.svelte"
   import { routeProjectID, routeSessionID, routeWorkspaceID } from "../../route"
   import type { Route } from "../../route"
 
@@ -65,10 +64,6 @@
 
   function isLoginPath() {
     return route.kind === "login"
-  }
-
-  function isSystemRoute() {
-    return route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals"
   }
 
   function nextPath() {
@@ -147,7 +142,7 @@
       activeWorkspace = null
       latestProjects = []
       latestSessions = []
-      if (route.kind !== "no-access" && !isSystemRoute()) {
+      if (route.kind !== "no-access") {
         navigate("/app/no-access", true)
       }
       return true
@@ -174,9 +169,6 @@
       return
     }
     if (auth.state.status !== "authenticated") {
-      return
-    }
-    if (isSystemRoute()) {
       return
     }
     if (access.state.workspaceStatus === "checking") {
@@ -531,19 +523,6 @@
   </main>
 {:else if auth.state.status === "anonymous"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
-{:else if isSystemRoute()}
-  <SystemPage
-    route={route}
-    systemAccess={access.state.systemAccess}
-    {activity}
-    principalID={() => auth.state.claims?.principal.ref.id}
-    principalName={auth.state.claims?.principal.name ?? "User"}
-    onAuthenticationLost={signInRequired}
-    onSystemAccessChange={access.setSystemAccess}
-    onNavigate={navigate}
-    onLogout={() => void logout()}
-    bind:mobileMenuOpen
-  />
 {:else if access.state.workspaceStatus === "empty"}
   <main class="auth-shell">
     <section class="status-card">

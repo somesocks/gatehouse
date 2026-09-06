@@ -3,10 +3,11 @@
   import { Menu, ShieldCheck } from "@lucide/svelte"
   import type { ActivityClient } from "../../app/activity"
   import type { SystemAccessStatus } from "../../app/access.svelte"
+  import RouterLink from "../../components/RouterLink.svelte"
   import type { Route } from "../../route"
   import { createSystemController } from "./system-controller.svelte"
 
-  let { route, systemAccess, activity, principalID, principalName, onAuthenticationLost, onSystemAccessChange, onNavigate, onLogout, mobileMenuOpen = $bindable() }: {
+  let { route, systemAccess, activity, principalID, principalName, onAuthenticationLost, onSystemAccessChange, onLogout, mobileMenuOpen = $bindable() }: {
     route: Route
     systemAccess: SystemAccessStatus
     activity: ActivityClient
@@ -14,7 +15,6 @@
     principalName: string
     onAuthenticationLost: () => void
     onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
-    onNavigate: (path: string) => void
     onLogout: () => void
     mobileMenuOpen: boolean
   } = $props()
@@ -38,14 +38,14 @@
 <div class="app-shell">
   {#if mobileMenuOpen}<button class="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onclick={() => mobileMenuOpen = false}></button>{/if}
   <aside class:mobile-menu-open={mobileMenuOpen} class="sidebar">
-    <a class="brand" href="/app/">Gatehouse</a>
+    <RouterLink class="brand" href="/app/">Gatehouse</RouterLink>
     <nav class="sidebar-nav" aria-label="System navigation">
       <section class="sidebar-section">
         <h2>System</h2>
         <ul>
-          <li><a class:active={route.kind === "system"} href="/app/system" onclick={(event) => { event.preventDefault(); onNavigate("/app/system") }}>Overview</a></li>
-          {#if systemAccess === "available"}<li><a class:active={route.kind === "system-principals"} href="/app/system/principals" onclick={(event) => { event.preventDefault(); onNavigate("/app/system/principals") }}>Principals</a></li>{/if}
-          {#if systemAccess === "available"}<li><a class:active={route.kind === "system-grants"} href="/app/system/grants" onclick={(event) => { event.preventDefault(); onNavigate("/app/system/grants") }}>System grants</a></li>{/if}
+          <li><RouterLink class={route.kind === "system" ? "active" : undefined} href="/app/system">Overview</RouterLink></li>
+          {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-principals" ? "active" : undefined} href="/app/system/principals">Principals</RouterLink></li>{/if}
+          {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-grants" ? "active" : undefined} href="/app/system/grants">System grants</RouterLink></li>{/if}
         </ul>
       </section>
     </nav>
@@ -59,7 +59,7 @@
       <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}><Menu size={20} strokeWidth={2} aria-hidden="true" /></button>
       <h1 class="workspace-breadcrumb">
         {#if route.kind === "system-grants" || route.kind === "system-principals"}
-          <a class="workspace-breadcrumb-segment" href="/app/system" onclick={(event) => { event.preventDefault(); onNavigate("/app/system") }}><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></a>
+          <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
           <span>{route.kind === "system-principals" ? "Principals" : "System grants"}</span>
         {:else}
@@ -76,8 +76,8 @@
         <p class="eyebrow">System</p>
         <h2 class="title is-3">System administration</h2>
         <p class="subtitle is-6">Manage global Gatehouse state.</p>
-        <a class="system-section-link" href="/app/system/principals" onclick={(event) => { event.preventDefault(); onNavigate("/app/system/principals") }}><span><strong>Principals</strong><small>View and enable or disable principals and their identities.</small></span></a>
-        <a class="system-section-link" href="/app/system/grants" onclick={(event) => { event.preventDefault(); onNavigate("/app/system/grants") }}><span><strong>System grants</strong><small>Grant or revoke system-manager access.</small></span></a>
+        <RouterLink class="system-section-link" href="/app/system/principals"><span><strong>Principals</strong><small>View and enable or disable principals and their identities.</small></span></RouterLink>
+        <RouterLink class="system-section-link" href="/app/system/grants"><span><strong>System grants</strong><small>Grant or revoke system-manager access.</small></span></RouterLink>
       </section>
     {:else if route.kind === "system-principals"}
       <section class="system-page">

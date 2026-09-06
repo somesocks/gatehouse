@@ -11,6 +11,7 @@
   import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
   import ChatCollectionRoute from "./pages/chats/ChatCollectionRoute.svelte"
   import ProjectCollectionRoute from "./pages/projects/ProjectCollectionRoute.svelte"
+  import SystemRoute from "./pages/system/SystemRoute.svelte"
   import { routeOwner } from "./route-owner"
 
   const runtime = provideRuntime(createApplicationRuntime())
@@ -44,6 +45,8 @@
   <ChatCollectionRoute />
 {:else if routeOwner(runtime.state.route) === "project-collection"}
   <ProjectCollectionRoute />
+{:else if routeOwner(runtime.state.route) === "system"}
+  <SystemRoute />
 {:else}
   <LegacyApplication />
 {/if}
