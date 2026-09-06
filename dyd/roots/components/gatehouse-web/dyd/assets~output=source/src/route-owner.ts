@@ -1,6 +1,10 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system" | "workspace-dashboard" | "legacy"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system" | "workspace-dashboard" | "access"
+
+function unhandledRoute(route: never): never {
+  throw new Error(`Unhandled route ${JSON.stringify(route)}`)
+}
 
 export function routeOwner(route: Route): RouteOwner {
   switch (route.kind) {
@@ -40,7 +44,9 @@ export function routeOwner(route: Route): RouteOwner {
     case "workspace":
     case "not-found":
       return "workspace-dashboard"
-    default:
-      return "legacy"
+    case "login":
+    case "no-access":
+      return "access"
   }
+  return unhandledRoute(route)
 }

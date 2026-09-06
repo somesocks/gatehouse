@@ -3,6 +3,7 @@
   import { useRuntime } from "../../app/runtime.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import LoginPage from "../login/LoginPage.svelte"
+  import { loginDestination } from "./login-destination"
 
   const runtime = useRuntime()
   const { access, auth } = runtime
@@ -10,21 +11,9 @@
 
   $effect(() => {
     if (route.kind === "login" && auth.state.status === "authenticated" && access.state.workspaceStatus === "ready") {
-      runtime.navigate(nextPath(route.next), true)
+      runtime.navigate(loginDestination(route.next, window.location.origin), true)
     }
   })
-
-  function nextPath(next: string | null): string {
-    if (next === null) return "/app/"
-    let destination: URL
-    try {
-      destination = new URL(next, window.location.origin)
-    } catch {
-      return "/app/"
-    }
-    if (destination.origin !== window.location.origin || !destination.pathname.startsWith("/app/") || destination.pathname === "/app/login" || destination.pathname === "/app/login/") return "/app/"
-    return destination.pathname + destination.search + destination.hash
-  }
 
   async function logout(): Promise<void> {
     try {

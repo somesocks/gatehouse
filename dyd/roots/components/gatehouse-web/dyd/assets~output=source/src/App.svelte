@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte"
   import { createApplicationRuntime, provideRuntime } from "./app/runtime.svelte"
-  import LegacyApplication from "./pages/legacy/LegacyApplication.svelte"
+  import AccessRoute from "./pages/access/AccessRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
@@ -16,6 +16,7 @@
   import { routeOwner } from "./route-owner"
 
   const runtime = provideRuntime(createApplicationRuntime())
+  const owner = $derived(routeOwner(runtime.state.route))
 
   onMount(() => {
     runtime.start()
@@ -28,28 +29,28 @@
   <title>Gatehouse</title>
 </svelte:head>
 
-{#if routeOwner(runtime.state.route) === "project-dashboard"}
+{#if owner === "project-dashboard"}
   <ProjectDashboardRoute />
-{:else if routeOwner(runtime.state.route) === "project-notes"}
+{:else if owner === "project-notes"}
   <ProjectNotesRoute />
-{:else if routeOwner(runtime.state.route) === "project-secrets"}
+{:else if owner === "project-secrets"}
   <ProjectSecretsRoute />
-{:else if routeOwner(runtime.state.route) === "session-chat"}
+{:else if owner === "session-chat"}
   <SessionChatRoute />
-{:else if routeOwner(runtime.state.route) === "session-notes"}
+{:else if owner === "session-notes"}
   <SessionNotesRoute />
-{:else if routeOwner(runtime.state.route) === "session-secrets"}
+{:else if owner === "session-secrets"}
   <SessionSecretsRoute />
-{:else if routeOwner(runtime.state.route) === "groups"}
+{:else if owner === "groups"}
   <GroupsRoute />
-{:else if routeOwner(runtime.state.route) === "chat-collection"}
+{:else if owner === "chat-collection"}
   <ChatCollectionRoute />
-{:else if routeOwner(runtime.state.route) === "project-collection"}
+{:else if owner === "project-collection"}
   <ProjectCollectionRoute />
-{:else if routeOwner(runtime.state.route) === "system"}
+{:else if owner === "system"}
   <SystemRoute />
-{:else if routeOwner(runtime.state.route) === "workspace-dashboard"}
+{:else if owner === "workspace-dashboard"}
   <WorkspaceDashboardRoute />
-{:else}
-  <LegacyApplication />
+{:else if owner === "access"}
+  <AccessRoute />
 {/if}

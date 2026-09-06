@@ -54,7 +54,8 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "not-found" })).toBe("workspace-dashboard")
   })
 
-  it("keeps non-Project Notes routes on the legacy outlet", () => {
-    expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
+  it("assigns terminal access URLs to the access owner", () => {
+    expect(routeOwner({ kind: "login", next: null })).toBe("access")
+    expect(routeOwner({ kind: "no-access" })).toBe("access")
   })
 })
