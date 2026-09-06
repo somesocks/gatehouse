@@ -2,11 +2,13 @@
   import { untrack } from "svelte"
   import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
+  import RouterLink from "../../components/RouterLink.svelte"
   import { createProjectCollectionController } from "./project-collection-controller.svelte"
 
-  let { workspace, search, creating, onAuthenticationLost, onCreate, onNavigate }: {
+  let { workspace, search, signal, creating, onAuthenticationLost, onCreate, onNavigate }: {
     workspace: Workspace
     search: string
+    signal: AbortSignal
     creating: boolean
     onAuthenticationLost: () => void
     onCreate: () => void | Promise<void>
@@ -17,7 +19,7 @@
   $effect(() => {
     const workspaceID = workspace.id
     const routeSearch = search
-    return untrack(() => controller.start(workspaceID, routeSearch))
+    return untrack(() => controller.start(workspaceID, routeSearch, signal))
   })
 
   function projectsPath() {
@@ -51,8 +53,8 @@
   </form>
   <div class="collection-list">
     {#each controller.state.projects as project}
-      <a class="dashboard-row" href={projectPath(project.id)} onclick={(event) => { event.preventDefault(); onNavigate(projectPath(project.id)) }}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></a>
+      <RouterLink class="dashboard-row" href={projectPath(project.id)}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></RouterLink>
     {:else}<p class="dashboard-empty">{controller.state.loading ? "Searching projects..." : "No projects match your search."}</p>{/each}
   </div>
-  {#if controller.state.cursor !== null}<button class="button is-small" type="button" disabled={controller.state.loading} onclick={() => controller.loadMore(workspace.id, search)}>{controller.state.loading ? "Loading..." : "Show more"}</button>{/if}
+  {#if controller.state.cursor !== null}<button class="button is-small" type="button" disabled={controller.state.loading} onclick={() => controller.loadMore(workspace.id, search, signal)}>{controller.state.loading ? "Loading..." : "Show more"}</button>{/if}
 </section>

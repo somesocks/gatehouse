@@ -5,7 +5,6 @@
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
   import LoginPage from "../login/LoginPage.svelte"
-  import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
   import WorkspaceDashboardPage from "../workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "../system/SystemPage.svelte"
   import { routeProjectID, routeSessionID, routeWorkspaceID } from "../../route"
@@ -119,10 +118,6 @@
 
   function groupsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/grp`
-  }
-
-  function isProjectCollection() {
-    return route.kind === "project-collection"
   }
 
   function navigate(path: string, replace = false) {
@@ -247,9 +242,7 @@
   }
 
   async function loadInitialWorkspaceProjection(workspace: Workspace) {
-    if (!isProjectCollection()) {
-      await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
-    }
+    await Promise.all([refreshWorkspaceSessions(workspace), refreshWorkspaceProjects(workspace)])
   }
 
   async function loadInitialSessionProjection(): Promise<void> {}
@@ -590,7 +583,7 @@
         <section class="sidebar-section">
           <ul>
             <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionsPath(activeWorkspace)) } }}>Chats</a></li>
-            <li><a class:active={isProjectCollection()} href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectsPath(activeWorkspace)) } }}>Projects</a></li>
+            <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/prj`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(projectsPath(activeWorkspace)) } }}>Projects</a></li>
             <li><a href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/grp`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(groupsPath(activeWorkspace)) } }}>Groups</a></li>
           </ul>
         </section>
@@ -614,10 +607,7 @@
           </button>
           <h1 class="workspace-breadcrumb">
             <a class="workspace-breadcrumb-segment" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(workspacePath(activeWorkspace)) } }}><Building size={16} strokeWidth={2} aria-hidden="true" /><span>{activeWorkspace?.name ?? "New Workspace"}</span></a>
-            {#if isProjectCollection()}
-              <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span>Projects</span>
-            {:else if activeProject !== null}
+            {#if activeProject !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
 				{#if activeSession === null}
                 <span class="workspace-breadcrumb-segment"><Folder size={16} strokeWidth={2} aria-hidden="true" />{activeProject.name ?? "New Project"}</span>
@@ -645,10 +635,8 @@
       </header>
       {#if routeSessionID(route) !== null && activeSession?.id !== routeSessionID(route)}
         <p class="dashboard-empty" aria-busy="true" aria-live="polite">Loading chat...</p>
-      {:else if activeSession === null && activeProject === null && !isProjectCollection()}
+      {:else if activeSession === null && activeProject === null}
         {#if activeWorkspace !== null}<WorkspaceDashboardPage workspace={activeWorkspace} sessions={latestSessions} projects={latestProjects} creatingProject={creatingProject} error={messageError} onCreateSession={() => void createSession()} onCreateProject={() => void createProject()} onNavigate={navigate} />{/if}
-      {:else if isProjectCollection()}
-        {#if activeWorkspace !== null}<ProjectCollectionPage workspace={activeWorkspace} search={route.kind === "project-collection" ? route.search : ""} creating={creatingProject} onAuthenticationLost={signInRequired} onCreate={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if activeSession === null}
         <p class="dashboard-empty">This page is unavailable.</p>
       {:else}
