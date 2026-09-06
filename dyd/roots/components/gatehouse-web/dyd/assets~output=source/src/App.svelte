@@ -17,10 +17,11 @@
   import ProjectNotesPage from "./pages/project-notes/ProjectNotesPage.svelte"
   import ProjectSecretsPage from "./pages/project-secrets/ProjectSecretsPage.svelte"
   import SessionSecretsPage from "./pages/session-secrets/SessionSecretsPage.svelte"
+  import SessionNotesPage from "./pages/session-notes/SessionNotesPage.svelte"
   import WorkspaceDashboardPage from "./pages/workspace/WorkspaceDashboardPage.svelte"
   import SystemPage from "./pages/system/SystemPage.svelte"
   import { renderMarkdown } from "./markdown"
-  import { routeProjectID, routeSessionID, routeSessionNoteID, routeSessionNoteRevision, routeWorkspaceID } from "./route"
+  import { routeProjectID, routeSessionID, routeWorkspaceID } from "./route"
   import type { Route } from "./route"
 
   type Session = {
@@ -45,8 +46,6 @@
     fingerprint: string
     created_at: string
   }
-
-  type SessionNote = ProjectNote & { sensitive: boolean }
 
   type NoteRevisionSummary = {
     revision: number
@@ -146,16 +145,7 @@
   let projectSecretBreadcrumb = $state<string | null>(null)
   let projectNoteBreadcrumb = $state<string | null>(null)
   let projectNoteHistoryRevision = $state<number | null>(null)
-  let activeSessionNote = $state<SessionNote | null>(null)
-  let creatingSessionNote = $state(false)
-  let editingSessionNote = $state(false)
-  let savingSessionNote = $state(false)
-  let deletingSessionNote = $state(false)
-  let sessionNoteTitle = $state("")
-  let sessionNoteDescription = $state("")
-  let sessionNoteBody = $state("")
-  let sessionNoteSensitive = $state(false)
-  let sessionNoteError = $state("")
+  let sessionNoteBreadcrumb = $state<string | null>(null)
   let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
   let updatingProject = $state(false)
@@ -205,12 +195,6 @@
   let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
 	let projectSecrets = $state<ProjectSecret[]>([])
 	let projectSecretStatus = $state<WorkspaceContentStatus>("checking")
-  let sessionNotes = $state<SessionNote[]>([])
-  let sessionNoteStatus = $state<WorkspaceContentStatus>("checking")
-  let sessionNotePageStatus = $state<WorkspaceContentStatus | "not-found">("checking")
-  let sessionNotesGeneration = 0
-  let sessionNoteGeneration = 0
-  let sessionNoteRevisionGeneration = 0
   let routeGeneration = 0
   let routeAbortController: AbortController | null = null
   let initializingAuthenticatedSession = false
@@ -289,19 +273,6 @@
 
   function sessionNotesPath(workspace: Workspace, session: Session) {
     return `${sessionPath(workspace, session)}/notes`
-  }
-
-  function sessionNotePath(workspace: Workspace, session: Session, note: SessionNote | string) {
-    const id = typeof note === "string" ? note : note.id
-    return `${sessionNotesPath(workspace, session)}/${encodeURIComponent(id)}`
-  }
-
-  function sessionNoteEditPath(workspace: Workspace, session: Session, note: SessionNote) {
-    return `${sessionNotePath(workspace, session, note)}/edit`
-  }
-
-  function sessionNoteRevisionPath(workspace: Workspace, session: Session, note: SessionNote, revision: number) {
-    return `${sessionNotePath(workspace, session, note)}/revisions/${encodeURIComponent(revision)}`
   }
 
   function sessionSecretsPath(workspace: Workspace, session: Session) {
@@ -383,6 +354,7 @@
     noteHistoryLoading = false
     noteRevisionLoading = false
     noteHistoryError = ""
+    sessionNoteHistorySelection = null
   }
 
   function resetNoteHistory() {
@@ -403,6 +375,14 @@
   function openProjectNoteHistory(notesPath: string, noteID: string, revision: number) {
     projectNoteHistoryRevision = revision
     openNoteHistory(notesPath, noteID)
+  }
+
+  let sessionNoteHistorySelection = $state<((revision: number) => void) | null>(null)
+
+  function openSessionNoteHistory(notesPath: string, noteID: string, onRevision: (revision: number) => void) {
+    projectNoteHistoryRevision = null
+    openNoteHistory(notesPath, noteID)
+    sessionNoteHistorySelection = onRevision
   }
 
   function closeNoteHistory() {
@@ -511,10 +491,7 @@
     selectedAgent = ""
     latestSessions = []
     activeSession = null
-    activeSessionNote = null
-    creatingSessionNote = false
-    editingSessionNote = false
-    sessionNotes = []
+    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
     projectNoteBreadcrumb = null
@@ -656,19 +633,7 @@
   }
 
   async function loadInitialSessionProjection(workspace: Workspace, session: Session) {
-    if (isSessionNotesRoute()) {
-      await loadSessionNotes(session)
-      const noteID = routeSessionNoteID(route)
-      if (noteID !== null && noteID !== "new") {
-        const note = await loadSessionNote(session, noteID)
-        if (note !== null && route.kind === "session-note-edit") {
-          activateSessionNoteEdit()
-        }
-        if (note !== null && route.kind === "session-note-revision") {
-          await loadSessionNoteRevision(session, noteID, route.revision)
-        }
-      }
-    } else if (!isSessionSecretsRoute()) {
+    if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
       await Promise.all([loadSessionEvents(session), refreshWorkspaceAgents(workspace)])
     }
   }
@@ -691,10 +656,7 @@
     selectedAgent = ""
     latestSessions = []
     activeSession = null
-    activeSessionNote = null
-    creatingSessionNote = false
-    editingSessionNote = false
-    sessionNotes = []
+    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     activeProject = null
     projectNoteBreadcrumb = null
@@ -713,9 +675,7 @@
     stopActivityPolling()
     activeSession = null
     activeProject = null
-    activeSessionNote = null
     projectNoteBreadcrumb = null
-    creatingSessionNote = false
     events = []
   }
 
@@ -733,18 +693,13 @@
       showJumpToLatest = false
     }
     resetNoteHistory()
-    activeSessionNote = null
-    creatingSessionNote = false
-    editingSessionNote = false
-    sessionNotes = []
+    sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
     projectNoteBreadcrumb = null
     projectFiles = []
     projectNotes = []
 		projectSecrets = []
-    if (isSessionNotesRoute()) {
-      initializeSessionNotesRoute()
-    } else if (!isSessionSecretsRoute()) {
+    if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
       events = []
       eventStatus = "checking"
     }
@@ -926,138 +881,6 @@
     return activeProjection === projection
   }
 
-  async function loadSessionNotes(session: Session, showLoading = true) {
-    if (activeWorkspace === null || !isSessionNotesRoute()) {
-      return false
-    }
-    const workspace = activeWorkspace
-    const generation = ++sessionNotesGeneration
-    if (showLoading) {
-      sessionNoteStatus = "checking"
-    }
-    try {
-      const response = await fetch(sessionNotesAPIPath(workspace, session), { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("session notes could not be loaded")
-      }
-      const loaded = (await response.json()) as SessionNote[]
-      if (generation !== sessionNotesGeneration || activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || !isSessionNotesRoute()) {
-        return false
-      }
-      sessionNotes = [...loaded].sort((left, right) => {
-        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
-      })
-      sessionNoteStatus = "ready"
-      return true
-    } catch {
-      if (generation === sessionNotesGeneration && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && isSessionNotesRoute()) {
-        sessionNoteStatus = "unavailable"
-      }
-      return false
-    }
-  }
-
-  async function loadSessionNote(session: Session, id: string) {
-    if (activeWorkspace === null || routeSessionNoteID(route) !== id) {
-      return null
-    }
-    const workspace = activeWorkspace
-    const generation = ++sessionNoteGeneration
-    sessionNotePageStatus = "checking"
-    try {
-      const response = await fetch(`${sessionNotesAPIPath(workspace, session)}/${encodeURIComponent(id)}`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return null
-      }
-      if (response.status === 404) {
-        if (generation === sessionNoteGeneration && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && routeSessionNoteID(route) === id) {
-          sessionNotePageStatus = "not-found"
-        }
-        return null
-      }
-      if (!response.ok) {
-        throw new Error("session note could not be loaded")
-      }
-      const loaded = (await response.json()) as SessionNote
-      if (generation !== sessionNoteGeneration || activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || routeSessionNoteID(route) !== id) {
-        return null
-      }
-      activeSessionNote = loaded
-      sessionNotePageStatus = "ready"
-      return loaded
-    } catch {
-      if (generation === sessionNoteGeneration && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && routeSessionNoteID(route) === id) {
-        sessionNotePageStatus = "unavailable"
-      }
-      return null
-    }
-  }
-
-  async function loadSessionNoteRevision(session: Session, noteID: string, revision: number) {
-    if (activeWorkspace === null || routeSessionNoteID(route) !== noteID || routeSessionNoteRevision(route) !== revision) {
-      return null
-    }
-    const workspace = activeWorkspace
-    const generation = ++sessionNoteRevisionGeneration
-    sessionNotePageStatus = "checking"
-    try {
-      const response = await fetch(`${sessionNotesAPIPath(workspace, session)}/${encodeURIComponent(noteID)}/revisions/${encodeURIComponent(revision)}`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return null
-      }
-      if (response.status === 404) {
-        if (generation === sessionNoteRevisionGeneration && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && routeSessionNoteID(route) === noteID && routeSessionNoteRevision(route) === revision) {
-          sessionNotePageStatus = "not-found"
-        }
-        return null
-      }
-      if (!response.ok) {
-        throw new Error("session note revision could not be loaded")
-      }
-      const loaded = (await response.json()) as NoteRevision
-      if (generation !== sessionNoteRevisionGeneration || activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id || routeSessionNoteID(route) !== noteID || routeSessionNoteRevision(route) !== revision) {
-        return null
-      }
-      selectedNoteRevision = loaded
-      selectedNoteRevisionNumber = revision
-      sessionNotePageStatus = "ready"
-      noteHistoryDialogElement?.close()
-      return loaded
-    } catch {
-      if (generation === sessionNoteRevisionGeneration && activeWorkspace?.id === workspace.id && activeSession?.id === session.id && routeSessionNoteID(route) === noteID && routeSessionNoteRevision(route) === revision) {
-        sessionNotePageStatus = "unavailable"
-      }
-      return null
-    }
-  }
-
-  function initializeSessionNotesRoute() {
-    if (route.kind === "session-note-new" && creatingSessionNote && editingSessionNote && activeSessionNote === null) {
-      return
-    }
-    sessionNotesGeneration += 1
-    sessionNoteGeneration += 1
-    sessionNoteRevisionGeneration += 1
-    resetNoteHistory()
-    activeSessionNote = null
-    creatingSessionNote = false
-    editingSessionNote = false
-    sessionNotes = []
-    sessionNoteStatus = "checking"
-    sessionNotePageStatus = "checking"
-    if (route.kind === "session-note-new") {
-      activateSessionNoteCreate()
-      sessionNotePageStatus = "ready"
-    }
-  }
-
   async function loadSessionEvents(session: Session, showLoading = true, projection?: ActivityProjection) {
     if (activeWorkspace === null) {
       return false
@@ -1199,7 +1022,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
-      events: ["session.*", "session_event.*", "session_file.*", "session_note.*", ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
+      events: ["session.*", "session_event.*", "session_file.*", ...(isSessionNotesRoute() ? [] : ["session_note.*"]), ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
     } satisfies ActivitySelector
     const projectID = session?.project?.id ?? activeProject?.id
     const projectSelector = projectID === undefined ? (overview ? {
@@ -1235,24 +1058,7 @@
         throw new Error("activity projection refresh failed")
       }
       if (session !== null && (sessionChanged || projectChanged)) {
-        if (isSessionNotesRoute()) {
-          if (sessionChanged) {
-            const notesLoaded = await loadSessionNotes(session, false)
-            const noteID = routeSessionNoteID(route)
-            let noteLoaded = true
-            if (noteID !== null && noteID !== "new") {
-              const loaded = await loadSessionNote(session, noteID)
-              noteLoaded = loaded !== null || sessionNotePageStatus !== "unavailable"
-              if (loaded !== null && route.kind === "session-note-edit" && !editingSessionNote) {
-                activateSessionNoteEdit()
-              }
-              if (loaded !== null && route.kind === "session-note-revision") {
-                noteLoaded = (await loadSessionNoteRevision(session, noteID, route.revision)) !== null || sessionNotePageStatus !== "unavailable"
-              }
-            }
-            refreshed = notesLoaded && noteLoaded
-          }
-        } else if (!isSessionSecretsRoute()) {
+        if (!isSessionNotesRoute() && !isSessionSecretsRoute()) {
           refreshed = await loadSessionEvents(session, false, projection)
         }
       }
@@ -1563,152 +1369,6 @@
     if (activeWorkspace !== null && activeProject !== null) {
       navigate(projectNotePath(activeWorkspace, activeProject, "new"))
     }
-  }
-
-  function activateSessionNoteCreate() {
-    if (activeWorkspace === null || activeSession === null) {
-      return
-    }
-    resetNoteHistory()
-    activeSessionNote = null
-    creatingSessionNote = true
-    editingSessionNote = true
-    sessionNoteTitle = ""
-    sessionNoteDescription = ""
-    sessionNoteBody = ""
-    sessionNoteSensitive = false
-    sessionNoteError = ""
-  }
-
-  function startSessionNoteCreate() {
-    if (activeWorkspace !== null && activeSession !== null) {
-      navigate(sessionNotePath(activeWorkspace, activeSession, "new"))
-    }
-  }
-
-  function activateSessionNoteEdit() {
-    if (activeSessionNote === null || activeWorkspace === null || activeSession === null) {
-      return
-    }
-    sessionNoteTitle = activeSessionNote.title
-    sessionNoteDescription = activeSessionNote.description
-    sessionNoteBody = activeSessionNote.body ?? ""
-    sessionNoteSensitive = activeSessionNote.sensitive
-    sessionNoteError = ""
-    editingSessionNote = true
-  }
-
-  function startSessionNoteEdit() {
-    if (activeWorkspace !== null && activeSession !== null && activeSessionNote !== null) {
-      navigate(sessionNoteEditPath(activeWorkspace, activeSession, activeSessionNote))
-    }
-  }
-
-  function cancelSessionNoteEdit() {
-    if (savingSessionNote || activeWorkspace === null || activeSession === null) {
-      return
-    }
-    if (creatingSessionNote) {
-      navigate(sessionNotesPath(activeWorkspace, activeSession))
-      return
-    }
-    navigate(sessionNotePath(activeWorkspace, activeSession, activeSessionNote!))
-  }
-
-  async function openSessionNoteRevision(revision: number) {
-    if (activeWorkspace === null || activeSession === null || activeSessionNote === null) {
-      return
-    }
-    navigate(sessionNoteRevisionPath(activeWorkspace, activeSession, activeSessionNote, revision))
-  }
-
-  function showCurrentSessionNoteRevision() {
-    if (activeWorkspace === null || activeSession === null || activeSessionNote === null) {
-      return
-    }
-    noteHistoryDialogElement?.close()
-    navigate(sessionNotePath(activeWorkspace, activeSession, activeSessionNote))
-  }
-
-  async function saveSessionNote() {
-    if (activeWorkspace === null || activeSession === null || sessionNoteTitle.trim() === "") {
-      sessionNoteError = "Title is required."
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    const creating = creatingSessionNote
-    const note = activeSessionNote
-    sessionNoteError = ""
-    savingSessionNote = true
-    try {
-      const notesPath = sessionNotesAPIPath(workspace, session)
-      const path = creating ? notesPath : `${notesPath}/${encodeURIComponent(note?.id ?? "")}`
-      const response = await fetch(path, {
-        method: creating ? "POST" : "PATCH",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: sessionNoteTitle, description: sessionNoteDescription, body: sessionNoteBody, sensitive: sessionNoteSensitive }),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("session note could not be saved")
-      }
-      const saved = (await response.json()) as SessionNote
-      if (activeWorkspace?.id !== workspace.id || activeSession?.id !== session.id) {
-        return
-      }
-      activeSessionNote = saved
-      resetNoteHistory()
-      creatingSessionNote = false
-      editingSessionNote = false
-      sessionNotes = [saved, ...sessionNotes.filter((candidate) => candidate.id !== saved.id)]
-      navigate(sessionNotePath(workspace, session, saved))
-      sessionNotePageStatus = "ready"
-    } catch {
-      sessionNoteError = "The note could not be saved. Try again."
-    } finally {
-      savingSessionNote = false
-    }
-  }
-
-  async function removeSessionNote() {
-    if (activeWorkspace === null || activeSession === null || activeSessionNote === null || deletingSessionNote || !window.confirm(`Remove ${activeSessionNote.title}?`)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const session = activeSession
-    const note = activeSessionNote
-    deletingSessionNote = true
-    sessionNoteError = ""
-    try {
-      const response = await fetch(`${sessionNotesAPIPath(workspace, session)}/${encodeURIComponent(note.id)}`, { method: "DELETE", credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("session note could not be removed")
-      }
-      if (activeWorkspace?.id === workspace.id && activeSession?.id === session.id && activeSessionNote?.id === note.id) {
-        resetNoteHistory()
-        activeSessionNote = null
-        editingSessionNote = false
-        sessionNotes = sessionNotes.filter((candidate) => candidate.id !== note.id)
-        navigate(sessionNotesPath(workspace, session))
-      }
-    } catch {
-      sessionNoteError = "The note could not be removed. Try again."
-    } finally {
-      deletingSessionNote = false
-    }
-  }
-
-  function sessionNotesAPIPath(workspace: Workspace, session: Session) {
-    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions/${encodeURIComponent(session.id)}/notes`
   }
 
   function openProjectEdit() {
@@ -2100,7 +1760,7 @@
               {#if isSessionNotesRoute()}
                 <a class="workspace-breadcrumb-segment" href={activeWorkspace !== null ? sessionPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, activeSession)) } }}><MessageSquare size={16} strokeWidth={2} aria-hidden="true" /><span>{activeSession.name ?? "New Chat"}</span></a>
                 <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-                {#if activeSessionNote !== null || creatingSessionNote}
+                {#if route.kind !== "session-notes"}
                   <a href={activeWorkspace !== null ? sessionNotesPath(activeWorkspace, activeSession) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionNotesPath(activeWorkspace, activeSession)) } }}>Notes</a>
                 {:else}
                   <span>Notes</span>
@@ -2135,9 +1795,9 @@
                 <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{projectNoteBreadcrumb ?? (route.kind === "project-note-new" ? "New Note" : "Note")}</span>
               {/if}
             {/if}
-            {#if activeSession !== null && (activeSessionNote !== null || creatingSessionNote)}
+            {#if activeSession !== null && sessionNoteBreadcrumb !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-              <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{activeSessionNote?.title ?? "New Note"}</span>
+              <span class="workspace-breadcrumb-segment"><NotebookPen size={16} strokeWidth={2} aria-hidden="true" />{sessionNoteBreadcrumb}</span>
             {/if}
             {#if activeSession !== null && sessionSecretBreadcrumb !== null}
               <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
@@ -2186,49 +1846,7 @@
       {:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
 			<ProjectSecretsPage workspace={activeWorkspace!} project={activeProject} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} onChanged={() => void loadProjectSecrets(activeProject!, false)} />
       {:else if activeSession !== null && isSessionNotesRoute()}
-        <section class="project-note-page">
-          {#if route.kind === "session-note-new" || route.kind === "session-note-edit"}
-            {#if route.kind === "session-note-new" || (sessionNotePageStatus === "ready" && activeSessionNote?.id === route.noteID && editingSessionNote)}
-            <form class="project-note-editor" onsubmit={(event) => { event.preventDefault(); void saveSessionNote() }}>
-              <div class="project-note-page-heading"><div><p class="eyebrow">Session Note</p><h2>{creatingSessionNote ? "New Note" : "Edit Note"}</h2></div></div>
-              <div class="field"><label class="label" for="session-note-title">Title</label><div class="control"><input class="input" id="session-note-title" autocomplete="off" maxlength="256" required bind:value={sessionNoteTitle} /></div></div>
-              <div class="field"><label class="label" for="session-note-description">Description (optional)</label><div class="control"><textarea class="textarea" id="session-note-description" autocomplete="off" rows="3" maxlength="4096" bind:value={sessionNoteDescription}></textarea></div></div>
-              <div class="field"><label class="label" for="session-note-body">Content (optional)</label><div class="control"><textarea class="textarea project-note-body-input" id="session-note-body" autocomplete="off" rows="18" maxlength="1048576" bind:value={sessionNoteBody}></textarea></div></div>
-              <div class="field"><label class="checkbox"><input type="checkbox" autocomplete="off" bind:checked={sessionNoteSensitive} /> Sensitive: content is marked sensitive when agents read it.</label></div>
-              {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
-              <div class="project-note-actions"><button class="button" type="button" disabled={savingSessionNote} onclick={cancelSessionNoteEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={savingSessionNote}>{savingSessionNote ? "Saving..." : "Save note"}</button></div>
-            </form>
-            {:else if sessionNotePageStatus === "checking"}<p class="dashboard-empty">Loading note...</p>
-            {:else if sessionNotePageStatus === "not-found"}<p class="dashboard-empty">Note not found.</p>
-            {:else}<p class="dashboard-empty">Note could not be loaded.</p>
-            {/if}
-          {:else if route.kind === "session-note" || route.kind === "session-note-revision"}
-            {#if sessionNotePageStatus === "checking"}<p class="dashboard-empty">Loading note...</p>
-            {:else if sessionNotePageStatus === "not-found"}<p class="dashboard-empty">Note not found.</p>
-            {:else if sessionNotePageStatus === "unavailable"}<p class="dashboard-empty">Note could not be loaded.</p>
-            {:else if activeSessionNote !== null && activeSessionNote.id === route.noteID && (route.kind === "session-note" || selectedNoteRevision !== null)}
-            <article class="project-note-view">
-              <header class="project-note-page-heading"><div>{#if route.kind === "session-note-revision" && selectedNoteRevision !== null}<p class="eyebrow">Session Note Revision {selectedNoteRevision.revision}</p><h2><span class="project-note-title">{selectedNoteRevision.title}{#if selectedNoteRevision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if selectedNoteRevision.description !== ""}<p>{selectedNoteRevision.description}</p>{/if}<small>By {noteAuthorLabel(selectedNoteRevision.author)} on {createdAtLabel(selectedNoteRevision.created_at)}</small>{:else}<p class="eyebrow">Session Note</p><h2><span class="project-note-title">{activeSessionNote.title}{#if activeSessionNote.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span></h2>{#if activeSessionNote.description !== ""}<p>{activeSessionNote.description}</p>{/if}<small>By {noteAuthorLabel(activeSessionNote.author)} on {createdAtLabel(activeSessionNote.created_at)}</small>{/if}</div><div class="project-note-actions">{#if route.kind === "session-note-revision"}<button class="button is-small" type="button" onclick={showCurrentSessionNoteRevision}>Current revision</button>{:else}<button class="button is-small" type="button" onclick={startSessionNoteEdit}>Edit</button>{/if}<button class="button is-small" type="button" onclick={() => openNoteHistory(sessionNotesAPIPath(activeWorkspace!, activeSession!), activeSessionNote!.id)}>History</button>{#if route.kind !== "session-note-revision"}<button class="button is-small is-danger is-light" type="button" disabled={deletingSessionNote} onclick={() => void removeSessionNote()}>{deletingSessionNote ? "Removing..." : "Remove"}</button>{/if}</div></header>
-              {#if route.kind === "session-note-revision" && selectedNoteRevision !== null}{#if selectedNoteRevision.body !== undefined && selectedNoteRevision.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(selectedNoteRevision.body)}</div>{/if}{:else if activeSessionNote.body !== undefined && activeSessionNote.body !== ""}<div class="markdown-content project-note-markdown">{@html renderMarkdown(activeSessionNote.body)}</div>{/if}
-              {#if sessionNoteError !== ""}<p class="help is-danger" aria-live="polite">{sessionNoteError}</p>{/if}
-            </article>
-            {:else}<p class="dashboard-empty">Note could not be loaded.</p>
-            {/if}
-          {:else}
-            <div class="collection-heading"><h2>Session Notes</h2><button class="button is-primary is-small" type="button" onclick={() => startSessionNoteCreate()}>New note</button></div>
-            <div class="collection-list">
-              {#if sessionNoteStatus === "checking"}
-                <p class="dashboard-empty">Loading notes...</p>
-              {:else if sessionNoteStatus === "unavailable"}
-                <p class="dashboard-empty">Notes could not be loaded.</p>
-              {:else}
-                {#each sessionNotes as note (note.id)}
-                  <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeSession !== null ? sessionNotePath(activeWorkspace, activeSession, note) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null && activeSession !== null) { navigate(sessionNotePath(activeWorkspace, activeSession, note)) } }}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(note.author)}</span><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
-                {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
-              {/if}
-            </div>
-          {/if}
-        </section>
+        <SessionNotesPage workspace={activeWorkspace!} session={activeSession} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
       {:else if activeSession !== null && isSessionSecretsRoute()}
         <SessionSecretsPage workspace={activeWorkspace!} session={activeSession} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
@@ -2495,9 +2113,9 @@
     {:else}
       {#if noteHistoryError !== ""}<p class="help is-danger" aria-live="polite">{noteHistoryError}</p>{/if}
       <div class="collection-list note-history-list">
-        {#if activeSession !== null && activeSessionNote !== null && activeWorkspace !== null}
+        {#if sessionNoteHistorySelection !== null}
           {#each noteRevisionSummaries as revision (revision.revision)}
-            <button class="dashboard-row project-note-row" class:is-selected={selectedNoteRevisionNumber === revision.revision} type="button" disabled={noteRevisionLoading} onclick={() => revision.revision === activeSessionNote!.revision ? showCurrentSessionNoteRevision() : void openSessionNoteRevision(revision.revision)}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
+            <button class="dashboard-row project-note-row" type="button" onclick={() => { sessionNoteHistorySelection?.(revision.revision); noteHistoryDialogElement?.close() }}><span class="dashboard-row-content"><span class="project-note-title">Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if revision.description !== ""}<span class="project-note-description">{revision.description}</span>{/if}<span class="dashboard-row-meta"><span>{noteAuthorLabel(revision.author)}</span><time datetime={revision.created_at}>{createdAtLabel(revision.created_at)}</time></span></span></button>
           {:else}<p class="dashboard-empty">No revisions found.</p>{/each}
         {:else if activeProject !== null && projectNoteHistoryRevision !== null && noteHistoryNoteID !== null && noteHistoryNotesPath !== null}
           {#each noteRevisionSummaries as revision (revision.revision)}
