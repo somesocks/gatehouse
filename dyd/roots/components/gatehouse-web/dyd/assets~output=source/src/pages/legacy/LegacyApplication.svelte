@@ -1,11 +1,10 @@
 <script lang="ts">
-  import { Building, Folder, Lock, Menu, MessageSquare, NotebookPen, Paperclip, X } from "@lucide/svelte"
+  import { Building, Folder, Lock, Menu, MessageSquare, NotebookPen, X } from "@lucide/svelte"
   import type { ActivitySelector } from "../../utils/activity-poller"
   import type { Workspace } from "../../app/access"
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
-  import { type NoteAuthor, type ProjectNote } from "../../app/project-notes"
-  import { fetchProjectSecrets, type ProjectSecret } from "../../app/project-secrets"
+  import type { NoteAuthor } from "../../app/project-notes"
   import ChatCollectionPage from "../chats/ChatCollectionPage.svelte"
   import ChatPage from "../chat/ChatPage.svelte"
   import GroupsPage from "../groups/GroupsPage.svelte"
@@ -31,15 +30,6 @@
     created_at: string
     name?: string
     description?: string
-  }
-
-  type ProjectFile = {
-    id: string
-    name: string
-    media_type?: string
-    size: number
-    fingerprint: string
-    created_at: string
   }
 
   type NoteRevisionSummary = {
@@ -96,27 +86,10 @@
   let sessionNoteBreadcrumb = $state<string | null>(null)
   let sessionSecretBreadcrumb = $state<string | null>(null)
   let creatingProject = $state(false)
-  let updatingProject = $state(false)
-  let projectEditName = $state("")
-  let projectEditDescription = $state("")
-  let projectEditError = $state("")
-  let projectEditDialogElement = $state<HTMLDialogElement | undefined>()
-  let projectActionMenuElement = $state<HTMLDetailsElement | undefined>()
   let messageError = $state("")
   let mobileMenuOpen = $state(false)
   let workspaceMainElement = $state<HTMLElement | undefined>()
   let activeProjection: ActivityProjection | null = null
-  let projectSessions = $state<Session[]>([])
-  let projectFiles = $state<ProjectFile[]>([])
-  let projectFileStatus = $state<WorkspaceContentStatus>("checking")
-  let projectFileError = $state("")
-  let uploadingProjectFiles = $state(0)
-  let removingProjectFileIDs = $state<Set<string>>(new Set())
-  let projectFileInputElement = $state<HTMLInputElement | undefined>()
-  let projectNotes = $state<ProjectNote[]>([])
-  let projectNoteStatus = $state<WorkspaceContentStatus>("checking")
-	let projectSecrets = $state<ProjectSecret[]>([])
-	let projectSecretStatus = $state<WorkspaceContentStatus>("checking")
   let routeGeneration = 0
   let routeAbortController: AbortController | null = null
   $effect(() => {
@@ -183,22 +156,9 @@
     return `${projectsPath(workspace)}/${encodeURIComponent(project.id)}`
   }
 
-  function projectNotesPath(workspace: Workspace, project: Project) {
-    return `${projectPath(workspace, project)}/pnt`
+  function projectSecretsPath(workspace: Workspace, project: Project) {
+    return `${projectPath(workspace, project)}/secrets`
   }
-
-  function projectNotePath(workspace: Workspace, project: Project, note: ProjectNote | string) {
-    const id = typeof note === "string" ? note : note.id
-    return `${projectNotesPath(workspace, project)}/${encodeURIComponent(id)}`
-  }
-
-	function projectSecretsPath(workspace: Workspace, project: Project) {
-		return `${projectPath(workspace, project)}/secrets`
-	}
-
-	function projectSecretPath(workspace: Workspace, project: Project, secretID: string) {
-		return `${projectSecretsPath(workspace, project)}/${encodeURIComponent(secretID)}`
-	}
 
   function groupsPath(workspace: Workspace) {
     return `${workspacePath(workspace)}/grp`
@@ -323,10 +283,6 @@
     sessionSecretBreadcrumb = null
     activeProject = null
     projectSecretBreadcrumb = null
-    projectFiles = []
-    projectFileError = ""
-    projectNotes = []
-		projectSecrets = []
     runtime.requireLogin()
   }
 
@@ -439,9 +395,7 @@
 
   async function loadInitialSessionProjection(): Promise<void> {}
 
-  async function loadInitialProjectProjection(workspace: Workspace, project: Project) {
-    await Promise.all([loadProjectSessions(project), loadProjectFiles(project), loadProjectNotes(project), loadProjectSecrets(project)])
-  }
+  async function loadInitialProjectProjection(workspace: Workspace, project: Project) {}
 
   async function activateWorkspace(workspace: Workspace, generation: number, signal: AbortSignal) {
     if (activeWorkspace?.id === workspace.id) {
@@ -459,10 +413,6 @@
     sessionSecretBreadcrumb = null
     activeProject = null
     projectSecretBreadcrumb = null
-    projectFiles = []
-    projectFileError = ""
-    projectNotes = []
-		projectSecrets = []
     workspaceContentStatus = "checking"
     return !signal.aborted && isCurrentRoute(generation)
   }
@@ -488,9 +438,6 @@
     resetNoteHistory()
     sessionNoteBreadcrumb = null
     sessionSecretBreadcrumb = null
-    projectFiles = []
-    projectNotes = []
-		projectSecrets = []
   }
 
   async function activateProject(project: Project, generation: number) {
@@ -503,10 +450,6 @@
     activeProject = project
     resetNoteHistory()
     projectSecretBreadcrumb = null
-    projectFiles = []
-    projectFileError = ""
-    projectNotes = []
-		projectSecrets = []
   }
 
   async function loadSession(workspace: Workspace, id: string) {
@@ -539,130 +482,6 @@
     return (await response.json()) as Project
   }
 
-  async function loadProjectSessions(project: Project, projection?: ActivityProjection) {
-    if (activeWorkspace === null) {
-      return
-    }
-    const workspace = activeWorkspace
-    const parameters = new URLSearchParams({ limit: "5", project: project.id })
-    const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/sessions?${parameters}`, { credentials: "same-origin" })
-    if (response.status === 401) {
-      signInRequired()
-      return
-    }
-    if (!response.ok) {
-      throw new Error("project sessions could not be loaded")
-    }
-    const loaded = (await response.json()) as SessionSearchResponse
-    if ((projection === undefined || isActiveProjection(projection)) && activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
-      projectSessions = loaded.sessions
-    }
-  }
-
-  async function loadProjectFiles(project: Project, showLoading = true, projection?: ActivityProjection) {
-    if (activeWorkspace === null) {
-      return false
-    }
-    const workspace = activeWorkspace
-    if (showLoading) {
-      projectFileStatus = "checking"
-    }
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("project files could not be loaded")
-      }
-      const loaded = (await response.json()) as ProjectFile[]
-      if (projection !== undefined && !isActiveProjection(projection) || activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
-        return false
-      }
-      projectFiles = [...loaded].sort((left, right) => {
-        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
-      })
-      projectFileStatus = "ready"
-      return true
-    } catch {
-      if ((projection === undefined || isActiveProjection(projection)) && activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
-        projectFileStatus = "unavailable"
-      }
-      return false
-    }
-  }
-
-  async function loadProjectNotes(project: Project, showLoading = true, projection?: ActivityProjection) {
-    if (activeWorkspace === null) {
-      return false
-    }
-    const workspace = activeWorkspace
-    if (showLoading) {
-      projectNoteStatus = "checking"
-    }
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/notes`, { credentials: "same-origin" })
-      if (response.status === 401) {
-        signInRequired()
-        return false
-      }
-      if (!response.ok) {
-        throw new Error("project notes could not be loaded")
-      }
-      const loaded = (await response.json()) as ProjectNote[]
-      if (projection !== undefined && !isActiveProjection(projection) || activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
-        return false
-      }
-      projectNotes = [...loaded].sort((left, right) => {
-        const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime()
-        return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
-      })
-      projectNoteStatus = "ready"
-      return true
-    } catch {
-      if ((projection === undefined || isActiveProjection(projection)) && activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
-        projectNoteStatus = "unavailable"
-      }
-      return false
-    }
-  }
-
-	async function loadProjectSecrets(project: Project, showLoading = true, projection?: ActivityProjection) {
-		if (activeWorkspace === null) {
-			return false
-		}
-		const workspace = activeWorkspace
-		if (showLoading) {
-			projectSecretStatus = "checking"
-		}
-		try {
-			const response = await fetchProjectSecrets(workspace.id, project.id)
-			if (response.status === 401) {
-				signInRequired()
-				return false
-			}
-			if (!response.ok) {
-				throw new Error("project secrets could not be loaded")
-			}
-			const loaded = (await response.json()) as ProjectSecret[]
-			if (projection !== undefined && !isActiveProjection(projection) || activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id || activeSession !== null) {
-				return false
-			}
-			projectSecrets = [...loaded].sort((left, right) => {
-				const difference = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime()
-				return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id)
-			})
-			projectSecretStatus = "ready"
-			return true
-		} catch {
-			if ((projection === undefined || isActiveProjection(projection)) && activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
-				projectSecretStatus = "unavailable"
-			}
-			return false
-		}
-	}
   function isActiveProjection(projection: ActivityProjection) {
     return activeProjection === projection
   }
@@ -752,7 +571,7 @@
     } satisfies ActivitySelector : undefined) : {
       name: "project",
       topic: `${workspace.id}/${projectID}`,
-       events: ["project.*", "project_file.*", "project_note.*", ...(isProjectSecretsRoute() ? [] : ["project_secret.*"]), "session.*"],
+      events: ["project.*", ...(isProjectSecretsRoute() ? [] : ["project_secret.*"])],
     } satisfies ActivitySelector
     const activitySelectors = [workspaceSelector, agentSelector, sessionSelector, projectSelector].filter((selector): selector is ActivitySelector => selector !== undefined)
     let unsubscribe: (() => void) | undefined
@@ -764,8 +583,6 @@
       }
 
       const workspaceChanged = names.has(workspaceSelector.name)
-      const projectChanged = projectSelector !== undefined && names.has(projectSelector.name)
-
       let refreshed = (await Promise.all([
         ...(workspaceChanged ? [refreshRuntime()] : []),
         ...(sessionSelector !== undefined ? [refreshWorkspaceSessions(workspace, projection)] : []),
@@ -773,9 +590,6 @@
       ])).every(Boolean)
       if (!isActiveProjection(projection) || signal.aborted) {
         throw new Error("activity projection refresh failed")
-      }
-      if (refreshed && session === null && projectChanged && activeProject !== null && activeProject.id === projectID) {
-		refreshed = (await Promise.all([loadProjectSessions(activeProject, projection), loadProjectFiles(activeProject, false, projection), loadProjectNotes(activeProject, false, projection), loadProjectSecrets(activeProject, false, projection)])).every(Boolean)
       }
       if (!refreshed || signal.aborted || !isActiveProjection(projection)) {
         throw new Error("activity projection refresh failed")
@@ -839,159 +653,6 @@
     } finally {
       creatingProject = false
     }
-  }
-
-  function startProjectNoteCreate() {
-    if (activeWorkspace !== null && activeProject !== null) {
-      navigate(projectNotePath(activeWorkspace, activeProject, "new"))
-    }
-  }
-
-  function openProjectEdit() {
-    if (activeProject === null) {
-      return
-    }
-    projectActionMenuElement?.removeAttribute("open")
-    projectEditName = activeProject.name ?? ""
-    projectEditDescription = activeProject.description ?? ""
-    projectEditError = ""
-    projectEditDialogElement?.showModal()
-  }
-
-  function closeProjectEdit() {
-    if (!updatingProject) {
-      projectEditDialogElement?.close()
-    }
-  }
-
-  async function updateProject() {
-    if (activeWorkspace === null || activeProject === null) {
-      return
-    }
-    const workspace = activeWorkspace
-    const project = activeProject
-    projectEditError = ""
-    updatingProject = true
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}`, {
-        method: "PATCH",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: projectEditName, description: projectEditDescription }),
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("project could not be updated")
-      }
-      const updated = (await response.json()) as Project
-      if (activeWorkspace?.id !== workspace.id || activeProject?.id !== project.id) {
-        return
-      }
-      activeProject = updated
-      latestProjects = latestProjects.map((candidate) => candidate.id === updated.id ? updated : candidate)
-      projectEditDialogElement?.close()
-    } catch {
-      projectEditError = "The project could not be updated. Try again."
-    } finally {
-      updatingProject = false
-    }
-  }
-
-  async function uploadProjectFiles(input: HTMLInputElement) {
-    if (activeWorkspace === null || activeProject === null) {
-      return
-    }
-    const selected = Array.from(input.files ?? [])
-    input.value = ""
-    if (selected.length === 0) {
-      return
-    }
-    const workspace = activeWorkspace
-    const project = activeProject
-    projectFileError = ""
-    uploadingProjectFiles += selected.length
-    try {
-      const results = await Promise.allSettled(selected.map((file) => uploadProjectFile(workspace, project, file)))
-      await loadProjectFiles(project, false)
-      if (results.some((result) => result.status === "rejected")) {
-        projectFileError = "Some files could not be uploaded. Try again."
-      }
-    } finally {
-      uploadingProjectFiles -= selected.length
-    }
-  }
-
-  async function uploadProjectFile(workspace: Workspace, project: Project, file: File) {
-    const created = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/start`, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: file.name, ...(file.type === "" ? {} : { media_type: file.type }) }),
-    })
-    if (created.status === 401) {
-      signInRequired()
-      throw new Error("authentication required")
-    }
-    if (!created.ok) {
-      throw new Error("project file could not be started")
-    }
-    const upload = (await created.json()) as { file: ProjectFile; upload_url: string }
-    const put = await fetch(upload.upload_url, { method: "PUT", body: file, ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }) })
-    if (!put.ok) {
-      throw new Error("project file could not be uploaded")
-    }
-    const finished = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(upload.file.id)}/finish`, {
-      method: "POST",
-      credentials: "same-origin",
-    })
-    if (finished.status === 401) {
-      signInRequired()
-      throw new Error("authentication required")
-    }
-    if (!finished.ok) {
-      throw new Error("project file could not be finished")
-    }
-  }
-
-  async function removeProjectFile(file: ProjectFile) {
-    if (activeWorkspace === null || activeProject === null || removingProjectFileIDs.has(file.id) || !window.confirm(`Remove ${file.name}?`)) {
-      return
-    }
-    const workspace = activeWorkspace
-    const project = activeProject
-    const removing = new Set(removingProjectFileIDs)
-    removing.add(file.id)
-    removingProjectFileIDs = removing
-    projectFileError = ""
-    try {
-      const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}`, {
-        method: "DELETE",
-        credentials: "same-origin",
-      })
-      if (response.status === 401) {
-        signInRequired()
-        return
-      }
-      if (!response.ok) {
-        throw new Error("project file could not be removed")
-      }
-      if (activeWorkspace?.id === workspace.id && activeProject?.id === project.id && activeSession === null) {
-        projectFiles = projectFiles.filter((candidate) => candidate.id !== file.id)
-      }
-    } catch {
-      projectFileError = "The file could not be removed. Try again."
-    } finally {
-      const remaining = new Set(removingProjectFileIDs)
-      remaining.delete(file.id)
-      removingProjectFileIDs = remaining
-    }
-  }
-
-  function projectFileDownloadPath(workspace: Workspace, project: Project, file: ProjectFile) {
-    return `/api/v1/workspaces/${encodeURIComponent(workspace.id)}/projects/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}/download`
   }
 
   async function logout() {
@@ -1175,19 +836,9 @@
             </select>
           {/if}
       </header>
-		{#if activeSession === null && activeProject !== null && !isProjectSecretsRoute()}
-        <section class="project-dashboard-heading">
-          <div>
-            <h2 class="title is-3">{activeProject.name ?? "New Project"}</h2>
-            <p class="subtitle is-6">{activeProject.description ?? "No description yet."}</p>
-          </div>
-          <details class="project-action-menu" bind:this={projectActionMenuElement}>
-            <summary class="button is-small project-action-menu-trigger" aria-label="Project actions" title="Project actions"><Menu size={22} strokeWidth={2} aria-hidden="true" /></summary>
-				<div class="project-action-menu-items"><button type="button" onclick={openProjectEdit}>Edit project</button></div>
-          </details>
-        </section>
-      {/if}
-      {#if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
+      {#if routeSessionID(route) !== null && activeSession?.id !== routeSessionID(route)}
+        <p class="dashboard-empty" aria-busy="true" aria-live="polite">Loading chat...</p>
+      {:else if activeSession === null && activeProject === null && !isChatCollection() && !isProjectCollection() && !isGroupCollection()}
         {#if activeWorkspace !== null}<WorkspaceDashboardPage workspace={activeWorkspace} sessions={latestSessions} projects={latestProjects} creatingProject={creatingProject} error={messageError} onCreateSession={() => void createSession()} onCreateProject={() => void createProject()} onNavigate={navigate} />{/if}
       {:else if isChatCollection()}
         {#if activeWorkspace !== null}<ChatCollectionPage workspace={activeWorkspace} search={route.kind === "session-collection" ? route.search : ""} onAuthenticationLost={signInRequired} onCreate={() => void createSession()} onNavigate={navigate} />{/if}
@@ -1196,67 +847,13 @@
       {:else if isGroupCollection()}
         {#if activeWorkspace !== null}<GroupsPage workspace={activeWorkspace} {activity} onAuthenticationLost={signInRequired} />{/if}
       {:else if activeSession === null && activeProject !== null && isProjectSecretsRoute()}
-			<ProjectSecretsPage workspaceID={activeWorkspace!.id} projectID={activeProject.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} onChanged={() => void loadProjectSecrets(activeProject!, false)} />
+			<ProjectSecretsPage workspaceID={activeWorkspace!.id} projectID={activeProject.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => projectSecretBreadcrumb = title} />
       {:else if activeSession !== null && isSessionNotesRoute()}
         <SessionNotesPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionNoteBreadcrumb = title} onResetHistory={resetNoteHistory} onOpenHistory={openSessionNoteHistory} />
       {:else if activeSession !== null && isSessionSecretsRoute()}
         <SessionSecretsPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
-        <section class="dashboard-grid">
-          <section class="dashboard-widget dashboard-widget-wide">
-            <div class="dashboard-widget-heading"><h2>Project Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void createSession(activeProject ?? undefined)}>New chat</button></div>
-            {#each projectSessions as session}
-              <a class="dashboard-row" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses/${encodeURIComponent(session.id)}`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionPath(activeWorkspace, session)) } }}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></a>
-            {:else}<p class="dashboard-empty">No project chats yet.</p>{/each}
-            {#if projectSessions.length > 0}<a class="dashboard-view-all" href={`/app/wsp/${encodeURIComponent(activeWorkspace?.id ?? "")}/ses`} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null) { navigate(sessionsPath(activeWorkspace)) } }}>View all chats</a>{/if}
-          </section>
-          <section class="dashboard-widget dashboard-widget-wide project-files-widget">
-            <div class="dashboard-widget-heading"><h2>Project Files</h2><button class="button is-primary is-small" type="button" disabled={uploadingProjectFiles > 0} onclick={() => projectFileInputElement?.click()}>{uploadingProjectFiles > 0 ? "Uploading..." : "Upload files"}</button></div>
-            <input class="is-sr-only" type="file" autocomplete="off" multiple bind:this={projectFileInputElement} onchange={(event) => void uploadProjectFiles(event.currentTarget)} />
-            {#if projectFileStatus === "checking"}
-              <p class="dashboard-empty">Loading files...</p>
-            {:else if projectFileStatus === "unavailable"}
-              <p class="dashboard-empty">Files could not be loaded.</p>
-            {:else}
-              {#each projectFiles as file (file.id)}
-                <div class="project-file-row">
-                  <a class="project-file-download" href={activeWorkspace !== null && activeProject !== null ? projectFileDownloadPath(activeWorkspace, activeProject, file) : "#"} download={file.name} title={file.fingerprint}>
-                    <Paperclip size={16} strokeWidth={2} aria-hidden="true" />
-                    <span class="project-file-content"><span>{file.name}</span><span class="project-file-meta"><time datetime={file.created_at}>{createdAtLabel(file.created_at)}</time><span>{file.size} bytes</span>{#if file.media_type !== undefined}<span>{file.media_type}</span>{/if}</span></span>
-                  </a>
-                  <button class="button is-small is-danger is-light" type="button" disabled={removingProjectFileIDs.has(file.id)} onclick={() => void removeProjectFile(file)}>{removingProjectFileIDs.has(file.id) ? "Removing..." : "Remove"}</button>
-                </div>
-              {:else}<p class="dashboard-empty">No files yet.</p>{/each}
-            {/if}
-            {#if projectFileError !== ""}<p class="help is-danger" aria-live="polite">{projectFileError}</p>{/if}
-          </section>
-          <section class="dashboard-widget dashboard-widget-wide project-notes-widget">
-            <div class="dashboard-widget-heading"><h2>Project Notes</h2><button class="button is-primary is-small" type="button" onclick={startProjectNoteCreate}>New note</button></div>
-            {#if projectNoteStatus === "checking"}
-              <p class="dashboard-empty">Loading notes...</p>
-            {:else if projectNoteStatus === "unavailable"}
-              <p class="dashboard-empty">Notes could not be loaded.</p>
-            {:else}
-              {#each projectNotes as note (note.id)}
-                <a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectNotePath(activeWorkspace, activeProject, note) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null && activeProject !== null) { navigate(projectNotePath(activeWorkspace, activeProject, note)) } }}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><time datetime={note.created_at}>{createdAtLabel(note.created_at)}</time></span></span></a>
-              {:else}<p class="dashboard-empty">No notes yet.</p>{/each}
-            {/if}
-          </section>
-			<section class="dashboard-widget dashboard-widget-wide project-notes-widget">
-				<div class="dashboard-widget-heading"><h2>Project Secrets</h2><button class="button is-primary is-small" type="button" onclick={() => { if (activeWorkspace !== null && activeProject !== null) navigate(`${projectSecretsPath(activeWorkspace, activeProject)}/new`) }}>New secret</button></div>
-				{#if projectSecretStatus === "checking"}
-					<p class="dashboard-empty">Loading secrets...</p>
-				{:else if projectSecretStatus === "unavailable"}
-					<p class="dashboard-empty">Secrets could not be loaded.</p>
-				{:else}
-					{#each projectSecrets as secret (secret.id)}
-						<a class="dashboard-row project-note-row" href={activeWorkspace !== null && activeProject !== null ? projectSecretPath(activeWorkspace, activeProject, secret.id) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null && activeProject !== null) { navigate(projectSecretPath(activeWorkspace, activeProject, secret.id)) } }}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {createdAtLabel(secret.updated_at)}</time></span></span></a>
-					{:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
-				{/if}
-				{#if projectSecrets.length > 0}<a class="dashboard-view-all" href={activeWorkspace !== null && activeProject !== null ? projectSecretsPath(activeWorkspace, activeProject) : "#"} onclick={(event) => { event.preventDefault(); if (activeWorkspace !== null && activeProject !== null) { navigate(projectSecretsPath(activeWorkspace, activeProject)) } }}>View all secrets</a>{/if}
-			</section>
-          {#if messageError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{messageError}</p>{/if}
-        </section>
+        <p class="dashboard-empty">This page is unavailable.</p>
       {:else if activeSession !== null && route.kind === "session-chat"}
         <ChatPage workspace={activeWorkspace!} sessionID={activeSession.id} {activity} scrollElement={workspaceMainElement} onAuthenticationLost={signInRequired} onSessionChanged={() => refreshWorkspaceSessions(activeWorkspace!)} />
       {:else}
@@ -1278,20 +875,5 @@
         {/if}
       </div>
     {/if}
-  </dialog>
-  <dialog class="project-edit-dialog" bind:this={projectEditDialogElement} onclose={() => projectEditError = ""}>
-    <form class="project-edit-form" onsubmit={(event) => { event.preventDefault(); void updateProject() }}>
-      <div class="project-edit-heading"><h2>Edit project</h2><button class="button is-ghost is-small" type="button" aria-label="Close" onclick={closeProjectEdit}><X size={18} strokeWidth={2} aria-hidden="true" /></button></div>
-      <div class="field">
-        <label class="label" for="project-edit-name">Name</label>
-        <div class="control"><input class="input" id="project-edit-name" autocomplete="off" maxlength="256" bind:value={projectEditName} /></div>
-      </div>
-      <div class="field">
-        <label class="label" for="project-edit-description">Description</label>
-        <div class="control"><textarea class="textarea" id="project-edit-description" autocomplete="off" rows="4" maxlength="4096" bind:value={projectEditDescription}></textarea></div>
-      </div>
-      {#if projectEditError !== ""}<p class="help is-danger" aria-live="polite">{projectEditError}</p>{/if}
-      <div class="project-edit-actions"><button class="button" type="button" disabled={updatingProject} onclick={closeProjectEdit}>Cancel</button><button class="button is-primary" type="submit" disabled={updatingProject}>{updatingProject ? "Saving..." : "Save changes"}</button></div>
-    </form>
   </dialog>
 {/if}

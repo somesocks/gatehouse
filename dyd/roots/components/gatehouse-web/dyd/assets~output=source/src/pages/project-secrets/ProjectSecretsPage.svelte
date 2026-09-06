@@ -3,8 +3,8 @@
   import type { ActivityClient } from "../../app/activity"
   import type { Route } from "../../route"
   import { createProjectSecretsController } from "./project-secrets-controller.svelte"
-  let { workspaceID, projectID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange, onChanged }: { workspaceID: string; projectID: string; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void; onChanged: () => void } = $props()
-  const controller = untrack(() => createProjectSecretsController({ activity, onAuthenticationLost, onNavigate, onChanged }))
+  let { workspaceID, projectID, route, activity, onAuthenticationLost, onNavigate, onBreadcrumbChange }: { workspaceID: string; projectID: string; route: Route; activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onBreadcrumbChange: (title: string | null) => void } = $props()
+  const controller = untrack(() => createProjectSecretsController({ activity, onAuthenticationLost, onNavigate }))
   $effect(() => { const currentRoute = route; if (currentRoute.kind === "project-secrets" || currentRoute.kind === "project-secret-new" || currentRoute.kind === "project-secret") return untrack(() => controller.start(workspaceID, projectID, currentRoute)) })
   $effect(() => { onBreadcrumbChange(controller.state.creating ? "New Secret" : controller.state.active?.description ?? null); return () => onBreadcrumbChange(null) })
   const secretPath = (id: string) => `/app/wsp/${encodeURIComponent(workspaceID)}/prj/${encodeURIComponent(projectID)}/secrets/${encodeURIComponent(id)}`

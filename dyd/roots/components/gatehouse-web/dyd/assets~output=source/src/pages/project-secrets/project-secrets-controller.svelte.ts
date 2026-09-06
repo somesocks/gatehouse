@@ -3,9 +3,9 @@ import { createProjectSecret, fetchProjectSecret, fetchProjectSecrets, removePro
 import type { Route } from "../../route"
 
 type SecretRoute = Extract<Route, { kind: "project-secrets" | "project-secret-new" | "project-secret" }>
-type Options = { activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void; onChanged: () => void }
+type Options = { activity: ActivityClient; onAuthenticationLost: () => void; onNavigate: (path: string, replace?: boolean) => void }
 
-export function createProjectSecretsController({ activity, onAuthenticationLost, onNavigate, onChanged }: Options) {
+export function createProjectSecretsController({ activity, onAuthenticationLost, onNavigate }: Options) {
   const state = $state({ secrets: [] as ProjectSecret[], status: "checking" as "checking" | "ready" | "unavailable", active: null as ProjectSecret | null, creating: false, editing: false, saving: false, deleting: false, description: "", value: "", error: "" })
   let context: { workspaceID: string; projectID: string } | null = null
   let generation = 0
@@ -73,7 +73,7 @@ export function createProjectSecretsController({ activity, onAuthenticationLost,
       if (!response.ok) throw new Error("project secret could not be saved")
       const saved = await response.json() as ProjectSecret
       if (!current(value)) return
-      state.value = ""; state.active = saved; state.creating = false; state.editing = false; state.secrets = [saved, ...state.secrets.filter((secret) => secret.id !== saved.id)]; onChanged(); onNavigate(detailPath(workspaceID, projectID, saved.id))
+      state.value = ""; state.active = saved; state.creating = false; state.editing = false; state.secrets = [saved, ...state.secrets.filter((secret) => secret.id !== saved.id)]; onNavigate(detailPath(workspaceID, projectID, saved.id))
     } catch { state.error = "The secret could not be saved. Try again." } finally { if (current(value)) state.saving = false }
   }
 
@@ -85,7 +85,7 @@ export function createProjectSecretsController({ activity, onAuthenticationLost,
       if (!current(value) || context?.workspaceID !== workspaceID || context?.projectID !== projectID || state.active?.id !== secret.id) return
       if (response.status === 401) { onAuthenticationLost(); return }
       if (!response.ok) throw new Error("project secret could not be removed")
-      clearSelection(); state.secrets = state.secrets.filter((candidate) => candidate.id !== secret.id); onChanged(); onNavigate(listPath(workspaceID, projectID))
+      clearSelection(); state.secrets = state.secrets.filter((candidate) => candidate.id !== secret.id); onNavigate(listPath(workspaceID, projectID))
     } catch { state.error = "The secret could not be removed. Try again." } finally { if (current(value)) state.deleting = false }
   }
   return { state, start, stop, startCreate, startEdit, cancelEdit, save, remove }

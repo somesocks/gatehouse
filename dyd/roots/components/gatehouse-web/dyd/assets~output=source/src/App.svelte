@@ -2,6 +2,7 @@
   import { onMount } from "svelte"
   import { createApplicationRuntime, provideRuntime } from "./app/runtime.svelte"
   import LegacyApplication from "./pages/legacy/LegacyApplication.svelte"
+  import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import { routeOwner } from "./route-owner"
 
@@ -18,7 +19,9 @@
   <title>Gatehouse</title>
 </svelte:head>
 
-{#if routeOwner(runtime.state.route) === "project-notes"}
+{#if routeOwner(runtime.state.route) === "project-dashboard"}
+  <ProjectDashboardRoute />
+{:else if routeOwner(runtime.state.route) === "project-notes"}
   <ProjectNotesRoute />
 {:else}
   <LegacyApplication />

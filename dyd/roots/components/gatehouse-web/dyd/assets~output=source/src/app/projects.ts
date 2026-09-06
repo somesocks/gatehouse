@@ -12,6 +12,10 @@ export async function fetchProject(workspaceID: string, projectID: string, signa
   return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`, { credentials: "same-origin", signal })
 }
 
+export async function updateProject(workspaceID: string, projectID: string, input: { name: string; description: string }, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/projects/${encodeURIComponent(projectID)}`, { method: "PATCH", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal })
+}
+
 export type ProjectSearchResponse = {
   projects: ProjectSummary[]
   next_cursor?: string

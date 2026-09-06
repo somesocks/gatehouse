@@ -20,3 +20,12 @@ export async function fetchChats(workspaceID: string, name: string, cursor: stri
   }
   return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`, { credentials: "same-origin" })
 }
+
+export async function fetchProjectChats(workspaceID: string, projectID: string, signal?: AbortSignal): Promise<Response> {
+  const parameters = new URLSearchParams({ limit: "5", project: projectID })
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`, { credentials: "same-origin", signal })
+}
+
+export async function createProjectChat(workspaceID: string, projectID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: projectID }), signal })
+}
