@@ -1,33 +1,28 @@
 import { tick } from "svelte"
-import type { ActivityClient } from "../../app/activity"
 import { cancelChatReply, fetchChatAgents, fetchChatEvents, finishChatFileUpload, respondToChatApproval, sendChatMessage, startChatFileUpload, uploadChatFile, type ChatAgent, type ChatComposerFile, type ChatEventTree } from "../../app/chat"
 
-type Options = {
-  activity: ActivityClient
-  onAuthenticationLost: () => void
-  onSessionChanged: () => Promise<boolean>
+type ChatControllerOptions = {
   isNearBottom: () => boolean
   followLatest: (behavior?: ScrollBehavior) => Promise<void>
   resizeComposer: () => void
   focusComposer: () => void
 }
 
-export function createChatController({ activity, onAuthenticationLost, onSessionChanged, isNearBottom, followLatest, resizeComposer, focusComposer }: Options) {
-  const state = $state({ events: [] as ChatEventTree[], status: "checking" as "checking" | "ready" | "unavailable", agents: [] as ChatAgent[], selectedAgent: "", messageText: "", composerFiles: [] as ChatComposerFile[], messageError: "", sendingMessage: false, awaitingReplyFor: [] as string[], cancellingReplyFor: new Set<string>(), submittingApprovals: new Set<string>(), approvalErrors: new Map<string, string>(), expandedActivity: new Set<string>(), showJumpToLatest: false, activityTimestamp: Date.now() })
-  let context: { workspaceID: string; sessionID: string } | null = null
+export function createChatController({ isNearBottom, followLatest, resizeComposer, focusComposer }: ChatControllerOptions) {
+  const state = $state({ events: [] as ChatEventTree[], status: "checking" as "checking" | "ready" | "unavailable", agents: [] as ChatAgent[], selectedAgent: "", messageText: "", composerFiles: [] as ChatComposerFile[], messageError: "", sendingMessage: false, awaitingReplyFor: [] as string[], cancellingReplyFor: new Set<string>(), submittingApprovals: new Set<string>(), approvalErrors: new Map<string, string>(), expandedActivity: new Set<string>(), showJumpToLatest: false, activityTimestamp: Date.now(), authenticationRequired: false })
+  let context: { workspaceID: string; sessionID: string; signal: AbortSignal } | null = null
   let generation = 0
-  let unsubscribe: (() => void) | undefined
   const current = (value: number) => value === generation
   const validContext = (value: number, workspaceID: string, sessionID: string) => current(value) && context?.workspaceID === workspaceID && context?.sessionID === sessionID
 
   async function refreshEvents(value: number, showLoading = false): Promise<boolean> {
     if (context === null) return false
-    const { workspaceID, sessionID } = context
+    const { workspaceID, sessionID, signal } = context
     if (showLoading) state.status = "checking"
     try {
-      const response = await fetchChatEvents(workspaceID, sessionID)
+      const response = await fetchChatEvents(workspaceID, sessionID, signal)
       if (!validContext(value, workspaceID, sessionID)) return false
-      if (response.status === 401) { onAuthenticationLost(); return false }
+      if (response.status === 401) { state.authenticationRequired = true; return false }
       if (!response.ok) throw new Error("session events could not be loaded")
       const loaded = await response.json() as ChatEventTree[]
       if (!validContext(value, workspaceID, sessionID)) return false
@@ -51,11 +46,11 @@ export function createChatController({ activity, onAuthenticationLost, onSession
 
   async function refreshAgents(value: number): Promise<boolean> {
     if (context === null) return false
-    const { workspaceID, sessionID } = context
+    const { workspaceID, sessionID, signal } = context
     try {
-      const response = await fetchChatAgents(workspaceID)
+      const response = await fetchChatAgents(workspaceID, signal)
       if (!validContext(value, workspaceID, sessionID)) return false
-      if (response.status === 401) { onAuthenticationLost(); return false }
+      if (response.status === 401) { state.authenticationRequired = true; return false }
       if (!response.ok) throw new Error("agents could not be refreshed")
       const agents = await response.json() as ChatAgent[]
       if (!validContext(value, workspaceID, sessionID)) return false
@@ -65,40 +60,23 @@ export function createChatController({ activity, onAuthenticationLost, onSession
     } catch { return false }
   }
 
-  function start(workspaceID: string, sessionID: string): () => void {
+  function start(workspaceID: string, sessionID: string, signal: AbortSignal): void {
     stop()
-    context = { workspaceID, sessionID }
+    context = { workspaceID, sessionID, signal }
     const value = ++generation
-    state.events = []; state.status = "checking"; state.agents = []; state.selectedAgent = ""; state.messageText = ""; state.composerFiles = []; state.messageError = ""; state.sendingMessage = false; state.awaitingReplyFor = []; state.cancellingReplyFor = new Set(); state.submittingApprovals = new Set(); state.approvalErrors = new Map(); state.expandedActivity = new Set(); state.showJumpToLatest = false; state.activityTimestamp = Date.now()
+    state.events = []; state.status = "checking"; state.agents = []; state.selectedAgent = ""; state.messageText = ""; state.composerFiles = []; state.messageError = ""; state.sendingMessage = false; state.awaitingReplyFor = []; state.cancellingReplyFor = new Set(); state.submittingApprovals = new Set(); state.approvalErrors = new Map(); state.expandedActivity = new Set(); state.showJumpToLatest = false; state.activityTimestamp = Date.now(); state.authenticationRequired = false
     void Promise.all([refreshEvents(value, true), refreshAgents(value)])
-    unsubscribe = activity.subscribe([
-      { name: "chat-session", topic: `${workspaceID}/${sessionID}`, events: ["session.*", "session_event.*", "session_file.*", "session_note.*", "session_secret.*"] },
-      { name: "chat-agent", topic: workspaceID, events: ["workspace_agent.*"] },
-    ], async ({ names, signal }) => {
-      if (signal.aborted || !current(value)) return
-      state.activityTimestamp = Date.now()
-      const sessionChanged = names.has("chat-session")
-      const agentChanged = names.has("chat-agent")
-      const refreshed = (await Promise.all([
-        ...(sessionChanged ? [refreshEvents(value), onSessionChanged()] : []),
-        ...(agentChanged ? [refreshAgents(value)] : []),
-      ])).every(Boolean)
-      if (!refreshed || signal.aborted || !current(value)) throw new Error("chat refresh failed")
-    })
-    return stop
   }
 
   function stop(): void {
     generation += 1
-    unsubscribe?.()
-    unsubscribe = undefined
     context = null
     state.events = []; state.agents = []; state.selectedAgent = ""; state.messageText = ""; state.composerFiles = []; state.messageError = ""; state.sendingMessage = false; state.awaitingReplyFor = []; state.cancellingReplyFor = new Set(); state.submittingApprovals = new Set(); state.approvalErrors = new Map(); state.expandedActivity = new Set(); state.showJumpToLatest = false
   }
 
   async function sendMessage(): Promise<void> {
     if (context === null || state.sendingMessage || (state.messageText.trim() === "" && state.composerFiles.length === 0)) return
-    const { workspaceID, sessionID } = context
+    const { workspaceID, sessionID, signal } = context
     const value = generation
     const text = state.messageText
     const agent = state.selectedAgent
@@ -107,9 +85,9 @@ export function createChatController({ activity, onAuthenticationLost, onSession
     try {
       const attachments = await Promise.all(state.composerFiles.map((entry) => uploadComposerFile(entry, value, workspaceID, sessionID)))
       if (!validContext(value, workspaceID, sessionID)) return
-      const response = await sendChatMessage(workspaceID, sessionID, { ...(text.trim() === "" ? {} : { text }), ...(agent === "" ? {} : { agent }), ...(attachments.length === 0 ? {} : { attachments }) })
+      const response = await sendChatMessage(workspaceID, sessionID, { ...(text.trim() === "" ? {} : { text }), ...(agent === "" ? {} : { agent }), ...(attachments.length === 0 ? {} : { attachments }) }, signal)
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { onAuthenticationLost(); return }
+      if (response.status === 401) { state.authenticationRequired = true; return }
       if (!response.ok) throw new Error("message could not be sent")
       const event = await response.json() as ChatEventTree["event"]
       if (!validContext(value, workspaceID, sessionID)) return
@@ -132,20 +110,22 @@ export function createChatController({ activity, onAuthenticationLost, onSession
 
   async function uploadComposerFile(entry: ChatComposerFile, value: number, workspaceID: string, sessionID: string): Promise<string> {
     if (entry.id !== undefined) return entry.id
+    const signal = context?.signal
     updateComposerFile(entry.file, { status: "uploading", error: undefined })
     try {
-      const created = await startChatFileUpload(workspaceID, sessionID, entry.file)
+      const created = await startChatFileUpload(workspaceID, sessionID, entry.file, signal)
       if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (created.status === 401) { onAuthenticationLost(); throw new Error("authentication required") }
+      if (created.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
       if (!created.ok) throw new Error("create file failed")
       const upload = await created.json() as { file: { ref: { id: string } }; upload_url: string }
-      const put = await uploadChatFile(upload.upload_url, entry.file)
       if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (put.status === 401) { onAuthenticationLost(); throw new Error("authentication required") }
+      const put = await uploadChatFile(upload.upload_url, entry.file, signal)
+      if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
+      if (put.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
       if (!put.ok) throw new Error("upload file failed")
-      const finished = await finishChatFileUpload(workspaceID, sessionID, upload.file.ref.id)
+      const finished = await finishChatFileUpload(workspaceID, sessionID, upload.file.ref.id, signal)
       if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (finished.status === 401) { onAuthenticationLost(); throw new Error("authentication required") }
+      if (finished.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
       if (!finished.ok) throw new Error("finish file failed")
       updateComposerFile(entry.file, { id: upload.file.ref.id, status: "pending", error: undefined })
       return upload.file.ref.id
@@ -157,13 +137,13 @@ export function createChatController({ activity, onAuthenticationLost, onSession
 
   async function cancelReply(tree: ChatEventTree): Promise<void> {
     if (context === null || state.cancellingReplyFor.has(tree.event.ref.id)) return
-    const { workspaceID, sessionID } = context
+    const { workspaceID, sessionID, signal } = context
     const value = generation
     state.cancellingReplyFor = new Set(state.cancellingReplyFor).add(tree.event.ref.id)
     try {
-      const response = await cancelChatReply(workspaceID, sessionID, tree.event.ref.id)
+      const response = await cancelChatReply(workspaceID, sessionID, tree.event.ref.id, signal)
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { onAuthenticationLost(); return }
+      if (response.status === 401) { state.authenticationRequired = true; return }
       if (!response.ok) throw new Error("reply cancellation failed")
       await refreshEvents(value)
     } catch { if (current(value)) state.messageError = "The reply could not be cancelled. Try again." } finally {
@@ -173,14 +153,14 @@ export function createChatController({ activity, onAuthenticationLost, onSession
 
   async function respondToApproval(approval: ChatEventTree, decision: "approved" | "rejected"): Promise<void> {
     if (context === null || state.submittingApprovals.has(approval.event.ref.id)) return
-    const { workspaceID, sessionID } = context
+    const { workspaceID, sessionID, signal } = context
     const value = generation
     state.submittingApprovals = new Set(state.submittingApprovals).add(approval.event.ref.id)
     const errors = new Map(state.approvalErrors); errors.delete(approval.event.ref.id); state.approvalErrors = errors
     try {
-      const response = await respondToChatApproval(workspaceID, sessionID, approval.event.ref.id, decision)
+      const response = await respondToChatApproval(workspaceID, sessionID, approval.event.ref.id, decision, signal)
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { onAuthenticationLost(); return }
+      if (response.status === 401) { state.authenticationRequired = true; return }
       if (response.status === 409) throw new Error("This approval has already been decided.")
       if (!response.ok) throw new Error("The approval response could not be submitted. Try again.")
       await refreshEvents(value)
@@ -199,7 +179,7 @@ export function createChatController({ activity, onAuthenticationLost, onSession
   async function jumpToLatest(): Promise<void> { await followLatest() }
   function updateActivityTimestamp(): void { state.activityTimestamp = Date.now() }
 
-  return { state, start, stop, sendMessage, cancelReply, respondToApproval, selectComposerFiles, removeComposerFile, toggleActivity, trackScroll, jumpToLatest, updateActivityTimestamp }
+  return { state, start, stop, refreshEvents: () => refreshEvents(generation), refreshAgents: () => refreshAgents(generation), sendMessage, cancelReply, respondToApproval, selectComposerFiles, removeComposerFile, toggleActivity, trackScroll, jumpToLatest, updateActivityTimestamp }
 }
 
 export function eventTreeIDs(tree: ChatEventTree): string[] { return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)] }

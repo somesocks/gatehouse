@@ -18,6 +18,10 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-secret", workspaceID: "wsp_a", projectID: "prj_a", secretID: "sec_a" })).toBe("project-secrets")
   })
 
+  it("assigns a session chat URL to its route owner", () => {
+    expect(routeOwner({ kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-chat")
+  })
+
   it("keeps non-Project Notes routes on the legacy outlet", () => {
     expect(routeOwner({ kind: "login", next: null })).toBe("legacy")
   })

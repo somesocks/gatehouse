@@ -6,7 +6,6 @@
   import { useRuntime } from "../../app/runtime.svelte"
   import type { NoteAuthor } from "../../app/project-notes"
   import ChatCollectionPage from "../chats/ChatCollectionPage.svelte"
-  import ChatPage from "../chat/ChatPage.svelte"
   import GroupsPage from "../groups/GroupsPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import ProjectCollectionPage from "../projects/ProjectCollectionPage.svelte"
@@ -86,7 +85,6 @@
   let creatingProject = $state(false)
   let messageError = $state("")
   let mobileMenuOpen = $state(false)
-  let workspaceMainElement = $state<HTMLElement | undefined>()
   let activeProjection: ActivityProjection | null = null
   let routeGeneration = 0
   let routeAbortController: AbortController | null = null
@@ -536,7 +534,7 @@
       topic: workspace.id,
       events: ["workspace.*", "workspace_grant.*"],
     }
-    const agentSelector = session === null || route.kind === "session-chat" ? undefined : {
+    const agentSelector = session === null ? undefined : {
       name: "agent",
       topic: workspace.id,
       events: ["workspace_agent.*"],
@@ -545,7 +543,7 @@
       name: "session",
       topic: workspace.id,
       events: ["session.*"],
-    } satisfies ActivitySelector : undefined) : route.kind === "session-chat" ? undefined : {
+    } satisfies ActivitySelector : undefined) : {
       name: "session",
       topic: `${workspace.id}/${session.id}`,
       events: ["session.*", "session_event.*", "session_file.*", ...(isSessionNotesRoute() ? [] : ["session_note.*"]), ...(isSessionSecretsRoute() ? [] : ["session_secret.*"])],
@@ -744,7 +742,7 @@
       </div>
     </aside>
 
-    <main class="workspace-main" bind:this={workspaceMainElement}>
+    <main class="workspace-main">
       <header class="workspace-header">
           <button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}>
             <Menu size={20} strokeWidth={2} aria-hidden="true" />
@@ -828,8 +826,6 @@
         <SessionSecretsPage workspaceID={activeWorkspace!.id} sessionID={activeSession.id} {route} {activity} onAuthenticationLost={signInRequired} onNavigate={navigate} onBreadcrumbChange={(title) => sessionSecretBreadcrumb = title} />
       {:else if activeSession === null}
         <p class="dashboard-empty">This page is unavailable.</p>
-      {:else if activeSession !== null && route.kind === "session-chat"}
-        <ChatPage workspace={activeWorkspace!} sessionID={activeSession.id} {activity} scrollElement={workspaceMainElement} onAuthenticationLost={signInRequired} onSessionChanged={() => refreshWorkspaceSessions(activeWorkspace!)} />
       {:else}
         <p class="dashboard-empty">This page is unavailable.</p>
       {/if}

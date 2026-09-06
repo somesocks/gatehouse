@@ -30,34 +30,38 @@ export function chatFileDownloadPath(workspaceID: string, sessionID: string, fil
   return `${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/download`
 }
 
-export async function fetchChatEvents(workspaceID: string, sessionID: string): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/events?limit=100`, { credentials: "same-origin" })
+export async function fetchChatSession(workspaceID: string, sessionID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(chatAPIPath(workspaceID, sessionID), { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function fetchChatAgents(workspaceID: string): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/agents`, { credentials: "same-origin" })
+export async function fetchChatEvents(workspaceID: string, sessionID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/events?limit=100`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function sendChatMessage(workspaceID: string, sessionID: string, input: { text?: string; agent?: string; attachments?: string[] }): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) })
+export async function fetchChatAgents(workspaceID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/agents`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function cancelChatReply(workspaceID: string, sessionID: string, messageID: string): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages/${encodeURIComponent(messageID)}/cancel`, { method: "POST", credentials: "same-origin" })
+export async function sendChatMessage(workspaceID: string, sessionID: string, input: { text?: string; agent?: string; attachments?: string[] }, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function respondToChatApproval(workspaceID: string, sessionID: string, approvalID: string, decision: "approved" | "rejected"): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/approvals/${encodeURIComponent(approvalID)}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }) })
+export async function cancelChatReply(workspaceID: string, sessionID: string, messageID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages/${encodeURIComponent(messageID)}/cancel`, { method: "POST", credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function startChatFileUpload(workspaceID: string, sessionID: string, file: File): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, ...(file.type === "" ? {} : { media_type: file.type }) }) })
+export async function respondToChatApproval(workspaceID: string, sessionID: string, approvalID: string, decision: "approved" | "rejected", signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/approvals/${encodeURIComponent(approvalID)}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }), ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function uploadChatFile(uploadURL: string, file: File): Promise<Response> {
-  return await fetch(uploadURL, { method: "PUT", body: file, ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }) })
+export async function startChatFileUpload(workspaceID: string, sessionID: string, file: File, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, ...(file.type === "" ? {} : { media_type: file.type }) }), ...(signal === undefined ? {} : { signal }) })
 }
 
-export async function finishChatFileUpload(workspaceID: string, sessionID: string, fileID: string): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/finish`, { method: "POST", credentials: "same-origin" })
+export async function uploadChatFile(uploadURL: string, file: File, signal?: AbortSignal): Promise<Response> {
+  return await fetch(uploadURL, { method: "PUT", body: file, ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }), ...(signal === undefined ? {} : { signal }) })
+}
+
+export async function finishChatFileUpload(workspaceID: string, sessionID: string, fileID: string, signal?: AbortSignal): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/finish`, { method: "POST", credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
 }
