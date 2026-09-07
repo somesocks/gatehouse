@@ -7,6 +7,7 @@ const agentPrelude = `(let
       '(
         ; Standard library modules.
         (json @native:json/v1)
+        (xml @native:xml/v1)
         (seq @native:seq/v1)
         (vector @native:vector/v1)
         (archive/zip @native:archive/zip/v1)

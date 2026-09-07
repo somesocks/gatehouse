@@ -94,6 +94,16 @@ func TestDocumentationExamples(t *testing.T) {
 			name          string
 			documentation documentation
 			helpSource    string
+		}{"xml/decode", nativeXMLDecodeDocumentation, "(import (xml @native:xml/v1) (help xml/decode))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
+		}{"xml/encode", nativeXMLEncodeDocumentation, "(import (xml @native:xml/v1) (help xml/encode))"},
+		struct {
+			name          string
+			documentation documentation
+			helpSource    string
 		}{"random/bytes", nativeRandomBytesDocumentation, "(import (random @native:random/v1) (help random/bytes))"},
 		struct {
 			name          string
@@ -120,6 +130,9 @@ func TestDocumentationExamples(t *testing.T) {
 			example := test.documentation.example
 			if test.name == "json/decode" || test.name == "json/encode" {
 				example = "(import (json @native:json/v1) " + example + ")"
+			}
+			if test.name == "xml/decode" || test.name == "xml/encode" {
+				example = "(import (xml @native:xml/v1) " + example + ")"
 			}
 			err, result := Run(example)
 			if err != nil {

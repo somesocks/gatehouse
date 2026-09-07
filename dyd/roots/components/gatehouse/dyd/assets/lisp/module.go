@@ -42,6 +42,7 @@ func newModuleCache() *moduleCache {
 		modules: map[string]Expr{
 			nativeArchiveZIPID:         nativeArchiveZIPModule(),
 			nativeJSONID:               nativeJSONModule(),
+			nativeXMLID:                nativeXMLModule(),
 			nativeCryptoDigestCRC32ID:  nativeCryptoDigestCRC32Module(),
 			nativeNetHTTPID:            nativeNetHTTPModule(),
 			nativeCryptoCipherAES128ID: nativeCryptoCipherAES128Module(),
