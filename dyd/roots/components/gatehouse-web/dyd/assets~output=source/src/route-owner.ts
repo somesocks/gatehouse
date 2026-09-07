@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-providers" | "agent-models" | "storage-providers" | "workspace-agent-bindings" | "workspace-storage-bindings" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-models" | "storage-providers" | "workspace-agent-bindings" | "workspace-storage-bindings" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -43,7 +43,11 @@ export function routeOwner(route: Route): RouteOwner {
     case "system-principals":
       return "principals"
     case "system-agent-providers":
-      return "agent-providers"
+      return "agent-provider-list"
+    case "system-agent-provider-new":
+      return "agent-provider-new"
+    case "system-agent-provider":
+      return "agent-provider-detail"
     case "system-agent-models":
       return "agent-models"
     case "system-storage-providers":

@@ -10,6 +10,8 @@ export type Route =
   | { kind: "system-grants" }
   | { kind: "system-principals" }
   | { kind: "system-agent-providers" }
+  | { kind: "system-agent-provider-new" }
+  | { kind: "system-agent-provider"; providerID: string }
   | { kind: "system-agent-models" }
   | { kind: "system-storage-providers" }
   | { kind: "system-workspace-agent-bindings" }
@@ -84,6 +86,8 @@ export function parseRoute(url: URL): Route {
     return { kind: "system-principals" }
   }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "agent-providers") return { kind: "system-agent-providers" }
+  if (segments.length === 4 && segments[1] === "system" && segments[2] === "agent-providers" && segments[3] === "new") return { kind: "system-agent-provider-new" }
+  if (segments.length === 4 && segments[1] === "system" && segments[2] === "agent-providers") return { kind: "system-agent-provider", providerID: segments[3] }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "agent-models") return { kind: "system-agent-models" }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "storage-providers") return { kind: "system-storage-providers" }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-agent-bindings") return { kind: "system-workspace-agent-bindings" }
@@ -201,6 +205,10 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system/principals"
     case "system-agent-providers":
       return "/app/system/agent-providers"
+    case "system-agent-provider-new":
+      return "/app/system/agent-providers/new"
+    case "system-agent-provider":
+      return `/app/system/agent-providers/${segment(route.providerID)}`
     case "system-agent-models":
       return "/app/system/agent-models"
     case "system-storage-providers":

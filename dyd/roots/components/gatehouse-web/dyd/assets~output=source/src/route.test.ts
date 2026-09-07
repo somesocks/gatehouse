@@ -17,6 +17,8 @@ describe("routes", () => {
     { path: "/app/system/grants", route: { kind: "system-grants" } },
     { path: "/app/system/principals", route: { kind: "system-principals" } },
     { path: "/app/system/agent-providers", route: { kind: "system-agent-providers" } },
+    { path: "/app/system/agent-providers/new", route: { kind: "system-agent-provider-new" } },
+    { path: "/app/system/agent-providers/apr_1", route: { kind: "system-agent-provider", providerID: "apr_1" } },
     { path: "/app/system/agent-models", route: { kind: "system-agent-models" } },
     { path: "/app/system/storage-providers", route: { kind: "system-storage-providers" } },
     { path: "/app/system/workspace-agent-bindings", route: { kind: "system-workspace-agent-bindings" } },

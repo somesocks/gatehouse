@@ -2,7 +2,9 @@
   import { onMount } from "svelte"
   import { createApplicationRuntime, provideRuntime } from "./app/runtime.svelte"
   import AccessRoute from "./pages/access/AccessRoute.svelte"
-  import AgentProvidersRoute from "./pages/system/agent-providers/AgentProvidersRoute.svelte"
+  import AgentProviderDetailRoute from "./pages/system/agent-providers/AgentProviderDetailRoute.svelte"
+  import AgentProviderListRoute from "./pages/system/agent-providers/AgentProviderListRoute.svelte"
+  import AgentProviderNewRoute from "./pages/system/agent-providers/AgentProviderNewRoute.svelte"
   import AgentModelsRoute from "./pages/system/agent-models/AgentModelsRoute.svelte"
   import StorageProvidersRoute from "./pages/system/storage-providers/StorageProvidersRoute.svelte"
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
@@ -50,8 +52,12 @@
   <SessionSecretsRoute />
 {:else if owner === "groups"}
   <GroupsRoute />
-{:else if owner === "agent-providers"}
-  <AgentProvidersRoute />
+{:else if owner === "agent-provider-list"}
+  <AgentProviderListRoute />
+{:else if owner === "agent-provider-new"}
+  <AgentProviderNewRoute />
+{:else if owner === "agent-provider-detail"}
+  <AgentProviderDetailRoute providerID={runtime.state.route.kind === "system-agent-provider" ? runtime.state.route.providerID : ""} />
 {:else if owner === "agent-models"}
   <AgentModelsRoute />
 {:else if owner === "storage-providers"}
