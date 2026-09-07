@@ -8,7 +8,9 @@
   import AgentModelDetailRoute from "./pages/system/agent-models/AgentModelDetailRoute.svelte"
   import AgentModelListRoute from "./pages/system/agent-models/AgentModelListRoute.svelte"
   import AgentModelNewRoute from "./pages/system/agent-models/AgentModelNewRoute.svelte"
-  import StorageProvidersRoute from "./pages/system/storage-providers/StorageProvidersRoute.svelte"
+  import StorageProviderDetailRoute from "./pages/system/storage-providers/StorageProviderDetailRoute.svelte"
+  import StorageProviderListRoute from "./pages/system/storage-providers/StorageProviderListRoute.svelte"
+  import StorageProviderNewRoute from "./pages/system/storage-providers/StorageProviderNewRoute.svelte"
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
   import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
@@ -66,8 +68,9 @@
   <AgentModelNewRoute />
 {:else if owner === "agent-model-detail"}
   <AgentModelDetailRoute modelID={runtime.state.route.kind === "system-agent-model" ? runtime.state.route.modelID : ""} />
-{:else if owner === "storage-providers"}
-  <StorageProvidersRoute />
+{:else if owner === "storage-provider-list"}<StorageProviderListRoute />
+{:else if owner === "storage-provider-new"}<StorageProviderNewRoute />
+{:else if owner === "storage-provider-detail"}<StorageProviderDetailRoute providerID={runtime.state.route.kind === "system-storage-provider" ? runtime.state.route.providerID : ""} />
 {:else if owner === "principals"}
   <PrincipalsRoute />
 {:else if owner === "system-grants"}

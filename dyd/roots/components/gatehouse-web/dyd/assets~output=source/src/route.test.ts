@@ -23,6 +23,8 @@ describe("routes", () => {
     { path: "/app/system/agent-models/new", route: { kind: "system-agent-model-new" } },
     { path: "/app/system/agent-models/amd_1", route: { kind: "system-agent-model", modelID: "amd_1" } },
     { path: "/app/system/storage-providers", route: { kind: "system-storage-providers" } },
+    { path: "/app/system/storage-providers/new", route: { kind: "system-storage-provider-new" } },
+    { path: "/app/system/storage-providers/stp_1", route: { kind: "system-storage-provider", providerID: "stp_1" } },
     { path: "/app/system/workspace-agent-bindings", route: { kind: "system-workspace-agent-bindings" } },
     { path: "/app/system/workspace-storage-bindings", route: { kind: "system-workspace-storage-bindings" } },
     { path: "/app/wsp/wsp_a", route: { kind: "workspace", workspaceID: "wsp_a" } },
