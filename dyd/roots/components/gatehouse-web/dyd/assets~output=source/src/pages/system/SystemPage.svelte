@@ -19,15 +19,9 @@
     mobileMenuOpen: boolean
   } = $props()
   const controller = untrack(() => createSystemController({ activity, principalID, onAuthenticationLost, onSystemAccessChange }))
-  const workspaceAgent = $state({ workspace: "", model: "", priority: 0, label: "", systemPrompt: "" })
-  const workspaceStorage = $state({ workspace: "", provider: "", priority: 0 })
-  const optional = (value: string): string | undefined => value.trim() === "" ? undefined : value.trim()
-  const reset = (form: Record<string, string | number>) => { for (const key of Object.keys(form)) form[key] = typeof form[key] === "number" ? 0 : "" }
-  async function createWorkspaceAgent() { if (await controller.saveAdministration(`workspace-agents/${encodeURIComponent(workspaceAgent.workspace)}/${encodeURIComponent(workspaceAgent.model)}`, "POST", { priority: workspaceAgent.priority, label: optional(workspaceAgent.label), system_prompt: optional(workspaceAgent.systemPrompt), enabled: true }, () => controller.loadAdministration("workspace-agents", "workspaceAgents"))) reset(workspaceAgent) }
-  async function createWorkspaceStorage() { if (await controller.saveAdministration(`workspace-storage-providers/${encodeURIComponent(workspaceStorage.workspace)}/${encodeURIComponent(workspaceStorage.provider)}`, "POST", { priority: workspaceStorage.priority, enabled: true }, () => controller.loadAdministration("workspace-storage-providers", "workspaceStorageProviders"))) reset(workspaceStorage) }
 
   $effect(() => {
-    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-workspace-bindings") {
+    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals") {
       void controller.load(route.kind)
     }
   })
@@ -37,7 +31,7 @@
       controller.stop()
       return
     }
-    return controller.start(route.kind)
+    return controller.start()
   })
 </script>
 
@@ -55,7 +49,8 @@
            {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-agent-providers" ? "active" : undefined} href="/app/system/agent-providers">Agent providers</RouterLink></li>{/if}
            {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-agent-models" ? "active" : undefined} href="/app/system/agent-models">Agent models</RouterLink></li>{/if}
            {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-storage-providers" ? "active" : undefined} href="/app/system/storage-providers">Storage providers</RouterLink></li>{/if}
-           {#if systemAccess === "available"}<li><RouterLink class={route.kind === "system-workspace-bindings" ? "active" : undefined} href="/app/system/workspace-bindings">Workspace bindings</RouterLink></li>{/if}
+           {#if systemAccess === "available"}<li><RouterLink href="/app/system/workspace-agent-bindings">Workspace agent bindings</RouterLink></li>{/if}
+           {#if systemAccess === "available"}<li><RouterLink href="/app/system/workspace-storage-bindings">Workspace storage bindings</RouterLink></li>{/if}
         </ul>
       </section>
     </nav>
@@ -71,7 +66,7 @@
         {#if route.kind !== "system"}
           <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : "Workspace bindings"}</span>
+          <span>{route.kind === "system-principals" ? "Principals" : "System grants"}</span>
         {:else}
           <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
         {/if}
@@ -91,15 +86,8 @@
          <RouterLink class="system-section-link" href="/app/system/agent-providers"><span><strong>Agent providers</strong><small>Configure model-provider protocols and credentials.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/agent-models"><span><strong>Agent models</strong><small>Configure models available for workspace bindings.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/storage-providers"><span><strong>Storage providers</strong><small>Configure embedded or S3 storage.</small></span></RouterLink>
-         <RouterLink class="system-section-link" href="/app/system/workspace-bindings"><span><strong>Workspace bindings</strong><small>Assign agent models and storage providers to workspaces.</small></span></RouterLink>
-      </section>
-    {:else if route.kind === "system-workspace-bindings"}
-      <section class="system-page">
-        <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Workspace bindings</h2><p class="subtitle is-6">Bind global models and storage providers to a workspace. Disabling preserves the binding.</p></div></div>
-        <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createWorkspaceAgent() }}><label class="field"><span class="label">Workspace ID</span><input class="input" required bind:value={workspaceAgent.workspace} /></label><label class="field"><span class="label">Model ID</span><input class="input" required bind:value={workspaceAgent.model} /></label><label class="field"><span class="label">Priority</span><input class="input" type="number" bind:value={workspaceAgent.priority} /></label><label class="field"><span class="label">Label</span><input class="input" bind:value={workspaceAgent.label} /></label><label class="field"><span class="label">System prompt</span><textarea class="textarea" rows="2" bind:value={workspaceAgent.systemPrompt}></textarea></label><button class="button is-primary" type="submit" disabled={controller.state.savingAdministration}>Bind agent model</button></form>
-        <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createWorkspaceStorage() }}><label class="field"><span class="label">Workspace ID</span><input class="input" required bind:value={workspaceStorage.workspace} /></label><label class="field"><span class="label">Storage provider ID</span><input class="input" required bind:value={workspaceStorage.provider} /></label><label class="field"><span class="label">Priority</span><input class="input" type="number" bind:value={workspaceStorage.priority} /></label><button class="button is-primary" type="submit" disabled={controller.state.savingAdministration}>Bind storage provider</button></form>
-        {#if controller.state.administrationError !== ""}<p class="help is-danger" aria-live="polite">{controller.state.administrationError}</p>{/if}
-        <div class="system-grant-list">{#each controller.state.workspaceAgents as binding (`${binding.workspace}/${binding.model}`)}<article class:system-grant-disabled={!binding.enabled} class="system-grant-row"><div><strong>{binding.workspace} / {binding.model}</strong><small>priority {binding.priority} / revision {binding.revision}</small></div><div class="system-grant-actions"><span>{binding.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.savingAdministration} onclick={() => void controller.saveAdministration(`workspace-agents/${encodeURIComponent(binding.workspace)}/${encodeURIComponent(binding.model)}`, "PATCH", { priority: binding.priority, label: binding.label, system_prompt: binding.system_prompt, enabled: !binding.enabled, expected_revision: binding.revision }, () => controller.loadAdministration("workspace-agents", "workspaceAgents"))}>{binding.enabled ? "Disable" : "Enable"}</button></div></article>{/each}{#each controller.state.workspaceStorageProviders as binding (`${binding.workspace}/${binding.provider}`)}<article class:system-grant-disabled={!binding.enabled} class="system-grant-row"><div><strong>{binding.workspace} / {binding.provider}</strong><small>storage priority {binding.priority} / revision {binding.revision}</small></div><div class="system-grant-actions"><span>{binding.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.savingAdministration} onclick={() => void controller.saveAdministration(`workspace-storage-providers/${encodeURIComponent(binding.workspace)}/${encodeURIComponent(binding.provider)}`, "PATCH", { priority: binding.priority, enabled: !binding.enabled, expected_revision: binding.revision }, () => controller.loadAdministration("workspace-storage-providers", "workspaceStorageProviders"))}>{binding.enabled ? "Disable" : "Enable"}</button></div></article>{/each}{#if controller.state.workspaceAgents.length === 0 && controller.state.workspaceStorageProviders.length === 0}<p class="dashboard-empty">No workspace bindings are configured.</p>{/if}</div>
+         <RouterLink class="system-section-link" href="/app/system/workspace-agent-bindings"><span><strong>Workspace agent bindings</strong><small>Assign agent models to workspaces.</small></span></RouterLink>
+         <RouterLink class="system-section-link" href="/app/system/workspace-storage-bindings"><span><strong>Workspace storage bindings</strong><small>Assign storage providers to workspaces.</small></span></RouterLink>
       </section>
     {:else if route.kind === "system-principals"}
       <section class="system-page">

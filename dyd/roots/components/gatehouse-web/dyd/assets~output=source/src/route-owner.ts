@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "agent-providers" | "agent-models" | "storage-providers" | "system" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "agent-providers" | "agent-models" | "storage-providers" | "workspace-agent-bindings" | "workspace-storage-bindings" | "system" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -39,7 +39,6 @@ export function routeOwner(route: Route): RouteOwner {
     case "system":
     case "system-grants":
     case "system-principals":
-    case "system-workspace-bindings":
       return "system"
     case "system-agent-providers":
       return "agent-providers"
@@ -47,6 +46,10 @@ export function routeOwner(route: Route): RouteOwner {
       return "agent-models"
     case "system-storage-providers":
       return "storage-providers"
+    case "system-workspace-agent-bindings":
+      return "workspace-agent-bindings"
+    case "system-workspace-storage-bindings":
+      return "workspace-storage-bindings"
     case "app-home":
     case "workspace":
     case "not-found":

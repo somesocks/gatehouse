@@ -1,24 +1,11 @@
 <script lang="ts">
-  import { signOut } from "../../app/auth"
-  import { useRuntime } from "../../app/runtime.svelte"
-  import type { Route } from "../../route"
-  import LoginPage from "../login/LoginPage.svelte"
-  import SystemPage from "./SystemPage.svelte"
+  import type { Snippet } from "svelte"
+  import { useRuntime } from "../app/runtime.svelte"
+  import LoginPage from "../pages/login/LoginPage.svelte"
 
-  type SystemRoute = Extract<Route, { kind: "system" | "system-grants" | "system-principals" }>
-
+  let { children }: { children: Snippet } = $props()
   const runtime = useRuntime()
-  const { access, activity, auth } = runtime
-  let mobileMenuOpen = $state(false)
-  const currentRoute = $derived(runtime.state.route as SystemRoute)
-
-  async function logout(): Promise<void> {
-    try {
-      await signOut()
-    } finally {
-      runtime.requireLogin()
-    }
-  }
+  const { access, auth } = runtime
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -27,6 +14,10 @@
   <main class="auth-shell"><section class="status-card"><p class="eyebrow">Gatehouse</p><h1 class="title is-3">Connection unavailable</h1><p class="subtitle is-6">Gatehouse could not load your account.</p><button class="button is-primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></section></main>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
+{:else if access.state.systemAccess === "checking"}
+  <section class="system-page"><p class="dashboard-empty">Loading system access...</p></section>
+{:else if access.state.systemAccess !== "available"}
+  <section class="system-page system-access-denied"><p class="eyebrow">System</p><h2 class="title is-3">System access required</h2><p>You do not currently have an enabled system manager grant.</p></section>
 {:else}
-  <SystemPage route={currentRoute} systemAccess={access.state.systemAccess} {activity} principalID={() => auth.state.claims?.principal.ref.id} principalName={auth.state.claims?.principal.name ?? "User"} onAuthenticationLost={() => runtime.requireLogin()} onSystemAccessChange={access.setSystemAccess} onLogout={() => void logout()} bind:mobileMenuOpen />
+  {@render children()}
 {/if}

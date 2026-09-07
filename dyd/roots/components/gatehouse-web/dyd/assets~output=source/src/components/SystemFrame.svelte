@@ -30,7 +30,8 @@
         <li><RouterLink class={active === "agent-providers" ? "active" : undefined} href="/app/system/agent-providers">Agent providers</RouterLink></li>
         <li><RouterLink class={active === "agent-models" ? "active" : undefined} href="/app/system/agent-models">Agent models</RouterLink></li>
         <li><RouterLink class={active === "storage-providers" ? "active" : undefined} href="/app/system/storage-providers">Storage providers</RouterLink></li>
-        <li><RouterLink class={active === "workspace-bindings" ? "active" : undefined} href="/app/system/workspace-bindings">Workspace bindings</RouterLink></li>
+        <li><RouterLink class={active === "workspace-agent-bindings" ? "active" : undefined} href="/app/system/workspace-agent-bindings">Workspace agent bindings</RouterLink></li>
+        <li><RouterLink class={active === "workspace-storage-bindings" ? "active" : undefined} href="/app/system/workspace-storage-bindings">Workspace storage bindings</RouterLink></li>
       </ul></section>
     </nav>
     <div class="sidebar-footer"><span>{runtime.auth.state.claims?.principal.name ?? "User"}</span><button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button></div>

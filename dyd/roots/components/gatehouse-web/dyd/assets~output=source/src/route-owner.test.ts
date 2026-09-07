@@ -49,7 +49,8 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "system-agent-providers" })).toBe("agent-providers")
     expect(routeOwner({ kind: "system-agent-models" })).toBe("agent-models")
     expect(routeOwner({ kind: "system-storage-providers" })).toBe("storage-providers")
-    expect(routeOwner({ kind: "system-workspace-bindings" })).toBe("system")
+    expect(routeOwner({ kind: "system-workspace-agent-bindings" })).toBe("workspace-agent-bindings")
+    expect(routeOwner({ kind: "system-workspace-storage-bindings" })).toBe("workspace-storage-bindings")
   })
 
   it("assigns workspace fallback URLs to the dashboard owner", () => {

@@ -12,7 +12,8 @@ export type Route =
   | { kind: "system-agent-providers" }
   | { kind: "system-agent-models" }
   | { kind: "system-storage-providers" }
-  | { kind: "system-workspace-bindings" }
+  | { kind: "system-workspace-agent-bindings" }
+  | { kind: "system-workspace-storage-bindings" }
   | ({ kind: "workspace" } & WorkspaceRoute)
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
@@ -85,7 +86,8 @@ export function parseRoute(url: URL): Route {
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "agent-providers") return { kind: "system-agent-providers" }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "agent-models") return { kind: "system-agent-models" }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "storage-providers") return { kind: "system-storage-providers" }
-  if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-bindings") return { kind: "system-workspace-bindings" }
+  if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-agent-bindings") return { kind: "system-workspace-agent-bindings" }
+  if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-storage-bindings") return { kind: "system-workspace-storage-bindings" }
   if (segments.length < 3 || segments[1] !== "wsp") {
     return notFound()
   }
@@ -203,8 +205,10 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system/agent-models"
     case "system-storage-providers":
       return "/app/system/storage-providers"
-    case "system-workspace-bindings":
-      return "/app/system/workspace-bindings"
+    case "system-workspace-agent-bindings":
+      return "/app/system/workspace-agent-bindings"
+    case "system-workspace-storage-bindings":
+      return "/app/system/workspace-storage-bindings"
     case "workspace":
       return `/app/wsp/${segment(route.workspaceID)}`
     case "session-collection":

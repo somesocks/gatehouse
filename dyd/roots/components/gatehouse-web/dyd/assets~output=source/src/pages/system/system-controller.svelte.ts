@@ -1,7 +1,7 @@
 import type { ActivityClient } from "../../app/activity"
-import { createSystemGrant, fetchSystemGrants, fetchSystemPrincipals, systemAdministration, updateSystemGrant, updateSystemPrincipal, type SystemGrant, type SystemPrincipal, type SystemWorkspaceAgent, type SystemWorkspaceStorageProvider } from "../../app/system"
+import { createSystemGrant, fetchSystemGrants, fetchSystemPrincipals, updateSystemGrant, updateSystemPrincipal, type SystemGrant, type SystemPrincipal } from "../../app/system"
 
-type SystemRouteKind = "system" | "system-grants" | "system-principals" | "system-workspace-bindings"
+type SystemRouteKind = "system" | "system-grants" | "system-principals"
 type SystemAccess = "available" | "denied" | "unavailable"
 
 type SystemControllerOptions = {
@@ -21,10 +21,6 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     creatingGrant: false,
     updatingGrantIDs: new Set<string>(),
     updatingPrincipalIDs: new Set<string>(),
-    workspaceAgents: [] as SystemWorkspaceAgent[],
-    workspaceStorageProviders: [] as SystemWorkspaceStorageProvider[],
-    administrationError: "",
-    savingAdministration: false,
   })
   let unsubscribe: (() => void) | undefined
 
@@ -85,35 +81,7 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     if (!await loadGrants() || route === "system" || route === "system-grants") {
       return
     }
-    if (route === "system-principals") { await loadPrincipals(); return }
-    if (route === "system-workspace-bindings") {
-      await Promise.all([loadAdministration("workspace-agents", "workspaceAgents"), loadAdministration("workspace-storage-providers", "workspaceStorageProviders")])
-    }
-  }
-
-  async function loadAdministration(path: string, field: "workspaceAgents" | "workspaceStorageProviders"): Promise<void> {
-    state.administrationError = ""
-    try {
-      const response = await systemAdministration(path)
-      if (response.status === 401) { onAuthenticationLost(); return }
-      if (response.status === 403) { onSystemAccessChange("denied"); return }
-      if (!response.ok) { state.administrationError = "System settings could not be loaded."; return }
-      ;(state[field] as unknown) = await response.json()
-    } catch { state.administrationError = "System settings could not be loaded." }
-  }
-
-  async function saveAdministration(path: string, method: "POST" | "PATCH", body: Record<string, unknown>, reload: () => Promise<void>): Promise<boolean> {
-    state.administrationError = ""
-    state.savingAdministration = true
-    try {
-      const response = await systemAdministration(path, method, body)
-      if (response.status === 401) { onAuthenticationLost(); return false }
-      if (response.status === 403) { onSystemAccessChange("denied"); return false }
-      if (response.status === 409) { state.administrationError = "This setting changed elsewhere. The latest settings have been reloaded."; await reload(); return false }
-      if (!response.ok) { state.administrationError = "System setting could not be saved."; return false }
-      await reload()
-      return true
-    } catch { state.administrationError = "System setting could not be saved."; return false } finally { state.savingAdministration = false }
+    if (route === "system-principals") await loadPrincipals()
   }
 
   async function setPrincipalEnabled(principal: SystemPrincipal, enabled: boolean): Promise<void> {
@@ -228,20 +196,10 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     }
   }
 
-  function start(route: string): () => void {
+  function start(): () => void {
     stop()
-    const refresh = route === "system-grants"
-      ? [{ name: "system-grants", topic: "sys", events: ["system_grant.*"] }]
-      : route === "system-workspace-bindings"
-              ? [{ name: "workspace-agents", topic: "sys", events: ["workspace_agent.*"] }, { name: "workspace-storage-providers", topic: "sys", events: ["workspace_storage_provider.*"] }]
-              : []
-    if (refresh.length === 0) {
-      return stop
-    }
-    unsubscribe = activity.subscribe(refresh, async ({ names }) => {
-      if (names.has("system-grants") && !await loadGrants()) throw new Error("system grants refresh failed")
-      if (names.has("workspace-agents")) await loadAdministration("workspace-agents", "workspaceAgents")
-      if (names.has("workspace-storage-providers")) await loadAdministration("workspace-storage-providers", "workspaceStorageProviders")
+    unsubscribe = activity.subscribe([{ name: "system-grants", topic: "sys", events: ["system_grant.*"] }], async () => {
+      if (!await loadGrants()) throw new Error("system grants refresh failed")
     })
     return stop
   }
@@ -251,5 +209,5 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     unsubscribe = undefined
   }
 
-  return { state, load, loadAdministration, saveAdministration, setPrincipalEnabled, addGrant, setGrantEnabled, start, stop }
+  return { state, load, setPrincipalEnabled, addGrant, setGrantEnabled, start, stop }
 }

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte"
-  import type { ActivityClient } from "../../../app/activity"
+  import { useRuntime } from "../../../app/runtime.svelte"
   import SystemFrame from "../../../components/SystemFrame.svelte"
   import { createStorageProvidersController } from "./storage-providers-controller.svelte"
 
-  let { activity, onAuthenticationLost, onSystemAccessChange }: { activity: ActivityClient; onAuthenticationLost: () => void; onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void } = $props()
-  const controller = untrack(() => createStorageProvidersController({ activity, onAuthenticationLost, onSystemAccessChange }))
+  const runtime = useRuntime()
+  const controller = untrack(() => createStorageProvidersController({ activity: runtime.activity, onAuthenticationLost: runtime.requireLogin, onSystemAccessChange: runtime.access.setSystemAccess }))
 
   $effect(() => { void controller.load() })
   $effect(() => controller.start())
