@@ -4,6 +4,7 @@
   import AccessRoute from "./pages/access/AccessRoute.svelte"
   import AgentProvidersRoute from "./pages/system/agent-providers/AgentProvidersRoute.svelte"
   import AgentModelsRoute from "./pages/system/agent-models/AgentModelsRoute.svelte"
+  import StorageProvidersRoute from "./pages/system/storage-providers/StorageProvidersRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
@@ -49,6 +50,8 @@
   <AgentProvidersRoute />
 {:else if owner === "agent-models"}
   <AgentModelsRoute />
+{:else if owner === "storage-providers"}
+  <StorageProvidersRoute />
 {:else if owner === "chat-collection"}
   <ChatCollectionRoute />
 {:else if owner === "project-collection"}

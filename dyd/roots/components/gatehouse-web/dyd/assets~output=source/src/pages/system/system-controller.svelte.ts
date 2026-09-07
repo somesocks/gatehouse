@@ -1,7 +1,7 @@
 import type { ActivityClient } from "../../app/activity"
-import { createSystemGrant, fetchSystemGrants, fetchSystemPrincipals, systemAdministration, updateSystemGrant, updateSystemPrincipal, type SystemGrant, type SystemPrincipal, type SystemStorageProvider, type SystemWorkspaceAgent, type SystemWorkspaceStorageProvider } from "../../app/system"
+import { createSystemGrant, fetchSystemGrants, fetchSystemPrincipals, systemAdministration, updateSystemGrant, updateSystemPrincipal, type SystemGrant, type SystemPrincipal, type SystemWorkspaceAgent, type SystemWorkspaceStorageProvider } from "../../app/system"
 
-type SystemRouteKind = "system" | "system-grants" | "system-principals" | "system-storage-providers" | "system-workspace-bindings"
+type SystemRouteKind = "system" | "system-grants" | "system-principals" | "system-workspace-bindings"
 type SystemAccess = "available" | "denied" | "unavailable"
 
 type SystemControllerOptions = {
@@ -21,7 +21,6 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     creatingGrant: false,
     updatingGrantIDs: new Set<string>(),
     updatingPrincipalIDs: new Set<string>(),
-    storageProviders: [] as SystemStorageProvider[],
     workspaceAgents: [] as SystemWorkspaceAgent[],
     workspaceStorageProviders: [] as SystemWorkspaceStorageProvider[],
     administrationError: "",
@@ -87,13 +86,12 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
       return
     }
     if (route === "system-principals") { await loadPrincipals(); return }
-    if (route === "system-storage-providers") { await loadAdministration("storage-providers", "storageProviders"); return }
     if (route === "system-workspace-bindings") {
       await Promise.all([loadAdministration("workspace-agents", "workspaceAgents"), loadAdministration("workspace-storage-providers", "workspaceStorageProviders")])
     }
   }
 
-  async function loadAdministration(path: string, field: "storageProviders" | "workspaceAgents" | "workspaceStorageProviders"): Promise<void> {
+  async function loadAdministration(path: string, field: "workspaceAgents" | "workspaceStorageProviders"): Promise<void> {
     state.administrationError = ""
     try {
       const response = await systemAdministration(path)
@@ -234,9 +232,7 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     stop()
     const refresh = route === "system-grants"
       ? [{ name: "system-grants", topic: "sys", events: ["system_grant.*"] }]
-      : route === "system-storage-providers"
-            ? [{ name: "storage-providers", topic: "sys", events: ["storage_provider.*"] }]
-            : route === "system-workspace-bindings"
+      : route === "system-workspace-bindings"
               ? [{ name: "workspace-agents", topic: "sys", events: ["workspace_agent.*"] }, { name: "workspace-storage-providers", topic: "sys", events: ["workspace_storage_provider.*"] }]
               : []
     if (refresh.length === 0) {
@@ -244,7 +240,6 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     }
     unsubscribe = activity.subscribe(refresh, async ({ names }) => {
       if (names.has("system-grants") && !await loadGrants()) throw new Error("system grants refresh failed")
-      if (names.has("storage-providers")) await loadAdministration("storage-providers", "storageProviders")
       if (names.has("workspace-agents")) await loadAdministration("workspace-agents", "workspaceAgents")
       if (names.has("workspace-storage-providers")) await loadAdministration("workspace-storage-providers", "workspaceStorageProviders")
     })

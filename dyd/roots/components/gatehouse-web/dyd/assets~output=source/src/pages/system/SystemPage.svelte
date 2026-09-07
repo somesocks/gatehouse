@@ -19,17 +19,15 @@
     mobileMenuOpen: boolean
   } = $props()
   const controller = untrack(() => createSystemController({ activity, principalID, onAuthenticationLost, onSystemAccessChange }))
-  const storageProvider = $state({ alias: "", protocol: "embedded", endpoint: "", region: "", bucket: "", accessKeyID: "", keychain: "", secretAccessKey: "" })
   const workspaceAgent = $state({ workspace: "", model: "", priority: 0, label: "", systemPrompt: "" })
   const workspaceStorage = $state({ workspace: "", provider: "", priority: 0 })
   const optional = (value: string): string | undefined => value.trim() === "" ? undefined : value.trim()
   const reset = (form: Record<string, string | number>) => { for (const key of Object.keys(form)) form[key] = typeof form[key] === "number" ? 0 : "" }
-  async function createStorageProvider() { if (await controller.saveAdministration("storage-providers", "POST", { alias: storageProvider.alias, protocol: storageProvider.protocol, endpoint: optional(storageProvider.endpoint), region: optional(storageProvider.region), bucket: optional(storageProvider.bucket), access_key_id: optional(storageProvider.accessKeyID), keychain: optional(storageProvider.keychain), secret_access_key: optional(storageProvider.secretAccessKey), enabled: true }, () => controller.loadAdministration("storage-providers", "storageProviders"))) reset(storageProvider) }
   async function createWorkspaceAgent() { if (await controller.saveAdministration(`workspace-agents/${encodeURIComponent(workspaceAgent.workspace)}/${encodeURIComponent(workspaceAgent.model)}`, "POST", { priority: workspaceAgent.priority, label: optional(workspaceAgent.label), system_prompt: optional(workspaceAgent.systemPrompt), enabled: true }, () => controller.loadAdministration("workspace-agents", "workspaceAgents"))) reset(workspaceAgent) }
   async function createWorkspaceStorage() { if (await controller.saveAdministration(`workspace-storage-providers/${encodeURIComponent(workspaceStorage.workspace)}/${encodeURIComponent(workspaceStorage.provider)}`, "POST", { priority: workspaceStorage.priority, enabled: true }, () => controller.loadAdministration("workspace-storage-providers", "workspaceStorageProviders"))) reset(workspaceStorage) }
 
   $effect(() => {
-    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-storage-providers" || route.kind === "system-workspace-bindings") {
+    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-workspace-bindings") {
       void controller.load(route.kind)
     }
   })
@@ -73,7 +71,7 @@
         {#if route.kind !== "system"}
           <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : route.kind === "system-storage-providers" ? "Storage providers" : "Workspace bindings"}</span>
+          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : "Workspace bindings"}</span>
         {:else}
           <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
         {/if}
@@ -94,15 +92,6 @@
          <RouterLink class="system-section-link" href="/app/system/agent-models"><span><strong>Agent models</strong><small>Configure models available for workspace bindings.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/storage-providers"><span><strong>Storage providers</strong><small>Configure embedded or S3 storage.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/workspace-bindings"><span><strong>Workspace bindings</strong><small>Assign agent models and storage providers to workspaces.</small></span></RouterLink>
-      </section>
-    {:else if route.kind === "system-storage-providers"}
-      <section class="system-page">
-        <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Storage providers</h2><p class="subtitle is-6">Credentials are write-only. Embedded storage needs no credentials.</p></div></div>
-        <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createStorageProvider() }}>
-          <label class="field"><span class="label">Alias</span><input class="input" required bind:value={storageProvider.alias} /></label><label class="field"><span class="label">Protocol</span><select class="select" bind:value={storageProvider.protocol}><option value="embedded">Embedded</option><option value="s3">S3</option></select></label><label class="field"><span class="label">Endpoint</span><input class="input" bind:value={storageProvider.endpoint} /></label><label class="field"><span class="label">Region</span><input class="input" bind:value={storageProvider.region} /></label><label class="field"><span class="label">Bucket</span><input class="input" bind:value={storageProvider.bucket} /></label><label class="field"><span class="label">Access key ID</span><input class="input" bind:value={storageProvider.accessKeyID} /></label><label class="field"><span class="label">Keychain ID</span><input class="input" bind:value={storageProvider.keychain} /></label><label class="field"><span class="label">Secret access key</span><input class="input" type="password" autocomplete="new-password" bind:value={storageProvider.secretAccessKey} /></label><button class="button is-primary" type="submit" disabled={controller.state.savingAdministration}>Add provider</button>
-        </form>
-        {#if controller.state.administrationError !== ""}<p class="help is-danger" aria-live="polite">{controller.state.administrationError}</p>{/if}
-        <div class="system-grant-list">{#each controller.state.storageProviders as provider (provider.id)}<article class:system-grant-disabled={!provider.enabled} class="system-grant-row"><div><strong>{provider.alias}</strong><small>{provider.id} / {provider.protocol} / {provider.bucket ?? "no bucket"} / revision {provider.revision}{provider.credential_configured ? " / credential configured" : ""}</small></div><div class="system-grant-actions"><span>{provider.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.savingAdministration} onclick={() => void controller.saveAdministration(`storage-providers/${encodeURIComponent(provider.id)}`, "PATCH", { alias: provider.alias, protocol: provider.protocol, endpoint: provider.endpoint, region: provider.region, bucket: provider.bucket, access_key_id: provider.access_key_id, keychain: provider.keychain?.id, enabled: !provider.enabled, expected_revision: provider.revision }, () => controller.loadAdministration("storage-providers", "storageProviders"))}>{provider.enabled ? "Disable" : "Enable"}</button></div></article>{:else}<p class="dashboard-empty">No storage providers are configured.</p>{/each}</div>
       </section>
     {:else if route.kind === "system-workspace-bindings"}
       <section class="system-page">
