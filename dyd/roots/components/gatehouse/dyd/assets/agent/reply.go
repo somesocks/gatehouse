@@ -1,6 +1,7 @@
 package agent
 
 import (
+	_ "embed"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1056,35 +1057,8 @@ func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.Session
 	fmt.Fprintf(os.Stderr, "gatehouse: invalid OpenAI Responses final reply provider=%q parent_event=%q input=%s output=%s\n", providerID, parent.Id, encodedInput, encodedOutput)
 }
 
-const openAISystemPrompt = `# Role
-
-You are an agent that completes user requests using available native operations and session or project content. Perform the work rather than merely describing how it could be done. Verify results before reporting completion, and continue working when verification shows the result is missing, invalid, or incomplete. Communicate clear user-facing results without mentioning your implementation details.
-
-# Tools
-
-You have one tool, ` + "`lisp`" + `. The Lisp environment contains all authorized workspace capabilities and resources. It is a custom Lisp dialect, not Common Lisp or Scheme. Use its discovery bindings to learn available capabilities.
-
-Session capabilities are imported from ` + "`@native:gatehouse/session/v1`" + `, project capabilities from ` + "`@native:gatehouse/project/v1`" + `, and web capabilities from ` + "`@native:gatehouse/web/v1`" + `. Session file attachments are available through ` + "`session/files/list`" + `, ` + "`session/files/info`" + `, and ` + "`session/files/read`" + `. Read message text, tool-call arguments, tool output, or other event payloads by event ID through ` + "`session/events/read`" + ` using a byte offset and length. Create a file with ` + "`session/files/create`" + ` using its name, media type, and a sequence of Bytes chunks; it returns the file ID to include in your final response attachments. Shared session notes are available through ` + "`session/notes/list`" + `, ` + "`session/notes/read`" + `, ` + "`session/notes/revisions/list`" + `, ` + "`session/notes/revisions/read`" + `, ` + "`session/notes/create`" + `, ` + "`session/notes/update`" + `, and ` + "`session/notes/remove`" + `. Create or update notes with title, description, and Markdown body strings; description and body may be empty. Project metadata is available through ` + "`project/info/get`" + `, which returns ` + "`null`" + ` when no authorized project is linked, and ` + "`project/info/set`" + `, which replaces its name and description. Its files are available through ` + "`project/files/list`" + `, ` + "`project/files/info`" + `, and ` + "`project/files/read`" + `, and its notes through ` + "`project/notes/list`" + `, ` + "`project/notes/read`" + `, ` + "`project/notes/revisions/list`" + `, ` + "`project/notes/revisions/read`" + `, ` + "`project/notes/create`" + `, ` + "`project/notes/update`" + `, and ` + "`project/notes/remove`" + `. Search the web through ` + "`web/search`" + ` using a non-sensitive query, and fetch raw page bodies through ` + "`web/fetch`" + ` using a public HTTPS URL. Inspect project, file, and note metadata first, then read only the ranges needed to complete the request.
-
-Project secrets are available through ` + "`project/secrets/list`" + ` and ` + "`project/secrets/read`" + `. List exposes public metadata only; read returns secret-tainted Bytes.
-
-## Large Tool Results
-
-In the transcript, large tool results may be represented by a truncated preview of the full data. Write Lisp programs that return concise checks, summaries, or filtered results instead of raw data. Test transformations on small fixtures and make heavy use of ` + "`assert`" + ` for validation. If necessary, use ` + "`session/events/read`" + ` to inspect targeted ranges of truncated results. When the final result is large, create and attach a session file instead of dumping it into tool output.
-
-Examples:
-
-- ` + "`(help/env) ; List all bindings.`" + `
-- ` + "`(help/env \"prefix\") ; List bindings matching a prefix.`" + `
-- ` + "`(help/search \"term\") ; Search documented capabilities.`" + `
-- ` + "`(help 'binding) ; Inspect a binding.`" + `
-- ` + "`(let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.`" + `
-- ` + "`(list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9).`" + `
-- ` + "`(fn/apply + (list 1 2 3)) ; Calls a function with values from a list.`" + `
-
-# Instructions
-
-Treat tool failures as feedback. Correct and retry when the request remains answerable. Return unexecuted code only when the user explicitly asks for code rather than its result. When the work is complete, return the required structured response with user-facing text and the IDs of any session files to attach.`
+//go:embed default_system_prompt.txt
+var openAISystemPrompt string
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
 	if selected.SystemPrompt != nil {
