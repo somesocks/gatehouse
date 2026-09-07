@@ -18,17 +18,17 @@ var (
 )
 
 type SystemStorageProvider struct {
-	ID                   string
-	Alias                string
-	Revision             int
-	Protocol             string
-	Endpoint             *string
-	Region               *string
-	Bucket               *string
-	AccessKeyID          *string
-	Keychain             *model.KeychainRef
-	CredentialConfigured bool
-	Enabled              bool
+	ID                   string             `json:"id"`
+	Alias                string             `json:"alias"`
+	Revision             int                `json:"revision"`
+	Protocol             string             `json:"protocol"`
+	Endpoint             *string            `json:"endpoint,omitempty"`
+	Region               *string            `json:"region,omitempty"`
+	Bucket               *string            `json:"bucket,omitempty"`
+	AccessKeyID          *string            `json:"access_key_id,omitempty"`
+	Keychain             *model.KeychainRef `json:"keychain,omitempty"`
+	CredentialConfigured bool               `json:"credential_configured"`
+	Enabled              bool               `json:"enabled"`
 }
 
 type SystemStorageProviderInput struct {
@@ -44,11 +44,11 @@ type SystemStorageProviderInput struct {
 }
 
 type SystemWorkspaceStorageProvider struct {
-	WorkspaceID string
-	ProviderID  string
-	Revision    int
-	Priority    int
-	Enabled     bool
+	WorkspaceID string `json:"workspace"`
+	ProviderID  string `json:"provider"`
+	Revision    int    `json:"revision"`
+	Priority    int    `json:"priority"`
+	Enabled     bool   `json:"enabled"`
 }
 
 type SystemWorkspaceStorageProviderInput struct {

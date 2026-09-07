@@ -21,6 +21,7 @@ import (
 	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/keychain"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -45,7 +46,7 @@ type Service struct {
 }
 
 func Start(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) (error, *Service) {
-	return start(configuration, store, nil, tokens...)
+	return start(configuration, store, nil, nil, tokens...)
 }
 
 type ReplyDispatcher interface {
@@ -53,10 +54,14 @@ type ReplyDispatcher interface {
 }
 
 func StartWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
-	return start(configuration, store, dispatcher, tokens...)
+	return start(configuration, store, dispatcher, nil, tokens...)
 }
 
-func start(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
+func StartWithReplyDispatcherAndKeyring(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, keyring *keychain.Keyring, tokens ...*auth.BearerTokens) (error, *Service) {
+	return start(configuration, store, dispatcher, keyring, tokens...)
+}
+
+func start(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, keyring *keychain.Keyring, tokens ...*auth.BearerTokens) (error, *Service) {
 	listener, err := net.Listen("tcp", configuration.Listen)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", configuration.Listen, err), nil
@@ -65,7 +70,7 @@ func start(configuration config.HTTPService, store *database.Store, dispatcher R
 	service := &Service{
 		listener: listener,
 		server: &http.Server{
-			Handler:           handler(configuration, store, dispatcher, tokens...),
+			Handler:           handler(configuration, store, dispatcher, keyring, tokens...),
 			ReadHeaderTimeout: 10 * time.Second,
 			IdleTimeout:       time.Minute,
 			MaxHeaderBytes:    1 << 20,
@@ -96,14 +101,18 @@ func (service *Service) Shutdown(ctx context.Context) error {
 }
 
 func Handler(configuration config.HTTPService, store *database.Store, tokens ...*auth.BearerTokens) http.Handler {
-	return handler(configuration, store, nil, tokens...)
+	return handler(configuration, store, nil, nil, tokens...)
 }
 
 func HandlerWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) http.Handler {
-	return handler(configuration, store, dispatcher, tokens...)
+	return handler(configuration, store, dispatcher, nil, tokens...)
 }
 
-func handler(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) http.Handler {
+func HandlerWithKeyring(configuration config.HTTPService, store *database.Store, keyring *keychain.Keyring, tokens ...*auth.BearerTokens) http.Handler {
+	return handler(configuration, store, nil, keyring, tokens...)
+}
+
+func handler(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, keyring *keychain.Keyring, tokens ...*auth.BearerTokens) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", health)
 	mux.HandleFunc("/readyz", health)
@@ -120,6 +129,17 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/grants/{grant}", systemGrant(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals", systemPrincipals(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals/{principal}", systemPrincipal(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/keychains", systemKeychains(keyring, store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/agent-providers", systemAgentProviders(store, keyring, tokens[0]))
+		mux.HandleFunc("/api/v1/system/agent-providers/{provider}", systemAgentProvider(store, keyring, tokens[0]))
+		mux.HandleFunc("/api/v1/system/agent-models", systemAgentModels(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/agent-models/{model}", systemAgentModel(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/storage-providers", systemStorageProviders(store, keyring, tokens[0]))
+		mux.HandleFunc("/api/v1/system/storage-providers/{provider}", systemStorageProvider(store, keyring, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{model}", systemWorkspaceAgent(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-storage-providers", systemWorkspaceStorageProviders(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-storage-providers/{workspace}/{provider}", systemWorkspaceStorageProvider(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))

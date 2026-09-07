@@ -25,14 +25,14 @@ var (
 var administrationAlias = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 type SystemAgentProvider struct {
-	ID                  string
-	Alias               string
-	Revision            int
-	Protocol            string
-	BaseURL             *string
-	Keychain            *model.KeychainRef
-	CredentialConfigured bool
-	Enabled             bool
+	ID                   string                 `json:"id"`
+	Alias                string                 `json:"alias"`
+	Revision             int                    `json:"revision"`
+	Protocol             string                 `json:"protocol"`
+	BaseURL              *string                `json:"base_url,omitempty"`
+	Keychain             *model.KeychainRef     `json:"keychain,omitempty"`
+	CredentialConfigured bool                   `json:"credential_configured"`
+	Enabled              bool                   `json:"enabled"`
 }
 
 type SystemAgentProviderInput struct {
@@ -45,16 +45,16 @@ type SystemAgentProviderInput struct {
 }
 
 type SystemAgentModel struct {
-	ID              string
-	Alias           string
-	Revision        int
-	ProviderID      string
-	Model           string
-	Parameters      string
-	Compaction      string
-	MaxTurns        int
-	MaxOutputTokens int
-	Enabled         bool
+	ID              string  `json:"id"`
+	Alias           string  `json:"alias"`
+	Revision        int     `json:"revision"`
+	ProviderID      string  `json:"provider"`
+	Model           string  `json:"model"`
+	Parameters      string  `json:"parameters"`
+	Compaction      string  `json:"compaction"`
+	MaxTurns        int     `json:"max_turns"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
+	Enabled         bool    `json:"enabled"`
 }
 
 type SystemAgentModelInput struct {
@@ -69,13 +69,13 @@ type SystemAgentModelInput struct {
 }
 
 type SystemWorkspaceAgent struct {
-	WorkspaceID  string
-	ModelID      string
-	Revision     int
-	Priority     int
-	Label        *string
-	SystemPrompt *string
-	Enabled      bool
+	WorkspaceID  string  `json:"workspace"`
+	ModelID      string  `json:"model"`
+	Revision     int     `json:"revision"`
+	Priority     int     `json:"priority"`
+	Label        *string `json:"label,omitempty"`
+	SystemPrompt *string `json:"system_prompt,omitempty"`
+	Enabled      bool    `json:"enabled"`
 }
 
 type SystemWorkspaceAgentInput struct {

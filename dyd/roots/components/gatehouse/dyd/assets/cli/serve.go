@@ -157,7 +157,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			return 1
 		}
 
-		err, service := httpservice.StartWithReplyDispatcher(*services.HTTP, store, replies, tokens)
+		err, service := httpservice.StartWithReplyDispatcherAndKeyring(*services.HTTP, store, replies, keyring, tokens)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start HTTP service: %v\n", err)
 			return 1

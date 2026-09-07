@@ -1328,6 +1328,54 @@ func TestSystemPrincipalAPI(t *testing.T) {
 	}
 }
 
+func TestSystemAdministrationAPI(t *testing.T) {
+	tokens, store, _ := testBearerTokens(t)
+	configured := []config.Keychain{{ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}
+	err, ring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(ring.Close)
+	handler := HandlerWithKeyring(config.HTTPService{API: true}, store, ring, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil {
+		t.Fatal(err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	keychains := request(http.MethodGet, "/api/v1/system/keychains", "")
+	if keychains.Code != http.StatusOK || strings.Contains(keychains.Body.String(), "passphrase") || !strings.Contains(keychains.Body.String(), `"id":"test"`) {
+		t.Fatalf("GET system keychains = status %d body %q", keychains.Code, keychains.Body.String())
+	}
+	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","api_key":"secret-value","enabled":true}`)
+	var provider database.SystemAgentProvider
+	if err := json.Unmarshal(created.Body.Bytes(), &provider); err != nil || created.Code != http.StatusOK || provider.ID == "" || !provider.CredentialConfigured || strings.Contains(created.Body.String(), "secret-value") {
+		t.Fatalf("POST system agent provider = (%d, %#v, %v, %q)", created.Code, provider, err, created.Body.String())
+	}
+	listed := request(http.MethodGet, "/api/v1/system/agent-providers", "")
+	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), "secret-value") {
+		t.Fatalf("GET system agent providers = status %d body %q", listed.Code, listed.Body.String())
+	}
+	stale := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","enabled":false,"expected_revision":2}`)
+	if stale.Code != http.StatusConflict {
+		t.Fatalf("PATCH stale system agent provider = %d", stale.Code)
+	}
+	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","enabled":false,"expected_revision":1}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &provider); err != nil || updated.Code != http.StatusOK || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
+		t.Fatalf("PATCH system agent provider = (%d, %#v, %v)", updated.Code, provider, err)
+	}
+	if unauthenticated := httptest.NewRecorder(); func() bool { handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/system/agent-providers", nil)); return unauthenticated.Code == http.StatusUnauthorized }() == false {
+		t.Fatalf("GET system agent providers unauthenticated = %d", unauthenticated.Code)
+	}
+}
+
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[string]model.WorkspaceRef) {
 	t.Helper()
 	ctx := context.Background()

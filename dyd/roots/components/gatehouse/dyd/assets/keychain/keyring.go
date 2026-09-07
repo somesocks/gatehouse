@@ -133,6 +133,21 @@ func (keyring *Keyring) Get(ctx context.Context, references []model.KeychainRef)
 	return nil, keys
 }
 
+func (keyring *Keyring) Current(ctx context.Context) (error, []model.KeychainRef) {
+	keyring.mutex.Lock()
+	ids := append([]string(nil), keyring.ids...)
+	keyring.mutex.Unlock()
+	err, keychains := keyring.store.KeychainsGetCurrent(ctx, ids)
+	if err != nil {
+		return err, nil
+	}
+	references := make([]model.KeychainRef, 0, len(keychains))
+	for _, keychain := range keychains {
+		references = append(references, keychain.Ref)
+	}
+	return nil, references
+}
+
 func (keyring *Keyring) Close() {
 	keyring.mutex.Lock()
 	defer keyring.mutex.Unlock()
