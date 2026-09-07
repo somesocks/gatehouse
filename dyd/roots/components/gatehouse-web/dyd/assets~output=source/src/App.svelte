@@ -14,7 +14,9 @@
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
   import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
-  import WorkspaceAgentBindingsRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingsRoute.svelte"
+  import WorkspaceAgentBindingDetailRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingDetailRoute.svelte"
+  import WorkspaceAgentBindingListRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingListRoute.svelte"
+  import WorkspaceAgentBindingNewRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingNewRoute.svelte"
   import WorkspaceStorageBindingsRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingsRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
@@ -77,8 +79,9 @@
   <SystemGrantsRoute />
 {:else if owner === "system-overview"}
   <SystemOverviewRoute />
-{:else if owner === "workspace-agent-bindings"}
-  <WorkspaceAgentBindingsRoute />
+{:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute />
+{:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute />
+{:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute workspaceID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.workspaceID : ""} modelID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.modelID : ""} />
 {:else if owner === "workspace-storage-bindings"}
   <WorkspaceStorageBindingsRoute />
 {:else if owner === "chat-collection"}

@@ -19,6 +19,8 @@ export type Route =
   | { kind: "system-storage-provider-new" }
   | { kind: "system-storage-provider"; providerID: string }
   | { kind: "system-workspace-agent-bindings" }
+  | { kind: "system-workspace-agent-binding-new" }
+  | { kind: "system-workspace-agent-binding"; workspaceID: string; modelID: string }
   | { kind: "system-workspace-storage-bindings" }
   | ({ kind: "workspace" } & WorkspaceRoute)
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
@@ -99,6 +101,8 @@ export function parseRoute(url: URL): Route {
   if (segments.length === 4 && segments[1] === "system" && segments[2] === "storage-providers" && segments[3] === "new") return { kind: "system-storage-provider-new" }
   if (segments.length === 4 && segments[1] === "system" && segments[2] === "storage-providers") return { kind: "system-storage-provider", providerID: segments[3] }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-agent-bindings") return { kind: "system-workspace-agent-bindings" }
+  if (segments.length === 4 && segments[1] === "system" && segments[2] === "workspace-agent-bindings" && segments[3] === "new") return { kind: "system-workspace-agent-binding-new" }
+  if (segments.length === 5 && segments[1] === "system" && segments[2] === "workspace-agent-bindings") return { kind: "system-workspace-agent-binding", workspaceID: segments[3], modelID: segments[4] }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-storage-bindings") return { kind: "system-workspace-storage-bindings" }
   if (segments.length < 3 || segments[1] !== "wsp") {
     return notFound()
@@ -229,6 +233,8 @@ export function routePath(route: NavigableRoute): string {
     case "system-storage-provider": return `/app/system/storage-providers/${segment(route.providerID)}`
     case "system-workspace-agent-bindings":
       return "/app/system/workspace-agent-bindings"
+    case "system-workspace-agent-binding-new": return "/app/system/workspace-agent-bindings/new"
+    case "system-workspace-agent-binding": return `/app/system/workspace-agent-bindings/${segment(route.workspaceID)}/${segment(route.modelID)}`
     case "system-workspace-storage-bindings":
       return "/app/system/workspace-storage-bindings"
     case "workspace":
