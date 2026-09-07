@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-bindings" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-binding-list" | "workspace-storage-binding-new" | "workspace-storage-binding-detail" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -63,7 +63,9 @@ export function routeOwner(route: Route): RouteOwner {
     case "system-workspace-agent-binding-new": return "workspace-agent-binding-new"
     case "system-workspace-agent-binding": return "workspace-agent-binding-detail"
     case "system-workspace-storage-bindings":
-      return "workspace-storage-bindings"
+      return "workspace-storage-binding-list"
+    case "system-workspace-storage-binding-new": return "workspace-storage-binding-new"
+    case "system-workspace-storage-binding": return "workspace-storage-binding-detail"
     case "app-home":
     case "workspace":
     case "not-found":

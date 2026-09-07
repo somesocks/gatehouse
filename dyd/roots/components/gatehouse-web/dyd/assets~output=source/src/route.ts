@@ -22,6 +22,8 @@ export type Route =
   | { kind: "system-workspace-agent-binding-new" }
   | { kind: "system-workspace-agent-binding"; workspaceID: string; modelID: string }
   | { kind: "system-workspace-storage-bindings" }
+  | { kind: "system-workspace-storage-binding-new" }
+  | { kind: "system-workspace-storage-binding"; workspaceID: string; providerID: string }
   | ({ kind: "workspace" } & WorkspaceRoute)
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
@@ -104,6 +106,8 @@ export function parseRoute(url: URL): Route {
   if (segments.length === 4 && segments[1] === "system" && segments[2] === "workspace-agent-bindings" && segments[3] === "new") return { kind: "system-workspace-agent-binding-new" }
   if (segments.length === 5 && segments[1] === "system" && segments[2] === "workspace-agent-bindings") return { kind: "system-workspace-agent-binding", workspaceID: segments[3], modelID: segments[4] }
   if (segments.length === 3 && segments[1] === "system" && segments[2] === "workspace-storage-bindings") return { kind: "system-workspace-storage-bindings" }
+  if (segments.length === 4 && segments[1] === "system" && segments[2] === "workspace-storage-bindings" && segments[3] === "new") return { kind: "system-workspace-storage-binding-new" }
+  if (segments.length === 5 && segments[1] === "system" && segments[2] === "workspace-storage-bindings") return { kind: "system-workspace-storage-binding", workspaceID: segments[3], providerID: segments[4] }
   if (segments.length < 3 || segments[1] !== "wsp") {
     return notFound()
   }
@@ -237,6 +241,8 @@ export function routePath(route: NavigableRoute): string {
     case "system-workspace-agent-binding": return `/app/system/workspace-agent-bindings/${segment(route.workspaceID)}/${segment(route.modelID)}`
     case "system-workspace-storage-bindings":
       return "/app/system/workspace-storage-bindings"
+    case "system-workspace-storage-binding-new": return "/app/system/workspace-storage-bindings/new"
+    case "system-workspace-storage-binding": return `/app/system/workspace-storage-bindings/${segment(route.workspaceID)}/${segment(route.providerID)}`
     case "workspace":
       return `/app/wsp/${segment(route.workspaceID)}`
     case "session-collection":
