@@ -3,6 +3,7 @@
   import { createApplicationRuntime, provideRuntime } from "./app/runtime.svelte"
   import AccessRoute from "./pages/access/AccessRoute.svelte"
   import AgentProvidersRoute from "./pages/system/agent-providers/AgentProvidersRoute.svelte"
+  import AgentModelsRoute from "./pages/system/agent-models/AgentModelsRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
@@ -46,6 +47,8 @@
   <GroupsRoute />
 {:else if owner === "agent-providers"}
   <AgentProvidersRoute />
+{:else if owner === "agent-models"}
+  <AgentModelsRoute />
 {:else if owner === "chat-collection"}
   <ChatCollectionRoute />
 {:else if owner === "project-collection"}

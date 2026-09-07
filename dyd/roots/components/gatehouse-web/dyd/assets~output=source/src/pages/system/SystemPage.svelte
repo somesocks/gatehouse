@@ -19,19 +19,17 @@
     mobileMenuOpen: boolean
   } = $props()
   const controller = untrack(() => createSystemController({ activity, principalID, onAuthenticationLost, onSystemAccessChange }))
-  const agentModel = $state({ alias: "", provider: "", model: "", parameters: "", compaction: "", maxTurns: 0, maxOutputTokens: 0 })
   const storageProvider = $state({ alias: "", protocol: "embedded", endpoint: "", region: "", bucket: "", accessKeyID: "", keychain: "", secretAccessKey: "" })
   const workspaceAgent = $state({ workspace: "", model: "", priority: 0, label: "", systemPrompt: "" })
   const workspaceStorage = $state({ workspace: "", provider: "", priority: 0 })
   const optional = (value: string): string | undefined => value.trim() === "" ? undefined : value.trim()
   const reset = (form: Record<string, string | number>) => { for (const key of Object.keys(form)) form[key] = typeof form[key] === "number" ? 0 : "" }
-  async function createAgentModel() { if (await controller.saveAdministration("agent-models", "POST", { alias: agentModel.alias, provider: agentModel.provider, model: agentModel.model, parameters: agentModel.parameters, compaction: agentModel.compaction, max_turns: agentModel.maxTurns, max_output_tokens: agentModel.maxOutputTokens, enabled: true }, () => controller.loadAdministration("agent-models", "agentModels"))) reset(agentModel) }
   async function createStorageProvider() { if (await controller.saveAdministration("storage-providers", "POST", { alias: storageProvider.alias, protocol: storageProvider.protocol, endpoint: optional(storageProvider.endpoint), region: optional(storageProvider.region), bucket: optional(storageProvider.bucket), access_key_id: optional(storageProvider.accessKeyID), keychain: optional(storageProvider.keychain), secret_access_key: optional(storageProvider.secretAccessKey), enabled: true }, () => controller.loadAdministration("storage-providers", "storageProviders"))) reset(storageProvider) }
   async function createWorkspaceAgent() { if (await controller.saveAdministration(`workspace-agents/${encodeURIComponent(workspaceAgent.workspace)}/${encodeURIComponent(workspaceAgent.model)}`, "POST", { priority: workspaceAgent.priority, label: optional(workspaceAgent.label), system_prompt: optional(workspaceAgent.systemPrompt), enabled: true }, () => controller.loadAdministration("workspace-agents", "workspaceAgents"))) reset(workspaceAgent) }
   async function createWorkspaceStorage() { if (await controller.saveAdministration(`workspace-storage-providers/${encodeURIComponent(workspaceStorage.workspace)}/${encodeURIComponent(workspaceStorage.provider)}`, "POST", { priority: workspaceStorage.priority, enabled: true }, () => controller.loadAdministration("workspace-storage-providers", "workspaceStorageProviders"))) reset(workspaceStorage) }
 
   $effect(() => {
-    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-agent-models" || route.kind === "system-storage-providers" || route.kind === "system-workspace-bindings") {
+    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-storage-providers" || route.kind === "system-workspace-bindings") {
       void controller.load(route.kind)
     }
   })
@@ -75,7 +73,7 @@
         {#if route.kind !== "system"}
           <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : route.kind === "system-agent-models" ? "Agent models" : route.kind === "system-storage-providers" ? "Storage providers" : "Workspace bindings"}</span>
+          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : route.kind === "system-storage-providers" ? "Storage providers" : "Workspace bindings"}</span>
         {:else}
           <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
         {/if}
@@ -96,15 +94,6 @@
          <RouterLink class="system-section-link" href="/app/system/agent-models"><span><strong>Agent models</strong><small>Configure models available for workspace bindings.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/storage-providers"><span><strong>Storage providers</strong><small>Configure embedded or S3 storage.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/workspace-bindings"><span><strong>Workspace bindings</strong><small>Assign agent models and storage providers to workspaces.</small></span></RouterLink>
-      </section>
-    {:else if route.kind === "system-agent-models"}
-      <section class="system-page">
-        <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Agent models</h2><p class="subtitle is-6">Models with the same workspace priority are selected randomly.</p></div></div>
-        <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createAgentModel() }}>
-          <label class="field"><span class="label">Alias</span><input class="input" required bind:value={agentModel.alias} /></label><label class="field"><span class="label">Provider ID</span><input class="input" required bind:value={agentModel.provider} /></label><label class="field"><span class="label">Model</span><input class="input" required bind:value={agentModel.model} /></label><label class="field"><span class="label">Parameters</span><input class="input" bind:value={agentModel.parameters} /></label><label class="field"><span class="label">Compaction</span><input class="input" bind:value={agentModel.compaction} /></label><label class="field"><span class="label">Max turns</span><input class="input" type="number" min="0" bind:value={agentModel.maxTurns} /></label><label class="field"><span class="label">Max output tokens</span><input class="input" type="number" min="0" bind:value={agentModel.maxOutputTokens} /></label><button class="button is-primary" type="submit" disabled={controller.state.savingAdministration}>Add model</button>
-        </form>
-        {#if controller.state.administrationError !== ""}<p class="help is-danger" aria-live="polite">{controller.state.administrationError}</p>{/if}
-        <div class="system-grant-list">{#each controller.state.agentModels as model (model.id)}<article class:system-grant-disabled={!model.enabled} class="system-grant-row"><div><strong>{model.alias}</strong><small>{model.id} / {model.provider} / {model.model} / revision {model.revision}</small></div><div class="system-grant-actions"><span>{model.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.savingAdministration} onclick={() => void controller.saveAdministration(`agent-models/${encodeURIComponent(model.id)}`, "PATCH", { alias: model.alias, provider: model.provider, model: model.model, parameters: model.parameters, compaction: model.compaction, max_turns: model.max_turns, max_output_tokens: model.max_output_tokens, enabled: !model.enabled, expected_revision: model.revision }, () => controller.loadAdministration("agent-models", "agentModels"))}>{model.enabled ? "Disable" : "Enable"}</button></div></article>{:else}<p class="dashboard-empty">No agent models are configured.</p>{/each}</div>
       </section>
     {:else if route.kind === "system-storage-providers"}
       <section class="system-page">
