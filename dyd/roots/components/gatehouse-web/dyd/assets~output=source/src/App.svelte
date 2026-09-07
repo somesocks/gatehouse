@@ -5,6 +5,7 @@
   import AgentProvidersRoute from "./pages/system/agent-providers/AgentProvidersRoute.svelte"
   import AgentModelsRoute from "./pages/system/agent-models/AgentModelsRoute.svelte"
   import StorageProvidersRoute from "./pages/system/storage-providers/StorageProvidersRoute.svelte"
+  import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
   import WorkspaceAgentBindingsRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingsRoute.svelte"
   import WorkspaceStorageBindingsRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingsRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
@@ -54,6 +55,8 @@
   <AgentModelsRoute />
 {:else if owner === "storage-providers"}
   <StorageProvidersRoute />
+{:else if owner === "principals"}
+  <PrincipalsRoute />
 {:else if owner === "workspace-agent-bindings"}
   <WorkspaceAgentBindingsRoute />
 {:else if owner === "workspace-storage-bindings"}

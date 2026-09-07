@@ -5,7 +5,7 @@
   import LoginPage from "../login/LoginPage.svelte"
   import SystemPage from "./SystemPage.svelte"
 
-  type SystemRoute = Extract<Route, { kind: "system" | "system-grants" | "system-principals" }>
+  type SystemRoute = Extract<Route, { kind: "system" | "system-grants" }>
 
   const runtime = useRuntime()
   const { access, activity, auth } = runtime

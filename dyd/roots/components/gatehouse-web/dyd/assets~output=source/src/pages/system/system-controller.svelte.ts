@@ -1,7 +1,7 @@
 import type { ActivityClient } from "../../app/activity"
-import { createSystemGrant, fetchSystemGrants, fetchSystemPrincipals, updateSystemGrant, updateSystemPrincipal, type SystemGrant, type SystemPrincipal } from "../../app/system"
+import { createSystemGrant, fetchSystemGrants, updateSystemGrant, type SystemGrant } from "../../app/system"
 
-type SystemRouteKind = "system" | "system-grants" | "system-principals"
+type SystemRouteKind = "system" | "system-grants"
 type SystemAccess = "available" | "denied" | "unavailable"
 
 type SystemControllerOptions = {
@@ -14,13 +14,10 @@ type SystemControllerOptions = {
 export function createSystemController({ activity, onAuthenticationLost, onSystemAccessChange, principalID }: SystemControllerOptions) {
   const state = $state({
     grants: [] as SystemGrant[],
-    principals: [] as SystemPrincipal[],
     grantPrincipal: "",
     grantError: "",
-    principalError: "",
     creatingGrant: false,
     updatingGrantIDs: new Set<string>(),
-    updatingPrincipalIDs: new Set<string>(),
   })
   let unsubscribe: (() => void) | undefined
 
@@ -52,70 +49,9 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     }
   }
 
-  async function loadPrincipals(): Promise<boolean> {
-    state.principalError = ""
-    try {
-      const response = await fetchSystemPrincipals()
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return false
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        state.principals = []
-        return false
-      }
-      if (!response.ok) {
-        state.principalError = "Principals could not be loaded."
-        return false
-      }
-      state.principals = await response.json() as SystemPrincipal[]
-      return true
-    } catch {
-      state.principalError = "Principals could not be loaded."
-      return false
-    }
-  }
-
   async function load(route: SystemRouteKind): Promise<void> {
     if (!await loadGrants() || route === "system" || route === "system-grants") {
       return
-    }
-    if (route === "system-principals") await loadPrincipals()
-  }
-
-  async function setPrincipalEnabled(principal: SystemPrincipal, enabled: boolean): Promise<void> {
-    if (!enabled && !window.confirm(`Disable ${principal.name ?? principal.id}?`)) {
-      return
-    }
-    state.principalError = ""
-    state.updatingPrincipalIDs = new Set(state.updatingPrincipalIDs).add(principal.id)
-    try {
-      const response = await updateSystemPrincipal(principal.id, enabled)
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        state.principals = []
-        return
-      }
-      if (!response.ok) {
-        state.principalError = "Principal could not be updated."
-        return
-      }
-      const updated = await response.json() as SystemPrincipal
-      state.principals = state.principals.map((entry) => entry.id === updated.id ? updated : entry)
-      if (!updated.enabled && principalID() === updated.id) {
-        onAuthenticationLost()
-      }
-    } catch {
-      state.principalError = "Principal could not be updated."
-    } finally {
-      const next = new Set(state.updatingPrincipalIDs)
-      next.delete(principal.id)
-      state.updatingPrincipalIDs = next
     }
   }
 
@@ -209,5 +145,5 @@ export function createSystemController({ activity, onAuthenticationLost, onSyste
     unsubscribe = undefined
   }
 
-  return { state, load, setPrincipalEnabled, addGrant, setGrantEnabled, start, stop }
+  return { state, load, addGrant, setGrantEnabled, start, stop }
 }

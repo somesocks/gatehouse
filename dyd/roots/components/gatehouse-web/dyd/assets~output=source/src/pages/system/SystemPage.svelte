@@ -11,7 +11,6 @@
     route: Route
     systemAccess: SystemAccessStatus
     activity: ActivityClient
-    principalID: () => string | undefined
     principalName: string
     onAuthenticationLost: () => void
     onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
@@ -21,7 +20,7 @@
   const controller = untrack(() => createSystemController({ activity, principalID, onAuthenticationLost, onSystemAccessChange }))
 
   $effect(() => {
-    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals") {
+    if (route.kind === "system" || route.kind === "system-grants") {
       void controller.load(route.kind)
     }
   })
@@ -66,7 +65,7 @@
         {#if route.kind !== "system"}
           <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-          <span>{route.kind === "system-principals" ? "Principals" : "System grants"}</span>
+          <span>System grants</span>
         {:else}
           <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
         {/if}
@@ -89,19 +88,6 @@
          <RouterLink class="system-section-link" href="/app/system/workspace-agent-bindings"><span><strong>Workspace agent bindings</strong><small>Assign agent models to workspaces.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/workspace-storage-bindings"><span><strong>Workspace storage bindings</strong><small>Assign storage providers to workspaces.</small></span></RouterLink>
       </section>
-    {:else if route.kind === "system-principals"}
-      <section class="system-page">
-        <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Principals</h2><p class="subtitle is-6">Identity associations are shown without credential verifiers.</p></div></div>
-        {#if controller.state.principalError !== ""}<p class="help is-danger" aria-live="polite">{controller.state.principalError}</p>{/if}
-        <div class="system-principal-list">
-          {#each controller.state.principals as principal (principal.id)}
-            <article class:system-principal-disabled={!principal.enabled} class="system-principal-row">
-              <div><strong>{principal.name ?? principal.alias ?? principal.id}</strong><small>{principal.id}{principal.alias === undefined ? "" : ` / ${principal.alias}`} / revision {principal.revision}</small>{#if principal.identities.length > 0}<div class="system-principal-identities">{#each principal.identities as identity (identity.id)}<span class:has-text-grey={!identity.enabled}>{identity.key} / {identity.id} / revision {identity.revision}{identity.enabled ? "" : " / Disabled"}</span>{/each}</div>{:else}<small>No identities</small>{/if}</div>
-              <div class="system-principal-actions"><span class:has-text-success={principal.enabled} class:has-text-grey={!principal.enabled}>{principal.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.updatingPrincipalIDs.has(principal.id)} onclick={() => void controller.setPrincipalEnabled(principal, !principal.enabled)}>{controller.state.updatingPrincipalIDs.has(principal.id) ? "Saving..." : principal.enabled ? "Disable" : "Enable"}</button></div>
-            </article>
-          {:else}<p class="dashboard-empty">No principals are configured.</p>{/each}
-        </div>
-      </section>
     {:else}
       <section class="system-page">
         <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">System grants</h2><p class="subtitle is-6">System managers can modify global Gatehouse state.</p></div></div>
@@ -122,3 +108,4 @@
     {/if}
   </main>
 </div>
+    principalID: () => string | undefined
