@@ -12,8 +12,10 @@
   let editing = $state(false)
   let error = $state("")
   let saving = $state(false)
+  let loading = $state(true)
 
   async function load(): Promise<void> {
+    loading = true
     error = ""
     try {
       const response = await systemAdministration(`workspace-storage-providers/${encodeURIComponent(workspaceID)}/${encodeURIComponent(providerID)}`)
@@ -22,7 +24,7 @@
       else if (response.status === 404) error = "Workspace storage binding was not found."
       else if (!response.ok) error = "Workspace storage binding could not be loaded."
       else binding = await response.json() as SystemWorkspaceStorageProvider
-    } catch { error = "Workspace storage binding could not be loaded." }
+    } catch { error = "Workspace storage binding could not be loaded." } finally { loading = false }
   }
 
   async function save(): Promise<void> {
@@ -43,8 +45,10 @@
 
 <SystemFrame active="workspace-storage-bindings" title="Workspace storage binding">
   <section class="system-page">
-    {#if binding === null}
-      <p class="help is-danger">{error || "Loading binding..."}</p>
+    {#if loading}
+      <p class="dashboard-empty">Loading binding...</p>
+    {:else if binding === null}
+      <p class="help is-danger">{error || "Workspace storage binding was not found."}</p>
       <RouterLink class="button" href="/app/system/workspace-storage-bindings">Back to bindings</RouterLink>
     {:else if !editing}
       <div class="system-page-heading mb-5"><div><p class="eyebrow">Workspace storage binding</p><h2 class="title is-3">{binding.workspace} / {binding.provider}</h2></div><button class="button is-primary" type="button" onclick={() => { priority = binding!.priority; enabled = binding!.enabled; editing = true }}>Edit</button></div>
