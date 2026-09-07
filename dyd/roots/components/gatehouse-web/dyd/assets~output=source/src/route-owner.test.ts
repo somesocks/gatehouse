@@ -46,7 +46,7 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "system" })).toBe("system")
     expect(routeOwner({ kind: "system-grants" })).toBe("system")
     expect(routeOwner({ kind: "system-principals" })).toBe("system")
-    expect(routeOwner({ kind: "system-agent-providers" })).toBe("system")
+    expect(routeOwner({ kind: "system-agent-providers" })).toBe("agent-providers")
     expect(routeOwner({ kind: "system-agent-models" })).toBe("system")
     expect(routeOwner({ kind: "system-storage-providers" })).toBe("system")
     expect(routeOwner({ kind: "system-workspace-bindings" })).toBe("system")

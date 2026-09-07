@@ -19,21 +19,19 @@
     mobileMenuOpen: boolean
   } = $props()
   const controller = untrack(() => createSystemController({ activity, principalID, onAuthenticationLost, onSystemAccessChange }))
-  const agentProvider = $state({ alias: "", protocol: "openai-responses", baseURL: "", keychain: "", apiKey: "" })
   const agentModel = $state({ alias: "", provider: "", model: "", parameters: "", compaction: "", maxTurns: 0, maxOutputTokens: 0 })
   const storageProvider = $state({ alias: "", protocol: "embedded", endpoint: "", region: "", bucket: "", accessKeyID: "", keychain: "", secretAccessKey: "" })
   const workspaceAgent = $state({ workspace: "", model: "", priority: 0, label: "", systemPrompt: "" })
   const workspaceStorage = $state({ workspace: "", provider: "", priority: 0 })
   const optional = (value: string): string | undefined => value.trim() === "" ? undefined : value.trim()
   const reset = (form: Record<string, string | number>) => { for (const key of Object.keys(form)) form[key] = typeof form[key] === "number" ? 0 : "" }
-  async function createAgentProvider() { if (await controller.saveAdministration("agent-providers", "POST", { alias: agentProvider.alias, protocol: agentProvider.protocol, base_url: optional(agentProvider.baseURL), keychain: optional(agentProvider.keychain), api_key: optional(agentProvider.apiKey), enabled: true }, () => controller.loadAdministration("agent-providers", "agentProviders"))) reset(agentProvider) }
   async function createAgentModel() { if (await controller.saveAdministration("agent-models", "POST", { alias: agentModel.alias, provider: agentModel.provider, model: agentModel.model, parameters: agentModel.parameters, compaction: agentModel.compaction, max_turns: agentModel.maxTurns, max_output_tokens: agentModel.maxOutputTokens, enabled: true }, () => controller.loadAdministration("agent-models", "agentModels"))) reset(agentModel) }
   async function createStorageProvider() { if (await controller.saveAdministration("storage-providers", "POST", { alias: storageProvider.alias, protocol: storageProvider.protocol, endpoint: optional(storageProvider.endpoint), region: optional(storageProvider.region), bucket: optional(storageProvider.bucket), access_key_id: optional(storageProvider.accessKeyID), keychain: optional(storageProvider.keychain), secret_access_key: optional(storageProvider.secretAccessKey), enabled: true }, () => controller.loadAdministration("storage-providers", "storageProviders"))) reset(storageProvider) }
   async function createWorkspaceAgent() { if (await controller.saveAdministration(`workspace-agents/${encodeURIComponent(workspaceAgent.workspace)}/${encodeURIComponent(workspaceAgent.model)}`, "POST", { priority: workspaceAgent.priority, label: optional(workspaceAgent.label), system_prompt: optional(workspaceAgent.systemPrompt), enabled: true }, () => controller.loadAdministration("workspace-agents", "workspaceAgents"))) reset(workspaceAgent) }
   async function createWorkspaceStorage() { if (await controller.saveAdministration(`workspace-storage-providers/${encodeURIComponent(workspaceStorage.workspace)}/${encodeURIComponent(workspaceStorage.provider)}`, "POST", { priority: workspaceStorage.priority, enabled: true }, () => controller.loadAdministration("workspace-storage-providers", "workspaceStorageProviders"))) reset(workspaceStorage) }
 
   $effect(() => {
-    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-agent-providers" || route.kind === "system-agent-models" || route.kind === "system-storage-providers" || route.kind === "system-workspace-bindings") {
+    if (route.kind === "system" || route.kind === "system-grants" || route.kind === "system-principals" || route.kind === "system-agent-models" || route.kind === "system-storage-providers" || route.kind === "system-workspace-bindings") {
       void controller.load(route.kind)
     }
   })
@@ -77,7 +75,7 @@
         {#if route.kind !== "system"}
           <RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink>
           <span class="workspace-breadcrumb-separator" aria-hidden="true">/</span>
-          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : route.kind === "system-agent-providers" ? "Agent providers" : route.kind === "system-agent-models" ? "Agent models" : route.kind === "system-storage-providers" ? "Storage providers" : "Workspace bindings"}</span>
+          <span>{route.kind === "system-principals" ? "Principals" : route.kind === "system-grants" ? "System grants" : route.kind === "system-agent-models" ? "Agent models" : route.kind === "system-storage-providers" ? "Storage providers" : "Workspace bindings"}</span>
         {:else}
           <span class="workspace-breadcrumb-segment"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></span>
         {/if}
@@ -98,15 +96,6 @@
          <RouterLink class="system-section-link" href="/app/system/agent-models"><span><strong>Agent models</strong><small>Configure models available for workspace bindings.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/storage-providers"><span><strong>Storage providers</strong><small>Configure embedded or S3 storage.</small></span></RouterLink>
          <RouterLink class="system-section-link" href="/app/system/workspace-bindings"><span><strong>Workspace bindings</strong><small>Assign agent models and storage providers to workspaces.</small></span></RouterLink>
-      </section>
-    {:else if route.kind === "system-agent-providers"}
-      <section class="system-page">
-        <div class="system-page-heading"><div><p class="eyebrow">System</p><h2 class="title is-3">Agent providers</h2><p class="subtitle is-6">Credentials are write-only. Leave the API key blank when updating an existing provider.</p></div></div>
-        <form class="system-grant-form" onsubmit={(event) => { event.preventDefault(); void createAgentProvider() }}>
-          <label class="field"><span class="label">Alias</span><input class="input" required bind:value={agentProvider.alias} /></label><label class="field"><span class="label">Protocol</span><select class="select" bind:value={agentProvider.protocol}><option value="builtin">Built-in</option><option value="openai-chat-completions">OpenAI chat completions</option><option value="openai-responses">OpenAI responses</option></select></label><label class="field"><span class="label">Base URL</span><input class="input" bind:value={agentProvider.baseURL} /></label><label class="field"><span class="label">Keychain ID</span><input class="input" bind:value={agentProvider.keychain} /></label><label class="field"><span class="label">API key</span><input class="input" type="password" autocomplete="new-password" bind:value={agentProvider.apiKey} /></label><button class="button is-primary" type="submit" disabled={controller.state.savingAdministration}>Add provider</button>
-        </form>
-        {#if controller.state.administrationError !== ""}<p class="help is-danger" aria-live="polite">{controller.state.administrationError}</p>{/if}
-        <div class="system-grant-list">{#each controller.state.agentProviders as provider (provider.id)}<article class:system-grant-disabled={!provider.enabled} class="system-grant-row"><div><strong>{provider.alias}</strong><small>{provider.id} / {provider.protocol} / revision {provider.revision}{provider.credential_configured ? " / credential configured" : ""}</small></div><div class="system-grant-actions"><span>{provider.enabled ? "Enabled" : "Disabled"}</span><button class="button is-small" type="button" disabled={controller.state.savingAdministration} onclick={() => void controller.saveAdministration(`agent-providers/${encodeURIComponent(provider.id)}`, "PATCH", { alias: provider.alias, protocol: provider.protocol, base_url: provider.base_url, keychain: provider.keychain?.id, enabled: !provider.enabled, expected_revision: provider.revision }, () => controller.loadAdministration("agent-providers", "agentProviders"))}>{provider.enabled ? "Disable" : "Enable"}</button></div></article>{:else}<p class="dashboard-empty">No agent providers are configured.</p>{/each}</div>
       </section>
     {:else if route.kind === "system-agent-models"}
       <section class="system-page">
