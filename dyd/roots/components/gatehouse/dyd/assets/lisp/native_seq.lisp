@@ -80,7 +80,7 @@
     ; Returns Bytes blocks of block-size bytes, with only the final block possibly shorter.
     ; Example: (import (seq @native:seq/v1) (list/map bytes/hex/encode (seq/take 10 (seq/bytes/split (bytes/hex/decode "aabbccddeeff") 2)))) => ("aabb" "ccdd" "eeff").
     (pair 'bytes/split null)
-    ; (seq/bytes/collect sequence) -> Bytes
-    ; Concatenates the Bytes values in a finite sequence.
-    ; Example: (import (seq @native:seq/v1) (bytes/hex/encode (seq/bytes/collect (seq/bytes/split (bytes/hex/decode "aabb") 1)))) => "aabb".
+    ; (seq/bytes/collect sequence [maximum-bytes]) -> Bytes
+    ; Concatenates the Bytes values in a finite sequence, optionally failing before the result exceeds maximum-bytes.
+    ; Example: (import (seq @native:seq/v1) (bytes/hex/encode (seq/bytes/collect (seq/bytes/split (bytes/hex/decode "aabb") 1) 2))) => "aabb".
     (pair 'bytes/collect null)))

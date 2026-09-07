@@ -93,8 +93,19 @@ func nativeSeqBytesSplitAt(source Expr, value string, blockSize int64, start int
 }
 
 func nativeSeqBytesCollect(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
-	if len(arguments) != 1 {
-		return expressionError("seq/bytes/collect requires one sequence"), nil
+	if len(arguments) != 1 && len(arguments) != 2 {
+		return expressionError("seq/bytes/collect requires a sequence and optional non-negative maximum bytes"), nil
+	}
+	maximum := int64(-1)
+	if len(arguments) == 2 {
+		err, value := requireInteger(arguments[1])
+		if err != nil {
+			return err, nil
+		}
+		if value < 0 {
+			return expressionError("seq/bytes/collect requires a non-negative maximum bytes"), nil
+		}
+		maximum = value
 	}
 	taint := TaintOf(arguments[0])
 	var builder strings.Builder
@@ -109,6 +120,9 @@ func nativeSeqBytesCollect(evaluator *evaluator, env *environment, arguments []E
 			return err, nil
 		}
 		taint = joinTaint(taint, TaintOf(pair.first))
+		if maximum >= 0 && int64(len(value)) > maximum-int64(builder.Len()) {
+			return expressionError("seq/bytes/collect exceeds maximum bytes"), nil
+		}
 		builder.WriteString(value)
 		err, sequence = evaluator.call(pair.rest, env, nil)
 		if err != nil {

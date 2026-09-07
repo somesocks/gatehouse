@@ -52,9 +52,37 @@
                 (seq/bytes/split (bytes/hex/decode "aabbccddee") 2)))
             "aabbccddee"))
 
-       ; Collecting an empty sequence produces empty Bytes.
+        ; Collecting succeeds when the result exactly reaches its maximum.
        (assert
-         (= (bytes/length (seq/bytes/collect null)) 0))
+         (= (bytes/hex/encode
+              (seq/bytes/collect
+                (seq/bytes/split (bytes/hex/decode "aabbccddee") 2)
+                5))
+            "aabbccddee"))
+
+        ; Collecting stops before appending a block that exceeds its maximum.
+        (assert
+          (string/contains?
+            (error/value
+              (error/catch
+                (seq/bytes/collect
+                  (seq/bytes/split (bytes/hex/decode "aabbccddee") 2)
+                  4)))
+            "exceeds maximum bytes"))
+
+        ; A rejected block does not force its tail.
+        (assert
+          (string/contains?
+            (error/value
+              (error/catch
+                (seq/bytes/collect
+                  (pair (bytes/hex/decode "aa") (fn () (error/throw "tail was forced")))
+                  0)))
+            "exceeds maximum bytes"))
+
+        ; Collecting an empty sequence produces empty Bytes.
+       (assert
+         (= (bytes/length (seq/bytes/collect null 0)) 0))
 
        ; Splitting preserves secrecy in deferred blocks.
        (let ((sequence (seq/bytes/split (taint/secret/mark (bytes/hex/decode "aabb")) 1)))
@@ -65,12 +93,13 @@
 
        ; Collecting preserves secrecy that appears after the first block.
        (assert
-         (taint/secret?
+          (taint/secret?
            (seq/bytes/collect
              (pair
                (bytes/hex/decode "aa")
                (fn ()
-                 (pair (taint/secret/mark (bytes/hex/decode "bb")) (fn () null)))))))
+                 (pair (taint/secret/mark (bytes/hex/decode "bb")) (fn () null))))
+             2)))
 
        ; Bootstrapped sequence definitions do not capture caller shadowing.
        (let ((+ (fn (left right) 0)))
@@ -87,7 +116,7 @@
           (string/contains? (help seq/map) "(seq/map function sequence) -> Sequence")
           (string/contains? (help seq/filter) "(seq/filter predicate sequence) -> Sequence")
           (string/contains? (help seq/bytes/split) "(seq/bytes/split bytes block-size) -> Sequence")
-          (string/contains? (help seq/bytes/collect) "(seq/bytes/collect sequence) -> Bytes")))
+          (string/contains? (help seq/bytes/collect) "(seq/bytes/collect sequence [maximum-bytes]) -> Bytes")))
 
       ; Taking validates its count before consuming a sequence.
       (assert
@@ -96,6 +125,8 @@
           (string/contains? (error/value (error/catch (seq/take "1" (seq/from 0)))) "expected an integer")
           (string/contains? (error/value (error/catch (seq/range 0 1 2))) "requires a start and optional end")
           (string/contains? (error/value (error/catch (seq/bytes/split (bytes/concat) 0))) "requires a positive block size")
-          (string/contains? (error/value (error/catch (seq/bytes/collect (pair 1 (fn () null))))) "expected Bytes")))
+          (string/contains? (error/value (error/catch (seq/bytes/collect (pair 1 (fn () null))))) "expected Bytes")
+          (string/contains? (error/value (error/catch (seq/bytes/collect null -1))) "requires a non-negative maximum bytes")
+          (string/contains? (error/value (error/catch (seq/bytes/collect null "1"))) "expected an integer")))
       null))
   null)
