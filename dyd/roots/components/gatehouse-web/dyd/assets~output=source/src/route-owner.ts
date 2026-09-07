@@ -39,6 +39,10 @@ export function routeOwner(route: Route): RouteOwner {
     case "system":
     case "system-grants":
     case "system-principals":
+    case "system-agent-providers":
+    case "system-agent-models":
+    case "system-storage-providers":
+    case "system-workspace-bindings":
       return "system"
     case "app-home":
     case "workspace":
