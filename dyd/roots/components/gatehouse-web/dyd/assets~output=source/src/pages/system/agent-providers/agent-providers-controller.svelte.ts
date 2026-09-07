@@ -1,5 +1,5 @@
-import type { ActivityClient } from "../../app/activity"
-import { systemAdministration, type SystemAgentProvider } from "../../app/system"
+import type { ActivityClient } from "../../../app/activity"
+import { systemAdministration, type SystemAgentProvider } from "../../../app/system"
 
 type AgentProvidersControllerOptions = {
   activity: ActivityClient

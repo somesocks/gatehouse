@@ -2,7 +2,7 @@
   import { onMount } from "svelte"
   import { createApplicationRuntime, provideRuntime } from "./app/runtime.svelte"
   import AccessRoute from "./pages/access/AccessRoute.svelte"
-  import AgentProvidersRoute from "./pages/agent-providers/AgentProvidersRoute.svelte"
+  import AgentProvidersRoute from "./pages/system/agent-providers/AgentProvidersRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"

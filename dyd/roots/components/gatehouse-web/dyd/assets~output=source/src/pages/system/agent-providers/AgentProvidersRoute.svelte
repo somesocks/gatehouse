@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { useRuntime } from "../../app/runtime.svelte"
-  import LoginPage from "../login/LoginPage.svelte"
+  import { useRuntime } from "../../../app/runtime.svelte"
+  import LoginPage from "../../login/LoginPage.svelte"
   import AgentProvidersPage from "./AgentProvidersPage.svelte"
 
   const runtime = useRuntime()

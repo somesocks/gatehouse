@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte"
-  import type { ActivityClient } from "../../app/activity"
-  import SystemFrame from "../../components/SystemFrame.svelte"
+  import type { ActivityClient } from "../../../app/activity"
+  import SystemFrame from "../../../components/SystemFrame.svelte"
   import { createAgentProvidersController } from "./agent-providers-controller.svelte"
 
   let { activity, onAuthenticationLost, onSystemAccessChange }: { activity: ActivityClient; onAuthenticationLost: () => void; onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void } = $props()
