@@ -7,6 +7,7 @@
   import StorageProvidersRoute from "./pages/system/storage-providers/StorageProvidersRoute.svelte"
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
+  import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
   import WorkspaceAgentBindingsRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingsRoute.svelte"
   import WorkspaceStorageBindingsRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingsRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
@@ -18,7 +19,6 @@
   import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
   import ChatCollectionRoute from "./pages/chats/ChatCollectionRoute.svelte"
   import ProjectCollectionRoute from "./pages/projects/ProjectCollectionRoute.svelte"
-  import SystemRoute from "./pages/system/SystemRoute.svelte"
   import WorkspaceDashboardRoute from "./pages/workspace/WorkspaceDashboardRoute.svelte"
   import { routeOwner } from "./route-owner"
 
@@ -60,6 +60,8 @@
   <PrincipalsRoute />
 {:else if owner === "system-grants"}
   <SystemGrantsRoute />
+{:else if owner === "system-overview"}
+  <SystemOverviewRoute />
 {:else if owner === "workspace-agent-bindings"}
   <WorkspaceAgentBindingsRoute />
 {:else if owner === "workspace-storage-bindings"}
@@ -68,8 +70,6 @@
   <ChatCollectionRoute />
 {:else if owner === "project-collection"}
   <ProjectCollectionRoute />
-{:else if owner === "system"}
-  <SystemRoute />
 {:else if owner === "workspace-dashboard"}
   <WorkspaceDashboardRoute />
 {:else if owner === "access"}

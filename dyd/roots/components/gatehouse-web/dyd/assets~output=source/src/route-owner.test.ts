@@ -43,7 +43,7 @@ describe("route owner", () => {
   })
 
   it("assigns every System URL to its route owner", () => {
-    expect(routeOwner({ kind: "system" })).toBe("system")
+    expect(routeOwner({ kind: "system" })).toBe("system-overview")
     expect(routeOwner({ kind: "system-grants" })).toBe("system-grants")
     expect(routeOwner({ kind: "system-principals" })).toBe("principals")
     expect(routeOwner({ kind: "system-agent-providers" })).toBe("agent-providers")
