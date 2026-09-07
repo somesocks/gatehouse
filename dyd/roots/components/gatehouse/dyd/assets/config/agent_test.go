@@ -177,12 +177,12 @@ agent_models:
 
 func TestDefaultAgentModelCompaction(t *testing.T) {
 	for model, want := range map[string]AgentModelCompaction{
-		"gpt-5.6-luna":                   {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
-		"openai/gpt-5.3-codex":           {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
-		"anthropic/claude-sonnet-5":      {Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 80 * 1024},
+		"gpt-5.6-luna":                  {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
+		"openai/gpt-5.3-codex":          {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024},
+		"anthropic/claude-sonnet-5":     {Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 80 * 1024},
 		"google/gemini-3.1-pro-preview": {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024},
-		"x-ai/grok-4.6":                  {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024},
-		"unknown":                        {Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes},
+		"x-ai/grok-4.6":                 {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024},
+		"unknown":                       {Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes},
 	} {
 		got, err := resolveAgentModelCompaction(model, nil)
 		if err != nil {
@@ -272,6 +272,7 @@ workspaces:
   - alias: engineering
     agents:
       - model: fallback
+        revision: 1
         priority: 1
 `,
 		"custom": `
@@ -291,6 +292,7 @@ workspaces:
   - alias: engineering
     agents:
       - model: fallback
+        revision: 1
         priority: 1
         system_prompt: Custom instructions.
 `,
@@ -311,6 +313,7 @@ workspaces:
   - alias: engineering
     agents:
       - model: fallback
+        revision: 1
         priority: 1
         system_prompt: ""
 `,
@@ -366,6 +369,7 @@ workspaces:
   - alias: engineering
     agents:
       - model: fallback
+        revision: 1
         label: Fallback assistant
         priority: 1
 `
@@ -411,9 +415,9 @@ agent_models:
 
 func TestValidateFileRejectsInvalidAgentModelCompaction(t *testing.T) {
 	for name, compaction := range map[string]string{
-		"unsupported algorithm": "algorithm: unsupported",
-		"nonpositive history":   "algorithm: mcmtr\n      history_bytes: 0",
-		"nonpositive buffer":    "algorithm: mcmtr\n      buffer_bytes: -1",
+		"unsupported algorithm":               "algorithm: unsupported",
+		"nonpositive history":                 "algorithm: mcmtr\n      history_bytes: 0",
+		"nonpositive buffer":                  "algorithm: mcmtr\n      buffer_bytes: -1",
 		"buffer exceeds high-tier allocation": "algorithm: mcmtr\n      history_bytes: 100\n      buffer_bytes: 17",
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -469,6 +473,7 @@ workspaces:
   - alias: engineering
     agents:
       - model: fallback
+        revision: 1
         priority: 1
         ` + limit + `
 `

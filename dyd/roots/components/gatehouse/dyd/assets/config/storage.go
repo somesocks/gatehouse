@@ -16,25 +16,26 @@ const (
 )
 
 type StorageProvider struct {
-	Alias             string
-	Revision          int
-	Protocol          string
-	Endpoint          *string
-	Region            *string
-	Bucket            *string
-	AccessKeyID       *string
-	Keychain          *string
-	SecretKeySources  []StorageProviderSecretKeySource
-	Enabled           bool
+	Alias            string
+	Revision         int
+	Protocol         string
+	Endpoint         *string
+	Region           *string
+	Bucket           *string
+	AccessKeyID      *string
+	Keychain         *string
+	SecretKeySources []StorageProviderSecretKeySource
+	Enabled          bool
 }
 
 type StorageProviderSecretKeySource string
 
 type WorkspaceStorageProvider struct {
-	WorkspaceID string
+	WorkspaceID   string
 	ProviderAlias string
-	Priority    int
-	Enabled     bool
+	Revision      int
+	Priority      int
+	Enabled       bool
 }
 
 func ResolveStorageProviders(document configschema.GatehouseConfig) (error, []StorageProvider) {
@@ -111,7 +112,7 @@ func ResolveWorkspaceStorageProviders(document configschema.GatehouseConfig, pro
 	}
 	if document.Workspaces == nil {
 		if _, exists := configuredProviders[implicitStorageProviderAlias]; exists {
-			return nil, []WorkspaceStorageProvider{{WorkspaceID: defaultWorkspaceAlias, ProviderAlias: implicitStorageProviderAlias, Priority: 1, Enabled: true}}
+			return nil, []WorkspaceStorageProvider{{WorkspaceID: defaultWorkspaceAlias, ProviderAlias: implicitStorageProviderAlias, Revision: 1, Priority: 1, Enabled: true}}
 		}
 		return nil, []WorkspaceStorageProvider{}
 	}
@@ -123,7 +124,7 @@ func ResolveWorkspaceStorageProviders(document configschema.GatehouseConfig, pro
 		}
 		if workspace.StorageProviders == nil {
 			if _, exists := configuredProviders[implicitStorageProviderAlias]; exists {
-				bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, ProviderAlias: implicitStorageProviderAlias, Priority: 1, Enabled: true})
+				bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, ProviderAlias: implicitStorageProviderAlias, Revision: 1, Priority: 1, Enabled: true})
 			}
 			continue
 		}
@@ -138,12 +139,12 @@ func ResolveWorkspaceStorageProviders(document configschema.GatehouseConfig, pro
 			if _, exists := seen[configured.Provider]; exists {
 				return fmt.Errorf("workspaces[%d].storage_providers[%d].provider %q is duplicated", workspaceIndex, providerIndex, configured.Provider), nil
 			}
-			if configured.Priority <= 0 {
-				return fmt.Errorf("workspaces[%d].storage_providers[%d].priority must be positive", workspaceIndex, providerIndex), nil
+			if configured.Revision <= 0 || configured.Priority <= 0 {
+				return fmt.Errorf("workspaces[%d].storage_providers[%d] is invalid", workspaceIndex, providerIndex), nil
 			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			seen[configured.Provider] = struct{}{}
-			bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, ProviderAlias: configured.Provider, Priority: configured.Priority, Enabled: enabled})
+			bindings = append(bindings, WorkspaceStorageProvider{WorkspaceID: workspace.Alias, ProviderAlias: configured.Provider, Revision: configured.Revision, Priority: configured.Priority, Enabled: enabled})
 		}
 	}
 	sort.Slice(bindings, func(left, right int) bool {

@@ -23,6 +23,7 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 			CREATE TEMP TABLE gatehouse_migration_workspace_agents_desired (
 				workspace_alias TEXT NOT NULL,
 				model_alias TEXT NOT NULL,
+				revision INTEGER NOT NULL,
 				priority INTEGER NOT NULL,
 				label TEXT,
 				system_prompt TEXT,
@@ -30,8 +31,8 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				PRIMARY KEY (workspace_alias, model_alias)
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, model_alias, priority, label, system_prompt, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, model_alias, revision, priority, label, system_prompt, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_workspace_agents_state AS
@@ -41,6 +42,8 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				workspaces.id AS workspace_id,
 				models.id AS model_id,
 				agents.workspace_id AS existing_workspace_id,
+				desired.revision,
+				agents.revision AS existing_revision,
 				desired.priority,
 				agents.priority AS existing_priority,
 				desired.label,
@@ -67,21 +70,19 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				CASE WHEN existing_workspace_id IS NULL THEN 'workspace_agent.create' ELSE 'workspace_agent.update' END,
 				model_id
 			FROM gatehouse_migration_workspace_agents_state
-			WHERE existing_workspace_id IS NULL
-				OR existing_priority IS NOT priority
-				OR existing_label IS NOT label
-				OR existing_system_prompt IS NOT system_prompt
-				OR existing_enabled IS NOT enabled;
+			WHERE existing_workspace_id IS NULL OR existing_revision < revision;
 
-			INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, label, system_prompt, enabled)
-			SELECT workspace_id, model_id, priority, label, system_prompt, enabled
+			INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, revision, priority, label, system_prompt, enabled)
+			SELECT workspace_id, model_id, revision, priority, label, system_prompt, enabled
 			FROM gatehouse_migration_workspace_agents_state
 			WHERE TRUE
 			ON CONFLICT (workspace_id, model_id) DO UPDATE SET
+				revision = excluded.revision,
 				priority = excluded.priority,
 				label = excluded.label,
 				system_prompt = excluded.system_prompt,
-				enabled = excluded.enabled;
+				enabled = excluded.enabled
+			WHERE gatehouse_workspace_agents.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (
 				id, event, resource_kind, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at

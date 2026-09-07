@@ -27,7 +27,7 @@ workspaces:
 	if got, want := state.StorageProviders, []StorageProvider{{Alias: "embedded", Revision: 1, Protocol: storageProviderProtocolEmbedded, Enabled: true}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("storage providers = %#v, want %#v", got, want)
 	}
-	if got, want := state.WorkspaceStorageProviders, []WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true}}; !reflect.DeepEqual(got, want) {
+	if got, want := state.WorkspaceStorageProviders, []WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("workspace storage providers = %#v, want %#v", got, want)
 	}
 }
@@ -55,8 +55,10 @@ workspaces:
   - alias: engineering
     storage_providers:
       - provider: documents
+        revision: 1
         priority: 10
       - provider: embedded
+        revision: 1
         priority: 1
   - alias: archive
     storage_providers: []
@@ -75,8 +77,8 @@ workspaces:
 		t.Fatalf("storage providers = %#v", state.StorageProviders)
 	}
 	want := []WorkspaceStorageProvider{
-		{WorkspaceID: "engineering", ProviderAlias: "documents", Priority: 10, Enabled: true},
-		{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},
+		{WorkspaceID: "engineering", ProviderAlias: "documents", Revision: 1, Priority: 10, Enabled: true},
+		{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true},
 	}
 	if !reflect.DeepEqual(state.WorkspaceStorageProviders, want) {
 		t.Fatalf("workspace storage providers = %#v, want %#v", state.WorkspaceStorageProviders, want)

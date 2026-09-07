@@ -86,7 +86,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 		StorageProviders: []config.StorageProvider{{
 			Alias: "s3", Revision: 1, Protocol: "s3", Endpoint: &server.URL, Region: stringPointer("us-east-1"), Bucket: stringPointer("gatehouse"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:S3_TEST_SECRET"}, Enabled: true,
 		}},
-		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "s3", Priority: 1, Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "s3", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, state, keyring)
 	if err != nil {

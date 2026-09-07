@@ -243,8 +243,8 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 			},
 		},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
-			{WorkspaceID: "engineering", ProviderAlias: "documents", Priority: 10, Enabled: true},
-			{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", ProviderAlias: "documents", Revision: 1, Priority: 10, Enabled: true},
+			{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true},
 		},
 	}
 	t.Setenv("DOCUMENTS_KEYCHAIN", "storage passphrase")
@@ -306,6 +306,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 
 	state.StorageProviders[1].Revision = 2
 	state.StorageProviders[1].Endpoint = stringPointer("https://s3-next.example.test")
+	state.WorkspaceStorageProviders[0].Revision = 2
 	state.WorkspaceStorageProviders[0].Priority = 20
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -316,11 +317,11 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	if endpoint != "https://s3-next.example.test" || revision != 2 {
 		t.Fatalf("updated documents storage provider = (%q, %d)", endpoint, revision)
 	}
-	if err := store.QueryRowContext(ctx, `SELECT priority FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')`, workspace.Id).Scan(&priority); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')`, workspace.Id).Scan(&priority, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if priority != 20 {
-		t.Fatalf("updated documents workspace priority = %d", priority)
+	if priority != 20 || revision != 2 {
+		t.Fatalf("updated documents workspace binding = (%d, %d)", priority, revision)
 	}
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
@@ -332,6 +333,17 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	}
 	if activityCount != 1 {
 		t.Fatalf("workspace storage provider update activity count = %d, want 1", activityCount)
+	}
+
+	state.WorkspaceStorageProviders[0].Priority = 30
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_storage_providers WHERE workspace = ? AND provider = (SELECT id FROM gatehouse_storage_providers WHERE alias = 'documents')`, workspace.Id).Scan(&priority, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if priority != 20 || revision != 2 {
+		t.Fatalf("stale documents workspace binding = (%d, %d)", priority, revision)
 	}
 
 	state.StorageProviders[1].Alias = "documents-v2"
@@ -1006,7 +1018,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello."}`, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1031,6 +1043,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		}
 	}
 
+	state.WorkspaceAgents[0].Revision = 2
 	state.WorkspaceAgents[0].Priority = 2
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1046,6 +1059,24 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("workspace_agent.update activity count = %d, want 1", count)
+	}
+	var priority, revision int
+	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&priority, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if priority != 2 || revision != 2 {
+		t.Fatalf("updated workspace agent = (%d, %d)", priority, revision)
+	}
+
+	state.WorkspaceAgents[0].Priority = 3
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&priority, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if priority != 2 || revision != 2 {
+		t.Fatalf("stale workspace agent = (%d, %d)", priority, revision)
 	}
 }
 
@@ -1170,25 +1201,45 @@ func TestMigrateSQLiteReconcilesSystemGrants(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer store.Close()
 	state := config.State{Principals: []config.Principal{{Alias: "alice", Enabled: true}}, SystemGrants: []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}}}
-	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
 	var id, principalID string
 	var enabled bool
 	var revision int
-	if err := store.QueryRowContext(ctx, `SELECT id, principal, enabled, revision FROM gatehouse_system_grants`).Scan(&id, &principalID, &enabled, &revision); err != nil { t.Fatal(err) }
-	if !typed_id.Valid(typed_id.SystemGrant, id) || !enabled || revision != 1 { t.Fatalf("system grant = (%q, %t, %d), want enabled revision 1", id, enabled, revision) }
+	if err := store.QueryRowContext(ctx, `SELECT id, principal, enabled, revision FROM gatehouse_system_grants`).Scan(&id, &principalID, &enabled, &revision); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.SystemGrant, id) || !enabled || revision != 1 {
+		t.Fatalf("system grant = (%q, %t, %d), want enabled revision 1", id, enabled, revision)
+	}
 	err, roles := store.SystemRolesGet(ctx, model.PrincipalRef{Id: principalID})
-	if err != nil || !authz.SystemAllows(roles, authz.SystemManage) { t.Fatalf("SystemRolesGet() = (%#v, %v), want manager", roles, err) }
+	if err != nil || !authz.SystemAllows(roles, authz.SystemManage) {
+		t.Fatalf("SystemRolesGet() = (%#v, %v), want manager", roles, err)
+	}
 	state.SystemGrants[0].Enabled = false
-	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
-	if err := store.QueryRowContext(ctx, `SELECT enabled FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled); err != nil || !enabled { t.Fatalf("equal revision changed system grant = (%t, %v)", enabled, err) }
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT enabled FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled); err != nil || !enabled {
+		t.Fatalf("equal revision changed system grant = (%t, %v)", enabled, err)
+	}
 	state.SystemGrants[0].Revision = 2
-	if err := migrateState(ctx, store, configuration, state); err != nil { t.Fatal(err) }
-	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled, &revision); err != nil || enabled || revision != 2 { t.Fatalf("newer revision did not change system grant = (%t, %d, %v)", enabled, revision, err) }
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_system_grants WHERE id = ?`, id).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
+		t.Fatalf("newer revision did not change system grant = (%t, %d, %v)", enabled, revision, err)
+	}
 	var activities int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = 'system_grant.update' AND topics.topic = ?`, "sys/"+id).Scan(&activities); err != nil || activities != 1 { t.Fatalf("system grant update activity = (%d, %v), want 1", activities, err) }
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = 'system_grant.update' AND topics.topic = ?`, "sys/"+id).Scan(&activities); err != nil || activities != 1 {
+		t.Fatalf("system grant update activity = (%d, %v), want 1", activities, err)
+	}
 }
 
 func TestMigrateSQLiteEnforcesKeychainConstraints(t *testing.T) {

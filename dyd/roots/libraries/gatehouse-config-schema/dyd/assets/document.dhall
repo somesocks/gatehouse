@@ -156,6 +156,7 @@ let WorkspaceAgent =
         s.record.props::{
         , required = toMap
             { model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic workspace agent binding configuration revision" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }
         , optional = toMap
@@ -175,6 +176,7 @@ let WorkspaceStorageProvider =
         s.record.props::{
         , required = toMap
             { provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider reconciliation alias" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic workspace storage provider binding configuration revision" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "new-object placement priority" }
             }
         , optional = toMap

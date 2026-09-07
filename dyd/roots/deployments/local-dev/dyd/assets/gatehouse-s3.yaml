@@ -52,13 +52,16 @@ workspaces:
     name: Development
     agents:
       - model: openai-luna-low
+        revision: 1
         label: GPT 5.6 Luna Low
         priority: 1
       - model: openai-luna-medium
+        revision: 1
         label: GPT 5.6 Luna Med
         priority: 1
     storage_providers:
       - provider: local-s3
+        revision: 1
         priority: 1
     groups:
       - alias: admins

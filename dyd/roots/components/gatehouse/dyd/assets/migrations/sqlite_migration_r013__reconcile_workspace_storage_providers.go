@@ -24,22 +24,25 @@ func sqliteMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []co
 			CREATE TEMP TABLE gatehouse_migration_workspace_storage_provider_desired (
 				workspace_alias TEXT NOT NULL,
 				provider_alias TEXT NOT NULL,
+				revision INTEGER NOT NULL,
 				priority INTEGER NOT NULL,
 				enabled INTEGER NOT NULL,
 				PRIMARY KEY (workspace_alias, provider_alias)
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_workspace_storage_provider_desired (workspace_alias, provider_alias, priority, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ProviderAlias }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_workspace_storage_provider_desired (workspace_alias, provider_alias, revision, priority, enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .ProviderAlias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_workspace_storage_provider_state AS
 			SELECT
+				desired.revision,
 				desired.priority,
 				desired.enabled,
 				workspaces.id AS workspace,
 				providers.id AS provider,
 				bindings.provider AS existing_provider,
+				bindings.revision AS existing_revision,
 				bindings.priority AS existing_priority,
 				bindings.enabled AS existing_enabled
 			FROM gatehouse_migration_workspace_storage_provider_desired AS desired
@@ -60,13 +63,14 @@ func sqliteMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []co
 				CASE WHEN existing_provider IS NULL THEN 'workspace_storage_provider.create' ELSE 'workspace_storage_provider.update' END,
 				provider
 			FROM gatehouse_migration_workspace_storage_provider_state
-			WHERE existing_provider IS NULL OR existing_priority IS NOT priority OR existing_enabled IS NOT enabled;
+			WHERE existing_provider IS NULL OR existing_revision < revision;
 
-			INSERT INTO gatehouse_workspace_storage_providers (workspace, provider, priority, enabled)
-			SELECT workspace, provider, priority, enabled
+			INSERT INTO gatehouse_workspace_storage_providers (workspace, provider, revision, priority, enabled)
+			SELECT workspace, provider, revision, priority, enabled
 			FROM gatehouse_migration_workspace_storage_provider_state
 			WHERE TRUE
-			ON CONFLICT (workspace, provider) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled;
+			ON CONFLICT (workspace, provider) DO UPDATE SET revision = excluded.revision, priority = excluded.priority, enabled = excluded.enabled
+			WHERE gatehouse_workspace_storage_providers.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (
 				id, event, resource_kind, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at

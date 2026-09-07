@@ -21,6 +21,7 @@ type postgresMigrationR013WorkspaceStorageProviderAliasKey struct {
 }
 
 type postgresMigrationR013StoredWorkspaceStorageProvider struct {
+	Revision int
 	Priority int
 	Enabled  bool
 }
@@ -39,13 +40,15 @@ func postgresMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []
 		if err != nil {
 			return err, ""
 		}
+		desired := make([]config.WorkspaceStorageProvider, 0, len(providers))
 		events := make([]activityMigrationEvent, 0, len(providers))
 		for _, provider := range providers {
 			key := postgresMigrationR013WorkspaceStorageProviderAliasKey{Workspace: provider.WorkspaceID, Provider: provider.ProviderAlias}
 			stored, exists := existing[key]
-			if exists && stored.Priority == provider.Priority && stored.Enabled == provider.Enabled {
+			if exists && stored.Revision >= provider.Revision {
 				continue
 			}
+			desired = append(desired, provider)
 			workspaceID := workspaceIDs[provider.WorkspaceID]
 			if workspaceID == "" {
 				return fmt.Errorf("workspace %q is unavailable", provider.WorkspaceID), ""
@@ -69,9 +72,10 @@ func postgresMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range .Providers }}
-			INSERT INTO gatehouse_workspace_storage_providers (workspace, provider, priority, enabled)
-				VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_storage_providers WHERE alias = {{ sqlLiteral .ProviderAlias }}), {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace, provider) DO UPDATE SET priority = excluded.priority, enabled = excluded.enabled;
+			INSERT INTO gatehouse_workspace_storage_providers (workspace, provider, revision, priority, enabled)
+				VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), (SELECT id FROM gatehouse_storage_providers WHERE alias = {{ sqlLiteral .ProviderAlias }}), {{ sqlLiteral .Revision }}, {{ sqlLiteral .Priority }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace, provider) DO UPDATE SET revision = excluded.revision, priority = excluded.priority, enabled = excluded.enabled
+			WHERE gatehouse_workspace_storage_providers.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}
 			{{ $event := . }}
@@ -88,13 +92,13 @@ func postgresMigrationR013ReconcileWorkspaceStorageProvidersBuilder(providers []
 		`, struct {
 			Providers []config.WorkspaceStorageProvider
 			Events    []activityMigrationEvent
-		}{Providers: providers, Events: events})
+		}{Providers: desired, Events: events})
 	}
 }
 
 func postgresMigrationR013WorkspaceStorageProvidersByAlias(ctx context.Context, session *MigrationSession) (map[postgresMigrationR013WorkspaceStorageProviderAliasKey]postgresMigrationR013StoredWorkspaceStorageProvider, error) {
 	rows, err := session.QueryContext(ctx, `
-		SELECT workspaces.alias, providers.alias, bindings.priority, bindings.enabled
+		SELECT workspaces.alias, providers.alias, bindings.revision, bindings.priority, bindings.enabled
 		FROM gatehouse_workspace_storage_providers AS bindings
 		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = bindings.workspace
 		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
@@ -109,7 +113,7 @@ func postgresMigrationR013WorkspaceStorageProvidersByAlias(ctx context.Context, 
 	for rows.Next() {
 		var key postgresMigrationR013WorkspaceStorageProviderAliasKey
 		var binding postgresMigrationR013StoredWorkspaceStorageProvider
-		if err := rows.Scan(&key.Workspace, &key.Provider, &binding.Priority, &binding.Enabled); err != nil {
+		if err := rows.Scan(&key.Workspace, &key.Provider, &binding.Revision, &binding.Priority, &binding.Enabled); err != nil {
 			return nil, fmt.Errorf("scan workspace storage provider: %w", err)
 		}
 		bindings[key] = binding

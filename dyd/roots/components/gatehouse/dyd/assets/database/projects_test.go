@@ -22,10 +22,10 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
-		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
-		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Priority: 1, Enabled: true}},
+		Workspaces:                []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:                []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err, stored := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: "  "+title+"  ", Description: "  Description for "+title+".  ", Body: "# "+title}, alice)
+		err, stored := store.ProjectNoteCreate(ctx, model.ProjectNote{Ref: model.ProjectNoteRef{Project: project, Id: id}, Title: "  " + title + "  ", Description: "  Description for " + title + ".  ", Body: "# " + title}, alice)
 		if err != nil || stored.AuthorPrincipal == nil || *stored.AuthorPrincipal != alice || stored.Revision != 1 || stored.Title != title || stored.Description != "Description for "+title+"." || stored.Sensitive || stored.CreatedAt != at.Format("2006-01-02T15:04:05.000Z") {
 			t.Fatalf("ProjectNoteCreate() = (%#v, %v)", stored, err)
 		}

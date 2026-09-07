@@ -491,6 +491,26 @@ func TestSQLiteMigrationV037PreservesActivityAndAddsSystemGrants(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision) VALUES ('syg_00000000000000000000000000', 'prn_00000000000000000000000000', 'manager', TRUE, 1); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_system_grant, created_at) VALUES ('act_00000000000000000000000001', 'system_grant.create', 'system_grant', 'syg_00000000000000000000000000', '2026-01-01T00:00:00.000Z');`); err != nil { t.Fatal(err) }
 }
 
+func TestSQLiteMigrationV038InitializesWorkspaceBindingRevisions(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil { t.Fatal(err) }
+	defer store.Close()
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
+		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id) VALUES ('wsp_00000000000000000000000000', 'amd_00000000000000000000000000');
+		INSERT INTO gatehouse_workspace_storage_providers (workspace, provider) VALUES ('wsp_00000000000000000000000000', 'stp_00000000000000000000000000');
+	`); err != nil { t.Fatal(err) }
+	if err, source := sqliteMigrationV038AddWorkspaceBindingRevisions().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
+	for _, table := range []string{"gatehouse_workspace_agents", "gatehouse_workspace_storage_providers"} {
+		var revision int
+		if err := store.QueryRowContext(ctx, `SELECT revision FROM `+table).Scan(&revision); err != nil || revision != 1 {
+			t.Fatalf("%s revision = (%d, %v), want 1", table, revision, err)
+		}
+	}
+}
+
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{

@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	agentProviderProtocolBuiltin                = "builtin"
-	agentProviderProtocolOpenAIChatCompletions  = "openai-chat-completions"
-	agentProviderProtocolOpenAIResponses        = "openai-responses"
-	agentModelBuiltinDummyFixedReply      = "dummy.fixed-reply"
+	agentProviderProtocolBuiltin               = "builtin"
+	agentProviderProtocolOpenAIChatCompletions = "openai-chat-completions"
+	agentProviderProtocolOpenAIResponses       = "openai-responses"
+	agentModelBuiltinDummyFixedReply           = "dummy.fixed-reply"
 )
 
 type AgentProvider struct {
@@ -30,15 +30,15 @@ type AgentProvider struct {
 type AgentProviderAPIKeySource string
 
 type AgentModel struct {
-	Alias         string
-	Revision      int
-	ProviderAlias string
-	Model         string
-	Parameters    string
-	Compaction    AgentModelCompaction
-	MaxTurns      int
+	Alias           string
+	Revision        int
+	ProviderAlias   string
+	Model           string
+	Parameters      string
+	Compaction      AgentModelCompaction
+	MaxTurns        int
 	MaxOutputTokens int
-	Enabled       bool
+	Enabled         bool
 }
 
 type AgentModelCompaction struct {
@@ -48,12 +48,13 @@ type AgentModelCompaction struct {
 }
 
 type WorkspaceAgent struct {
-	WorkspaceID     string
-	ModelAlias      string
-	Priority        int
-	Label           *string
-	SystemPrompt    *string
-	Enabled         bool
+	WorkspaceID  string
+	ModelAlias   string
+	Revision     int
+	Priority     int
+	Label        *string
+	SystemPrompt *string
+	Enabled      bool
 }
 
 const (
@@ -274,7 +275,7 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is duplicated", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			modelIsEnabled, exists := modelEnabled[configured.Model]
-			if !exists || configured.Priority <= 0 {
+			if !exists || configured.Revision <= 0 || configured.Priority <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d] is invalid", workspaceIndex, agentIndex), nil
 			}
 			enabled := configured.Enabled == nil || *configured.Enabled
@@ -282,7 +283,7 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
 			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {
