@@ -1,16 +1,12 @@
 <script lang="ts">
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
-  import type { Route } from "../../route"
   import LoginPage from "../login/LoginPage.svelte"
   import SystemPage from "./SystemPage.svelte"
 
-  type SystemRoute = Extract<Route, { kind: "system" | "system-grants" }>
-
   const runtime = useRuntime()
-  const { access, activity, auth } = runtime
+  const { access, auth } = runtime
   let mobileMenuOpen = $state(false)
-  const currentRoute = $derived(runtime.state.route as SystemRoute)
 
   async function logout(): Promise<void> {
     try {
@@ -28,5 +24,5 @@
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
 {:else}
-  <SystemPage route={currentRoute} systemAccess={access.state.systemAccess} {activity} principalID={() => auth.state.claims?.principal.ref.id} principalName={auth.state.claims?.principal.name ?? "User"} onAuthenticationLost={() => runtime.requireLogin()} onSystemAccessChange={access.setSystemAccess} onLogout={() => void logout()} bind:mobileMenuOpen />
+  <SystemPage systemAccess={access.state.systemAccess} principalName={auth.state.claims?.principal.name ?? "User"} onLogout={() => void logout()} bind:mobileMenuOpen />
 {/if}

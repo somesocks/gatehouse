@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "principals" | "agent-providers" | "agent-models" | "storage-providers" | "workspace-agent-bindings" | "workspace-storage-bindings" | "system" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-grants" | "principals" | "agent-providers" | "agent-models" | "storage-providers" | "workspace-agent-bindings" | "workspace-storage-bindings" | "system" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -37,8 +37,9 @@ export function routeOwner(route: Route): RouteOwner {
     case "group-collection":
       return "groups"
     case "system":
-    case "system-grants":
       return "system"
+    case "system-grants":
+      return "system-grants"
     case "system-principals":
       return "principals"
     case "system-agent-providers":
