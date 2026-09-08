@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"gatehouse/lisp"
+	"gatehouse/typed_id"
 )
 
 // File describes a file that an agent is authorized to inspect.
@@ -145,7 +146,7 @@ func fileListFunction(files []File, name string) func([]lisp.Expr) (error, lisp.
 	}
 }
 
-func fileInfoFunction(files []File, name string) func([]lisp.Expr) (error, lisp.Expr) {
+func fileInfoFunction(files []File, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 1 {
 			return lisp.Errorf("%s requires an id", name), nil
@@ -156,6 +157,9 @@ func fileInfoFunction(files []File, name string) func([]lisp.Expr) (error, lisp.
 		}
 		if id == "" {
 			return lisp.Errorf("%s requires a non-empty id", name), nil
+		}
+		if !typed_id.Valid(kind, id) {
+			return lisp.Errorf("not a %s file", label), nil
 		}
 		for _, file := range files {
 			if file.ID == id {
@@ -339,7 +343,7 @@ func sessionSecretValue(secret SessionSecret, name string) (error, lisp.Expr) {
 	)
 }
 
-func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+func fileReadFunction(read FileRead, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires id, offset, and length", name), nil
@@ -358,6 +362,9 @@ func fileReadFunction(read FileRead, name string) func([]lisp.Expr) (error, lisp
 		}
 		if id == "" || offset < 0 || length < 1 || length > 64*1024 {
 			return lisp.Errorf("%s requires a non-empty id, non-negative offset, and length from 1 through 65536", name), nil
+		}
+		if !typed_id.Valid(kind, id) {
+			return lisp.Errorf("not a %s file", label), nil
 		}
 		err, value := read(id, offset, length)
 		if err != nil {

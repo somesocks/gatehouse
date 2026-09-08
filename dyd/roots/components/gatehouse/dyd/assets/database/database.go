@@ -14,12 +14,16 @@ import (
 	"gatehouse/config"
 	"gatehouse/identity"
 	"gatehouse/typed_id"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/stdlib"
 	"modernc.org/sqlite"
 )
 
 type Store struct {
 	*sql.DB
-	kind config.DatabaseKind
+	kind         config.DatabaseKind
+	databaseURL  string
+	postgresPool *pgxpool.Pool
 }
 
 const sqliteBusyTimeout = 30_000
@@ -47,10 +51,33 @@ func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *Sto
 		}
 		return nil, &Store{DB: database, kind: config.DatabaseKindSQLite}
 	case config.DatabaseKindPostgres:
-		return fmt.Errorf("PostgreSQL databases are not supported yet"), nil
+		err, database, pool, url := openPostgres(ctx, configuration.URL)
+		if err != nil {
+			return err, nil
+		}
+		return nil, &Store{DB: database, kind: config.DatabaseKindPostgres, databaseURL: url, postgresPool: pool}
 	default:
 		return fmt.Errorf("unsupported database kind %q", configuration.Kind), nil
 	}
+}
+
+// DatabaseURL returns the resolved database URL when the store uses PostgreSQL.
+func (store *Store) DatabaseURL() string {
+	return store.databaseURL
+}
+
+// PostgresPool returns the native PostgreSQL pool when the store uses PostgreSQL.
+func (store *Store) PostgresPool() *pgxpool.Pool {
+	return store.postgresPool
+}
+
+// Close closes all resources owned by the store.
+func (store *Store) Close() error {
+	err := store.DB.Close()
+	if store.postgresPool != nil {
+		store.postgresPool.Close()
+	}
+	return err
 }
 
 func prepareSQLitePath(path string) error {
@@ -92,6 +119,29 @@ func openSQLite(ctx context.Context, source string) (error, *sql.DB) {
 		return fmt.Errorf("enable SQLite foreign keys: %w", err), nil
 	}
 	return nil, database
+}
+
+func openPostgres(ctx context.Context, reference string) (error, *sql.DB, *pgxpool.Pool, string) {
+	name, found := strings.CutPrefix(reference, "env:")
+	if !found || name == "" {
+		return fmt.Errorf("PostgreSQL database URL must be an env:VARIABLE_NAME reference"), nil, nil, ""
+	}
+	url, found := os.LookupEnv(name)
+	if !found || url == "" {
+		return fmt.Errorf("PostgreSQL database URL environment variable %q is not set or empty", name), nil, nil, ""
+	}
+
+	pool, err := pgxpool.New(ctx, url)
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL database: %w", err), nil, nil, ""
+	}
+	database := stdlib.OpenDBFromPool(pool)
+	if err := database.PingContext(ctx); err != nil {
+		database.Close()
+		pool.Close()
+		return fmt.Errorf("ping PostgreSQL database: %w", err), nil, nil, ""
+	}
+	return nil, database, pool, url
 }
 
 func registerSQLiteFunctions() error {

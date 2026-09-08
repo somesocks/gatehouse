@@ -533,13 +533,14 @@ func TestOpenSQLiteCreatesDatabaseFile(t *testing.T) {
 	}
 }
 
-func TestOpenPostgresReportsUnsupported(t *testing.T) {
+func TestOpenPostgresRequiresConfiguredURL(t *testing.T) {
+	t.Setenv("GATEHOUSE_DATABASE_URL", "")
 	err, _ := database.Open(context.Background(), config.DatabaseConfig{
 		Kind: config.DatabaseKindPostgres,
 		URL:  "env:GATEHOUSE_DATABASE_URL",
 	})
-	if err == nil || !strings.Contains(err.Error(), "not supported yet") {
-		t.Fatalf("Open() error = %v, want unsupported PostgreSQL error", err)
+	if err == nil || !strings.Contains(err.Error(), "GATEHOUSE_DATABASE_URL") {
+		t.Fatalf("Open() error = %v, want missing PostgreSQL URL error", err)
 	}
 }
 

@@ -1,8 +1,8 @@
 package agent
 
 import (
-	_ "embed"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -114,7 +114,12 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session name queue: %w", err), nil
 	}
-	dataSource, err := dbos.NewDataSource(ctx, store.DB, dbos.WithDataSourceName("gatehouse"))
+	var dataSource *dbos.DataSource
+	if pool := store.PostgresPool(); pool != nil {
+		dataSource, err = dbos.NewDataSource(ctx, pool, dbos.WithDataSourceName("gatehouse"))
+	} else {
+		dataSource, err = dbos.NewDataSource(ctx, store.DB, dbos.WithDataSourceName("gatehouse"))
+	}
 	if err != nil {
 		return fmt.Errorf("register Gatehouse database data source: %w", err), nil
 	}
@@ -1361,9 +1366,9 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	var projectNotes *ProjectNotes
 	var projectSecrets *ProjectSecrets
 	if project != nil {
-			err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
-			if err != nil {
-				return err, nil, nil, nil, nil, nil, nil
+		err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
+		if err != nil {
+			return err, nil, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
 			projectInfo = &ProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}

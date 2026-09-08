@@ -4,6 +4,7 @@ set -eu
 
 ASSETS_DIR="$DYD_STEM/dyd/assets"
 IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-gatehouse/dyd/assets"
+POSTGRES_IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-postgres/dyd/assets"
 SEAWEEDFS_IMAGE_DIR="$DYD_STEM/dyd/dependencies/image-seaweedfs/dyd/assets"
 SECRETS_DIR="$DYD_STEM/dyd/secrets"
 
@@ -32,15 +33,29 @@ case "${LOCAL_DEV_DIAGNOSTICS_PROFILE:-none}" in
     ;;
 esac
 
+case "${LOCAL_DEV_DATABASE:-sqlite}" in
+  sqlite)
+    database=sqlite
+    ;;
+  postgres)
+    database=postgres
+    image-local-load "$(cat "$POSTGRES_IMAGE_DIR/image-name")" "$(cat "$POSTGRES_IMAGE_DIR/image-tag")" "$POSTGRES_IMAGE_DIR/oci"
+    export POSTGRES_IMAGE="localhost/$(cat "$POSTGRES_IMAGE_DIR/image")"
+    ;;
+  *)
+    printf '%s\n' "LOCAL_DEV_DATABASE must be sqlite or postgres" >&2
+    exit 2
+    ;;
+esac
+
 case "${LOCAL_DEV_USE_S3:-false}" in
   false)
-    unset COMPOSE_PROFILES SEAWEEDFS_IMAGE
-    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse.yaml")"
+    storage=none
     ;;
   true)
+    storage=s3
     image-local-load "$(cat "$SEAWEEDFS_IMAGE_DIR/image-name")" "$(cat "$SEAWEEDFS_IMAGE_DIR/image-tag")" "$SEAWEEDFS_IMAGE_DIR/oci"
     export SEAWEEDFS_IMAGE="localhost/$(cat "$SEAWEEDFS_IMAGE_DIR/image")"
-    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse-s3.yaml")"
     ;;
   *)
     printf '%s\n' "LOCAL_DEV_USE_S3 must be true or false" >&2
@@ -48,8 +63,21 @@ case "${LOCAL_DEV_USE_S3:-false}" in
     ;;
 esac
 
-if [ "${LOCAL_DEV_USE_S3:-false}" = true ]; then
-  docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" --file "$ASSETS_DIR/docker-compose.s3.yml" up -d --remove-orphans
-else
-  docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" up -d --remove-orphans
-fi
+case "$database:$storage" in
+  sqlite:none)
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse.yaml")"
+    docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" up -d --remove-orphans
+    ;;
+  sqlite:s3)
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse-s3.yaml")"
+    docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" --file "$ASSETS_DIR/docker-compose.s3.yml" up -d --remove-orphans
+    ;;
+  postgres:none)
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse-postgres.yaml")"
+    docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" --file "$ASSETS_DIR/docker-compose.postgres.yml" up -d --remove-orphans
+    ;;
+  postgres:s3)
+    export GATEHOUSE_CONFIG="$(cat "$ASSETS_DIR/gatehouse-postgres-s3.yaml")"
+    docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" --file "$ASSETS_DIR/docker-compose.postgres.yml" --file "$ASSETS_DIR/docker-compose.s3.yml" up -d --remove-orphans
+    ;;
+esac

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"gatehouse/lisp"
+	"gatehouse/typed_id"
 )
 
 const gatehouseSessionModuleID = "native:gatehouse/session/v1"
@@ -21,9 +22,9 @@ type SessionNotes struct {
 }
 
 var (
-	fileListDocumentation          = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with id, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	fileInfoDocumentation          = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata by ID, or null when the file is unavailable.", "(session/files/info \"example-file-id\")", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	fileReadDocumentation          = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
+	fileListDocumentation          = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with sfi_ IDs, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileInfoDocumentation          = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata for an sfi_ ID, or null when the file is unavailable.", "(session/files/info \"sfi_example-file-id\")", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileReadDocumentation          = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful current-session file with an sfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"sfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
 	fileCreateDocumentation        = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
 	sessionEventReadDocumentation  = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from a message text or tool result in the current session. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
 	sessionSecretListDocumentation = capabilityDocumentation{"(session/secrets/list) -> List", "Returns public metadata for secrets in the current session. Secret values are not included.", "(session/secrets/list)", "((id . \"ssc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
@@ -49,7 +50,7 @@ func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFile
 func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
 	fileRead := unavailableRead("session/files/read")
 	if read != nil {
-		fileRead = fileReadFunction(read, "session/files/read")
+		fileRead = fileReadFunction(read, "session/files/read", typed_id.SessionFile, "session")
 	}
 	fileCreate := func(_ *lisp.FunctionContext, _ []lisp.Expr) (error, lisp.Expr) {
 		return lisp.Errorf("session/files/create is unavailable"), nil
@@ -97,7 +98,7 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 
 	return lisp.HostModule{ID: gatehouseSessionModuleID, Exports: []lisp.HostExport{
 		{Name: "files/list", Value: document(lisp.Function(fileListFunction(files, "session/files/list")), fileListDocumentation)},
-		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(fileInfoFunction(files, "session/files/info")), fileInfoDocumentation)},
+		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(fileInfoFunction(files, "session/files/info", typed_id.SessionFile, "session")), fileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
 		{Name: "events/read", Value: document(lisp.Function(eventRead), sessionEventReadDocumentation)},

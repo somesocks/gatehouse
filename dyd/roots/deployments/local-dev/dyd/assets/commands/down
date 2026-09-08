@@ -13,4 +13,4 @@ if [ -f "$SECRETS_DIR/local-dev.env" ]; then
   . "$SECRETS_DIR/local-dev.env"
   set +a
 fi
-docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" down
+docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" down --remove-orphans

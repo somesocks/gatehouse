@@ -120,7 +120,7 @@ _test() {
         printf '%s\n' "[ERROR] Fail: PostgreSQL serve unexpectedly succeeded" >&2
         return 1
     fi
-    assert_contains "$(cat "$TEMP_DIR/postgres.output")" "PostgreSQL databases are not supported yet" "PostgreSQL rejection"
+    assert_contains "$(cat "$TEMP_DIR/postgres.output")" "GATEHOUSE_DATABASE_URL" "PostgreSQL URL configuration"
 }
 
 _teardown() {

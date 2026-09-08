@@ -103,10 +103,13 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}
-		dbosContext, err := dbos.NewContext(ctx, dbos.Config{
-			AppName:        "gatehouse",
-			SQLiteSystemDB: store.DB,
-		})
+		dbosConfig := dbos.Config{AppName: "gatehouse"}
+		if databaseConfig.Kind == config.DatabaseKindPostgres {
+			dbosConfig.DatabaseURL = store.DatabaseURL()
+		} else {
+			dbosConfig.SQLiteSystemDB = store.DB
+		}
+		dbosContext, err := dbos.NewContext(ctx, dbosConfig)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start DBOS: %v\n", err)
 			return 1

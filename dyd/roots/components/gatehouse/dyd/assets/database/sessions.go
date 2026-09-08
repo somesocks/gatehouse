@@ -75,9 +75,9 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 		return fmt.Errorf("bind session principal role: %w", err), model.Session{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_grant.create",
-		ResourceKind: ActivityResourceKindSessionGrant,
+		Ref:                  model.ActivityEventRef{},
+		Event:                "session_grant.create",
+		ResourceKind:         ActivityResourceKindSessionGrant,
 		ResourceSessionGrant: &grantID,
 	}, []string{ActivityTopicSessionGrant(session.Ref, grantID), ActivityTopicPrincipalGrant(grantee, grantID)}); err != nil {
 		return fmt.Errorf("append session principal grant activity: %w", err), model.Session{}
@@ -87,11 +87,11 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 		topics = append(topics, ActivityTopicProject(*session.Project))
 	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session.create",
-		ResourceKind: ActivityResourceKindSession,
+		Ref:             model.ActivityEventRef{},
+		Event:           "session.create",
+		ResourceKind:    ActivityResourceKindSession,
 		ResourceSession: &session.Ref.Id,
-		CreatedAt:    session.CreatedAt,
+		CreatedAt:       session.CreatedAt,
 	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session creation activity: %w", err), model.Session{}
@@ -222,9 +222,9 @@ func (store *Store) SessionProjectSet(ctx context.Context, session model.Session
 		event = "session.project.move"
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        event,
-		ResourceKind: ActivityResourceKindSession,
+		Ref:             model.ActivityEventRef{},
+		Event:           event,
+		ResourceKind:    ActivityResourceKindSession,
 		ResourceSession: &session.Id,
 	}, topics); err != nil {
 		return fmt.Errorf("append session project activity: %w", err), nil
@@ -417,25 +417,23 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
-	row := transaction.QueryRow(ctx, `
+	if _, err := transaction.Exec(ctx, `
 		INSERT INTO gatehouse_session_events (
 			workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at
 		) VALUES (
 			`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`,
 			`+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`
 		)
-		RETURNING created_at
-	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, parent, event.Kind, principal, agent, gateway, string(payload), metrics, event.CreatedAt)
-	if err := row.Scan(&event.CreatedAt); err != nil {
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Ref.Id, parent, event.Kind, principal, agent, gateway, string(payload), metrics, event.CreatedAt); err != nil {
 		return fmt.Errorf("insert session event: %w", err), model.SessionEvent{}
 	}
 	topics := []string{ActivityTopicSessionEvent(event.Ref)}
 	err, _ = store.ActivityEventAppendInTransaction(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_event.create",
-		ResourceKind: ActivityResourceKindSessionEvent,
+		Ref:                  model.ActivityEventRef{},
+		Event:                "session_event.create",
+		ResourceKind:         ActivityResourceKindSessionEvent,
 		ResourceSessionEvent: &event.Ref.Id,
-		CreatedAt:    event.CreatedAt,
+		CreatedAt:            event.CreatedAt,
 	}, topics)
 	if err != nil {
 		return fmt.Errorf("append session event activity: %w", err), model.SessionEvent{}
@@ -653,11 +651,11 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		}
 		topics := []string{ActivityTopicSessionEvent(insert.event.Ref)}
 		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-			Ref:          model.ActivityEventRef{},
-			Event:        "session_event.create",
-			ResourceKind: ActivityResourceKindSessionEvent,
+			Ref:                  model.ActivityEventRef{},
+			Event:                "session_event.create",
+			ResourceKind:         ActivityResourceKindSessionEvent,
 			ResourceSessionEvent: &insert.event.Ref.Id,
-			CreatedAt:    insert.event.CreatedAt,
+			CreatedAt:            insert.event.CreatedAt,
 		}, topics)
 		if err != nil {
 			return fmt.Errorf("append session event activity: %w", err), nil
@@ -811,7 +809,7 @@ func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.
 	query := `
 		SELECT id
 		FROM gatehouse_session_events
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
+		WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + `
 	`
 	arguments := []any{session.Workspace.Id, session.Id}
 	if beforeID != "" {
@@ -859,10 +857,10 @@ type SessionEventTreeEntry struct {
 // AgentContext is a durable MCMTR checkpoint owned by one reply tree.
 // Session events remain the authoritative collaborative record.
 type AgentContext struct {
-	Root    model.SessionEventRef
-	Model   model.WorkspaceAgentRef
-	Profile string
-	State   json.RawMessage
+	Root      model.SessionEventRef
+	Model     model.WorkspaceAgentRef
+	Profile   string
+	State     json.RawMessage
 	UpdatedAt string
 }
 
@@ -1317,9 +1315,9 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 		topics = append(topics, ActivityTopicProject(model.ProjectRef{Workspace: session.Workspace, Id: project.String}))
 	}
 	err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session.update",
-		ResourceKind: ActivityResourceKindSession,
+		Ref:             model.ActivityEventRef{},
+		Event:           "session.update",
+		ResourceKind:    ActivityResourceKindSession,
 		ResourceSession: &session.Id,
 	}, topics)
 	if err != nil {
@@ -1332,16 +1330,16 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 }
 
 type WorkspaceAgentModel struct {
-	Ref           model.WorkspaceAgentRef
-	ProviderID    string
-	ProviderAlias *string
-	Protocol      string
-	BaseURL       *string
-	Keychain      *model.KeychainRef
-	APIKey        *string
-	Model         string
-	Parameters    string
-	Compaction    string
+	Ref             model.WorkspaceAgentRef
+	ProviderID      string
+	ProviderAlias   *string
+	Protocol        string
+	BaseURL         *string
+	Keychain        *model.KeychainRef
+	APIKey          *string
+	Model           string
+	Parameters      string
+	Compaction      string
 	MaxTurns        int
 	MaxOutputTokens int
 	SystemPrompt    *string

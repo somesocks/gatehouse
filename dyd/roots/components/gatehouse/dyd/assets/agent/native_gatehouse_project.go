@@ -1,6 +1,9 @@
 package agent
 
-import "gatehouse/lisp"
+import (
+	"gatehouse/lisp"
+	"gatehouse/typed_id"
+)
 
 const gatehouseProjectModuleID = "native:gatehouse/project/v1"
 
@@ -52,11 +55,11 @@ type ProjectSecret struct {
 }
 
 var (
-	projectFileListDocumentation = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with id, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	projectFileInfoDocumentation = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata by ID, or null when the file is unavailable.", "(project/files/info \"example-file-id\")", "((id . \"example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectFileListDocumentation = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with pfi_ IDs, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectFileInfoDocumentation = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata for a pfi_ ID, or null when the file is unavailable.", "(project/files/info \"pfi_example-file-id\")", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	projectInfoGetDocumentation  = capabilityDocumentation{"(project/info/get) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info/get)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectInfoSetDocumentation  = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful file in the project linked to the current session. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"example-file-id\" 0 64))", "\"first bytes of the file\""}
+	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful linked-project file with a pfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"pfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
 	projectSecretListDocumentation = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectSecretReadDocumentation = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	projectNoteListDocumentation = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
@@ -85,12 +88,12 @@ func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		infoSet = projectInfoSetFunction(info.Set)
 	}
 
-	filesList, filesInfo, fileRead := fileListFunction(nil, "project/files/list"), fileInfoFunction(nil, "project/files/info"), unavailableRead("project/files/read")
+	filesList, filesInfo, fileRead := fileListFunction(nil, "project/files/list"), fileInfoFunction(nil, "project/files/info", typed_id.ProjectFile, "project"), unavailableRead("project/files/read")
 	if files != nil {
 		filesList = fileListFunction(files.Files, "project/files/list")
-		filesInfo = fileInfoFunction(files.Files, "project/files/info")
+		filesInfo = fileInfoFunction(files.Files, "project/files/info", typed_id.ProjectFile, "project")
 		if files.Read != nil {
-			fileRead = fileReadFunction(files.Read, "project/files/read")
+			fileRead = fileReadFunction(files.Read, "project/files/read", typed_id.ProjectFile, "project")
 		}
 	}
 	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
