@@ -35,6 +35,15 @@ type ProjectNotes struct {
 	Remove       NoteRemove
 }
 
+// ProjectTasks contains the authorized flat tasks in a linked project.
+type ProjectTasks struct {
+	Tasks  []Task
+	Read   TaskRead
+	Create TaskCreate
+	Update TaskUpdate
+	Remove TaskRemove
+}
+
 // ProjectSecretRead reads an authorized project secret value.
 type ProjectSecretRead func(id string) (error, []byte)
 
@@ -55,33 +64,45 @@ type ProjectSecret struct {
 }
 
 var (
-	projectFileListDocumentation = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with pfi_ IDs, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	projectFileInfoDocumentation = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata for a pfi_ ID, or null when the file is unavailable.", "(project/files/info \"pfi_example-file-id\")", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	projectInfoGetDocumentation  = capabilityDocumentation{"(project/info/get) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info/get)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectInfoSetDocumentation  = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectFileReadDocumentation = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful linked-project file with a pfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"pfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
-	projectSecretListDocumentation = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectSecretReadDocumentation = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
-	projectNoteListDocumentation = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
-	projectNoteReadDocumentation = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
+	projectFileListDocumentation          = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with pfi_ IDs, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectFileInfoDocumentation          = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata for a pfi_ ID, or null when the file is unavailable.", "(project/files/info \"pfi_example-file-id\")", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectInfoGetDocumentation           = capabilityDocumentation{"(project/info/get) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info/get)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectInfoSetDocumentation           = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectFileReadDocumentation          = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful linked-project file with a pfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"pfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
+	projectSecretListDocumentation        = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectSecretReadDocumentation        = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
+	projectNoteListDocumentation          = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
+	projectNoteReadDocumentation          = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
 	projectNoteRevisionsListDocumentation = capabilityDocumentation{"(project/notes/revisions/list id) -> List", "Returns revision, title, possibly empty description, sensitivity, author_id, optional author_name, and created_at for an authorized project note, newest first.", "(project/notes/revisions/list \"example-note-id\")", "((revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectNoteRevisionReadDocumentation = capabilityDocumentation{"(project/notes/revisions/read id revision offset length) -> Bytes", "Reads Markdown bytes from an authorized project note revision. Sensitive revision bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/revisions/read \"example-note-id\" 1 0 64))", "\"# Original project guide\""}
-	projectNoteCreateDocumentation = capabilityDocumentation{"(project/notes/create title description body) -> List", "Creates a shared Markdown note in the project linked to the current session and returns its metadata. Description and body may be empty strings. A body derived from sensitive data creates a sensitive revision.", "(project/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
-	projectNoteUpdateDocumentation = capabilityDocumentation{"(project/notes/update id title description body) -> List", "Replaces a shared Markdown note in the linked project and returns its updated metadata. Title and description must not be sensitive; a sensitive body creates a sensitive revision.", "(project/notes/update \"example-note-id\" \"Decision\" \"Updated reasoning\" \"# Decision\")", "((id . \"example-note-id\") (revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectNoteRemoveDocumentation = capabilityDocumentation{"(project/notes/remove id) -> Boolean", "Removes a shared note from the project linked to the current session. Returns true when the note was removed and false when it is unavailable.", "(project/notes/remove \"example-note-id\")", "#t"}
+	projectNoteRevisionReadDocumentation  = capabilityDocumentation{"(project/notes/revisions/read id revision offset length) -> Bytes", "Reads Markdown bytes from an authorized project note revision. Sensitive revision bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/revisions/read \"example-note-id\" 1 0 64))", "\"# Original project guide\""}
+	projectNoteCreateDocumentation        = capabilityDocumentation{"(project/notes/create title description body) -> List", "Creates a shared Markdown note in the project linked to the current session and returns its metadata. Description and body may be empty strings. A body derived from sensitive data creates a sensitive revision.", "(project/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
+	projectNoteUpdateDocumentation        = capabilityDocumentation{"(project/notes/update id title description body) -> List", "Replaces a shared Markdown note in the linked project and returns its updated metadata. Title and description must not be sensitive; a sensitive body creates a sensitive revision.", "(project/notes/update \"example-note-id\" \"Decision\" \"Updated reasoning\" \"# Decision\")", "((id . \"example-note-id\") (revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectNoteRemoveDocumentation        = capabilityDocumentation{"(project/notes/remove id) -> Boolean", "Removes a shared note from the project linked to the current session. Returns true when the note was removed and false when it is unavailable.", "(project/notes/remove \"example-note-id\")", "#t"}
+	projectTaskListDocumentation          = capabilityDocumentation{"(project/tasks/list) -> List", "Returns flat task metadata in the linked project, including whether the Markdown description is sensitive.", "(project/tasks/list)", "((id . \"ptk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"ready\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectTaskReadDocumentation          = capabilityDocumentation{"(project/tasks/read id offset length) -> Bytes", "Reads the Markdown task description in the project linked to the current session. Sensitive task bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/tasks/read \"ptk_example-task-id\" 0 64))", "\"Task details\""}
+	projectTaskCreateDocumentation        = capabilityDocumentation{"(project/tasks/create title description status) -> List", "Creates a flat project task. Title and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(project/tasks/create \"Review design\" \"# Review\" \"ready\")", "((id . \"ptk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"ready\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectTaskUpdateDocumentation        = capabilityDocumentation{"(project/tasks/update id title description status) -> List", "Replaces a flat project task. ID, title, and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(project/tasks/update \"ptk_example-task-id\" \"Review design\" \"# Review\" \"done\")", "((id . \"ptk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"done\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectTaskRemoveDocumentation        = capabilityDocumentation{"(project/tasks/remove id) -> Boolean", "Removes a flat task from the linked project. Returns true when the task was removed and false when it is unavailable.", "(project/tasks/remove \"ptk_example-task-id\")", "#t"}
 )
 
 // NewProjectModule constructs the project capability module for one agent evaluation.
 // It always exposes every project export so an unavailable project can be handled in Lisp.
-func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes) lisp.HostModule {
-	return newProjectModule(info, files, notes, nil)
+func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks ...*ProjectTasks) lisp.HostModule {
+	return newProjectModule(info, files, notes, projectTasksArgument(tasks), nil)
 }
 
-func NewProjectModuleWithSecrets(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets) lisp.HostModule {
-	return newProjectModule(info, files, notes, secrets)
+func NewProjectModuleWithSecrets(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, tasks ...*ProjectTasks) lisp.HostModule {
+	return newProjectModule(info, files, notes, projectTasksArgument(tasks), secrets)
 }
 
-func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets) lisp.HostModule {
+func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
+	if len(tasks) == 0 {
+		return nil
+	}
+	return tasks[0]
+}
+
+func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets) lisp.HostModule {
 	infoGet := projectInfoGetFunction(info)
 	infoSet := unavailableCreate("project/info/set")
 	if info != nil && info.Set != nil {
@@ -122,6 +143,25 @@ func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 			noteRemove = noteRemoveFunction(notes.Remove, "project/notes/remove")
 		}
 	}
+	tasksList, taskRead := unavailableTaskList("project/tasks/list"), unavailableRead("project/tasks/read")
+	taskCreate := unavailableCreate("project/tasks/create")
+	taskUpdate := unavailableCreate("project/tasks/update")
+	taskRemove := unavailableRemove("project/tasks/remove")
+	if tasks != nil {
+		tasksList = taskListFunction(tasks.Tasks, "project/tasks/list")
+		if tasks.Read != nil {
+			taskRead = taskReadFunction(tasks.Read, "project/tasks/read")
+		}
+		if tasks.Create != nil {
+			taskCreate = taskCreateFunction(tasks.Create, "project/tasks/create")
+		}
+		if tasks.Update != nil {
+			taskUpdate = taskUpdateFunction(tasks.Update, "project/tasks/update")
+		}
+		if tasks.Remove != nil {
+			taskRemove = taskRemoveFunction(tasks.Remove, "project/tasks/remove")
+		}
+	}
 	secretsList, secretRead := projectSecretListFunction(nil, "project/secrets/list"), unavailableSecretRead("project/secrets/read")
 	if secrets != nil {
 		secretsList = projectSecretListFunction(secrets.Secrets, "project/secrets/list")
@@ -143,6 +183,11 @@ func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), projectNoteCreateDocumentation)},
 		{Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), projectNoteUpdateDocumentation)},
 		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), projectNoteRemoveDocumentation)},
+		{Name: "tasks/list", Value: document(lisp.Function(tasksList), projectTaskListDocumentation)},
+		{Name: "tasks/read", Value: document(lisp.Function(taskRead), projectTaskReadDocumentation)},
+		{Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), projectTaskCreateDocumentation)},
+		{Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), projectTaskUpdateDocumentation)},
+		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), projectTaskRemoveDocumentation)},
 		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), projectSecretListDocumentation)},
 		{Name: "secrets/read", Value: document(lisp.Function(secretRead), projectSecretReadDocumentation)},
 	}}

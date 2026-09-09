@@ -36,6 +36,12 @@ const agentPrelude = `(let
 				(list 'project/notes/update "Update a project note" project/notes/update)
                 (list 'session/notes/remove "Remove a session note" session/notes/remove)
                 (list 'project/notes/remove "Remove a project note" project/notes/remove)
+				(list 'session/tasks/create "Create a session task" session/tasks/create)
+				(list 'project/tasks/create "Create a project task" project/tasks/create)
+				(list 'session/tasks/update "Update a session task" session/tasks/update)
+				(list 'project/tasks/update "Update a project task" project/tasks/update)
+				(list 'session/tasks/remove "Remove a session task" session/tasks/remove)
+				(list 'project/tasks/remove "Remove a project task" project/tasks/remove)
                 (list 'project/info/set "Update project details" project/info/set)))
             (prelude/operation-binding
               (fn (operation)

@@ -300,6 +300,91 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	}
 }
 
+func TestProjectTasksUseProjectAuthorizationAndActivity(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	projectID, err := typed_id.New(typed_id.Project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := model.ProjectRef{Workspace: workspace, Id: projectID}
+	if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, alice, nil); err != nil {
+		t.Fatal(err)
+	}
+	olderID, err := typed_id.NewAt(typed_id.ProjectTask, time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, older := store.ProjectTaskCreate(ctx, model.ProjectTask{Ref: model.ProjectTaskRef{Project: project, Id: olderID}, Title: "  Implement tasks  ", Description: stringPointer("  Backend work  "), Sensitive: true}, alice)
+	if err != nil || older.Status != "draft" || older.CreatorPrincipal == nil || *older.CreatorPrincipal != alice || older.UpdaterPrincipal == nil || *older.UpdaterPrincipal != alice || older.Description == nil || *older.Description != "Backend work" {
+		t.Fatalf("ProjectTaskCreate() = (%#v, %v)", older, err)
+	}
+	newerID, err := typed_id.NewAt(typed_id.ProjectTask, time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, newer := store.ProjectTaskCreate(ctx, model.ProjectTask{Ref: model.ProjectTaskRef{Project: project, Id: newerID}, Title: "Review", Status: "ready"}, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, tasks := store.ProjectTasksGet(ctx, project, alice)
+	if err != nil || len(tasks) != 2 || tasks[0].Ref != newer.Ref || tasks[0].Description != nil || tasks[1].Description != nil {
+		t.Fatalf("ProjectTasksGet() = (%#v, %v)", tasks, err)
+	}
+	err, detail := store.ProjectTaskGet(ctx, older.Ref, alice)
+	if err != nil || detail == nil || detail.Description == nil || *detail.Description != "Backend work" {
+		t.Fatalf("ProjectTaskGet() = (%#v, %v)", detail, err)
+	}
+	err, hidden := store.ProjectTaskGet(ctx, older.Ref, bob)
+	if err != nil || hidden != nil {
+		t.Fatalf("ProjectTaskGet() for ungranted principal = (%#v, %v)", hidden, err)
+	}
+	if createErr, _ := store.ProjectTaskCreate(ctx, model.ProjectTask{Ref: model.ProjectTaskRef{Project: project, Id: newerID}, Title: "Denied"}, bob); createErr == nil {
+		t.Fatal("ProjectTaskCreate() accepted an ungranted principal")
+	}
+	err, updated := store.ProjectTaskDetailsSetAs(ctx, older.Ref, alice, database.TaskAuthor{Gateway: &model.GatewayRef{Id: "gwy_00000000000000000000000000"}}, false, "done", "Implemented", nil)
+	if err != nil || updated == nil || updated.Status != "done" || updated.Description != nil || updated.UpdaterGateway == nil {
+		t.Fatalf("ProjectTaskDetailsSetAs() = (%#v, %v)", updated, err)
+	}
+	err, tasks = store.ProjectTasksGet(ctx, project, alice)
+	if err != nil || len(tasks) != 2 || tasks[0].Ref != newer.Ref {
+		t.Fatalf("ProjectTasksGet() after update = (%#v, %v)", tasks, err)
+	}
+	err, removed := store.ProjectTaskRemove(ctx, newer.Ref, bob)
+	if err != nil || removed {
+		t.Fatalf("ProjectTaskRemove() for ungranted principal = (%t, %v)", removed, err)
+	}
+	err, removed = store.ProjectTaskRemove(ctx, newer.Ref, alice)
+	if err != nil || !removed {
+		t.Fatalf("ProjectTaskRemove() = (%t, %v)", removed, err)
+	}
+	err, hidden = store.ProjectTaskGet(ctx, newer.Ref, alice)
+	if err != nil || hidden != nil {
+		t.Fatalf("ProjectTaskGet() after removal = (%#v, %v)", hidden, err)
+	}
+	for event, task := range map[string]model.ProjectTaskRef{"project_task.create": older.Ref, "project_task.update": older.Ref, "project_task.remove": newer.Ref} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = ? AND events.resource_project_task = ? AND topics.topic = ?`, event, task.Id, database.ActivityTopicProjectTask(task)).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("project task activity %q = (%d, %v)", event, count, err)
+		}
+	}
+}
+
 func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}

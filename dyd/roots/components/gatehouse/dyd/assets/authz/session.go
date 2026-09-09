@@ -9,6 +9,9 @@ const (
 	SessionNoteCreate      SessionAction = "session.note.create"
 	SessionNoteEdit        SessionAction = "session.note.edit"
 	SessionNoteRemove      SessionAction = "session.note.remove"
+	SessionTaskCreate      SessionAction = "session.task.create"
+	SessionTaskEdit        SessionAction = "session.task.edit"
+	SessionTaskRemove      SessionAction = "session.task.remove"
 	SessionFileCreate      SessionAction = "session.file.create"
 	SessionFileFinish      SessionAction = "session.file.finish"
 	SessionFileRemove      SessionAction = "session.file.remove"
@@ -32,6 +35,7 @@ func SessionAllows(roles []Role, action SessionAction) bool {
 			switch action {
 			case SessionMessageCreate, SessionMessageCancel,
 				SessionNoteCreate, SessionNoteEdit, SessionNoteRemove,
+				SessionTaskCreate, SessionTaskEdit, SessionTaskRemove,
 				SessionFileCreate, SessionFileFinish, SessionFileRemove,
 				SessionSecretCreate, SessionSecretEdit, SessionSecretRemove,
 				SessionApprovalRespond:
@@ -46,6 +50,7 @@ func validSessionAction(action SessionAction) bool {
 	switch action {
 	case SessionEdit, SessionMessageCreate, SessionMessageCancel,
 		SessionNoteCreate, SessionNoteEdit, SessionNoteRemove,
+		SessionTaskCreate, SessionTaskEdit, SessionTaskRemove,
 		SessionFileCreate, SessionFileFinish, SessionFileRemove,
 		SessionSecretCreate, SessionSecretEdit, SessionSecretRemove,
 		SessionApprovalRespond, SessionProjectSet, SessionGrantManage:

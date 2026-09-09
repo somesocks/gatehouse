@@ -266,11 +266,10 @@ let WorkspaceAgent =
       s.record.from
         s.record.props::{
         , required = toMap
-              { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
-              , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
-              , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
-              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
-              }
+               { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
+               , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+               , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
+               }
         , optional = toMap
               { label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
               }
@@ -635,6 +634,41 @@ let ProjectNoteRevision =
         }
         s.record.meta::{ name = Some "ProjectNoteRevision", description = Some "An immutable revision of a project note." }
 
+let ProjectTaskRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "owning project identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project task identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectTaskRef", description = Some "The stable identity of a task attached to a project." }
+
+let ProjectTask =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectTaskRef" } s.reference.meta::{ description = Some "project task identity" }
+            , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task title" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of task content are marked sensitive" }
+            , status = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task status: draft, ready, in_progress, done, or cancelled; defaults to draft" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project task is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task creation timestamp" }
+            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task last update timestamp" }
+            }
+        , optional = toMap
+            { description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "optional sensitive Markdown task description" }
+            , creator_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal task creator" }
+            , creator_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent task creator" }
+            , creator_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway task creator" }
+            , updater_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal last task updater" }
+            , updater_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent last task updater" }
+            , updater_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway last task updater" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectTask", description = Some "A flat task attached to a project." }
+
 let ProjectSecretRef =
       s.record.from
         s.record.props::{
@@ -723,6 +757,41 @@ let SessionNoteRevision =
             }
         }
         s.record.meta::{ name = Some "SessionNoteRevision", description = Some "An immutable revision of a session note." }
+
+let SessionTaskRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { session = s.reference.from s.reference.props::{ to = "SessionRef" } s.reference.meta::{ description = Some "owning session identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed session task identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "SessionTaskRef", description = Some "The stable identity of a task attached to a session." }
+
+let SessionTask =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "SessionTaskRef" } s.reference.meta::{ description = Some "session task identity" }
+            , title = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task title" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether agent reads of task content are marked sensitive" }
+            , status = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task status: draft, ready, in_progress, done, or cancelled; defaults to draft" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session task is available" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task creation timestamp" }
+            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "task last update timestamp" }
+            }
+        , optional = toMap
+            { description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "optional sensitive Markdown task description" }
+            , creator_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal task creator" }
+            , creator_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent task creator" }
+            , creator_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway task creator" }
+            , updater_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal last task updater" }
+            , updater_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent last task updater" }
+            , updater_gateway = s.reference.from s.reference.props::{ to = "GatewayRef" } s.reference.meta::{ description = Some "gateway last task updater" }
+            }
+        }
+        s.record.meta::{ name = Some "SessionTask", description = Some "A flat task attached to a session." }
 
 let SessionSecretRef =
       s.record.from
@@ -936,14 +1005,16 @@ let ActivityEvent =
                , resource_project = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project resource ID" }
                , resource_project_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project file resource ID" }
                , resource_project_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project grant resource ID" }
-               , resource_project_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note resource ID" }
-               , resource_project_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret resource ID" }
+                , resource_project_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note resource ID" }
+				, resource_project_task = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project task resource ID" }
+                , resource_project_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret resource ID" }
                , resource_session = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session resource ID" }
                , resource_session_event = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session event resource ID" }
                , resource_session_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file resource ID" }
                , resource_session_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session grant resource ID" }
-               , resource_session_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session note resource ID" }
-               , resource_session_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session secret resource ID" }
+                , resource_session_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session note resource ID" }
+				, resource_session_task = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session task resource ID" }
+                , resource_session_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session secret resource ID" }
                , resource_storage_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider resource ID" }
                , resource_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace resource ID" }
                , resource_workspace_agent_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent workspace ID" }
@@ -1109,12 +1180,16 @@ in  Document::{
 			, s.root.from ProjectNote s.root.meta::{ name = "ProjectNote" }
 			, s.root.from ProjectNoteRevisionRef s.root.meta::{ name = "ProjectNoteRevisionRef" }
 			, s.root.from ProjectNoteRevision s.root.meta::{ name = "ProjectNoteRevision" }
+			, s.root.from ProjectTaskRef s.root.meta::{ name = "ProjectTaskRef" }
+			, s.root.from ProjectTask s.root.meta::{ name = "ProjectTask" }
 			, s.root.from ProjectSecretRef s.root.meta::{ name = "ProjectSecretRef" }
 			, s.root.from ProjectSecret s.root.meta::{ name = "ProjectSecret" }
               , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
               , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
 			 , s.root.from SessionNoteRevisionRef s.root.meta::{ name = "SessionNoteRevisionRef" }
 			 , s.root.from SessionNoteRevision s.root.meta::{ name = "SessionNoteRevision" }
+			 , s.root.from SessionTaskRef s.root.meta::{ name = "SessionTaskRef" }
+			 , s.root.from SessionTask s.root.meta::{ name = "SessionTask" }
 			 , s.root.from SessionSecretRef s.root.meta::{ name = "SessionSecretRef" }
 			 , s.root.from SessionSecret s.root.meta::{ name = "SessionSecret" }
              , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }

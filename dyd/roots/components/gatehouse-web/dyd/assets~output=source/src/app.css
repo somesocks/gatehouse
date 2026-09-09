@@ -941,6 +941,50 @@ body {
 	padding-top: 1.25rem;
 }
 
+.task-page {
+  padding: 1.5rem 0;
+}
+
+.task-editor,
+.task-view {
+  display: grid;
+  gap: 1rem;
+}
+
+.task-description-input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  min-height: 14rem;
+  resize: vertical;
+}
+
+.task-status {
+  border: 1px solid #596051;
+  border-radius: 999px;
+  color: #c7c9bd;
+  display: inline-block;
+  font-size: 0.68em;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1;
+  padding: 0.32em 0.55em;
+  text-transform: uppercase;
+}
+
+.task-status-ready,
+.task-status-in_progress { border-color: #718d3c; color: #dfff9b; }
+.task-status-done { border-color: #4f8555; color: #b6e8bd; }
+.task-status-cancelled { border-color: #80514b; color: #ffc0b0; }
+
+.task-row .dashboard-row-meta {
+  flex-wrap: wrap;
+}
+
+.task-markdown {
+  border-top: 1px solid #3f4538;
+  color: #eff2e8;
+  padding-top: 1.25rem;
+}
+
 .markdown-content {
 	line-height: 1.65;
 	min-width: 0;

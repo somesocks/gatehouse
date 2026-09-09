@@ -15,6 +15,7 @@ import (
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
+	"gatehouse/authz"
 	"gatehouse/database"
 	"gatehouse/diagnostics"
 	"gatehouse/keychain"
@@ -572,13 +573,26 @@ func agentProviderAssociatedData(id string, alias *string, selector string) (err
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
-	err, files, projectInfo, projectFiles, projectNotes, projectSecrets, sessionNotes := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
+	err, files, projectInfo, projectFiles, projectNotes, projectTasks, projectSecrets, sessionNotes, sessionTasks := runtime.turnEnvironment(ctx, input.Request.Ref.Session, input.Principal)
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
 	sessionNotes.Create = runtime.sessionNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 	sessionNotes.Update = runtime.sessionNoteUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 	sessionNotes.Remove = runtime.sessionNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
+	err, sessionRoles := runtime.store.SessionRolesGet(ctx, input.Request.Ref.Session, input.Principal)
+	if err != nil {
+		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+	}
+	if authz.SessionAllows(sessionRoles, authz.SessionTaskCreate) {
+		sessionTasks.Create = runtime.sessionTaskCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+	}
+	if authz.SessionAllows(sessionRoles, authz.SessionTaskEdit) {
+		sessionTasks.Update = runtime.sessionTaskUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+	}
+	if authz.SessionAllows(sessionRoles, authz.SessionTaskRemove) {
+		sessionTasks.Remove = runtime.sessionTaskRemove(ctx, input.Request.Ref.Session, input.Principal)
+	}
 	if projectInfo != nil {
 		projectInfo.Set = runtime.projectInfoSet(ctx, input.Request.Ref.Session, input.Principal)
 	}
@@ -586,6 +600,28 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 		projectNotes.Update = runtime.projectNoteUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 		projectNotes.Remove = runtime.projectNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
+	}
+	if projectTasks != nil {
+		err, project := runtime.store.SessionProjectGet(ctx, input.Request.Ref.Session)
+		if err != nil || project == nil {
+			if err == nil {
+				err = fmt.Errorf("project task authorization: linked project is unavailable")
+			}
+			return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+		}
+		err, projectRoles := runtime.store.ProjectRolesGet(ctx, *project, input.Principal)
+		if err != nil {
+			return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+		}
+		if authz.ProjectAllows(projectRoles, authz.ProjectTaskCreate) {
+			projectTasks.Create = runtime.projectTaskCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		}
+		if authz.ProjectAllows(projectRoles, authz.ProjectTaskEdit) {
+			projectTasks.Update = runtime.projectTaskUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		}
+		if authz.ProjectAllows(projectRoles, authz.ProjectTaskRemove) {
+			projectTasks.Remove = runtime.projectTaskRemove(ctx, input.Request.Ref.Session, input.Principal)
+		}
 	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
@@ -645,8 +681,8 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return nil, value
 	}
 	modules := []lisp.HostModule{
-		NewProjectModuleWithSecrets(projectInfo, projectFiles, projectNotes, projectSecrets),
-		NewSessionModuleWithSecrets(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
+		NewProjectModuleWithSecrets(projectInfo, projectFiles, projectNotes, projectSecrets, projectTasks),
+		NewSessionModuleWithSecretsAndTasks(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
@@ -822,6 +858,77 @@ func (runtime *SessionEventReplyRuntime) sessionNoteUpdate(ctx dbos.Context, ses
 	}
 }
 
+func (runtime *SessionEventReplyRuntime) sessionTaskCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskCreate {
+	return func(title, description, status string, sensitive bool) (error, Task) {
+		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
+			id, err := typed_id.New(typed_id.SessionTask)
+			if err != nil {
+				return Task{}, fmt.Errorf("generate session task ID: %w", err)
+			}
+			err, created := runtime.store.SessionTaskCreate(step, model.SessionTask{
+				Ref: model.SessionTaskRef{Session: session, Id: id}, Title: title, Description: &description, Sensitive: sensitive, Status: status,
+				CreatorAgent: &agent, UpdaterAgent: &agent,
+			}, principal)
+			if err != nil {
+				return Task{}, err
+			}
+			return sessionTaskValue(created), nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-task-create"))
+		return err, task
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionTaskRead(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) TaskRead {
+	return func(id string, offset, length int64) (error, []byte, bool) {
+		err, detail := runtime.store.SessionTaskGet(ctx, model.SessionTaskRef{Session: session, Id: id}, principal)
+		if err != nil || detail == nil {
+			if err != nil {
+				return err, nil, false
+			}
+			return fmt.Errorf("read session task: unavailable"), nil, false
+		}
+		description := ""
+		if detail.Description != nil {
+			description = *detail.Description
+		}
+		contents := []byte(description)
+		if offset > int64(len(contents)) {
+			return fmt.Errorf("read session task: offset is unavailable"), nil, false
+		}
+		end := offset + length
+		if end > int64(len(contents)) {
+			end = int64(len(contents))
+		}
+		return nil, append([]byte(nil), contents[offset:end]...), detail.Sensitive
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionTaskUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskUpdate {
+	return func(id, title, description, status string, sensitive bool) (error, Task) {
+		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
+			err, updated := runtime.store.SessionTaskDetailsSetAs(step, model.SessionTaskRef{Session: session, Id: id}, principal, database.TaskAuthor{Agent: &agent}, sensitive, status, title, &description)
+			if err != nil || updated == nil {
+				if err == nil {
+					err = fmt.Errorf("update session task: unavailable")
+				}
+				return Task{}, err
+			}
+			return sessionTaskValue(*updated), nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-task-update"))
+		return err, task
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionTaskRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) TaskRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			err, removed := runtime.store.SessionTaskRemove(step, model.SessionTaskRef{Session: session, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-task-remove"))
+		return err, removed
+	}
+}
+
 func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectNoteCreate {
 	return func(title, description, body string, sensitive bool) (error, ProjectNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
@@ -845,6 +952,105 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Model.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectTaskCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskCreate {
+	return func(title, description, status string, sensitive bool) (error, Task) {
+		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil || project == nil {
+				if err == nil {
+					err = fmt.Errorf("create project task: project is unavailable")
+				}
+				return Task{}, err
+			}
+			id, err := typed_id.New(typed_id.ProjectTask)
+			if err != nil {
+				return Task{}, fmt.Errorf("generate project task ID: %w", err)
+			}
+			err, created := runtime.store.ProjectTaskCreate(step, model.ProjectTask{
+				Ref: model.ProjectTaskRef{Project: *project, Id: id}, Title: title, Description: &description, Sensitive: sensitive, Status: status,
+				CreatorAgent: &agent, UpdaterAgent: &agent,
+			}, principal)
+			if err != nil {
+				return Task{}, err
+			}
+			return projectTaskValue(created), nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-task-create"))
+		return err, task
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectTaskRead(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) TaskRead {
+	return func(id string, offset, length int64) (error, []byte, bool) {
+		err, project := runtime.store.SessionProjectGet(ctx, session)
+		if err != nil || project == nil {
+			if err != nil {
+				return err, nil, false
+			}
+			return fmt.Errorf("read project task: unavailable"), nil, false
+		}
+		err, detail := runtime.store.ProjectTaskGet(ctx, model.ProjectTaskRef{Project: *project, Id: id}, principal)
+		if err != nil || detail == nil {
+			if err != nil {
+				return err, nil, false
+			}
+			return fmt.Errorf("read project task: unavailable"), nil, false
+		}
+		description := ""
+		if detail.Description != nil {
+			description = *detail.Description
+		}
+		contents := []byte(description)
+		if offset > int64(len(contents)) {
+			return fmt.Errorf("read project task: offset is unavailable"), nil, false
+		}
+		end := offset + length
+		if end > int64(len(contents)) {
+			end = int64(len(contents))
+		}
+		return nil, append([]byte(nil), contents[offset:end]...), detail.Sensitive
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectTaskUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskUpdate {
+	return func(id, title, description, status string, sensitive bool) (error, Task) {
+		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil || project == nil {
+				if err == nil {
+					err = fmt.Errorf("update project task: project is unavailable")
+				}
+				return Task{}, err
+			}
+			err, updated := runtime.store.ProjectTaskDetailsSetAs(step, model.ProjectTaskRef{Project: *project, Id: id}, principal, database.TaskAuthor{Agent: &agent}, sensitive, status, title, &description)
+			if err != nil || updated == nil {
+				if err == nil {
+					err = fmt.Errorf("update project task: unavailable")
+				}
+				return Task{}, err
+			}
+			return projectTaskValue(*updated), nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-task-update"))
+		return err, task
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectTaskRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) TaskRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			err, project := runtime.store.SessionProjectGet(step, session)
+			if err != nil || project == nil {
+				if err == nil {
+					err = fmt.Errorf("remove project task: project is unavailable")
+				}
+				return false, err
+			}
+			err, removed := runtime.store.ProjectTaskRemove(step, model.ProjectTaskRef{Project: *project, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-task-remove"))
+		return err, removed
 	}
 }
 
@@ -1291,10 +1497,10 @@ func openAIResponsesLispTool() openAIResponsesTool {
 	return openAIResponsesTool{Type: "function", Name: compatible.Function.Name, Description: compatible.Function.Description, Parameters: compatible.Function.Parameters, Strict: true}
 }
 
-func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *ProjectSecrets, *SessionNotes) {
+func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []File, *ProjectInfo, *ProjectFiles, *ProjectNotes, *ProjectTasks, *ProjectSecrets, *SessionNotes, *SessionTasks) {
 	err, summaries := runtime.store.SessionFilesGet(ctx, session)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	files := make([]File, 0, len(summaries))
 	for _, file := range summaries {
@@ -1302,7 +1508,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 	}
 	err, noteSummaries := runtime.store.SessionNotesGet(ctx, session, principal)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	sessionNotes := &SessionNotes{Notes: make([]SessionNote, 0, len(noteSummaries))}
 	for _, note := range noteSummaries {
@@ -1357,24 +1563,34 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 		}
 		return nil, append([]byte(nil), body[offset:end]...), detail.Revision.Sensitive
 	}
+	err, taskSummaries := runtime.store.SessionTasksGet(ctx, session, principal)
+	if err != nil {
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
+	}
+	sessionTasks := &SessionTasks{Tasks: make([]Task, 0, len(taskSummaries))}
+	for _, task := range taskSummaries {
+		sessionTasks.Tasks = append(sessionTasks.Tasks, sessionTaskValue(task))
+	}
+	sessionTasks.Read = runtime.sessionTaskRead(ctx, session, principal)
 	err, project := runtime.store.SessionProjectGet(ctx, session)
 	if err != nil {
-		return err, nil, nil, nil, nil, nil, nil
+		return err, nil, nil, nil, nil, nil, nil, nil, nil
 	}
 	var projectInfo *ProjectInfo
 	var projectFiles *ProjectFiles
 	var projectNotes *ProjectNotes
+	var projectTasks *ProjectTasks
 	var projectSecrets *ProjectSecrets
 	if project != nil {
 		err, authorized := runtime.store.ProjectGet(ctx, *project, principal)
 		if err != nil {
-			return err, nil, nil, nil, nil, nil, nil
+			return err, nil, nil, nil, nil, nil, nil, nil, nil
 		}
 		if authorized != nil {
 			projectInfo = &ProjectInfo{Name: authorized.Name, Description: authorized.Description, CreatedAt: authorized.CreatedAt}
 			err, summaries := runtime.store.ProjectFilesGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
 			}
 			projectFiles = &ProjectFiles{Files: make([]File, 0, len(summaries))}
 			for _, file := range summaries {
@@ -1392,7 +1608,7 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 			err, noteSummaries := runtime.store.ProjectNotesGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
 			}
 			projectNotes = &ProjectNotes{Notes: make([]ProjectNote, 0, len(noteSummaries))}
 			for _, note := range noteSummaries {
@@ -1447,9 +1663,18 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				}
 				return nil, append([]byte(nil), body[offset:end]...), detail.Revision.Sensitive
 			}
+			err, taskSummaries := runtime.store.ProjectTasksGet(ctx, *project, principal)
+			if err != nil {
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
+			}
+			projectTasks = &ProjectTasks{Tasks: make([]Task, 0, len(taskSummaries))}
+			for _, task := range taskSummaries {
+				projectTasks.Tasks = append(projectTasks.Tasks, projectTaskValue(task))
+			}
+			projectTasks.Read = runtime.projectTaskRead(ctx, session, principal)
 			err, secretSummaries := runtime.store.ProjectSecretsGet(ctx, *project, principal)
 			if err != nil {
-				return err, nil, nil, nil, nil, nil, nil
+				return err, nil, nil, nil, nil, nil, nil, nil, nil
 			}
 			projectSecrets = &ProjectSecrets{Secrets: make([]ProjectSecret, 0, len(secretSummaries))}
 			for _, secret := range secretSummaries {
@@ -1482,7 +1707,17 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 			}
 		}
 	}
-	return nil, files, projectInfo, projectFiles, projectNotes, projectSecrets, sessionNotes
+	return nil, files, projectInfo, projectFiles, projectNotes, projectTasks, projectSecrets, sessionNotes, sessionTasks
+}
+
+func projectTaskValue(task model.ProjectTask) Task {
+	return Task{ID: task.Ref.Id, Title: task.Title, Sensitive: task.Sensitive, Status: task.Status,
+		CreatorID: noteAuthorID(task.CreatorPrincipal, task.CreatorAgent, task.CreatorGateway), UpdaterID: noteAuthorID(task.UpdaterPrincipal, task.UpdaterAgent, task.UpdaterGateway), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+}
+
+func sessionTaskValue(task model.SessionTask) Task {
+	return Task{ID: task.Ref.Id, Title: task.Title, Sensitive: task.Sensitive, Status: task.Status,
+		CreatorID: noteAuthorID(task.CreatorPrincipal, task.CreatorAgent, task.CreatorGateway), UpdaterID: noteAuthorID(task.UpdaterPrincipal, task.UpdaterAgent, task.UpdaterGateway), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
 }
 
 func noteAuthorMetadata(principal *model.PrincipalRef, principalName *string, agent *model.WorkspaceAgentRef, agentLabel *string, gateway *model.GatewayRef) (string, *string) {

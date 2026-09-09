@@ -22,6 +22,7 @@
   import WorkspaceStorageBindingNewRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingNewRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
+  import TasksRoute from "./pages/tasks/TasksRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
   import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
   import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
@@ -48,8 +49,10 @@
 
 {#if owner === "project-dashboard"}
   <ProjectDashboardRoute />
-{:else if owner === "project-notes"}
-  <ProjectNotesRoute />
+  {:else if owner === "project-notes"}
+    <ProjectNotesRoute />
+  {:else if owner === "project-tasks" || owner === "session-tasks"}
+    <TasksRoute />
 {:else if owner === "project-secrets"}
   <ProjectSecretsRoute />
 {:else if owner === "session-chat"}

@@ -508,6 +508,91 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	}
 }
 
+func TestSessionTasksUseSessionAuthorizationAndActivity(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	sessionID, err := typed_id.New(typed_id.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := model.SessionRef{Workspace: workspace, Id: sessionID}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	olderID, err := typed_id.NewAt(typed_id.SessionTask, time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, older := store.SessionTaskCreate(ctx, model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: olderID}, Title: "  Implement tasks  ", Description: stringPointer("  Backend work  "), Sensitive: true}, alice)
+	if err != nil || older.Status != "draft" || older.CreatorPrincipal == nil || *older.CreatorPrincipal != alice || older.UpdaterPrincipal == nil || *older.UpdaterPrincipal != alice || older.Description == nil || *older.Description != "Backend work" {
+		t.Fatalf("SessionTaskCreate() = (%#v, %v)", older, err)
+	}
+	newerID, err := typed_id.NewAt(typed_id.SessionTask, time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, newer := store.SessionTaskCreate(ctx, model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: newerID}, Title: "Review", Status: "ready"}, alice)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, tasks := store.SessionTasksGet(ctx, session, alice)
+	if err != nil || len(tasks) != 2 || tasks[0].Ref != newer.Ref || tasks[0].Description != nil || tasks[1].Description != nil {
+		t.Fatalf("SessionTasksGet() = (%#v, %v)", tasks, err)
+	}
+	err, detail := store.SessionTaskGet(ctx, older.Ref, alice)
+	if err != nil || detail == nil || detail.Description == nil || *detail.Description != "Backend work" {
+		t.Fatalf("SessionTaskGet() = (%#v, %v)", detail, err)
+	}
+	err, hidden := store.SessionTaskGet(ctx, older.Ref, bob)
+	if err != nil || hidden != nil {
+		t.Fatalf("SessionTaskGet() for ungranted principal = (%#v, %v)", hidden, err)
+	}
+	if createErr, _ := store.SessionTaskCreate(ctx, model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: newerID}, Title: "Denied"}, bob); createErr == nil {
+		t.Fatal("SessionTaskCreate() accepted an ungranted principal")
+	}
+	err, updated := store.SessionTaskDetailsSetAs(ctx, older.Ref, alice, database.TaskAuthor{Gateway: &model.GatewayRef{Id: "gwy_00000000000000000000000000"}}, false, "done", "Implemented", nil)
+	if err != nil || updated == nil || updated.Status != "done" || updated.Description != nil || updated.UpdaterGateway == nil {
+		t.Fatalf("SessionTaskDetailsSetAs() = (%#v, %v)", updated, err)
+	}
+	err, tasks = store.SessionTasksGet(ctx, session, alice)
+	if err != nil || len(tasks) != 2 || tasks[0].Ref != newer.Ref {
+		t.Fatalf("SessionTasksGet() after update = (%#v, %v)", tasks, err)
+	}
+	err, removed := store.SessionTaskRemove(ctx, newer.Ref, bob)
+	if err != nil || removed {
+		t.Fatalf("SessionTaskRemove() for ungranted principal = (%t, %v)", removed, err)
+	}
+	err, removed = store.SessionTaskRemove(ctx, newer.Ref, alice)
+	if err != nil || !removed {
+		t.Fatalf("SessionTaskRemove() = (%t, %v)", removed, err)
+	}
+	err, hidden = store.SessionTaskGet(ctx, newer.Ref, alice)
+	if err != nil || hidden != nil {
+		t.Fatalf("SessionTaskGet() after removal = (%#v, %v)", hidden, err)
+	}
+	for event, task := range map[string]model.SessionTaskRef{"session_task.create": older.Ref, "session_task.update": older.Ref, "session_task.remove": newer.Ref} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = ? AND events.resource_session_task = ? AND topics.topic = ?`, event, task.Id, database.ActivityTopicSessionTask(task)).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("session task activity %q = (%d, %v)", event, count, err)
+		}
+	}
+}
+
 func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependently(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}

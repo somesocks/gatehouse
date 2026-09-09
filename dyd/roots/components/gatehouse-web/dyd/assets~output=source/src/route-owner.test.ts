@@ -12,6 +12,12 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-note", workspaceID: "wsp_a", projectID: "prj_a", noteID: "pnt_a" })).toBe("project-notes")
   })
 
+  it("assigns every Project Tasks URL to its route owner", () => {
+    expect(routeOwner({ kind: "project-tasks", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-tasks")
+    expect(routeOwner({ kind: "project-task-new", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-tasks")
+    expect(routeOwner({ kind: "project-task", workspaceID: "wsp_a", projectID: "prj_a", taskID: "ptk_a" })).toBe("project-tasks")
+  })
+
   it("assigns every Project Secrets URL to its route owner", () => {
     expect(routeOwner({ kind: "project-secrets", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-secrets")
     expect(routeOwner({ kind: "project-secret-new", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-secrets")
@@ -25,6 +31,9 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "session-note", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note-edit", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a" })).toBe("session-notes")
     expect(routeOwner({ kind: "session-note-revision", workspaceID: "wsp_a", sessionID: "ses_a", noteID: "snt_a", revision: 2 })).toBe("session-notes")
+    expect(routeOwner({ kind: "session-tasks", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-tasks")
+    expect(routeOwner({ kind: "session-task-new", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-tasks")
+    expect(routeOwner({ kind: "session-task", workspaceID: "wsp_a", sessionID: "ses_a", taskID: "stk_a" })).toBe("session-tasks")
     expect(routeOwner({ kind: "session-secrets", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-secrets")
     expect(routeOwner({ kind: "session-secret-new", workspaceID: "wsp_a", sessionID: "ses_a" })).toBe("session-secrets")
     expect(routeOwner({ kind: "session-secret", workspaceID: "wsp_a", sessionID: "ses_a", secretID: "sec_a" })).toBe("session-secrets")

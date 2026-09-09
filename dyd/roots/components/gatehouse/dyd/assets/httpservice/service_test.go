@@ -836,6 +836,75 @@ func TestProjectNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 }
 
+func TestProjectTaskCreateUpdateListGetAndRemove(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	createdProject := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects", `{"name":"Tasks"}`)
+	var project projectResponse
+	if err := json.Unmarshal(createdProject.Body.Bytes(), &project); err != nil || createdProject.Code != http.StatusCreated || !typed_id.Valid(typed_id.Project, project.ID) {
+		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/tasks"
+	created := request(http.MethodPost, base, `{"title":"Guide","description":"# Guide\n\nFollow the checklist.","sensitive":true}`)
+	var task taskResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &task); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectTask, task.ID) || task.Title != "Guide" || task.Description == nil || *task.Description != "# Guide\n\nFollow the checklist." || !task.Sensitive || task.Status != "draft" || task.Creator.Principal == nil || task.Creator.Principal.ID == "" || task.Updater.Principal == nil || task.CreatedAt == "" || task.UpdatedAt == "" {
+		t.Fatalf("POST project task = (%d, %#v, %v)", created.Code, task, err)
+	}
+	createdID := task.ID
+	second := request(http.MethodPost, base, `{"title":"Release","status":"ready"}`)
+	var newer taskResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &newer); err != nil || second.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectTask, newer.ID) || newer.Status != "ready" {
+		t.Fatalf("POST ready project task = (%d, %#v, %v)", second.Code, newer, err)
+	}
+	listed := request(http.MethodGet, base, "")
+	var tasks []taskResponse
+	if err := json.Unmarshal(listed.Body.Bytes(), &tasks); err != nil || listed.Code != http.StatusOK || len(tasks) != 2 || tasks[0].ID != newer.ID || tasks[1].ID != createdID || tasks[1].Description != nil || strings.Contains(listed.Body.String(), "Follow the checklist.") {
+		t.Fatalf("GET project tasks = (%d, %#v, %v)", listed.Code, tasks, err)
+	}
+	detail := request(http.MethodGet, base+"/"+createdID, "")
+	if err := json.Unmarshal(detail.Body.Bytes(), &task); err != nil || detail.Code != http.StatusOK || task.Description == nil || *task.Description != "# Guide\n\nFollow the checklist." {
+		t.Fatalf("GET project task = (%d, %#v, %v)", detail.Code, task, err)
+	}
+	updated := request(http.MethodPatch, base+"/"+createdID, `{"description":"Updated description","sensitive":false,"status":"in_progress"}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &task); err != nil || updated.Code != http.StatusOK || task.Title != "Guide" || task.Description == nil || *task.Description != "Updated description" || task.Sensitive || task.Status != "in_progress" || task.Updater.Principal == nil {
+		t.Fatalf("PATCH project task = (%d, %#v, %v)", updated.Code, task, err)
+	}
+	cancelled := request(http.MethodPost, base, `{"title":"Cancelled","status":"cancelled"}`)
+	if err := json.Unmarshal(cancelled.Body.Bytes(), &task); err != nil || cancelled.Code != http.StatusCreated || task.Status != "cancelled" {
+		t.Fatalf("POST cancelled project task = (%d, %#v, %v)", cancelled.Code, task, err)
+	}
+	if invalid := request(http.MethodPost, base, `{"title":"Guide","status":"invalid"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid project task status = %d", invalid.Code)
+	}
+	if invalid := request(http.MethodPatch, base+"/"+createdID, `{"title":""}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH invalid project task title = %d", invalid.Code)
+	}
+	if invalid := request(http.MethodPatch, base+"/"+createdID, `{"body":"unsupported"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH project task body = %d", invalid.Code)
+	}
+	removed := request(http.MethodDelete, base+"/"+createdID, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE project task = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if get := request(http.MethodGet, base+"/"+createdID, ""); get.Code != http.StatusNotFound {
+		t.Fatalf("GET removed project task = status %d", get.Code)
+	}
+}
+
 func TestProjectSecretCreateUpdateListGetAndRemove(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
@@ -972,6 +1041,71 @@ func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 	if get := request(http.MethodGet, base+"/"+note.ID, ""); get.Code != http.StatusNotFound {
 		t.Fatalf("GET removed session note = status %d", get.Code)
+	}
+}
+
+func TestSessionTaskCreateUpdateListGetAndRemove(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated || !typed_id.Valid(typed_id.Session, session.ID) {
+		t.Fatalf("POST session = (%d, %#v, %v)", createdSession.Code, session, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + session.ID + "/tasks"
+	created := request(http.MethodPost, base, `{"title":"Guide","description":"# Guide\n\nFollow the checklist.","sensitive":true}`)
+	var task taskResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &task); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionTask, task.ID) || task.Title != "Guide" || task.Description == nil || *task.Description != "# Guide\n\nFollow the checklist." || !task.Sensitive || task.Status != "draft" || task.Creator.Principal == nil || task.Creator.Principal.ID == "" || task.Updater.Principal == nil || task.CreatedAt == "" || task.UpdatedAt == "" {
+		t.Fatalf("POST session task = (%d, %#v, %v)", created.Code, task, err)
+	}
+	createdID := task.ID
+	second := request(http.MethodPost, base, `{"title":"Release","status":"ready"}`)
+	var newer taskResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &newer); err != nil || second.Code != http.StatusCreated || !typed_id.Valid(typed_id.SessionTask, newer.ID) || newer.Status != "ready" {
+		t.Fatalf("POST ready session task = (%d, %#v, %v)", second.Code, newer, err)
+	}
+	listed := request(http.MethodGet, base, "")
+	var tasks []taskResponse
+	if err := json.Unmarshal(listed.Body.Bytes(), &tasks); err != nil || listed.Code != http.StatusOK || len(tasks) != 2 || tasks[0].ID != newer.ID || tasks[1].ID != createdID || tasks[1].Description != nil || strings.Contains(listed.Body.String(), "Follow the checklist.") {
+		t.Fatalf("GET session tasks = (%d, %#v, %v)", listed.Code, tasks, err)
+	}
+	detail := request(http.MethodGet, base+"/"+createdID, "")
+	if err := json.Unmarshal(detail.Body.Bytes(), &task); err != nil || detail.Code != http.StatusOK || task.Description == nil || *task.Description != "# Guide\n\nFollow the checklist." {
+		t.Fatalf("GET session task = (%d, %#v, %v)", detail.Code, task, err)
+	}
+	updated := request(http.MethodPatch, base+"/"+createdID, `{"description":"Updated description","sensitive":false,"status":"done"}`)
+	if err := json.Unmarshal(updated.Body.Bytes(), &task); err != nil || updated.Code != http.StatusOK || task.Title != "Guide" || task.Description == nil || *task.Description != "Updated description" || task.Sensitive || task.Status != "done" || task.Updater.Principal == nil {
+		t.Fatalf("PATCH session task = (%d, %#v, %v)", updated.Code, task, err)
+	}
+	if invalid := request(http.MethodPost, base, `{"title":"Guide","status":"invalid"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid session task status = %d", invalid.Code)
+	}
+	if invalid := request(http.MethodPatch, base+"/"+createdID, `{"title":""}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH invalid session task title = %d", invalid.Code)
+	}
+	if invalid := request(http.MethodPatch, base+"/"+createdID, `{"body":"unsupported"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH session task body = %d", invalid.Code)
+	}
+	removed := request(http.MethodDelete, base+"/"+createdID, "")
+	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE session task = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if get := request(http.MethodGet, base+"/"+createdID, ""); get.Code != http.StatusNotFound {
+		t.Fatalf("GET removed session task = status %d", get.Code)
 	}
 }
 
@@ -1371,7 +1505,10 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(updated.Body.Bytes(), &provider); err != nil || updated.Code != http.StatusOK || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
 		t.Fatalf("PATCH system agent provider = (%d, %#v, %v)", updated.Code, provider, err)
 	}
-	if unauthenticated := httptest.NewRecorder(); func() bool { handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/system/agent-providers", nil)); return unauthenticated.Code == http.StatusUnauthorized }() == false {
+	if unauthenticated := httptest.NewRecorder(); func() bool {
+		handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/system/agent-providers", nil))
+		return unauthenticated.Code == http.StatusUnauthorized
+	}() == false {
 		t.Fatalf("GET system agent providers unauthenticated = %d", unauthenticated.Code)
 	}
 }

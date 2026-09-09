@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -311,7 +312,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 	state := config.State{
 		Keychains:  []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:APPROVAL_TEST_KEYCHAIN"}}},
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Name: &aliceName, Enabled: true}, {Alias: "member", Enabled: true}},
 		AgentProviders: []config.AgentProvider{{
 			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
 		}},
@@ -349,13 +350,17 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 		name          string
 		project       *model.ProjectRef
 		projectUpdate bool
+		taskUpdate    bool
+		taskRemove    bool
+		taskCreated   bool
 		decision      string
 		toolKind      string
 		notes         int
+		tasks         int
 		session       model.SessionRef
 		message       model.SessionEvent
 	}
-	cases := make([]approvalCase, 0, 10)
+	cases := make([]approvalCase, 0, 22)
 
 	for _, test := range []struct {
 		name          string
@@ -363,14 +368,30 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 		project       bool
 		projectUpdate bool
 		noteRemove    bool
+		taskUpdate    bool
+		taskRemove    bool
+		taskCreated   bool
 		decision      string
 		toolKind      string
 		notes         int
+		tasks         int
 	}{
 		{name: "session create approved", code: `(session/notes/create "Decision" "" "# Decision")`, decision: "approval.approved", toolKind: "tool.success", notes: 1},
 		{name: "session create rejected", code: `(session/notes/create "Decision" "" "# Decision")`, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
 		{name: "project create approved", code: `(project/notes/create "Decision" "" "# Decision")`, project: true, decision: "approval.approved", toolKind: "tool.success", notes: 1},
 		{name: "project create rejected", code: `(project/notes/create "Decision" "" "# Decision")`, project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
+		{name: "session task create approved", code: `(session/tasks/create "Review design" "# Review" "ready")`, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 1, taskCreated: true},
+		{name: "session task create rejected", code: `(session/tasks/create "Review design" "# Review" "ready")`, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 0},
+		{name: "project task create approved", code: `(project/tasks/create "Review design" "# Review" "ready")`, project: true, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 1, taskCreated: true},
+		{name: "project task create rejected", code: `(project/tasks/create "Review design" "# Review" "ready")`, project: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 0},
+		{name: "session task update approved", taskUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 1},
+		{name: "session task update rejected", taskUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 1},
+		{name: "project task update approved", project: true, taskUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 1},
+		{name: "project task update rejected", project: true, taskUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 1},
+		{name: "session task remove approved", taskRemove: true, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 0},
+		{name: "session task remove rejected", taskRemove: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 1},
+		{name: "project task remove approved", project: true, taskRemove: true, decision: "approval.approved", toolKind: "tool.success", notes: 0, tasks: 0},
+		{name: "project task remove rejected", project: true, taskRemove: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0, tasks: 1},
 		{name: "project info approved", code: `(project/info/set "Roadmap" "Current priorities")`, project: true, projectUpdate: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
 		{name: "project info rejected", code: `(project/info/set "Roadmap" "Current priorities")`, project: true, projectUpdate: true, decision: "approval.rejected", toolKind: "tool.failure", notes: 0},
 		{name: "session remove approved", noteRemove: true, decision: "approval.approved", toolKind: "tool.success", notes: 0},
@@ -426,6 +447,35 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					code = fmt.Sprintf(`(session/notes/remove "%s")`, id)
 				}
 			}
+			if test.taskUpdate || test.taskRemove {
+				if project != nil {
+					id, err := typed_id.New(typed_id.ProjectTask)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err, _ := store.ProjectTaskCreate(ctx, model.ProjectTask{Ref: model.ProjectTaskRef{Project: *project, Id: id}, Title: "Review design", Status: "ready"}, principal); err != nil {
+						t.Fatal(err)
+					}
+					if test.taskUpdate {
+						code = fmt.Sprintf(`(project/tasks/update "%s" "Review design" "# Review" "done")`, id)
+					} else {
+						code = fmt.Sprintf(`(project/tasks/remove "%s")`, id)
+					}
+				} else {
+					id, err := typed_id.New(typed_id.SessionTask)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err, _ := store.SessionTaskCreate(ctx, model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: id}, Title: "Review design", Status: "ready"}, principal); err != nil {
+						t.Fatal(err)
+					}
+					if test.taskUpdate {
+						code = fmt.Sprintf(`(session/tasks/update "%s" "Review design" "# Review" "done")`, id)
+					} else {
+						code = fmt.Sprintf(`(session/tasks/remove "%s")`, id)
+					}
+				}
+			}
 			messageID, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {
 				t.Fatal(err)
@@ -472,7 +522,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			if err, _ := store.SessionApprovalResponseCreate(ctx, decision); err != nil {
 				t.Fatal(err)
 			}
-			cases = append(cases, approvalCase{name: test.name, project: project, projectUpdate: test.projectUpdate, decision: test.decision, toolKind: test.toolKind, notes: test.notes, session: session, message: message})
+			cases = append(cases, approvalCase{name: test.name, project: project, projectUpdate: test.projectUpdate, taskUpdate: test.taskUpdate, taskRemove: test.taskRemove, taskCreated: test.taskCreated, decision: test.decision, toolKind: test.toolKind, notes: test.notes, tasks: test.tasks, session: session, message: message})
 		})
 	}
 	// All tool calls are waiting on independent approvals, so deliver their decisions together.
@@ -511,6 +561,29 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 					t.Fatalf("rejected project update = %#v", updated)
 				}
 			}
+			if test.project != nil {
+				err, tasks := store.ProjectTasksGet(ctx, *test.project, principal)
+				if err != nil || len(tasks) != test.tasks {
+					t.Fatalf("project tasks after decision = (%#v, %v), want %d", tasks, err, test.tasks)
+				}
+				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Model.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+					t.Fatalf("project task agent attribution = %#v", tasks[0])
+				}
+				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+					t.Fatalf("project task updater attribution = %#v", tasks[0])
+				}
+			} else {
+				err, tasks := store.SessionTasksGet(ctx, test.session, principal)
+				if err != nil || len(tasks) != test.tasks {
+					t.Fatalf("session tasks after decision = (%#v, %v), want %d", tasks, err, test.tasks)
+				}
+				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Model.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+					t.Fatalf("session task agent attribution = %#v", tasks[0])
+				}
+				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+					t.Fatalf("session task updater attribution = %#v", tasks[0])
+				}
+			}
 			waitForAgentReply(t, ctx, store, test.session, test.message.Ref)
 			err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
 			if err != nil || len(tasks) != 0 {
@@ -518,6 +591,132 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			}
 		})
 	}
+	t.Run("member task mutations are unavailable", func(t *testing.T) {
+		member := principalRef(t, ctx, store, "member")
+		memberRecord := model.Principal{Ref: member, Enabled: true}
+		sessionID, err := typed_id.New(typed_id.Session)
+		if err != nil {
+			t.Fatal(err)
+		}
+		session := model.SessionRef{Workspace: workspace, Id: sessionID}
+		if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
+			t.Fatal(err)
+		}
+		if err, _ := store.SessionNameSet(ctx, session, "Member authorization test"); err != nil {
+			t.Fatal(err)
+		}
+		projectID, err := typed_id.New(typed_id.Project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		project := model.ProjectRef{Workspace: workspace, Id: projectID}
+		if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, principal, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err, _ := store.SessionProjectSet(ctx, session, &project, principal); err != nil {
+			t.Fatal(err)
+		}
+		for _, grant := range []struct {
+			kind       string
+			table     string
+			resource  string
+			resourceID string
+		}{
+			{kind: typed_id.SessionGrant, table: "gatehouse_session_grants", resource: "session", resourceID: session.Id},
+			{kind: typed_id.ProjectGrant, table: "gatehouse_project_grants", resource: "project", resourceID: project.Id},
+		} {
+			grantID, err := typed_id.New(grant.kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := store.ExecContext(ctx, "INSERT INTO "+grant.table+" (id, workspace, "+grant.resource+", role, principal, \"group\", enabled) VALUES (?, ?, ?, 'member', ?, NULL, TRUE)", grantID, workspace.Id, grant.resourceID, member.Id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		err, sessionRoles := store.SessionRolesGet(ctx, session, member)
+		if err != nil || len(sessionRoles) != 1 || sessionRoles[0] != "member" {
+			t.Fatalf("SessionRolesGet() for member = (%#v, %v)", sessionRoles, err)
+		}
+		err, projectRoles := store.ProjectRolesGet(ctx, project, member)
+		if err != nil || len(projectRoles) != 1 || projectRoles[0] != "member" {
+			t.Fatalf("ProjectRolesGet() for member = (%#v, %v)", projectRoles, err)
+		}
+		sessionTaskID, err := typed_id.New(typed_id.SessionTask)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sessionTaskDescription := "Session task body"
+		if err, _ := store.SessionTaskCreate(ctx, model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: sessionTaskID}, Title: "Session task", Description: &sessionTaskDescription, Status: "ready"}, principal); err != nil {
+			t.Fatal(err)
+		}
+		projectTaskID, err := typed_id.New(typed_id.ProjectTask)
+		if err != nil {
+			t.Fatal(err)
+		}
+		projectTaskDescription := "Project task body"
+		if err, _ := store.ProjectTaskCreate(ctx, model.ProjectTask{Ref: model.ProjectTaskRef{Project: project, Id: projectTaskID}, Title: "Project task", Description: &projectTaskDescription, Status: "ready"}, principal); err != nil {
+			t.Fatal(err)
+		}
+		code := fmt.Sprintf(`(list
+  (session/tasks/list)
+  (project/tasks/list)
+  (error/value (error/catch (session/tasks/create "New session task" "" "ready")))
+  (error/value (error/catch (session/tasks/update %q "Session task" "" "done")))
+  (error/value (error/catch (session/tasks/remove %q)))
+  (error/value (error/catch (project/tasks/create "New project task" "" "ready")))
+  (error/value (error/catch (project/tasks/update %q "Project task" "" "done")))
+  (error/value (error/catch (project/tasks/remove %q))))`, sessionTaskID, sessionTaskID, projectTaskID, projectTaskID)
+		messageText := "Member task authorization " + sessionID
+		completionMutex.Lock()
+		completionCodes[messageText] = code
+		completionCounts[messageText] = 0
+		completionMutex.Unlock()
+		messageID, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: messageID}, Kind: "message.text", AuthorPrincipal: &memberRecord, Payload: map[string]interface{}{"text": messageText}}
+		if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
+			t.Fatal(err)
+		}
+		if err := runtime.Reconcile(); err != nil {
+			t.Fatal(err)
+		}
+		approvals := map[string]bool{}
+		for range 6 {
+			approval := waitForSessionEvent(t, ctx, store, session, func(event model.SessionEvent) bool {
+				return event.Kind == "approval.request" && !approvals[event.Ref.Id]
+			})
+			approvals[approval.Ref.Id] = true
+			decisionID, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decision := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: decisionID}, Parent: &approval.Ref, Kind: "approval.approved", AuthorPrincipal: &memberRecord, Payload: map[string]interface{}{}}
+			if err, _ := store.SessionApprovalResponseCreate(ctx, decision); err != nil {
+				t.Fatal(err)
+			}
+			if err := runtime.Reconcile(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		result := waitForToolResult(t, ctx, store, session, "tool.success")
+		output, _ := result.Payload["output"].(string)
+		for _, name := range []string{"session/tasks/create", "session/tasks/update", "session/tasks/remove", "project/tasks/create", "project/tasks/update", "project/tasks/remove"} {
+			if !strings.Contains(output, name+" is unavailable") {
+				t.Fatalf("member tool output = %q, want %s unavailable", output, name)
+			}
+		}
+		err, sessionTasks := store.SessionTasksGet(ctx, session, principal)
+		if err != nil || len(sessionTasks) != 1 || sessionTasks[0].Title != "Session task" || sessionTasks[0].Status != "ready" {
+			t.Fatalf("session tasks after member tool call = (%#v, %v)", sessionTasks, err)
+		}
+		err, projectTasks := store.ProjectTasksGet(ctx, project, principal)
+		if err != nil || len(projectTasks) != 1 || projectTasks[0].Title != "Project task" || projectTasks[0].Status != "ready" {
+			t.Fatalf("project tasks after member tool call = (%#v, %v)", projectTasks, err)
+		}
+		waitForAgentReply(t, ctx, store, session, message.Ref)
+	})
 }
 
 func waitForApprovalRequest(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef) model.SessionEvent {

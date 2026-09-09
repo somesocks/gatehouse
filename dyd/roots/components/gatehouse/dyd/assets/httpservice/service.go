@@ -148,6 +148,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}", workspaceProjectNote(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}/revisions", workspaceProjectNoteRevisions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes/{note}/revisions/{revision}", workspaceProjectNoteRevision(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/tasks", workspaceProjectTasks(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/tasks/{task}", workspaceProjectTask(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets", workspaceProjectSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets/{secret}", workspaceProjectSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
@@ -163,6 +165,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}", workspaceSessionNote(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}/revisions", workspaceSessionNoteRevisions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/notes/{note}/revisions/{revision}", workspaceSessionNoteRevision(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/tasks", workspaceSessionTasks(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/tasks/{task}", workspaceSessionTask(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets", workspaceSessionSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets/{secret}", workspaceSessionSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/activity", activity(store, tokens[0]))
@@ -245,9 +249,9 @@ func me(tokens *auth.BearerTokens) http.HandlerFunc {
 }
 
 type workspaceResponse struct {
-	ID   string  `json:"id"`
+	ID    string  `json:"id"`
 	Alias *string `json:"alias,omitempty"`
-	Name *string `json:"name,omitempty"`
+	Name  *string `json:"name,omitempty"`
 }
 
 type groupResponse struct {
@@ -261,10 +265,10 @@ type workspaceAgentResponse struct {
 }
 
 type sessionResponse struct {
-	ID        string  `json:"id"`
-	Name      *string `json:"name,omitempty"`
+	ID        string           `json:"id"`
+	Name      *string          `json:"name,omitempty"`
 	Project   *projectResponse `json:"project,omitempty"`
-	CreatedAt string  `json:"created_at"`
+	CreatedAt string           `json:"created_at"`
 }
 
 type projectResponse struct {
@@ -404,6 +408,13 @@ type sessionNoteRequest struct {
 	Sensitive   *bool   `json:"sensitive"`
 }
 
+type taskRequest struct {
+	Title       *string `json:"title"`
+	Description *string `json:"description"`
+	Sensitive   *bool   `json:"sensitive"`
+	Status      *string `json:"status"`
+}
+
 type projectNoteAuthorResponse struct {
 	ID   string  `json:"id"`
 	Name *string `json:"name,omitempty"`
@@ -421,25 +432,37 @@ type noteAuthorResponse struct {
 }
 
 type projectNoteResponse struct {
-	ID          string                    `json:"id"`
-	Title       string                    `json:"title"`
-	Description string                    `json:"description"`
-	Body        *string                   `json:"body,omitempty"`
-	Sensitive   bool                      `json:"sensitive"`
-	Author      noteAuthorResponse        `json:"author"`
-	CreatedAt   string                    `json:"created_at"`
-	Revision    int                       `json:"revision"`
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Body        *string            `json:"body,omitempty"`
+	Sensitive   bool               `json:"sensitive"`
+	Author      noteAuthorResponse `json:"author"`
+	CreatedAt   string             `json:"created_at"`
+	Revision    int                `json:"revision"`
 }
 
 type sessionNoteResponse struct {
-	ID          string                    `json:"id"`
-	Title       string                    `json:"title"`
-	Description string                    `json:"description"`
-	Body        *string                   `json:"body,omitempty"`
-	Sensitive   bool                      `json:"sensitive"`
-	Author      noteAuthorResponse        `json:"author"`
-	CreatedAt   string                    `json:"created_at"`
-	Revision    int                       `json:"revision"`
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Body        *string            `json:"body,omitempty"`
+	Sensitive   bool               `json:"sensitive"`
+	Author      noteAuthorResponse `json:"author"`
+	CreatedAt   string             `json:"created_at"`
+	Revision    int                `json:"revision"`
+}
+
+type taskResponse struct {
+	ID          string             `json:"id"`
+	Title       string             `json:"title"`
+	Description *string            `json:"description,omitempty"`
+	Sensitive   bool               `json:"sensitive"`
+	Status      string             `json:"status"`
+	Creator     noteAuthorResponse `json:"creator"`
+	Updater     noteAuthorResponse `json:"updater"`
+	CreatedAt   string             `json:"created_at"`
+	UpdatedAt   string             `json:"updated_at"`
 }
 
 type noteRevisionResponse struct {
@@ -466,7 +489,7 @@ type sessionSecretResponse struct {
 }
 
 type sessionEventTreeResponse struct {
-	Event    model.SessionEvent           `json:"event"`
+	Event    model.SessionEvent          `json:"event"`
 	Children []*sessionEventTreeResponse `json:"children"`
 }
 
@@ -1412,6 +1435,140 @@ func workspaceProjectNote(store *database.Store, tokens *auth.BearerTokens) http
 	}
 }
 
+func workspaceProjectTasks(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, tasks := store.ProjectTasksGet(request.Context(), project, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]taskResponse, 0, len(tasks))
+			for _, task := range tasks {
+				result = append(result, projectTaskResponseFromSummary(task))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectTaskCreate) {
+				return
+			}
+			var input taskRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validTaskRequest(input, true) {
+				http.Error(response, "invalid project task", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.ProjectTask)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			status := ""
+			if input.Status != nil {
+				status = *input.Status
+			}
+			task := model.ProjectTask{Ref: model.ProjectTaskRef{Project: project, Id: id}, Title: *input.Title, Description: input.Description, Sensitive: input.Sensitive != nil && *input.Sensitive, Status: status}
+			err, stored := store.ProjectTaskCreate(request.Context(), task, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "project task could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectTaskResponseFromDetail(stored))
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectTask(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		task, ok := projectTaskRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.ProjectTaskGet(request.Context(), task, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectTaskResponseFromDetail(*current))
+		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, task.Project, authz.ProjectTaskEdit) {
+				return
+			}
+			var input taskRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validTaskRequest(input, false) {
+				http.Error(response, "invalid project task", http.StatusBadRequest)
+				return
+			}
+			title, description, sensitive, status := current.Title, current.Description, current.Sensitive, current.Status
+			if input.Title != nil {
+				title = *input.Title
+			}
+			if input.Description != nil {
+				description = input.Description
+			}
+			if input.Sensitive != nil {
+				sensitive = *input.Sensitive
+			}
+			if input.Status != nil {
+				status = *input.Status
+			}
+			err, updated := store.ProjectTaskDetailsSetAs(request.Context(), task, claims.Principal.Ref, database.TaskAuthor{Principal: &claims.Principal.Ref}, sensitive, status, title, description)
+			if err != nil {
+				http.Error(response, "project task could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectTaskResponseFromDetail(*updated))
+		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, task.Project, authz.ProjectTaskRemove) {
+				return
+			}
+			err, removed := store.ProjectTaskRemove(request.Context(), task, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
 func workspaceProjectNoteRevisions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -1740,6 +1897,140 @@ func workspaceSessionNote(store *database.Store, tokens *auth.BearerTokens) http
 				return
 			}
 			err, removed := store.SessionNoteRemove(request.Context(), note, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
+func workspaceSessionTasks(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		session, ok := authorizedSession(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, tasks := store.SessionTasksGet(request.Context(), session, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]taskResponse, 0, len(tasks))
+			for _, task := range tasks {
+				result = append(result, sessionTaskResponseFromSummary(task))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionTaskCreate) {
+				return
+			}
+			var input taskRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validTaskRequest(input, true) {
+				http.Error(response, "invalid session task", http.StatusBadRequest)
+				return
+			}
+			id, err := typed_id.New(typed_id.SessionTask)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			status := ""
+			if input.Status != nil {
+				status = *input.Status
+			}
+			task := model.SessionTask{Ref: model.SessionTaskRef{Session: session, Id: id}, Title: *input.Title, Description: input.Description, Sensitive: input.Sensitive != nil && *input.Sensitive, Status: status}
+			err, stored := store.SessionTaskCreate(request.Context(), task, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "session task could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, sessionTaskResponseFromDetail(stored))
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceSessionTask(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		task, ok := sessionTaskRef(response, request)
+		if !ok {
+			return
+		}
+		err, current := store.SessionTaskGet(request.Context(), task, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, sessionTaskResponseFromDetail(*current))
+		case http.MethodPatch:
+			if !sessionActionAllowed(response, request, store, claims, task.Session, authz.SessionTaskEdit) {
+				return
+			}
+			var input taskRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 2<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || !validTaskRequest(input, false) {
+				http.Error(response, "invalid session task", http.StatusBadRequest)
+				return
+			}
+			title, description, sensitive, status := current.Title, current.Description, current.Sensitive, current.Status
+			if input.Title != nil {
+				title = *input.Title
+			}
+			if input.Description != nil {
+				description = input.Description
+			}
+			if input.Sensitive != nil {
+				sensitive = *input.Sensitive
+			}
+			if input.Status != nil {
+				status = *input.Status
+			}
+			err, updated := store.SessionTaskDetailsSetAs(request.Context(), task, claims.Principal.Ref, database.TaskAuthor{Principal: &claims.Principal.Ref}, sensitive, status, title, description)
+			if err != nil {
+				http.Error(response, "session task could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, sessionTaskResponseFromDetail(*updated))
+		case http.MethodDelete:
+			if !sessionActionAllowed(response, request, store, claims, task.Session, authz.SessionTaskRemove) {
+				return
+			}
+			err, removed := store.SessionTaskRemove(request.Context(), task, claims.Principal.Ref)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2556,6 +2847,28 @@ func sessionNoteRef(response http.ResponseWriter, request *http.Request) (model.
 	return model.SessionNoteRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: noteID}, true
 }
 
+func projectTaskRef(response http.ResponseWriter, request *http.Request) (model.ProjectTaskRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	projectID := request.PathValue("project")
+	taskID := request.PathValue("task")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Project, projectID) || !typed_id.Valid(typed_id.ProjectTask, taskID) {
+		http.NotFound(response, request)
+		return model.ProjectTaskRef{}, false
+	}
+	return model.ProjectTaskRef{Project: model.ProjectRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: projectID}, Id: taskID}, true
+}
+
+func sessionTaskRef(response http.ResponseWriter, request *http.Request) (model.SessionTaskRef, bool) {
+	workspaceID := request.PathValue("workspace")
+	sessionID := request.PathValue("session")
+	taskID := request.PathValue("task")
+	if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) || !typed_id.Valid(typed_id.SessionTask, taskID) {
+		http.NotFound(response, request)
+		return model.SessionTaskRef{}, false
+	}
+	return model.SessionTaskRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, Id: taskID}, true
+}
+
 func sessionSecretRef(response http.ResponseWriter, request *http.Request) (model.SessionSecretRef, bool) {
 	workspaceID := request.PathValue("workspace")
 	sessionID := request.PathValue("session")
@@ -2579,6 +2892,27 @@ func validProjectNoteRequest(input projectNoteRequest, required bool) bool {
 
 func validSessionNoteRequest(input sessionNoteRequest, required bool) bool {
 	return validProjectNoteRequest(projectNoteRequest{Title: input.Title, Description: input.Description, Body: input.Body, Sensitive: input.Sensitive}, required)
+}
+
+func validTaskRequest(input taskRequest, required bool) bool {
+	if required && input.Title == nil {
+		return false
+	}
+	if !required && input.Title == nil && input.Description == nil && input.Sensitive == nil && input.Status == nil {
+		return false
+	}
+	if (input.Title != nil && len(*input.Title) > 256) || (input.Description != nil && len(*input.Description) > 4*1024) {
+		return false
+	}
+	if input.Status == nil {
+		return true
+	}
+	switch *input.Status {
+	case "", "draft", "ready", "in_progress", "done", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 func validSessionSecretRequest(input sessionSecretRequest, required bool) bool {
@@ -2626,6 +2960,30 @@ func sessionNoteResponseFromSummary(note database.SessionNoteSummary) sessionNot
 func sessionNoteResponseFromDetail(detail database.SessionNoteDetail) sessionNoteResponse {
 	note := detail.Note
 	return sessionNoteResponse{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Body: &note.Body, Sensitive: note.Sensitive, Author: noteAuthorResponseFromValues(note.AuthorPrincipal, detail.AuthorName, note.AuthorAgent, detail.AuthorAgentLabel, note.AuthorGateway), CreatedAt: note.CreatedAt, Revision: note.Revision}
+}
+
+func projectTaskResponseFromSummary(task model.ProjectTask) taskResponse {
+	return taskResponse{ID: task.Ref.Id, Title: task.Title, Sensitive: task.Sensitive, Status: task.Status, Creator: taskAuthorResponse(task.CreatorPrincipal, task.CreatorAgent, task.CreatorGateway), Updater: taskAuthorResponse(task.UpdaterPrincipal, task.UpdaterAgent, task.UpdaterGateway), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+}
+
+func projectTaskResponseFromDetail(task model.ProjectTask) taskResponse {
+	result := projectTaskResponseFromSummary(task)
+	result.Description = task.Description
+	return result
+}
+
+func sessionTaskResponseFromSummary(task model.SessionTask) taskResponse {
+	return taskResponse{ID: task.Ref.Id, Title: task.Title, Sensitive: task.Sensitive, Status: task.Status, Creator: taskAuthorResponse(task.CreatorPrincipal, task.CreatorAgent, task.CreatorGateway), Updater: taskAuthorResponse(task.UpdaterPrincipal, task.UpdaterAgent, task.UpdaterGateway), CreatedAt: task.CreatedAt, UpdatedAt: task.UpdatedAt}
+}
+
+func sessionTaskResponseFromDetail(task model.SessionTask) taskResponse {
+	result := sessionTaskResponseFromSummary(task)
+	result.Description = task.Description
+	return result
+}
+
+func taskAuthorResponse(principal *model.PrincipalRef, agent *model.WorkspaceAgentRef, gateway *model.GatewayRef) noteAuthorResponse {
+	return noteAuthorResponseFromValues(principal, nil, agent, nil, gateway)
 }
 
 func noteAuthorResponseFromValues(principal *model.PrincipalRef, principalName *string, agent *model.WorkspaceAgentRef, agentLabel *string, gateway *model.GatewayRef) noteAuthorResponse {

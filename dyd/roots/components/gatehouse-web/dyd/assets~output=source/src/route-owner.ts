@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-secrets" | "session-chat" | "session-notes" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-binding-list" | "workspace-storage-binding-new" | "workspace-storage-binding-detail" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-tasks" | "project-secrets" | "session-chat" | "session-notes" | "session-tasks" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-binding-list" | "workspace-storage-binding-new" | "workspace-storage-binding-detail" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -14,6 +14,10 @@ export function routeOwner(route: Route): RouteOwner {
     case "project-note-new":
     case "project-note":
       return "project-notes"
+    case "project-tasks":
+    case "project-task-new":
+    case "project-task":
+      return "project-tasks"
     case "project-secrets":
     case "project-secret-new":
     case "project-secret":
@@ -26,6 +30,10 @@ export function routeOwner(route: Route): RouteOwner {
     case "session-note-edit":
     case "session-note-revision":
       return "session-notes"
+    case "session-tasks":
+    case "session-task-new":
+    case "session-task":
+      return "session-tasks"
     case "session-secrets":
     case "session-secret-new":
     case "session-secret":

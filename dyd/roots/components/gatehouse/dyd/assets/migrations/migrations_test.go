@@ -454,7 +454,9 @@ func TestSQLiteMigrationV035UsesGlobalResourceTargets(t *testing.T) {
 func TestSQLiteMigrationV037PreservesActivityAndAddsSystemGrants(t *testing.T) {
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer store.Close()
 	if _, err := store.ExecContext(ctx, `
 		CREATE TABLE gatehouse_activity_events (id TEXT PRIMARY KEY) STRICT;
@@ -482,32 +484,214 @@ func TestSQLiteMigrationV037PreservesActivityAndAddsSystemGrants(t *testing.T) {
 		CREATE TABLE gatehouse_workspace_grants (id TEXT PRIMARY KEY) STRICT;
 		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
 		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
-	`); err != nil { t.Fatal(err) }
-	if err, source := sqliteMigrationV035GlobalizeActivityEvents().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id) VALUES ('prn_00000000000000000000000000'); INSERT INTO gatehouse_project_files (id) VALUES ('pfi_00000000000000000000000000'); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_project_file, created_at) VALUES ('act_00000000000000000000000000', 'project_file.create', 'project_file', 'pfi_00000000000000000000000000', '2026-01-01T00:00:00.000Z'); INSERT INTO gatehouse_activity_event_topics (activity, topic) VALUES ('act_00000000000000000000000000', 'wsp_00000000000000000000000000');`); err != nil { t.Fatal(err) }
-	if err, source := sqliteMigrationV037CreateSystemGrants().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV035GlobalizeActivityEvents().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id) VALUES ('prn_00000000000000000000000000'); INSERT INTO gatehouse_project_files (id) VALUES ('pfi_00000000000000000000000000'); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_project_file, created_at) VALUES ('act_00000000000000000000000000', 'project_file.create', 'project_file', 'pfi_00000000000000000000000000', '2026-01-01T00:00:00.000Z'); INSERT INTO gatehouse_activity_event_topics (activity, topic) VALUES ('act_00000000000000000000000000', 'wsp_00000000000000000000000000');`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV037CreateSystemGrants().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
 	var topics int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_event_topics WHERE activity = 'act_00000000000000000000000000'`).Scan(&topics); err != nil || topics != 1 { t.Fatalf("preserved activity topics = (%d, %v), want 1", topics, err) }
-	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision) VALUES ('syg_00000000000000000000000000', 'prn_00000000000000000000000000', 'manager', TRUE, 1); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_system_grant, created_at) VALUES ('act_00000000000000000000000001', 'system_grant.create', 'system_grant', 'syg_00000000000000000000000000', '2026-01-01T00:00:00.000Z');`); err != nil { t.Fatal(err) }
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_event_topics WHERE activity = 'act_00000000000000000000000000'`).Scan(&topics); err != nil || topics != 1 {
+		t.Fatalf("preserved activity topics = (%d, %v), want 1", topics, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision) VALUES ('syg_00000000000000000000000000', 'prn_00000000000000000000000000', 'manager', TRUE, 1); INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_system_grant, created_at) VALUES ('act_00000000000000000000000001', 'system_grant.create', 'system_grant', 'syg_00000000000000000000000000', '2026-01-01T00:00:00.000Z');`); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestSQLiteMigrationV038InitializesWorkspaceBindingRevisions(t *testing.T) {
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer store.Close()
 	if _, err := store.ExecContext(ctx, `
 		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
 		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
 		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id) VALUES ('wsp_00000000000000000000000000', 'amd_00000000000000000000000000');
 		INSERT INTO gatehouse_workspace_storage_providers (workspace, provider) VALUES ('wsp_00000000000000000000000000', 'stp_00000000000000000000000000');
-	`); err != nil { t.Fatal(err) }
-	if err, source := sqliteMigrationV038AddWorkspaceBindingRevisions().Builder(ctx, nil); err != nil { t.Fatal(err) } else if _, err := store.ExecContext(ctx, source); err != nil { t.Fatal(err) }
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV038AddWorkspaceBindingRevisions().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
 	for _, table := range []string{"gatehouse_workspace_agents", "gatehouse_workspace_storage_providers"} {
 		var revision int
 		if err := store.QueryRowContext(ctx, `SELECT revision FROM `+table).Scan(&revision); err != nil || revision != 1 {
 			t.Fatalf("%s revision = (%d, %v), want 1", table, revision, err)
 		}
+	}
+}
+
+func TestSQLiteMigrationV039CreatesScopedTasks(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_principals (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_projects (workspace TEXT, id TEXT UNIQUE, PRIMARY KEY (workspace, id)) STRICT;
+		CREATE TABLE gatehouse_sessions (workspace TEXT, id TEXT UNIQUE, PRIMARY KEY (workspace, id)) STRICT;
+		CREATE TABLE gatehouse_workspace_agents (workspace_id TEXT, model_id TEXT, PRIMARY KEY (workspace_id, model_id)) STRICT;
+		CREATE TABLE gatehouse_keychains (id TEXT, version INTEGER, PRIMARY KEY (id, version)) STRICT;
+		CREATE TABLE gatehouse_agent_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_agent_models (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_groups (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_group_members (group_id TEXT, principal_id TEXT, PRIMARY KEY (group_id, principal_id)) STRICT;
+		CREATE TABLE gatehouse_identities (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_project_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_events (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_files (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_notes (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_session_secrets (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_storage_providers (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_system_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspaces (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_grants (id TEXT PRIMARY KEY) STRICT;
+		CREATE TABLE gatehouse_workspace_storage_providers (workspace TEXT, provider TEXT, PRIMARY KEY (workspace, provider)) STRICT;
+		CREATE TABLE gatehouse_activity_events (
+			id TEXT, event TEXT, resource_kind TEXT, resource_keychain_id TEXT, resource_keychain_version INTEGER,
+			resource_agent_provider TEXT, resource_agent_model TEXT, resource_group TEXT, resource_group_member_group TEXT,
+			resource_group_member_principal TEXT, resource_identity TEXT, resource_principal TEXT, resource_project TEXT,
+			resource_project_file TEXT, resource_project_grant TEXT, resource_project_note TEXT, resource_project_secret TEXT,
+			resource_session TEXT, resource_session_event TEXT, resource_session_file TEXT, resource_session_grant TEXT,
+			resource_session_note TEXT, resource_session_secret TEXT, resource_storage_provider TEXT, resource_system_grant TEXT,
+			resource_workspace TEXT, resource_workspace_agent_workspace TEXT, resource_workspace_agent_model TEXT,
+			resource_workspace_grant TEXT, resource_workspace_storage_provider_workspace TEXT,
+			resource_workspace_storage_provider_provider TEXT, created_at TEXT
+		) STRICT;
+		CREATE TABLE gatehouse_activity_event_topics (activity TEXT, topic TEXT) STRICT;
+		INSERT INTO gatehouse_principals VALUES ('prn_00000000000000000000000000');
+		INSERT INTO gatehouse_projects VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000');
+		INSERT INTO gatehouse_sessions VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV039CreateTasks().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, task := range []struct {
+		table string
+		id    string
+		owner string
+	}{
+		{"gatehouse_project_tasks", "ptk_00000000000000000000000000", "project"},
+		{"gatehouse_session_tasks", "stk_00000000000000000000000000", "session"},
+	} {
+		rows, err := store.QueryContext(ctx, `PRAGMA table_info(`+task.table+`)`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		bodyColumn := false
+		for rows.Next() {
+			var cid int
+			var name, columnType string
+			var notNull, primaryKey int
+			var defaultValue interface{}
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				rows.Close()
+				t.Fatal(err)
+			}
+			bodyColumn = bodyColumn || name == "body"
+		}
+		if err := rows.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if bodyColumn {
+			t.Fatalf("%s has a body column", task.table)
+		}
+		if _, err := store.ExecContext(ctx, `
+			INSERT INTO `+task.table+` (
+				workspace, `+task.owner+`, id, title, sensitive, enabled,
+				creator_principal, created_at, updater_principal, updated_at
+			) VALUES (
+				'wsp_00000000000000000000000000', ?, ?, 'Task', FALSE, TRUE,
+				'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z',
+				'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z'
+			)
+		`, map[string]string{"project": "prj_00000000000000000000000000", "session": "ses_00000000000000000000000000"}[task.owner], task.id); err != nil {
+			t.Fatal(err)
+		}
+		var status string
+		if err := store.QueryRowContext(ctx, `SELECT status FROM `+task.table+` WHERE id = ?`, task.id).Scan(&status); err != nil || status != "draft" {
+			t.Fatalf("%s status = (%q, %v), want (draft, nil)", task.table, status, err)
+		}
+		if _, err := store.ExecContext(ctx, `UPDATE `+task.table+` SET status = 'invalid' WHERE id = ?`, task.id); err == nil {
+			t.Fatalf("%s accepted an invalid status", task.table)
+		}
+		if _, err := store.ExecContext(ctx, `
+			INSERT INTO `+task.table+` (
+				workspace, `+task.owner+`, id, title, sensitive, enabled, created_at, updated_at
+			) VALUES (
+				'wsp_00000000000000000000000000', ?, ?, 'Missing attribution', FALSE, TRUE,
+				'2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'
+			)
+		`, map[string]string{"project": "prj_00000000000000000000000000", "session": "ses_00000000000000000000000000"}[task.owner], task.id[:29]+"1"); err == nil {
+			t.Fatalf("%s accepted missing creator and updater attribution", task.table)
+		}
+	}
+}
+
+func TestSQLiteMigrationV040DropsWorkspaceAgentMaxTurns(t *testing.T) {
+	ctx := context.Background()
+	store := openMigrationTestDatabase(t)
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_workspace_agents (
+			workspace_id TEXT NOT NULL,
+			model_id TEXT NOT NULL,
+			max_turns INTEGER NOT NULL DEFAULT 127 CHECK (max_turns > 0),
+			PRIMARY KEY (workspace_id, model_id)
+		) STRICT;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV040DropWorkspaceAgentMaxTurns().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.QueryContext(ctx, `PRAGMA table_info(gatehouse_workspace_agents)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		if name == "max_turns" {
+			t.Fatal("workspace agent max_turns column remains")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 

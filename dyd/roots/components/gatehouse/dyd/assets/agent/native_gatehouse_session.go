@@ -21,33 +21,55 @@ type SessionNotes struct {
 	Remove       NoteRemove
 }
 
+// SessionTasks contains the authorized flat tasks in the current session.
+type SessionTasks struct {
+	Tasks  []Task
+	Read   TaskRead
+	Create TaskCreate
+	Update TaskUpdate
+	Remove TaskRemove
+}
+
 var (
-	fileListDocumentation          = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with sfi_ IDs, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	fileInfoDocumentation          = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata for an sfi_ ID, or null when the file is unavailable.", "(session/files/info \"sfi_example-file-id\")", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
-	fileReadDocumentation          = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful current-session file with an sfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"sfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
-	fileCreateDocumentation        = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
-	sessionEventReadDocumentation  = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from a message text or tool result in the current session. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
-	sessionSecretListDocumentation = capabilityDocumentation{"(session/secrets/list) -> List", "Returns public metadata for secrets in the current session. Secret values are not included.", "(session/secrets/list)", "((id . \"ssc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
-	sessionSecretReadDocumentation = capabilityDocumentation{"(session/secrets/read id) -> Bytes", "Reads an encrypted session secret by ID. The returned Bytes are secret-tainted.", "(session/secrets/read \"ssc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
-	sessionNoteListDocumentation   = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
-	sessionNoteReadDocumentation   = capabilityDocumentation{"(session/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))", "\"# Session guide\""}
+	fileListDocumentation                 = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with sfi_ IDs, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileInfoDocumentation                 = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata for an sfi_ ID, or null when the file is unavailable.", "(session/files/info \"sfi_example-file-id\")", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileReadDocumentation                 = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful current-session file with an sfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"sfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
+	fileCreateDocumentation               = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
+	sessionEventReadDocumentation         = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from a message text or tool result in the current session. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
+	sessionSecretListDocumentation        = capabilityDocumentation{"(session/secrets/list) -> List", "Returns public metadata for secrets in the current session. Secret values are not included.", "(session/secrets/list)", "((id . \"ssc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionSecretReadDocumentation        = capabilityDocumentation{"(session/secrets/read id) -> Bytes", "Reads an encrypted session secret by ID. The returned Bytes are secret-tainted.", "(session/secrets/read \"ssc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
+	sessionNoteListDocumentation          = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
+	sessionNoteReadDocumentation          = capabilityDocumentation{"(session/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/read \"example-note-id\" 0 64))", "\"# Session guide\""}
 	sessionNoteRevisionsListDocumentation = capabilityDocumentation{"(session/notes/revisions/list id) -> List", "Returns revision, title, possibly empty description, sensitivity, author_id, optional author_name, and created_at for an authorized session note, newest first.", "(session/notes/revisions/list \"example-note-id\")", "((revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	sessionNoteRevisionReadDocumentation = capabilityDocumentation{"(session/notes/revisions/read id revision offset length) -> Bytes", "Reads Markdown bytes from an authorized session note revision. Sensitive revision bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/revisions/read \"example-note-id\" 1 0 64))", "\"# Original session guide\""}
-	sessionNoteCreateDocumentation = capabilityDocumentation{"(session/notes/create title description body) -> List", "Creates a shared Markdown note in the current session and returns its metadata. Description and body may be empty strings. A body derived from sensitive data creates a sensitive revision.", "(session/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
-	sessionNoteUpdateDocumentation = capabilityDocumentation{"(session/notes/update id title description body) -> List", "Replaces a shared Markdown note in the current session and returns its updated metadata. Title and description must not be sensitive; a sensitive body creates a sensitive revision.", "(session/notes/update \"example-note-id\" \"Decision\" \"Updated reasoning\" \"# Decision\")", "((id . \"example-note-id\") (revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	sessionNoteRemoveDocumentation = capabilityDocumentation{"(session/notes/remove id) -> Boolean", "Removes a shared note from the current session. Returns true when the note was removed and false when it is unavailable.", "(session/notes/remove \"example-note-id\")", "#t"}
+	sessionNoteRevisionReadDocumentation  = capabilityDocumentation{"(session/notes/revisions/read id revision offset length) -> Bytes", "Reads Markdown bytes from an authorized session note revision. Sensitive revision bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/notes/revisions/read \"example-note-id\" 1 0 64))", "\"# Original session guide\""}
+	sessionNoteCreateDocumentation        = capabilityDocumentation{"(session/notes/create title description body) -> List", "Creates a shared Markdown note in the current session and returns its metadata. Description and body may be empty strings. A body derived from sensitive data creates a sensitive revision.", "(session/notes/create \"Decision\" \"Why this was decided\" \"# Decision\")", "((id . \"example-note-id\") (title . \"Decision\") (description . \"Why this was decided\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
+	sessionNoteUpdateDocumentation        = capabilityDocumentation{"(session/notes/update id title description body) -> List", "Replaces a shared Markdown note in the current session and returns its updated metadata. Title and description must not be sensitive; a sensitive body creates a sensitive revision.", "(session/notes/update \"example-note-id\" \"Decision\" \"Updated reasoning\" \"# Decision\")", "((id . \"example-note-id\") (revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionNoteRemoveDocumentation        = capabilityDocumentation{"(session/notes/remove id) -> Boolean", "Removes a shared note from the current session. Returns true when the note was removed and false when it is unavailable.", "(session/notes/remove \"example-note-id\")", "#t"}
+	sessionTaskListDocumentation          = capabilityDocumentation{"(session/tasks/list) -> List", "Returns flat task metadata in the current session, including whether the Markdown description is sensitive.", "(session/tasks/list)", "((id . \"stk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"ready\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionTaskReadDocumentation          = capabilityDocumentation{"(session/tasks/read id offset length) -> Bytes", "Reads the Markdown task description in the current session. Sensitive task bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/tasks/read \"stk_example-task-id\" 0 64))", "\"Task details\""}
+	sessionTaskCreateDocumentation        = capabilityDocumentation{"(session/tasks/create title description status) -> List", "Creates a flat session task. Title and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(session/tasks/create \"Review design\" \"# Review\" \"ready\")", "((id . \"stk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"ready\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionTaskUpdateDocumentation        = capabilityDocumentation{"(session/tasks/update id title description status) -> List", "Replaces a flat session task. ID, title, and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(session/tasks/update \"stk_example-task-id\" \"Review design\" \"# Review\" \"done\")", "((id . \"stk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"done\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
+	sessionTaskRemoveDocumentation        = capabilityDocumentation{"(session/tasks/remove id) -> Boolean", "Removes a flat task from the current session. Returns true when the task was removed and false when it is unavailable.", "(session/tasks/remove \"stk_example-task-id\")", "#t"}
 )
 
 // NewSessionModule constructs the session capability module for one agent evaluation.
 func NewSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, nil, eventReads...)
+	return newSessionModule(files, read, create, notes, nil, nil, eventReads...)
 }
 
 func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, secrets, eventReads...)
+	return newSessionModule(files, read, create, notes, nil, secrets, eventReads...)
 }
 
-func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
+func NewSessionModuleWithTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, eventReads ...SessionEventRead) lisp.HostModule {
+	return newSessionModule(files, read, create, notes, tasks, nil, eventReads...)
+}
+
+func NewSessionModuleWithSecretsAndTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
+	return newSessionModule(files, read, create, notes, tasks, secrets, eventReads...)
+}
+
+func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
 	fileRead := unavailableRead("session/files/read")
 	if read != nil {
 		fileRead = fileReadFunction(read, "session/files/read", typed_id.SessionFile, "session")
@@ -88,6 +110,25 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 			noteRemove = noteRemoveFunction(notes.Remove, "session/notes/remove")
 		}
 	}
+	tasksList, taskRead := unavailableTaskList("session/tasks/list"), unavailableRead("session/tasks/read")
+	taskCreate := unavailableCreate("session/tasks/create")
+	taskUpdate := unavailableCreate("session/tasks/update")
+	taskRemove := unavailableRemove("session/tasks/remove")
+	if tasks != nil {
+		tasksList = taskListFunction(tasks.Tasks, "session/tasks/list")
+		if tasks.Read != nil {
+			taskRead = taskReadFunction(tasks.Read, "session/tasks/read")
+		}
+		if tasks.Create != nil {
+			taskCreate = taskCreateFunction(tasks.Create, "session/tasks/create")
+		}
+		if tasks.Update != nil {
+			taskUpdate = taskUpdateFunction(tasks.Update, "session/tasks/update")
+		}
+		if tasks.Remove != nil {
+			taskRemove = taskRemoveFunction(tasks.Remove, "session/tasks/remove")
+		}
+	}
 	secretsList, secretRead := sessionSecretListFunction(nil, "session/secrets/list"), unavailableSecretRead("session/secrets/read")
 	if secrets != nil {
 		secretsList = sessionSecretListFunction(secrets.Secrets, "session/secrets/list")
@@ -111,6 +152,11 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), sessionNoteCreateDocumentation)},
 		{Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), sessionNoteUpdateDocumentation)},
 		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), sessionNoteRemoveDocumentation)},
+		{Name: "tasks/list", Value: document(lisp.Function(tasksList), sessionTaskListDocumentation)},
+		{Name: "tasks/read", Value: document(lisp.Function(taskRead), sessionTaskReadDocumentation)},
+		{Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), sessionTaskCreateDocumentation)},
+		{Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), sessionTaskUpdateDocumentation)},
+		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), sessionTaskRemoveDocumentation)},
 	}}
 }
 
