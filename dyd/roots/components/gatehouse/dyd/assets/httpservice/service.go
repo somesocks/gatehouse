@@ -137,7 +137,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/storage-providers", systemStorageProviders(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/storage-providers/{provider}", systemStorageProvider(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
-		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{model}", systemWorkspaceAgent(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{binding}", systemWorkspaceAgent(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-storage-providers", systemWorkspaceStorageProviders(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-storage-providers/{workspace}/{provider}", systemWorkspaceStorageProvider(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
@@ -261,6 +262,7 @@ type groupResponse struct {
 
 type workspaceAgentResponse struct {
 	ID    string  `json:"id"`
+	Alias string  `json:"alias"`
 	Label *string `json:"label,omitempty"`
 }
 
@@ -564,7 +566,7 @@ func workspaceAgents(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		}
 		result := make([]workspaceAgentResponse, len(agents))
 		for index, agent := range agents {
-			result[index] = workspaceAgentResponse{ID: agent.ID, Label: agent.Label}
+			result[index] = workspaceAgentResponse{ID: agent.ID, Alias: agent.Alias, Label: agent.Label}
 		}
 		writeJSON(response, result)
 	}
@@ -1068,7 +1070,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			if selected == nil || selected.Ref.Model.Id != message.Agent {
+			if selected == nil || selected.Ref.Id != message.Agent {
 				http.Error(response, "invalid agent", http.StatusBadRequest)
 				return
 			}
@@ -2992,7 +2994,7 @@ func noteAuthorResponseFromValues(principal *model.PrincipalRef, principalName *
 		author.Principal = &projectNoteAuthorResponse{ID: principal.Id, Name: principalName}
 	}
 	if agent != nil {
-		author.Agent = &noteAgentAuthorResponse{ID: agent.Model.Id, Label: agentLabel}
+		author.Agent = &noteAgentAuthorResponse{ID: agent.Id, Label: agentLabel}
 	}
 	if gateway != nil {
 		author.Gateway = &gateway.Id

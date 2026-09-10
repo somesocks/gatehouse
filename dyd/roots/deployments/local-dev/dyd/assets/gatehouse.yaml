@@ -39,11 +39,13 @@ workspaces:
   - alias: development
     name: Development
     agents:
-      - model: openai-luna-low
+      - alias: luna-low
+        model: openai-luna-low
         revision: 1
         label: GPT 5.6 Luna Low
         priority: 1
-      - model: openai-luna-medium
+      - alias: luna-medium
+        model: openai-luna-medium
         revision: 1
         label: GPT 5.6 Luna Med
         priority: 1

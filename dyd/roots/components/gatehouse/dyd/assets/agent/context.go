@@ -32,7 +32,7 @@ type mcmtrContextState struct {
 }
 
 func mcmtrProfileFingerprint(selected *database.WorkspaceAgentModel) string {
-	value := selected.Ref.Model.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected)
+	value := selected.AgentModel.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
@@ -203,10 +203,10 @@ func mcmtrHighCheckpoint(state mcmtrContextState, stream string) string {
 func selectedMCMTRProfile(selected *database.WorkspaceAgentModel) (mcmtrProfile, error) {
 	profile := mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: contextBufferBytes}
 	if err := json.Unmarshal([]byte(selected.Compaction), &profile); err != nil {
-		return mcmtrProfile{}, fmt.Errorf("decode MCMTR profile for model %q: %w", selected.Ref.Model.Id, err)
+		return mcmtrProfile{}, fmt.Errorf("decode MCMTR profile for model %q: %w", selected.AgentModel.Id, err)
 	}
 	if profile.Algorithm != "mcmtr" || profile.HistoryBytes <= 0 || profile.BufferBytes <= 0 || profile.BufferBytes > profile.HistoryBytes/6 {
-		return mcmtrProfile{}, fmt.Errorf("invalid MCMTR profile for model %q", selected.Ref.Model.Id)
+		return mcmtrProfile{}, fmt.Errorf("invalid MCMTR profile for model %q", selected.AgentModel.Id)
 	}
 	return profile, nil
 }

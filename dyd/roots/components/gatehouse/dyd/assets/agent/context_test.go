@@ -12,7 +12,7 @@ import (
 func TestCompileMCMTRContextReplaysActiveToolBatchesNatively(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	historicalUser := event(session, "historical-user", "message.text", &principal, nil, map[string]interface{}{"text": "Earlier request."})
 	active := event(session, "active", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
 	firstCall := event(session, "first-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(first)", "reason": "First pass.", "batch": float64(0), "position": float64(0)})
@@ -62,7 +62,7 @@ func TestCompileMCMTRContextReplaysActiveToolBatchesNatively(t *testing.T) {
 func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	active := event(session, "active", "message.text", &principal, nil, map[string]interface{}{"text": strings.Repeat("u", 20*1024)})
 	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": strings.Repeat("c", 20*1024), "reason": "Large call.", "batch": float64(0), "position": float64(0)})
 	call.Parent = &active.Ref
@@ -85,7 +85,7 @@ func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T
 func TestCompileMCMTRContextAppendsResolvedToolBatches(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	active := event(session, "active", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
 	firstCall := event(session, "first-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(first)", "reason": "First pass.", "batch": float64(0), "position": float64(0)})
 	firstCall.Parent = &active.Ref
@@ -112,7 +112,7 @@ func TestCompileMCMTRContextAppendsResolvedToolBatches(t *testing.T) {
 
 func TestMCMTRRecordMessagesRendersUnpairedResultAsHistory(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(read)", "reason": "Read the value.", "batch": float64(0), "position": float64(0)})
 	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"output": "value"})
 	result.Parent = &call.Ref
@@ -192,7 +192,7 @@ func TestSelectContextMessagesUsesUserMessageTiers(t *testing.T) {
 
 func TestSelectContextMessagesOmitsToolOutputWithoutCallArguments(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	request := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call", "code": strings.Repeat("x", 3*1024), "reason": "test"})
 	output := event(session, "output", "tool.success", nil, &agent, map[string]interface{}{"output": "result"})
 	output.Parent = &request.Ref
@@ -209,7 +209,7 @@ func TestSelectContextMessagesOmitsToolOutputWithoutCallArguments(t *testing.T) 
 
 func TestTranscriptMessageRendersNoReply(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "agent"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
 	event := event(session, "reply", "message.text", nil, &agent, map[string]interface{}{"text": ""})
 	message, text, ok := transcriptMessageContent(event)
 	if !ok {

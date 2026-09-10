@@ -201,7 +201,7 @@ func transcriptMCMTRTreeAttributes(result *strings.Builder, event model.SessionE
 	if event.AuthorPrincipal != nil {
 		transcriptAttribute(result, "author", "principal:"+event.AuthorPrincipal.Ref.Id)
 	} else if event.AuthorAgent != nil {
-		transcriptAttribute(result, "author", "agent:"+event.AuthorAgent.Model.Id)
+		transcriptAttribute(result, "author", "agent:"+event.AuthorAgent.Id)
 	} else if event.AuthorGateway != nil {
 		transcriptAttribute(result, "author", "gateway:"+event.AuthorGateway.Id)
 	}

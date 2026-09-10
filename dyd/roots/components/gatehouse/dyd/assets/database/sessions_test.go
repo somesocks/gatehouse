@@ -286,12 +286,12 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		VALUES ('apr_01arz3ndektsv4rrffq69g5fav', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('amd_01arz3ndektsv4rrffq69g5fav', 1, 'apr_01arz3ndektsv4rrffq69g5fav', 'example', '{}', TRUE);
-		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled)
-		VALUES (?, 'amd_01arz3ndektsv4rrffq69g5fav', 1, TRUE)
+		INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, enabled)
+		VALUES ('wag_01arz3ndektsv4rrffq69g5fav', ?, 'assistant', 'amd_01arz3ndektsv4rrffq69g5fav', 1, 1, TRUE)
 	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Model: model.AgentModelRef{Id: "amd_01arz3ndektsv4rrffq69g5fav"}}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_01arz3ndektsv4rrffq69g5fav"}
 	agentSession := model.Session{Ref: model.SessionRef{Workspace: session.Workspace, Id: "ses_00000000000000000000000001"}, AuthorAgent: &agent, Enabled: true}
 	err, _ = store.SessionsCreate(ctx, agentSession, alice)
 	if err != nil {
@@ -316,7 +316,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		Kind: "message.text",
 		AuthorAgent: &model.WorkspaceAgentRef{
 			Workspace: session.Workspace,
-			Model:     model.AgentModelRef{Id: "amd_01arz3ndektsv4rrffq69g5fav"},
+			Id:        "wag_01arz3ndektsv4rrffq69g5fav",
 		},
 		Payload: map[string]interface{}{"text": "hello from the agent"},
 	}
@@ -391,8 +391,11 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -400,6 +403,11 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := principalRef(t, ctx, store, "alice")
 	bob := principalRef(t, ctx, store, "bob")
+	var agentID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ? AND alias = 'assistant'`, workspace.Id).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
 	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
@@ -442,6 +450,17 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	err, sensitiveRevisions := store.SessionNoteRevisionsGet(ctx, sensitive.Ref, alice)
 	if err != nil || len(sensitiveRevisions) != 2 || sensitiveRevisions[0].Ref.Revision != 2 || sensitiveRevisions[0].Sensitive || sensitiveRevisions[0].AuthorGateway == nil || *sensitiveRevisions[0].AuthorGateway != gateway || sensitiveRevisions[1].Ref.Revision != 1 || !sensitiveRevisions[1].Sensitive {
 		t.Fatalf("SessionNoteRevisionsGet() preserves revision sensitivity and authors = (%#v, %v)", sensitiveRevisions, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_session_note_revisions (workspace, session, note, revision, author_agent, title, description, body, sensitive, created_at) VALUES (?, ?, ?, 3, ?, 'Agent revision', 'Agent revision', 'Agent revision', FALSE, '2026-01-01T00:00:00.000Z')`, workspace.Id, session.Id, sensitive.Ref.Id, agent.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, agentRevisions := store.SessionNoteRevisionsGet(ctx, sensitive.Ref, alice)
+	if err != nil || len(agentRevisions) != 3 || agentRevisions[0].AuthorAgent == nil || *agentRevisions[0].AuthorAgent != agent || agentRevisions[0].AuthorAgentLabel == nil || *agentRevisions[0].AuthorAgentLabel != "Assistant" {
+		t.Fatalf("SessionNoteRevisionsGet() resolves agent labels = (%#v, %v)", agentRevisions, err)
+	}
+	err, agentRevision := store.SessionNoteRevisionGet(ctx, model.SessionNoteRevisionRef{Note: sensitive.Ref, Revision: 3}, alice)
+	if err != nil || agentRevision == nil || agentRevision.Revision.AuthorAgent == nil || *agentRevision.Revision.AuthorAgent != agent || agentRevision.AuthorAgentLabel == nil || *agentRevision.AuthorAgentLabel != "Assistant" {
+		t.Fatalf("SessionNoteRevisionGet() resolves agent labels = (%#v, %v)", agentRevision, err)
 	}
 	err, denied := store.SessionNotesGet(ctx, session, bob)
 	if err != nil || len(denied) != 0 {
@@ -825,7 +844,7 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -836,11 +855,11 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
 		t.Fatal(err)
 	}
-	var modelID string
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&modelID); err != nil {
+	var agentID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
 	roots := make([]model.SessionEventRef, 3)
 	for index := range roots {
 		roots[index] = model.SessionEventRef{Session: session, Id: fmt.Sprintf("sev_0000000000000000000000000%d", index)}
@@ -887,9 +906,9 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, MaxTurns: 2, MaxOutputTokens: 2000, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "first", Revision: 1, Priority: 2, SystemPrompt: &firstPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "second", Revision: 1, Priority: 2, SystemPrompt: &emptyPrompt, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "lower", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "first", ModelAlias: "first", Revision: 1, Priority: 2, SystemPrompt: &firstPrompt, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "second", ModelAlias: "second", Revision: 1, Priority: 2, SystemPrompt: &emptyPrompt, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "lower", ModelAlias: "lower", Revision: 1, Priority: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -908,7 +927,7 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		if err != nil || selected == nil {
 			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
 		}
-		if selected.Ref.Model.Id != firstID && selected.Ref.Model.Id != secondID {
+		if selected.AgentModel.Id != firstID && selected.AgentModel.Id != secondID {
 			t.Fatalf("WorkspaceAgentModelSelect() selected %#v outside the highest priority tier", selected)
 		}
 		if selected.MaxTurns != 3 {
@@ -917,10 +936,10 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 		if selected.MaxOutputTokens != 2000 {
 			t.Fatalf("WorkspaceAgentModelSelect() max output tokens = %d, want 2000", selected.MaxOutputTokens)
 		}
-		if selected.Ref.Model.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
+		if selected.AgentModel.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
 		}
-		if selected.Ref.Model.Id == secondID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
+		if selected.AgentModel.Id == secondID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
 			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want empty prompt", selected.SystemPrompt)
 		}
 	}
@@ -942,8 +961,8 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -951,18 +970,18 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	var requestedID, automaticID string
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'automatic'`).Scan(&automaticID); err != nil {
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'automatic'`).Scan(&automaticID); err != nil {
 		t.Fatal(err)
 	}
 	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, requestedID)
-	if err != nil || selected == nil || selected.Ref.Model.Id != requestedID {
+	if err != nil || selected == nil || selected.Ref.Id != requestedID {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want requested agent", selected, err)
 	}
 	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "missing")
-	if err != nil || selected == nil || selected.Ref.Model.Id != automaticID {
+	if err != nil || selected == nil || selected.Ref.Id != automaticID {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
 	}
 }
@@ -1167,7 +1186,7 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1180,10 +1199,10 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	var agentID string
-	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agentID}}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
 	root := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}}
 	if err, _ := store.SessionEventsCreate(ctx, root); err != nil {
 		t.Fatal(err)

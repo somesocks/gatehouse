@@ -86,7 +86,7 @@
   <SystemOverviewRoute />
 {:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute />
 {:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute />
-{:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute workspaceID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.workspaceID : ""} modelID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.modelID : ""} />
+{:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute workspaceID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.workspaceID : ""} bindingID={runtime.state.route.kind === "system-workspace-agent-binding" ? runtime.state.route.bindingID : ""} />
 {:else if owner === "workspace-storage-binding-list"}<WorkspaceStorageBindingListRoute />
 {:else if owner === "workspace-storage-binding-new"}<WorkspaceStorageBindingNewRoute />
 {:else if owner === "workspace-storage-binding-detail"}<WorkspaceStorageBindingDetailRoute workspaceID={runtime.state.route.kind === "system-workspace-storage-binding" ? runtime.state.route.workspaceID : ""} providerID={runtime.state.route.kind === "system-workspace-storage-binding" ? runtime.state.route.providerID : ""} />

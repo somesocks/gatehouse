@@ -155,7 +155,8 @@ let WorkspaceAgent =
       s.record.from
         s.record.props::{
         , required = toMap
-            { model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local binding reconciliation alias" }
+            , model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic workspace agent binding configuration revision" }
             , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }

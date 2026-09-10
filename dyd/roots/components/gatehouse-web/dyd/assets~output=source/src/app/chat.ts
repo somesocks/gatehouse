@@ -15,7 +15,7 @@ export type ChatEvent = {
   ref: { id: string }
   parent?: { id: string }
   author_principal?: { ref: { id: string }; name?: string }
-  author_agent?: { model: { id: string } }
+  author_agent?: { id: string; workspace: { id: string } }
 }
 
 export type ChatEventTree = { event: ChatEvent; children: ChatEventTree[] }

@@ -13,7 +13,7 @@ func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
   (list
     (project/info/get)
     (project/files/list)
-    (project/files/info "guide")
+    (project/files/info "pfi_01m17ej89df8jnhnh7476ssnvg")
     (project/notes/list)
 	(project/secrets/list)
     (error/value (error/catch (project/files/read "guide" 0 1)))

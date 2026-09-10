@@ -49,8 +49,8 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Requested reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
 		},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
@@ -68,7 +68,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	var requestedID string
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
 		t.Fatal(err)
 	}
 	alice := principalRef(t, ctx, store, "alice")
@@ -116,13 +116,13 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			started := events[1]
 			completed := events[2]
 			reply := events[3]
-			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Model.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
+			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
 				t.Fatalf("thinking start event = %#v", started)
 			}
-			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Model.Id != requestedID || completed.Ref.Id == "" {
+			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Id != requestedID || completed.Ref.Id == "" {
 				t.Fatalf("thinking completion event = %#v", completed)
 			}
-			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Model.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
+			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
 				t.Fatalf("reply event = %#v", reply)
 			}
 			break
@@ -174,7 +174,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "fallback", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "fallback", ModelAlias: "fallback", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -317,7 +317,7 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:APPROVAL_TEST_API_KEY"}, Enabled: true,
 		}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "openai", Model: "test-model", Parameters: `{"reasoning_effort":"none"}`, Compaction: defaultAgentModelCompaction, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, state.Keychains, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -566,10 +566,10 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 				if err != nil || len(tasks) != test.tasks {
 					t.Fatalf("project tasks after decision = (%#v, %v), want %d", tasks, err, test.tasks)
 				}
-				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Model.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Id == "") {
 					t.Fatalf("project task agent attribution = %#v", tasks[0])
 				}
-				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Id == "") {
 					t.Fatalf("project task updater attribution = %#v", tasks[0])
 				}
 			} else {
@@ -577,10 +577,10 @@ func TestSessionEventReplyRuntimeDeliversApprovalDecisions(t *testing.T) {
 				if err != nil || len(tasks) != test.tasks {
 					t.Fatalf("session tasks after decision = (%#v, %v), want %d", tasks, err, test.tasks)
 				}
-				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Model.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+				if test.taskCreated && (tasks[0].CreatorAgent == nil || tasks[0].CreatorAgent.Id == "" || tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Id == "") {
 					t.Fatalf("session task agent attribution = %#v", tasks[0])
 				}
-				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Model.Id == "") {
+				if test.taskUpdate && test.decision == "approval.approved" && (tasks[0].UpdaterAgent == nil || tasks[0].UpdaterAgent.Id == "") {
 					t.Fatalf("session task updater attribution = %#v", tasks[0])
 				}
 			}

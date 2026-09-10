@@ -796,7 +796,7 @@ func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, ses
 			if err != nil {
 				return SessionNote{}, err
 			}
-			return SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Model.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
+			return SessionNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-note-create"))
 		return err, note
 	}
@@ -949,7 +949,7 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 			if err != nil {
 				return ProjectNote{}, err
 			}
-			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Model.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
+			return ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: note.AuthorAgent.Id, CreatedAt: note.CreatedAt, Revision: note.Revision}, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-note-create"))
 		return err, note
 	}
@@ -1725,7 +1725,7 @@ func noteAuthorMetadata(principal *model.PrincipalRef, principalName *string, ag
 		return principal.Id, principalName
 	}
 	if agent != nil {
-		return agent.Model.Id, agentLabel
+		return agent.Id, agentLabel
 	}
 	if gateway != nil {
 		return gateway.Id, nil
@@ -1738,7 +1738,7 @@ func noteAuthorID(principal *model.PrincipalRef, agent *model.WorkspaceAgentRef,
 		return principal.Id
 	}
 	if agent != nil {
-		return agent.Model.Id
+		return agent.Id
 	}
 	if gateway != nil {
 		return gateway.Id

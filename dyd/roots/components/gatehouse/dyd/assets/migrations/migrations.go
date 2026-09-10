@@ -72,6 +72,7 @@ type activityMigrationEvent struct {
 	GroupID                           string
 	PrincipalID                       string
 	WorkspaceAgent                    string
+	WorkspaceAgentAlias               string
 	KeychainID                        string
 	KeychainVersion                   int
 	AgentProviderID                   string
@@ -243,7 +244,7 @@ func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
 			{{ range .Events }}
 			{{ $event := . }}
 			INSERT INTO gatehouse_activity_events (
-				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at
+				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, resource_workspace_agent_workspace, resource_workspace_agent_id, created_at
 			) VALUES (
 				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }},
 				{{ if eq .ResourceKind "group" }}{{ sqlLiteral .GroupID }}{{ else }}NULL{{ end }},

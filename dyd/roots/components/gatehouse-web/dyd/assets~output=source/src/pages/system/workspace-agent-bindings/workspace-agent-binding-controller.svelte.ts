@@ -1,3 +1,42 @@
 import { systemAdministration, type SystemWorkspaceAgent } from "../../../app/system"
-const optional = (v: string) => v.trim() === "" ? undefined : v.trim()
-export function createWorkspaceAgentBindingController({ onAuthenticationLost, onSystemAccessChange }: { onAuthenticationLost: () => void; onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void }) { const state = $state({ binding: null as SystemWorkspaceAgent | null, form: { workspace: "", model: "", priority: 0, label: "", systemPrompt: "", enabled: true }, error: "", loading: false, saving: false, editing: false }); async function load(w: string, m: string) { state.loading = true; state.error = ""; try { const r = await systemAdministration(`workspace-agents/${encodeURIComponent(w)}/${encodeURIComponent(m)}`); if (r.status === 401) onAuthenticationLost(); else if (r.status === 403) onSystemAccessChange("denied"); else if (r.status === 404) state.error = "Workspace agent binding was not found."; else if (!r.ok) state.error = "Workspace agent binding could not be loaded."; else state.binding = await r.json() as SystemWorkspaceAgent } catch { state.error = "Workspace agent binding could not be loaded." } finally { state.loading = false } }; function edit() { if (!state.binding) return; state.form = { workspace: state.binding.workspace, model: state.binding.model, priority: state.binding.priority, label: state.binding.label ?? "", systemPrompt: state.binding.system_prompt ?? "", enabled: state.binding.enabled }; state.editing = true }; async function save(path: string, method: "POST" | "PATCH", revision?: number): Promise<SystemWorkspaceAgent | null> { state.saving = true; try { const f = state.form; const r = await systemAdministration(path, method, { priority: f.priority, label: optional(f.label), system_prompt: optional(f.systemPrompt), enabled: f.enabled, ...(revision === undefined ? {} : { expected_revision: revision }) }); if (r.status === 401) { onAuthenticationLost(); return null }; if (r.status === 403) { onSystemAccessChange("denied"); return null }; if (r.status === 409) { state.error = "This binding changed elsewhere. The latest settings have been reloaded."; if (state.binding) await load(state.binding.workspace, state.binding.model); return null }; if (!r.ok) { state.error = "Workspace agent binding could not be saved."; return null }; return await r.json() as SystemWorkspaceAgent } catch { state.error = "Workspace agent binding could not be saved."; return null } finally { state.saving = false } }; async function create() { const f = state.form; return await save(`workspace-agents/${encodeURIComponent(f.workspace)}/${encodeURIComponent(f.model)}`, "POST") }; async function update() { if (!state.binding) return false; const saved = await save(`workspace-agents/${encodeURIComponent(state.binding.workspace)}/${encodeURIComponent(state.binding.model)}`, "PATCH", state.binding.revision); if (!saved) return false; state.binding = saved; state.editing = false; return true }; return { state, load, edit, create, update } }
+
+const optional = (value: string) => value.trim() === "" ? undefined : value.trim()
+
+export function createWorkspaceAgentBindingController({ onAuthenticationLost, onSystemAccessChange }: { onAuthenticationLost: () => void; onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void }) {
+  const state = $state({ binding: null as SystemWorkspaceAgent | null, form: { workspace: "", alias: "", model: "", priority: 0, label: "", systemPrompt: "", enabled: true }, error: "", loading: false, saving: false, editing: false })
+
+  async function load(workspace: string, bindingID: string) {
+    state.loading = true
+    state.error = ""
+    try {
+      const response = await systemAdministration(`workspace-agents/${encodeURIComponent(workspace)}/${encodeURIComponent(bindingID)}`)
+      if (response.status === 401) onAuthenticationLost()
+      else if (response.status === 403) onSystemAccessChange("denied")
+      else if (response.status === 404) state.error = "Workspace agent binding was not found."
+      else if (!response.ok) state.error = "Workspace agent binding could not be loaded."
+      else state.binding = await response.json() as SystemWorkspaceAgent
+    } catch { state.error = "Workspace agent binding could not be loaded." } finally { state.loading = false }
+  }
+
+  function edit() {
+    if (!state.binding) return
+    state.form = { workspace: state.binding.workspace, alias: state.binding.alias, model: state.binding.model, priority: state.binding.priority, label: state.binding.label ?? "", systemPrompt: state.binding.system_prompt ?? "", enabled: state.binding.enabled }
+    state.editing = true
+  }
+
+  async function update() {
+    if (!state.binding) return
+    state.saving = true
+    try {
+      const form = state.form
+      const response = await systemAdministration(`workspace-agents/${encodeURIComponent(state.binding.workspace)}/${encodeURIComponent(state.binding.id)}`, "PATCH", { model: form.model, priority: form.priority, label: optional(form.label), system_prompt: optional(form.systemPrompt), enabled: form.enabled, expected_revision: state.binding.revision })
+      if (response.status === 401) onAuthenticationLost()
+      else if (response.status === 403) onSystemAccessChange("denied")
+      else if (response.status === 409) { state.error = "This binding changed elsewhere. The latest settings have been reloaded."; await load(state.binding.workspace, state.binding.id) }
+      else if (!response.ok) state.error = "Workspace agent binding could not be saved."
+      else { state.binding = await response.json() as SystemWorkspaceAgent; state.editing = false }
+    } catch { state.error = "Workspace agent binding could not be saved." } finally { state.saving = false }
+  }
+
+  return { state, load, edit, update }
+}

@@ -180,8 +180,11 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -189,6 +192,11 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	alice := principalRef(t, ctx, store, "alice")
 	bob := principalRef(t, ctx, store, "bob")
+	var agentID string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ? AND alias = 'assistant'`, workspace.Id).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
 	projectID, err := typed_id.New(typed_id.Project)
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +243,17 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	err, sensitiveRevisions := store.ProjectNoteRevisionsGet(ctx, sensitive.Ref, alice)
 	if err != nil || len(sensitiveRevisions) != 2 || sensitiveRevisions[0].Ref.Revision != 2 || sensitiveRevisions[0].Sensitive || sensitiveRevisions[0].AuthorGateway == nil || *sensitiveRevisions[0].AuthorGateway != gateway || sensitiveRevisions[1].Ref.Revision != 1 || !sensitiveRevisions[1].Sensitive {
 		t.Fatalf("ProjectNoteRevisionsGet() preserves revision sensitivity and authors = (%#v, %v)", sensitiveRevisions, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_project_note_revisions (workspace, project, note, revision, author_agent, title, description, body, sensitive, created_at) VALUES (?, ?, ?, 3, ?, 'Agent revision', 'Agent revision', 'Agent revision', FALSE, '2026-01-01T00:00:00.000Z')`, workspace.Id, project.Id, sensitive.Ref.Id, agent.Id); err != nil {
+		t.Fatal(err)
+	}
+	err, agentRevisions := store.ProjectNoteRevisionsGet(ctx, sensitive.Ref, alice)
+	if err != nil || len(agentRevisions) != 3 || agentRevisions[0].AuthorAgent == nil || *agentRevisions[0].AuthorAgent != agent || agentRevisions[0].AuthorAgentLabel == nil || *agentRevisions[0].AuthorAgentLabel != "Assistant" {
+		t.Fatalf("ProjectNoteRevisionsGet() resolves agent labels = (%#v, %v)", agentRevisions, err)
+	}
+	err, agentRevision := store.ProjectNoteRevisionGet(ctx, model.ProjectNoteRevisionRef{Note: sensitive.Ref, Revision: 3}, alice)
+	if err != nil || agentRevision == nil || agentRevision.Revision.AuthorAgent == nil || *agentRevision.Revision.AuthorAgent != agent || agentRevision.AuthorAgentLabel == nil || *agentRevision.AuthorAgentLabel != "Assistant" {
+		t.Fatalf("ProjectNoteRevisionGet() resolves agent labels = (%#v, %v)", agentRevision, err)
 	}
 	err, denied := store.ProjectNotesGet(ctx, project, bob)
 	if err != nil || len(denied) != 0 {

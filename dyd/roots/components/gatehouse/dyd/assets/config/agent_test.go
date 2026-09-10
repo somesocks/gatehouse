@@ -271,7 +271,8 @@ agent_models:
 workspaces:
   - alias: engineering
     agents:
-      - model: fallback
+      - alias: fallback
+        model: fallback
         revision: 1
         priority: 1
 `,
@@ -291,7 +292,8 @@ agent_models:
 workspaces:
   - alias: engineering
     agents:
-      - model: fallback
+      - alias: fallback
+        model: fallback
         revision: 1
         priority: 1
         system_prompt: Custom instructions.
@@ -312,7 +314,8 @@ agent_models:
 workspaces:
   - alias: engineering
     agents:
-      - model: fallback
+      - alias: fallback
+        model: fallback
         revision: 1
         priority: 1
         system_prompt: ""
@@ -368,7 +371,8 @@ agent_models:
 workspaces:
   - alias: engineering
     agents:
-      - model: fallback
+      - alias: fallback
+        model: fallback
         revision: 1
         label: Fallback assistant
         priority: 1
@@ -472,7 +476,8 @@ agent_models:
 workspaces:
   - alias: engineering
     agents:
-      - model: fallback
+      - alias: fallback
+        model: fallback
         revision: 1
         priority: 1
         ` + limit + `

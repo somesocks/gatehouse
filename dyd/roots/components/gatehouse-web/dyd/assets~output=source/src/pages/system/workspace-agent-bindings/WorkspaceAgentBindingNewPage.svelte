@@ -19,6 +19,7 @@
     <div class="system-page-heading mb-5"><div><p class="eyebrow">System</p><h2 class="title is-3">New workspace agent binding</h2></div></div>
     <form onsubmit={(event) => { event.preventDefault(); void create() }}>
       <div class="field"><label class="label" for="agent-binding-workspace">Workspace ID</label><div class="control"><input class="input" id="agent-binding-workspace" required bind:value={controller.state.form.workspace} /></div></div>
+      <div class="field"><label class="label" for="agent-binding-alias">Binding alias</label><div class="control"><input class="input" id="agent-binding-alias" required bind:value={controller.state.form.alias} /></div></div>
       <div class="field"><label class="label" for="agent-binding-model">Model ID</label><div class="control"><input class="input" id="agent-binding-model" required bind:value={controller.state.form.model} /></div></div>
       <div class="field"><label class="label" for="agent-binding-priority">Priority</label><div class="control"><input class="input" id="agent-binding-priority" type="number" bind:value={controller.state.form.priority} /></div></div>
       <div class="field"><label class="label" for="agent-binding-label">Label</label><div class="control"><input class="input" id="agent-binding-label" bind:value={controller.state.form.label} /></div></div>

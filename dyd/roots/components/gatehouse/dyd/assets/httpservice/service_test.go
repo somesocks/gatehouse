@@ -525,10 +525,10 @@ func TestSessionApprovalResponse(t *testing.T) {
 	session := model.SessionRef{Workspace: engineering, Id: "ses_00000000000000000000000000"}
 	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
 	var agentID string
-	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
 		t.Fatal(err)
 	}
-	agent := model.WorkspaceAgentRef{Workspace: engineering, Model: model.AgentModelRef{Id: agentID}}
+	agent := model.WorkspaceAgentRef{Workspace: engineering, Id: agentID}
 	root := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}}
 	if err, _ := store.SessionEventsCreate(ctx, root); err != nil {
 		t.Fatal(err)
@@ -1175,7 +1175,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 2, Label: &label, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 2, Label: &label, Priority: 1, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -1191,7 +1191,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	}
 	engineering := refs["engineering"]
 	var assistantID string
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&assistantID); err != nil {
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ? AND alias = 'assistant'`, engineering.Id).Scan(&assistantID); err != nil {
 		t.Fatal(err)
 	}
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
@@ -1209,7 +1209,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		return response
 	}
 	agents := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/agents", "")
-	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"`+assistantID+`","label":"Assistant"}]`+"\n" {
+	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"`+assistantID+`","alias":"assistant","label":"Assistant"}]`+"\n" {
 		t.Fatalf("GET agents = status %d body %q", agents.Code, agents.Body.String())
 	}
 	session := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
@@ -1463,7 +1463,7 @@ func TestSystemPrincipalAPI(t *testing.T) {
 }
 
 func TestSystemAdministrationAPI(t *testing.T) {
-	tokens, store, _ := testBearerTokens(t)
+	tokens, store, refs := testBearerTokens(t)
 	configured := []config.Keychain{{ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}
 	err, ring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
 	if err != nil {
@@ -1504,6 +1504,22 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","enabled":false,"expected_revision":1}`)
 	if err := json.Unmarshal(updated.Body.Bytes(), &provider); err != nil || updated.Code != http.StatusOK || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
 		t.Fatalf("PATCH system agent provider = (%d, %#v, %v)", updated.Code, provider, err)
+	}
+	model := request(http.MethodPost, "/api/v1/system/agent-models", `{"alias":"admin-assistant","provider":"`+provider.ID+`","model":"gpt-test","parameters":"{}","compaction":"{\"algorithm\":\"mcmtr\",\"history_bytes\":96,\"buffer_bytes\":16}","max_turns":3,"max_output_tokens":1000,"enabled":true}`)
+	var agentModel database.SystemAgentModel
+	if err := json.Unmarshal(model.Body.Bytes(), &agentModel); err != nil || model.Code != http.StatusOK || agentModel.ID == "" {
+		t.Fatalf("POST system agent model = (%d, %#v, %v)", model.Code, agentModel, err)
+	}
+	binding := request(http.MethodPost, "/api/v1/system/workspace-agents/"+refs["engineering"].Id, `{"alias":"admin-assistant","model":"`+agentModel.ID+`","priority":1,"enabled":true}`)
+	var agent database.SystemWorkspaceAgent
+	if err := json.Unmarshal(binding.Body.Bytes(), &agent); err != nil || binding.Code != http.StatusOK || agent.Alias != "admin-assistant" {
+		t.Fatalf("POST system workspace agent = (%d, %#v, %v)", binding.Code, agent, err)
+	}
+	if renamed := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"alias":"renamed","model":"`+agentModel.ID+`","priority":2,"enabled":false,"expected_revision":1}`); renamed.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH system workspace agent alias = %d", renamed.Code)
+	}
+	if patched := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"model":"`+agentModel.ID+`","priority":2,"enabled":false,"expected_revision":1}`); patched.Code != http.StatusOK {
+		t.Fatalf("PATCH system workspace agent = %d", patched.Code)
 	}
 	if unauthenticated := httptest.NewRecorder(); func() bool {
 		handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/system/agent-providers", nil))
@@ -1565,7 +1581,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		SystemGrants:     []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}},
 		AgentProviders:   []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:      []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents:  []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents:  []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
 			{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true},

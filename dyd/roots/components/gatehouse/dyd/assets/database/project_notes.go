@@ -83,7 +83,7 @@ func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRe
 		FROM gatehouse_project_notes AS notes
 		JOIN gatehouse_project_note_revisions AS revisions ON revisions.workspace = notes.workspace AND revisions.project = notes.project AND revisions.note = notes.id AND revisions.revision = notes.revision
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
-		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.model_id = notes.author_agent
+		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.id = notes.author_agent
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.project = `+placeholder(2)+` AND notes.enabled = TRUE
 		ORDER BY notes.created_at DESC, notes.id DESC
 	`, project.Workspace.Id, project.Id)
@@ -131,7 +131,7 @@ func (store *Store) ProjectNoteGet(ctx context.Context, note model.ProjectNoteRe
 		FROM gatehouse_project_notes AS notes
 		JOIN gatehouse_project_note_revisions AS revisions ON revisions.workspace = notes.workspace AND revisions.project = notes.project AND revisions.note = notes.id AND revisions.revision = notes.revision
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
-		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.model_id = notes.author_agent
+		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.id = notes.author_agent
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.project = `+placeholder(2)+` AND notes.id = `+placeholder(3)+` AND notes.enabled = TRUE
 	`, note.Project.Workspace.Id, note.Project.Id, note.Id)
 	detail := &ProjectNoteDetail{Note: model.ProjectNote{Ref: note}}
@@ -336,7 +336,7 @@ func (store *Store) ProjectNoteRevisionsGet(ctx context.Context, note model.Proj
 			revisions.title, revisions.description, revisions.sensitive, revisions.created_at
 		FROM gatehouse_project_note_revisions AS revisions
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = revisions.author_principal
-		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.model_id = revisions.author_agent
+		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.id = revisions.author_agent
 		WHERE revisions.workspace = `+placeholder(1)+` AND revisions.project = `+placeholder(2)+` AND revisions.note = `+placeholder(3)+`
 		ORDER BY revisions.revision DESC
 	`, note.Project.Workspace.Id, note.Project.Id, note.Id)
@@ -383,7 +383,7 @@ func (store *Store) ProjectNoteRevisionGet(ctx context.Context, revision model.P
 			revisions.title, revisions.description, revisions.body, revisions.sensitive, revisions.created_at
 		FROM gatehouse_project_note_revisions AS revisions
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = revisions.author_principal
-		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.model_id = revisions.author_agent
+		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.id = revisions.author_agent
 		WHERE revisions.workspace = `+placeholder(1)+` AND revisions.project = `+placeholder(2)+` AND revisions.note = `+placeholder(3)+` AND revisions.revision = `+placeholder(4)+`
 	`, revision.Note.Project.Workspace.Id, revision.Note.Project.Id, revision.Note.Id, revision.Revision)
 	detail := &ProjectNoteRevisionDetail{Revision: model.ProjectNoteRevision{Ref: revision}}

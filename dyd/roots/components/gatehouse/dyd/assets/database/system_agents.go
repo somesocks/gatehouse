@@ -69,7 +69,9 @@ type SystemAgentModelInput struct {
 }
 
 type SystemWorkspaceAgent struct {
+	ID           string  `json:"id"`
 	WorkspaceID  string  `json:"workspace"`
+	Alias        string  `json:"alias"`
 	ModelID      string  `json:"model"`
 	Revision     int     `json:"revision"`
 	Priority     int     `json:"priority"`
@@ -79,6 +81,8 @@ type SystemWorkspaceAgent struct {
 }
 
 type SystemWorkspaceAgentInput struct {
+	Alias        string
+	ModelID      string
 	Priority     int
 	Label        *string
 	SystemPrompt *string
@@ -240,7 +244,7 @@ func (store *Store) SystemAgentModelUpdate(ctx context.Context, id string, expec
 }
 
 func (store *Store) SystemWorkspaceAgentsGet(ctx context.Context) (error, []SystemWorkspaceAgent) {
-	rows, err := store.QueryContext(ctx, `SELECT workspace_id, model_id, revision, priority, label, system_prompt, enabled FROM gatehouse_workspace_agents ORDER BY workspace_id, model_id`)
+	rows, err := store.QueryContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled FROM gatehouse_workspace_agents ORDER BY workspace_id, id`)
 	if err != nil { return fmt.Errorf("list system workspace agents: %w", err), nil }
 	defer rows.Close()
 	bindings := []SystemWorkspaceAgent{}
@@ -249,46 +253,49 @@ func (store *Store) SystemWorkspaceAgentsGet(ctx context.Context) (error, []Syst
 	return nil, bindings
 }
 
-func (store *Store) SystemWorkspaceAgentGet(ctx context.Context, workspaceID, modelID string) (error, *SystemWorkspaceAgent) {
-	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.AgentModel, modelID) { return nil, nil }
-	binding, err := scanSystemWorkspaceAgent(store.QueryRowContext(ctx, `SELECT workspace_id, model_id, revision, priority, label, system_prompt, enabled FROM gatehouse_workspace_agents WHERE workspace_id = `+keychainPlaceholder(store.kind)(1)+` AND model_id = `+keychainPlaceholder(store.kind)(2), workspaceID, modelID))
+func (store *Store) SystemWorkspaceAgentGet(ctx context.Context, workspaceID, bindingID string) (error, *SystemWorkspaceAgent) {
+	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) { return nil, nil }
+	binding, err := scanSystemWorkspaceAgent(store.QueryRowContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled FROM gatehouse_workspace_agents WHERE workspace_id = `+keychainPlaceholder(store.kind)(1)+` AND id = `+keychainPlaceholder(store.kind)(2), workspaceID, bindingID))
 	if err == sql.ErrNoRows { return nil, nil }
 	if err != nil { return fmt.Errorf("get system workspace agent: %w", err), nil }
 	return nil, &binding
 }
 
-func (store *Store) SystemWorkspaceAgentCreate(ctx context.Context, workspaceID, modelID string, input SystemWorkspaceAgentInput) (error, *SystemWorkspaceAgent) {
-	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.AgentModel, modelID) || input.Priority < 1 { return nil, nil }
+func (store *Store) SystemWorkspaceAgentCreate(ctx context.Context, workspaceID string, input SystemWorkspaceAgentInput) (error, *SystemWorkspaceAgent) {
+	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.AgentModel, input.ModelID) || !administrationAlias.MatchString(input.Alias) || input.Priority < 1 { return nil, nil }
+	id, err := typed_id.New(typed_id.WorkspaceAgent); if err != nil { return fmt.Errorf("generate workspace agent ID: %w", err), nil }
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil { return fmt.Errorf("begin system workspace agent creation: %w", err), nil }
 	defer transaction.Rollback()
-	if err := store.systemWorkspaceAndModelExist(ctx, transaction, workspaceID, modelID); err != nil { return err, nil }
+	if err := store.systemWorkspaceAndModelExist(ctx, transaction, workspaceID, input.ModelID); err != nil { return err, nil }
 	placeholder := keychainPlaceholder(store.kind)
-	result, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, revision, priority, label, system_prompt, enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, 1, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`) ON CONFLICT (workspace_id, model_id) DO NOTHING`, workspaceID, modelID, input.Priority, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), input.Enabled)
+	result, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, 1, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`) ON CONFLICT (workspace_id, alias) DO NOTHING`, id, workspaceID, input.Alias, input.ModelID, input.Priority, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), input.Enabled)
 	if err != nil { return fmt.Errorf("insert system workspace agent: %w", err), nil }
 	count, err := result.RowsAffected(); if err != nil { return fmt.Errorf("count system workspace agent creation: %w", err), nil }; if count == 0 { return ErrWorkspaceAgentExists, nil }
-	if err, _ := store.ActivityEventAppend(ctx, transaction, workspaceAgentActivity("workspace_agent.create", workspaceID, modelID), []string{workspaceID}); err != nil { return fmt.Errorf("append system workspace agent creation activity: %w", err), nil }
+	if err, _ := store.ActivityEventAppend(ctx, transaction, workspaceAgentActivity("workspace_agent.create", workspaceID, id), []string{workspaceID}); err != nil { return fmt.Errorf("append system workspace agent creation activity: %w", err), nil }
 	if err := transaction.Commit(); err != nil { return fmt.Errorf("commit system workspace agent creation: %w", err), nil }
-	return store.SystemWorkspaceAgentGet(ctx, workspaceID, modelID)
+	return store.SystemWorkspaceAgentGet(ctx, workspaceID, id)
 }
 
-func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID, modelID string, expectedRevision int, input SystemWorkspaceAgentInput) (error, *SystemWorkspaceAgent) {
-	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.AgentModel, modelID) || expectedRevision < 1 || input.Priority < 1 { return nil, nil }
+func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID, bindingID string, expectedRevision int, input SystemWorkspaceAgentInput) (error, *SystemWorkspaceAgent) {
+	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) || !typed_id.Valid(typed_id.AgentModel, input.ModelID) || expectedRevision < 1 || input.Priority < 1 { return nil, nil }
+	if input.Alias != "" { return fmt.Errorf("update system workspace agent: alias is immutable"), nil }
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil { return fmt.Errorf("begin system workspace agent update: %w", err), nil }
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	var revision int
-	err = transaction.QueryRowContext(ctx, `SELECT revision FROM gatehouse_workspace_agents WHERE workspace_id = `+placeholder(1)+` AND model_id = `+placeholder(2), workspaceID, modelID).Scan(&revision)
+	err = transaction.QueryRowContext(ctx, `SELECT revision FROM gatehouse_workspace_agents WHERE workspace_id = `+placeholder(1)+` AND id = `+placeholder(2), workspaceID, bindingID).Scan(&revision)
 	if err == sql.ErrNoRows { return nil, nil }
 	if err != nil { return fmt.Errorf("get system workspace agent for update: %w", err), nil }
 	if revision != expectedRevision { return ErrRevisionConflict, nil }
-	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET revision = `+placeholder(1)+`, priority = `+placeholder(2)+`, label = `+placeholder(3)+`, system_prompt = `+placeholder(4)+`, enabled = `+placeholder(5)+` WHERE workspace_id = `+placeholder(6)+` AND model_id = `+placeholder(7)+` AND revision = `+placeholder(8), revision+1, input.Priority, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), input.Enabled, workspaceID, modelID, revision)
+	if err := store.systemWorkspaceAndModelExist(ctx, transaction, workspaceID, input.ModelID); err != nil { return err, nil }
+	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET revision = `+placeholder(1)+`, model_id = `+placeholder(2)+`, priority = `+placeholder(3)+`, label = `+placeholder(4)+`, system_prompt = `+placeholder(5)+`, enabled = `+placeholder(6)+` WHERE workspace_id = `+placeholder(7)+` AND id = `+placeholder(8)+` AND revision = `+placeholder(9), revision+1, input.ModelID, input.Priority, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), input.Enabled, workspaceID, bindingID, revision)
 	if err != nil { return fmt.Errorf("update system workspace agent: %w", err), nil }
 	count, err := result.RowsAffected(); if err != nil { return fmt.Errorf("count system workspace agent update: %w", err), nil }; if count == 0 { return ErrRevisionConflict, nil }
-	if err, _ := store.ActivityEventAppend(ctx, transaction, workspaceAgentActivity("workspace_agent.update", workspaceID, modelID), []string{workspaceID}); err != nil { return fmt.Errorf("append system workspace agent update activity: %w", err), nil }
+	if err, _ := store.ActivityEventAppend(ctx, transaction, workspaceAgentActivity("workspace_agent.update", workspaceID, bindingID), []string{workspaceID}); err != nil { return fmt.Errorf("append system workspace agent update activity: %w", err), nil }
 	if err := transaction.Commit(); err != nil { return fmt.Errorf("commit system workspace agent update: %w", err), nil }
-	return store.SystemWorkspaceAgentGet(ctx, workspaceID, modelID)
+	return store.SystemWorkspaceAgentGet(ctx, workspaceID, bindingID)
 }
 
 func scanSystemAgentProvider(row interface { Scan(...any) error }) (SystemAgentProvider, error) {
@@ -310,7 +317,7 @@ func scanSystemAgentModel(row interface { Scan(...any) error }) (SystemAgentMode
 func scanSystemWorkspaceAgent(row interface { Scan(...any) error }) (SystemWorkspaceAgent, error) {
 	var value SystemWorkspaceAgent
 	var label, prompt sql.NullString
-	if err := row.Scan(&value.WorkspaceID, &value.ModelID, &value.Revision, &value.Priority, &label, &prompt, &value.Enabled); err != nil { return SystemWorkspaceAgent{}, err }
+	if err := row.Scan(&value.ID, &value.WorkspaceID, &value.Alias, &value.ModelID, &value.Revision, &value.Priority, &label, &prompt, &value.Enabled); err != nil { return SystemWorkspaceAgent{}, err }
 	if label.Valid { value.Label = &label.String }
 	if prompt.Valid { value.SystemPrompt = &prompt.String }
 	return value, nil
@@ -389,8 +396,8 @@ func (store *Store) systemWorkspaceAndModelExist(ctx context.Context, transactio
 	return nil
 }
 
-func workspaceAgentActivity(event, workspaceID, modelID string) model.ActivityEvent {
-	return model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindWorkspaceAgent, ResourceWorkspaceAgentWorkspace: &workspaceID, ResourceWorkspaceAgentModel: &modelID}
+func workspaceAgentActivity(event, workspaceID, bindingID string) model.ActivityEvent {
+	return model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindWorkspaceAgent, ResourceWorkspaceAgentWorkspace: &workspaceID, ResourceWorkspaceAgentId: &bindingID}
 }
 
 func optionalStringValue(value *string) any { if value == nil { return nil }; return *value }

@@ -1019,7 +1019,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello."}`, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1036,7 +1036,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 			FROM gatehouse_activity_events AS events
 			JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
 			WHERE events.event = ? AND topics.topic = ?
-		`, event, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
+		`, event, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Id: "wag_01arz3ndektsv4rrffq69g5fav"})).Scan(&count); err != nil {
 			t.Fatal(err)
 		}
 		if count != 1 {
@@ -1055,7 +1055,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		FROM gatehouse_activity_events AS events
 		JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id
 		WHERE events.event = 'workspace_agent.update' AND topics.topic = ?
-	`, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: modelID}})).Scan(&count); err != nil {
+		`, database.ActivityTopicWorkspaceAgent(model.WorkspaceAgentRef{Workspace: workspace, Id: "wag_01arz3ndektsv4rrffq69g5fav"})).Scan(&count); err != nil {
 		t.Fatal(err)
 	}
 	if count != 1 {

@@ -256,7 +256,7 @@ let WorkspaceAgentRef =
         s.record.props::{
         , required = toMap
             { workspace = s.reference.from s.reference.props::{ to = "WorkspaceRef" } s.reference.meta::{ description = Some "owning workspace identity" }
-            , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "agent model identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable workspace agent binding identity" }
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -265,9 +265,11 @@ let WorkspaceAgentRef =
 let WorkspaceAgent =
       s.record.from
         s.record.props::{
-        , required = toMap
-               { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
-               , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+		, required = toMap
+		       { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
+		       , alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local binding alias" }
+		        , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "current agent model identity" }
+                , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
                , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
                }
         , optional = toMap
@@ -1018,7 +1020,7 @@ let ActivityEvent =
                , resource_storage_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "storage provider resource ID" }
                , resource_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace resource ID" }
                , resource_workspace_agent_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent workspace ID" }
-               , resource_workspace_agent_model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent model ID" }
+                , resource_workspace_agent_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace agent binding ID" }
                , resource_workspace_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace grant resource ID" }
                , resource_workspace_storage_provider_workspace = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace storage provider workspace ID" }
                , resource_workspace_storage_provider_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace storage provider provider ID" }

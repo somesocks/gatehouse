@@ -18,7 +18,7 @@ export type SystemKeychain = { id: string; version: number }
 export type SystemAgentProvider = { id: string; alias: string; revision: number; protocol: string; base_url?: string; keychain?: SystemKeychain; credential_configured: boolean; enabled: boolean }
 export type SystemAgentModel = { id: string; alias: string; revision: number; provider: string; model: string; parameters: string; compaction: string; max_turns: number; max_output_tokens: number; enabled: boolean }
 export type SystemStorageProvider = { id: string; alias: string; revision: number; protocol: string; endpoint?: string; region?: string; bucket?: string; access_key_id?: string; keychain?: SystemKeychain; credential_configured: boolean; enabled: boolean }
-export type SystemWorkspaceAgent = { workspace: string; model: string; revision: number; priority: number; label?: string; system_prompt?: string; enabled: boolean }
+export type SystemWorkspaceAgent = { id: string; workspace: string; alias: string; model: string; revision: number; priority: number; label?: string; system_prompt?: string; enabled: boolean }
 export type SystemWorkspaceStorageProvider = { workspace: string; provider: string; revision: number; priority: number; enabled: boolean }
 
 export async function systemAdministration(path: string, method = "GET", body?: unknown): Promise<Response> {

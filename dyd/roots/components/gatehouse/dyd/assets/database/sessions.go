@@ -335,7 +335,7 @@ func sessionAuthorValues(session model.Session) (any, any, any, error) {
 		if session.AuthorAgent.Workspace != session.Ref.Workspace {
 			return nil, nil, nil, fmt.Errorf("create session: workspace agent author belongs to another workspace")
 		}
-		return nil, session.AuthorAgent.Model.Id, nil, nil
+		return nil, session.AuthorAgent.Id, nil, nil
 	}
 	if !typed_id.Valid(typed_id.Gateway, session.AuthorGateway.Id) {
 		return nil, nil, nil, fmt.Errorf("create session: gateway author ID is invalid")
@@ -357,7 +357,7 @@ func sessionAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, ga
 		return &model.PrincipalRef{Id: principal.String}, nil, nil, nil
 	}
 	if agent.Valid {
-		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}, nil, nil
+		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Id: agent.String}, nil, nil
 	}
 	if !typed_id.Valid(typed_id.Gateway, gateway.String) {
 		return nil, nil, nil, fmt.Errorf("read session: gateway author ID is invalid")
@@ -873,7 +873,7 @@ func (store *Store) AgentContextGet(ctx context.Context, root model.SessionEvent
 	`, root.Session.Workspace.Id, root.Session.Id, root.Id)
 	context := AgentContext{Root: root, Model: model.WorkspaceAgentRef{Workspace: root.Session.Workspace}}
 	var state string
-	if err := row.Scan(&context.Model.Model.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
+	if err := row.Scan(&context.Model.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -885,7 +885,7 @@ func (store *Store) AgentContextGet(ctx context.Context, root model.SessionEvent
 
 // AgentContextLatestGet returns the most recently checkpointed compatible context in a session.
 func (store *Store) AgentContextLatestGet(ctx context.Context, session model.SessionRef, agent model.WorkspaceAgentRef, profile string) (error, *AgentContext) {
-	if session.Workspace != agent.Workspace || agent.Model.Id == "" || strings.TrimSpace(profile) == "" {
+	if session.Workspace != agent.Workspace || agent.Id == "" || strings.TrimSpace(profile) == "" {
 		return fmt.Errorf("get latest agent context: invalid context selector"), nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
@@ -895,7 +895,7 @@ func (store *Store) AgentContextLatestGet(ctx context.Context, session model.Ses
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND model = `+placeholder(3)+` AND profile = `+placeholder(4)+`
 		ORDER BY updated_at DESC, root DESC
 		LIMIT 1
-	`, session.Workspace.Id, session.Id, agent.Model.Id, profile)
+	`, session.Workspace.Id, session.Id, agent.Id, profile)
 	context := AgentContext{Root: model.SessionEventRef{Session: session}, Model: agent, Profile: profile}
 	var state string
 	if err := row.Scan(&context.Root.Id, &state, &context.UpdatedAt); err != nil {
@@ -909,7 +909,7 @@ func (store *Store) AgentContextLatestGet(ctx context.Context, session model.Ses
 }
 
 func (store *Store) AgentContextSet(ctx context.Context, context AgentContext) error {
-	if context.Root.Session.Workspace != context.Model.Workspace || context.Root.Id == "" || context.Model.Model.Id == "" || strings.TrimSpace(context.Profile) == "" || !json.Valid(context.State) {
+	if context.Root.Session.Workspace != context.Model.Workspace || context.Root.Id == "" || context.Model.Id == "" || strings.TrimSpace(context.Profile) == "" || !json.Valid(context.State) {
 		return fmt.Errorf("set agent context: invalid context")
 	}
 	if context.UpdatedAt == "" {
@@ -921,7 +921,7 @@ func (store *Store) AgentContextSet(ctx context.Context, context AgentContext) e
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
 		ON CONFLICT (workspace, session, root) DO UPDATE SET
 			model = excluded.model, profile = excluded.profile, state = excluded.state, updated_at = excluded.updated_at
-	`, context.Root.Session.Workspace.Id, context.Root.Session.Id, context.Root.Id, context.Model.Model.Id, context.Profile, string(context.State), context.UpdatedAt)
+	`, context.Root.Session.Workspace.Id, context.Root.Session.Id, context.Root.Id, context.Model.Id, context.Profile, string(context.State), context.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("set agent context: %w", err)
 	}
@@ -1331,6 +1331,7 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 
 type WorkspaceAgentModel struct {
 	Ref             model.WorkspaceAgentRef
+	AgentModel      model.AgentModelRef
 	ProviderID      string
 	ProviderAlias   *string
 	Protocol        string
@@ -1347,13 +1348,14 @@ type WorkspaceAgentModel struct {
 
 type WorkspaceAgent struct {
 	ID    string
+	Alias string
 	Label *string
 }
 
 func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.WorkspaceRef) (error, []WorkspaceAgent) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT bindings.model_id, bindings.label
+		SELECT bindings.id, bindings.alias, bindings.label
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1361,7 +1363,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-		ORDER BY bindings.priority DESC, bindings.model_id
+		ORDER BY bindings.priority DESC, bindings.id
 	`, workspace.Id)
 	if err != nil {
 		return fmt.Errorf("get workspace agents: %w", err), nil
@@ -1371,7 +1373,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 	for rows.Next() {
 		var agent WorkspaceAgent
 		var label sql.NullString
-		if err := rows.Scan(&agent.ID, &label); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.Alias, &label); err != nil {
 			return fmt.Errorf("scan workspace agent: %w", err), nil
 		}
 		if label.Valid {
@@ -1388,7 +1390,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
+		SELECT bindings.id, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1396,14 +1398,14 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-		ORDER BY CASE WHEN `+placeholder(2)+` <> '' AND bindings.model_id = `+placeholder(3)+` THEN 0 ELSE 1 END, bindings.priority DESC, RANDOM()
+		ORDER BY CASE WHEN `+placeholder(2)+` <> '' AND bindings.id = `+placeholder(3)+` THEN 0 ELSE 1 END, bindings.priority DESC, RANDOM()
 		LIMIT 1
 	`, workspace.Id, preferred, preferred)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
 	var providerAlias, baseURL, keychainID, apiKey, systemPrompt sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Model.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
+	if err := row.Scan(&selected.Ref.Id, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1497,7 +1499,7 @@ func sessionEventAuthorValues(event model.SessionEvent) (any, any, any, error) {
 		if event.AuthorAgent.Workspace != event.Ref.Session.Workspace {
 			return nil, nil, nil, fmt.Errorf("create session event: workspace agent author belongs to another workspace")
 		}
-		agent = event.AuthorAgent.Model.Id
+		agent = event.AuthorAgent.Id
 	}
 	if event.AuthorGateway != nil {
 		if !typed_id.Valid(typed_id.Gateway, event.AuthorGateway.Id) {
@@ -1532,7 +1534,7 @@ func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principalID, pr
 		return &principal, nil, nil, nil
 	}
 	if agent.Valid {
-		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}, nil, nil
+		return nil, &model.WorkspaceAgentRef{Workspace: workspace, Id: agent.String}, nil, nil
 	}
 	if !typed_id.Valid(typed_id.Gateway, gateway.String) {
 		return nil, nil, nil, fmt.Errorf("read session event: gateway author ID is invalid")

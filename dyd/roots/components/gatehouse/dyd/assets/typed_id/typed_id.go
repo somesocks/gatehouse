@@ -17,6 +17,7 @@ const (
 	Group           = "grp"
 	AgentProvider   = "apr"
 	AgentModel      = "amd"
+	WorkspaceAgent  = "wag"
 	StorageProvider = "stp"
 	StorageObject   = "obj"
 	SessionFile     = "sfi"

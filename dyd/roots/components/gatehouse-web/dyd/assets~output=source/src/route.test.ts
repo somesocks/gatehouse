@@ -27,7 +27,7 @@ describe("routes", () => {
     { path: "/app/system/storage-providers/stp_1", route: { kind: "system-storage-provider", providerID: "stp_1" } },
     { path: "/app/system/workspace-agent-bindings", route: { kind: "system-workspace-agent-bindings" } },
     { path: "/app/system/workspace-agent-bindings/new", route: { kind: "system-workspace-agent-binding-new" } },
-    { path: "/app/system/workspace-agent-bindings/wsp_a/amd_1", route: { kind: "system-workspace-agent-binding", workspaceID: "wsp_a", modelID: "amd_1" } },
+    { path: "/app/system/workspace-agent-bindings/wsp_a/wag_1", route: { kind: "system-workspace-agent-binding", workspaceID: "wsp_a", bindingID: "wag_1" } },
     { path: "/app/system/workspace-storage-bindings", route: { kind: "system-workspace-storage-bindings" } },
     { path: "/app/system/workspace-storage-bindings/new", route: { kind: "system-workspace-storage-binding-new" } },
     { path: "/app/system/workspace-storage-bindings/wsp_a/stp_1", route: { kind: "system-workspace-storage-binding", workspaceID: "wsp_a", providerID: "stp_1" } },

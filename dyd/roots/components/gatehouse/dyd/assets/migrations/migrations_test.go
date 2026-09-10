@@ -695,6 +695,108 @@ func TestSQLiteMigrationV040DropsWorkspaceAgentMaxTurns(t *testing.T) {
 	}
 }
 
+func TestSQLiteMigrationV041UpgradesWorkspaceAgentBindings(t *testing.T) {
+	ctx := context.Background()
+	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	store := opened.DB
+	registry := testSQLiteRegistry(t)
+	registry.Versioned = registry.Versioned[:len(registry.Versioned)-1]
+	registry.Repeatable = nil
+	if err := migrateSQLite(ctx, store, registry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES ('wsp_00000000000000000000000000', 'Workspace', TRUE);
+		INSERT INTO gatehouse_principals (id, alias, revision, enabled) VALUES ('prn_00000000000000000000000000', 'principal', 1, TRUE);
+		INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, enabled) VALUES ('apr_00000000000000000000000000', 'provider', 1, 'builtin', TRUE);
+		INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, enabled, compaction, max_turns, max_output_tokens) VALUES ('amd_00000000000000000000000000', 'assistant', 1, 'apr_00000000000000000000000000', 'builtin', '{}', TRUE, '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":16384}', 127, 16000);
+		INSERT INTO gatehouse_workspace_agents (workspace_id, model_id, priority, enabled, system_prompt, label, max_input_tokens, max_output_tokens, revision) VALUES ('wsp_00000000000000000000000000', 'amd_00000000000000000000000000', 1, TRUE, 'prompt', 'label', 120000, 16000, 1);
+		INSERT INTO gatehouse_projects (workspace, id, name, enabled, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'Project', TRUE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_sessions (workspace, project, id, author_agent, enabled, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'ses_00000000000000000000000000', 'amd_00000000000000000000000000', TRUE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_session_events (workspace, session, id, kind, author_agent, payload, created_at, metrics) VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000', 'sev_00000000000000000000000000', 'message', 'amd_00000000000000000000000000', '{}', '2026-01-01T00:00:00.000Z', '{}');
+		INSERT INTO gatehouse_agent_contexts (workspace, session, root, model, profile, state, updated_at) VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000', 'sev_00000000000000000000000000', 'amd_00000000000000000000000000', 'default', '{}', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_notes (workspace, project, id, author_agent, title, description, body, enabled, created_at, revision) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'pnt_00000000000000000000000000', 'amd_00000000000000000000000000', 'Title', 'Description', 'Body', TRUE, '2026-01-01T00:00:00.000Z', 1);
+		INSERT INTO gatehouse_session_notes (workspace, session, id, author_agent, title, description, body, enabled, created_at, revision) VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000', 'snt_00000000000000000000000000', 'amd_00000000000000000000000000', 'Title', 'Description', 'Body', TRUE, '2026-01-01T00:00:00.000Z', 1);
+		INSERT INTO gatehouse_project_note_revisions (workspace, project, note, revision, author_agent, title, description, body, sensitive, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'pnt_00000000000000000000000000', 1, 'amd_00000000000000000000000000', 'Title', 'Description', 'Body', FALSE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_session_note_revisions (workspace, session, note, revision, author_agent, title, description, body, sensitive, created_at) VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000', 'snt_00000000000000000000000000', 1, 'amd_00000000000000000000000000', 'Title', 'Description', 'Body', FALSE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_tasks (workspace, project, id, title, sensitive, enabled, creator_agent, created_at, updater_agent, updated_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'ptk_00000000000000000000000000', 'Task', FALSE, TRUE, 'amd_00000000000000000000000000', '2026-01-01T00:00:00.000Z', 'amd_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_session_tasks (workspace, session, id, title, sensitive, enabled, creator_agent, created_at, updater_agent, updated_at) VALUES ('wsp_00000000000000000000000000', 'ses_00000000000000000000000000', 'stk_00000000000000000000000000', 'Task', FALSE, TRUE, 'amd_00000000000000000000000000', '2026-01-01T00:00:00.000Z', 'amd_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_workspace_agent_workspace, resource_workspace_agent_model, created_at) VALUES ('act_00000000000000000000000000', 'workspace_agent.create', 'workspace_agent', 'wsp_00000000000000000000000000', 'amd_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_activity_event_topics (activity, topic) VALUES ('act_00000000000000000000000000', 'wsp_00000000000000000000000000');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV041WorkspaceAgentBindings().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	var bindingID, alias, modelID, label, prompt string
+	var revision, priority, enabled int
+	if err := store.QueryRowContext(ctx, `SELECT id, alias, model_id, revision, priority, label, system_prompt, enabled FROM gatehouse_workspace_agents`).Scan(&bindingID, &alias, &modelID, &revision, &priority, &label, &prompt, &enabled); err != nil {
+		t.Fatal(err)
+	}
+	if !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) || alias != "assistant" || modelID != "amd_00000000000000000000000000" || revision != 1 || priority != 1 || label != "label" || prompt != "prompt" || enabled != 1 {
+		t.Fatalf("upgraded workspace binding = (%q, %q, %q, %d, %d, %q, %q, %d)", bindingID, alias, modelID, revision, priority, label, prompt, enabled)
+	}
+	for _, reference := range []struct{ table, column string }{
+		{"gatehouse_sessions", "author_agent"}, {"gatehouse_session_events", "author_agent"}, {"gatehouse_agent_contexts", "model"}, {"gatehouse_project_notes", "author_agent"}, {"gatehouse_session_notes", "author_agent"}, {"gatehouse_project_note_revisions", "author_agent"}, {"gatehouse_session_note_revisions", "author_agent"}, {"gatehouse_project_tasks", "creator_agent"}, {"gatehouse_project_tasks", "updater_agent"}, {"gatehouse_session_tasks", "creator_agent"}, {"gatehouse_session_tasks", "updater_agent"}, {"gatehouse_activity_events", "resource_workspace_agent_id"},
+	} {
+		var got string
+		if err := store.QueryRowContext(ctx, `SELECT `+reference.column+` FROM `+reference.table).Scan(&got); err != nil || got != bindingID {
+			t.Fatalf("%s.%s = (%q, %v), want %q", reference.table, reference.column, got, err, bindingID)
+		}
+		workspaceColumn := "workspace"
+		if reference.table == "gatehouse_activity_events" {
+			workspaceColumn = "resource_workspace_agent_workspace"
+		}
+		var foreignKeys int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_foreign_key_list(?) AS binding_id WHERE binding_id."table" = 'gatehouse_workspace_agents' AND binding_id."from" = ? AND binding_id."to" = 'id' AND EXISTS (SELECT 1 FROM pragma_foreign_key_list(?) AS binding_workspace WHERE binding_workspace.id = binding_id.id AND binding_workspace."from" = ? AND binding_workspace."to" = 'workspace_id')`, reference.table, reference.column, reference.table, workspaceColumn).Scan(&foreignKeys); err != nil || foreignKeys != 1 {
+			t.Fatalf("%s.%s composite workspace binding foreign key = (%d, %v), want 1", reference.table, reference.column, foreignKeys, err)
+		}
+	}
+	var topics int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_event_topics WHERE activity = 'act_00000000000000000000000000'`).Scan(&topics); err != nil || topics != 1 {
+		t.Fatalf("preserved activity topics = (%d, %v), want 1", topics, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, enabled, max_input_tokens, max_output_tokens) VALUES ('wag_00000000000000000000000001', 'wsp_00000000000000000000000000', 'assistant', 'amd_00000000000000000000000000', 1, 1, TRUE, 1, 1)`); err == nil {
+		t.Fatal("workspace bindings accepted a duplicate workspace alias")
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, enabled, max_input_tokens, max_output_tokens) VALUES ('wag_00000000000000000000000001', 'wsp_00000000000000000000000000', 'Invalid Alias', 'amd_00000000000000000000000000', 1, 1, TRUE, 1, 1)`); err == nil {
+		t.Fatal("workspace bindings accepted an invalid alias")
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, enabled, max_input_tokens, max_output_tokens) VALUES ('invalid', 'wsp_00000000000000000000000000', 'other', 'amd_00000000000000000000000000', 1, 1, TRUE, 1, 1)`); err == nil {
+		t.Fatal("workspace bindings accepted an invalid typed ID")
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES ('wsp_00000000000000000000000001', 'Other workspace', TRUE)`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_sessions (workspace, id, author_agent, enabled, created_at) VALUES ('wsp_00000000000000000000000001', 'ses_00000000000000000000000001', ?, TRUE, '2026-01-01T00:00:00.000Z')`, bindingID); err == nil {
+		t.Fatal("sessions accepted a workspace agent from another workspace")
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_workspace_agent_workspace, resource_workspace_agent_id, created_at) VALUES ('act_00000000000000000000000001', 'workspace_agent.create', 'workspace_agent', 'wsp_00000000000000000000000001', ?, '2026-01-01T00:00:00.000Z')`, bindingID); err == nil {
+		t.Fatal("activity events accepted a workspace agent from another workspace")
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET model_id = 'amd_00000000000000000000000001' WHERE id = ?`, bindingID); err == nil {
+		t.Fatal("workspace bindings accepted an unknown model")
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_activity_events (id, event, resource_kind, created_at) VALUES ('act_00000000000000000000000001', 'workspace_agent.create', 'workspace_agent', '2026-01-01T00:00:00.000Z')`); err == nil {
+		t.Fatal("activity events accepted a workspace agent without a binding ID")
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_project_note_revisions SET title = 'Changed'`); err == nil {
+		t.Fatal("project note revisions became mutable")
+	}
+	var oldActivityColumn int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('gatehouse_activity_events') WHERE name = 'resource_workspace_agent_workspace'`).Scan(&oldActivityColumn); err != nil || oldActivityColumn != 1 {
+		t.Fatalf("activity workspace-agent workspace columns = (%d, %v), want 1", oldActivityColumn, err)
+	}
+}
+
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{

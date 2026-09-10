@@ -40,7 +40,7 @@ func noteAuthorValues(author NoteAuthor) (any, any, any) {
 		principal = author.Principal.Id
 	}
 	if author.Agent != nil {
-		agent = author.Agent.Model.Id
+		agent = author.Agent.Id
 	}
 	if author.Gateway != nil {
 		gateway = author.Gateway.Id
@@ -54,7 +54,7 @@ func noteAuthorFromValues(workspace model.WorkspaceRef, principal, agent, gatewa
 		author.Principal = &model.PrincipalRef{Id: principal.String}
 	}
 	if agent.Valid {
-		author.Agent = &model.WorkspaceAgentRef{Workspace: workspace, Model: model.AgentModelRef{Id: agent.String}}
+		author.Agent = &model.WorkspaceAgentRef{Workspace: workspace, Id: agent.String}
 	}
 	if gateway.Valid {
 		author.Gateway = &model.GatewayRef{Id: gateway.String}

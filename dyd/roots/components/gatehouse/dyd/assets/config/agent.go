@@ -49,6 +49,7 @@ type AgentModelCompaction struct {
 
 type WorkspaceAgent struct {
 	WorkspaceID  string
+	Alias        string
 	ModelAlias   string
 	Revision     int
 	Priority     int
@@ -271,8 +272,11 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 		}
 		seen := make(map[string]struct{}, len(*workspace.Agents))
 		for agentIndex, configured := range *workspace.Agents {
-			if _, exists := seen[configured.Model]; exists {
-				return fmt.Errorf("workspaces[%d].agents[%d].model %q is duplicated", workspaceIndex, agentIndex, configured.Model), nil
+			if !keychainID.MatchString(configured.Alias) {
+				return fmt.Errorf("workspaces[%d].agents[%d].alias is invalid", workspaceIndex, agentIndex), nil
+			}
+			if _, exists := seen[configured.Alias]; exists {
+				return fmt.Errorf("workspaces[%d].agents[%d].alias %q is duplicated", workspaceIndex, agentIndex, configured.Alias), nil
 			}
 			modelIsEnabled, exists := modelEnabled[configured.Model]
 			if !exists || configured.Revision <= 0 || configured.Priority <= 0 {
@@ -282,13 +286,13 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
-			seen[configured.Model] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			seen[configured.Alias] = struct{}{}
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {
 		if agents[left].WorkspaceID == agents[right].WorkspaceID {
-			return agents[left].ModelAlias < agents[right].ModelAlias
+			return agents[left].Alias < agents[right].Alias
 		}
 		return agents[left].WorkspaceID < agents[right].WorkspaceID
 	})

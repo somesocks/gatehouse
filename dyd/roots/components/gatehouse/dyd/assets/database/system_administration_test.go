@@ -59,16 +59,22 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 		t.Fatalf("stale SystemAgentModelUpdate() error = %v", err)
 	}
 
-	err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, agentModel.ID, database.SystemWorkspaceAgentInput{Priority: 2, Enabled: true})
-	if err != nil || binding == nil || binding.Revision != 1 {
+	err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: agentModel.ID, Priority: 2, Enabled: true})
+	if err != nil || binding == nil || binding.Revision != 1 || binding.Alias != "assistant" {
 		t.Fatalf("SystemWorkspaceAgentCreate() = (%#v, %v)", binding, err)
 	}
+	if err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "Invalid Alias", ModelID: agentModel.ID, Priority: 2, Enabled: true}); err != nil || binding != nil {
+		t.Fatalf("SystemWorkspaceAgentCreate() accepted an invalid alias = (%#v, %v)", binding, err)
+	}
+	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{Alias: "renamed", ModelID: agentModel.ID, Priority: 3, Enabled: false}); err == nil {
+		t.Fatal("SystemWorkspaceAgentUpdate() accepted an alias rename")
+	}
 	label := "Assistant"
-	err, binding = store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, agentModel.ID, 1, database.SystemWorkspaceAgentInput{Priority: 3, Label: &label, Enabled: false})
+	err, binding = store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Priority: 3, Label: &label, Enabled: false})
 	if err != nil || binding == nil || binding.Revision != 2 || binding.Label == nil || *binding.Label != label || binding.Enabled {
 		t.Fatalf("SystemWorkspaceAgentUpdate() = (%#v, %v)", binding, err)
 	}
-	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, agentModel.ID, 1, database.SystemWorkspaceAgentInput{Priority: 1, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
+	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Priority: 1, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale SystemWorkspaceAgentUpdate() error = %v", err)
 	}
 

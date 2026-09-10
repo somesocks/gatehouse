@@ -12,7 +12,7 @@ export function createWorkspaceAgentBindingsController({ activity, onAuthenticat
     bindings: [] as SystemWorkspaceAgent[],
     error: "",
     saving: false,
-    form: { workspace: "", model: "", priority: 0, label: "", systemPrompt: "" },
+    form: { workspace: "", alias: "", model: "", priority: 0, label: "", systemPrompt: "" },
   })
   let unsubscribe: (() => void) | undefined
 
@@ -45,12 +45,12 @@ export function createWorkspaceAgentBindingsController({ activity, onAuthenticat
 
   async function create(): Promise<void> {
     const { form } = state
-    if (!await save(`workspace-agents/${encodeURIComponent(form.workspace)}/${encodeURIComponent(form.model)}`, "POST", { priority: form.priority, label: optional(form.label), system_prompt: optional(form.systemPrompt), enabled: true })) return
-    state.form = { workspace: "", model: "", priority: 0, label: "", systemPrompt: "" }
+    if (!await save(`workspace-agents/${encodeURIComponent(form.workspace)}`, "POST", { alias: form.alias, model: form.model, priority: form.priority, label: optional(form.label), system_prompt: optional(form.systemPrompt), enabled: true })) return
+    state.form = { workspace: "", alias: "", model: "", priority: 0, label: "", systemPrompt: "" }
   }
 
   async function setEnabled(binding: SystemWorkspaceAgent, enabled: boolean): Promise<void> {
-    await save(`workspace-agents/${encodeURIComponent(binding.workspace)}/${encodeURIComponent(binding.model)}`, "PATCH", { priority: binding.priority, label: binding.label, system_prompt: binding.system_prompt, enabled, expected_revision: binding.revision })
+    await save(`workspace-agents/${encodeURIComponent(binding.workspace)}/${encodeURIComponent(binding.id)}`, "PATCH", { model: binding.model, priority: binding.priority, label: binding.label, system_prompt: binding.system_prompt, enabled, expected_revision: binding.revision })
   }
 
   function start(): () => void {

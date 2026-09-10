@@ -66,7 +66,7 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "system-storage-provider", providerID: "stp_1" })).toBe("storage-provider-detail")
     expect(routeOwner({ kind: "system-workspace-agent-bindings" })).toBe("workspace-agent-binding-list")
     expect(routeOwner({ kind: "system-workspace-agent-binding-new" })).toBe("workspace-agent-binding-new")
-    expect(routeOwner({ kind: "system-workspace-agent-binding", workspaceID: "wsp_a", modelID: "amd_1" })).toBe("workspace-agent-binding-detail")
+    expect(routeOwner({ kind: "system-workspace-agent-binding", workspaceID: "wsp_a", bindingID: "wag_1" })).toBe("workspace-agent-binding-detail")
     expect(routeOwner({ kind: "system-workspace-storage-bindings" })).toBe("workspace-storage-binding-list")
     expect(routeOwner({ kind: "system-workspace-storage-binding-new" })).toBe("workspace-storage-binding-new")
     expect(routeOwner({ kind: "system-workspace-storage-binding", workspaceID: "wsp_a", providerID: "stp_1" })).toBe("workspace-storage-binding-detail")
