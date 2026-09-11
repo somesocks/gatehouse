@@ -239,19 +239,23 @@ func (store *Store) SessionProjectSet(ctx context.Context, session model.Session
 func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session model.SessionRef, project model.ProjectRef) error {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT principal
-		FROM gatehouse_session_grants
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
-			AND principal IS NOT NULL AND enabled = TRUE
+		SELECT grants.principal
+		FROM gatehouse_session_grants AS grants
+		JOIN gatehouse_principals AS principals ON principals.id = grants.principal
+		WHERE grants.workspace = `+placeholder(1)+` AND grants.session = `+placeholder(2)+`
+			AND grants.principal IS NOT NULL AND grants.enabled = TRUE AND principals.enabled = TRUE
 
 		UNION
 
 		SELECT members.principal_id
 		FROM gatehouse_session_grants AS grants
+		JOIN gatehouse_groups AS groups
+			ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
 		JOIN gatehouse_group_members AS members
 			ON members.workspace_id = grants.workspace AND members.group_id = grants."group"
+		JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
 		WHERE grants.workspace = `+placeholder(3)+` AND grants.session = `+placeholder(4)+`
-			AND grants.enabled = TRUE AND members.enabled = TRUE
+			AND grants.enabled = TRUE AND groups.enabled = TRUE AND members.enabled = TRUE AND principals.enabled = TRUE
 	`, session.Workspace.Id, session.Id, session.Workspace.Id, session.Id)
 	if err != nil {
 		return fmt.Errorf("get session grantees: %w", err)

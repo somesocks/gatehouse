@@ -50,6 +50,8 @@
   --bulma-button-disabled-background-color: var(--bulma-scheme-main-ter);
   --bulma-button-disabled-border-color: var(--bulma-border);
   --bulma-button-disabled-opacity: 0.55;
+  --bulma-card-background-color: var(--bulma-scheme-main-ter);
+  --bulma-card-shadow: 0 0 0 1px var(--bulma-border);
   color: var(--bulma-text);
   background: var(--bulma-background);
   font-family: var(--bulma-family-primary);
@@ -945,6 +947,27 @@ body {
   padding: 1.5rem 0;
 }
 
+.project-records-page { padding: 1.5rem 0; }
+.record-back-link { align-items: center; display: inline-flex; font-size: 0.78rem; font-weight: 700; gap: 0.35rem; letter-spacing: 0.06em; margin-bottom: 1rem; text-decoration: none; text-transform: uppercase; }
+.record-back-link:hover, .record-back-link:focus-visible { text-decoration: underline; }
+
+.record-reference { color: #dfff9b; display: grid; gap: 0.15rem; pointer-events: auto; text-decoration: underline; text-underline-offset: 0.15em; }
+.record-reference:hover, .record-reference:focus-visible { color: #eff2e8; }
+
+.record-schema-editor { max-width: 54rem; }
+.record-view-values { display: grid; gap: 1.25rem; margin: 0; }
+.record-view-values > div { border-top: 1px solid #3f4538; padding-top: 0.85rem; }
+.record-view-values dt { color: #aeb3a3; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.record-view-values dd { margin: 0.35rem 0 0; }
+.record-view-value { display: grid; gap: 0.2rem; overflow-wrap: anywhere; }
+.attribute-editor { border-top: 1px solid #3f4538; margin-top: 2rem; padding-top: 1.5rem; }
+
+.record-value-field { border: 1px solid #596051; border-radius: 0.7rem; padding: 0.8rem; }
+.record-value-field legend { color: #eff2e8; font-weight: 700; padding: 0 0.35rem; }
+.record-value-field legend small,
+.record-value-field p { color: #aeb3a3; font-size: 0.85rem; font-weight: 400; margin: 0; }
+.sensitive-value { color: #c7c9bd; white-space: nowrap; }
+
 .task-editor,
 .task-view {
   display: grid;
@@ -1736,6 +1759,8 @@ a.message-file:focus-visible {
     font-weight: 700;
     padding: 0.4rem 1.8rem 0.4rem 0.55rem;
   }
+
+  .project-records-page { padding: 1rem 0; }
 
   .session-tabs-select:focus-visible {
     border-color: #b9db6f;

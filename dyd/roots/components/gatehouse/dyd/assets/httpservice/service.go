@@ -153,6 +153,15 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/tasks/{task}", workspaceProjectTask(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets", workspaceProjectSecrets(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/secrets/{secret}", workspaceProjectSecret(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas", workspaceProjectRecordSchemas(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}", workspaceProjectRecordSchema(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/attributes", workspaceProjectRecordAttributes(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/attributes/{attribute}", workspaceProjectRecordAttribute(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/records", workspaceProjectRecords(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/records/{record}", workspaceProjectRecord(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/records/{record}/references", workspaceProjectRecordIncomingReferences(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/records/{record}/values", workspaceProjectRecordValues(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/record-schemas/{schema}/records/{record}/values/mutate", workspaceProjectRecordValuesMutate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files", workspaceProjectFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/start", workspaceProjectFileStart(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/files/{file}/finish", workspaceProjectFileFinish(store, tokens[0]))
@@ -495,6 +504,148 @@ type sessionEventTreeResponse struct {
 	Children []*sessionEventTreeResponse `json:"children"`
 }
 
+type projectRecordSchemaRequest struct {
+	Name        *string `json:"name"`
+	Label       *string `json:"label"`
+	Description *string `json:"description"`
+}
+
+type projectRecordSchemaResponse struct {
+	ID          string             `json:"id"`
+	Name        string             `json:"name"`
+	Label       string             `json:"label"`
+	Description string             `json:"description"`
+	Author      noteAuthorResponse `json:"author"`
+	CreatedAt   string             `json:"created_at"`
+}
+
+type projectRecordAttributeRequest struct {
+	Name         *string `json:"name"`
+	Label        *string `json:"label"`
+	Description  *string `json:"description"`
+	Type         *string `json:"type"`
+	TargetSchema *string `json:"target_schema"`
+	Cardinality  *string `json:"cardinality"`
+	Uniqueness   *string `json:"uniqueness"`
+	Display      *string `json:"display"`
+}
+
+type projectRecordAttributeResponse struct {
+	ID           string             `json:"id"`
+	Name         string             `json:"name"`
+	Label        string             `json:"label"`
+	Description  string             `json:"description"`
+	Type         string             `json:"type"`
+	TargetSchema *string            `json:"target_schema,omitempty"`
+	Cardinality  string             `json:"cardinality"`
+	Uniqueness   string             `json:"uniqueness"`
+	Display      string             `json:"display"`
+	Author       noteAuthorResponse `json:"author"`
+	CreatedAt    string             `json:"created_at"`
+}
+
+type projectRecordValueCreateRequest struct {
+	Attribute string `json:"attribute"`
+	Value     any    `json:"value"`
+	Sensitive bool   `json:"sensitive"`
+}
+
+type projectRecordCreateRequest struct {
+	Values []projectRecordValueCreateRequest `json:"values"`
+}
+
+type projectRecordValueUpdateRequest struct {
+	ID        string `json:"id"`
+	Value     any    `json:"value"`
+	Sensitive *bool  `json:"sensitive"`
+}
+
+type projectRecordValueDeleteRequest struct {
+	ID string `json:"id"`
+}
+
+type projectRecordValuesMutationRequest struct {
+	Create []projectRecordValueCreateRequest `json:"create"`
+	Update []projectRecordValueUpdateRequest `json:"update"`
+	Delete []projectRecordValueDeleteRequest `json:"delete"`
+}
+
+type projectRecordResponse struct {
+	ID        string                           `json:"id"`
+	Author    noteAuthorResponse               `json:"author"`
+	CreatedAt string                           `json:"created_at"`
+	Values    []projectRecordCardValueResponse `json:"values,omitempty"`
+}
+
+type projectRecordReferenceDisplayValueResponse struct {
+	Value     any  `json:"value"`
+	Sensitive bool `json:"sensitive"`
+}
+
+type projectRecordReferenceDisplayResponse struct {
+	SchemaLabel   string                                       `json:"schema_label"`
+	PrimaryValues []projectRecordReferenceDisplayValueResponse `json:"primary_values"`
+}
+
+type projectRecordCardValueResponse struct {
+	Attribute string                                 `json:"attribute"`
+	Value     any                                    `json:"value"`
+	Sensitive bool                                   `json:"sensitive"`
+	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+}
+
+type projectRecordValueResponse struct {
+	ID        string                                 `json:"id"`
+	Attribute string                                 `json:"attribute"`
+	Value     any                                    `json:"value"`
+	Sensitive bool                                   `json:"sensitive"`
+	Author    noteAuthorResponse                     `json:"author"`
+	CreatedAt string                                 `json:"created_at"`
+	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+}
+
+type projectRecordSearchResponse struct {
+	Records    []projectRecordResponse `json:"records"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}
+
+type projectRecordValuesResponse struct {
+	Values     []projectRecordValueResponse `json:"values"`
+	NextCursor string                       `json:"next_cursor,omitempty"`
+}
+
+type projectRecordIncomingReferenceResponse struct {
+	ID            string                                       `json:"id"`
+	PrimaryValues []projectRecordReferenceDisplayValueResponse `json:"primary_values"`
+}
+
+type projectRecordIncomingReferenceGroupResponse struct {
+	SourceSchema    projectRecordSchemaReferenceResponse     `json:"source_schema"`
+	SourceAttribute projectRecordAttributeReferenceResponse  `json:"source_attribute"`
+	References      []projectRecordIncomingReferenceResponse `json:"references"`
+}
+
+type projectRecordSchemaReferenceResponse struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+type projectRecordAttributeReferenceResponse struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Label string `json:"label"`
+}
+
+type projectRecordIncomingReferencesResponse struct {
+	Groups     []projectRecordIncomingReferenceGroupResponse `json:"groups"`
+	NextCursor string                                        `json:"next_cursor,omitempty"`
+}
+
+type projectRecordValuesMutationResponse struct {
+	Created []projectRecordValueResponse `json:"created"`
+	Removed []string                     `json:"removed"`
+}
+
 func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet {
@@ -706,6 +857,498 @@ func workspaceProject(store *database.Store, tokens *auth.BearerTokens) http.Han
 			return
 		}
 		writeJSON(response, projectResponse{ID: project.Ref.Id, Name: project.Name, Description: project.Description, CreatedAt: project.CreatedAt})
+	}
+}
+
+func workspaceProjectRecordSchemas(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, schemas := store.ProjectRecordSchemasGet(request.Context(), project, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectRecordSchemaResponse, 0, len(schemas))
+			for _, schema := range schemas {
+				result = append(result, projectRecordSchemaResponseFromModel(schema))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaCreate) {
+				return
+			}
+			var input projectRecordSchemaRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || input.Name == nil || input.Label == nil {
+				http.Error(response, "invalid project record schema", http.StatusBadRequest)
+				return
+			}
+			description := ""
+			if input.Description != nil {
+				description = *input.Description
+			}
+			id, err := typed_id.New(typed_id.ProjectRecordSchema)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			err, schema := store.ProjectRecordSchemaCreate(request.Context(), model.ProjectRecordSchema{Ref: model.ProjectRecordSchemaRef{Project: project, Id: id}, Name: *input.Name, Label: *input.Label, Description: description}, claims.Principal.Ref, database.ProjectRecordAuthor{})
+			if err != nil {
+				http.Error(response, "project record schema could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectRecordSchemaResponseFromModel(schema))
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectRecordSchema(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectRecordSchemaResponseFromModel(*schema))
+		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaEdit) {
+				return
+			}
+			var input projectRecordSchemaRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || (input.Label == nil && input.Description == nil) {
+				http.Error(response, "invalid project record schema", http.StatusBadRequest)
+				return
+			}
+			label, description := schema.Label, schema.Description
+			if input.Label != nil {
+				label = *input.Label
+			}
+			if input.Description != nil {
+				description = *input.Description
+			}
+			err, updated := store.ProjectRecordSchemaDetailsSetAs(request.Context(), schema.Ref, claims.Principal.Ref, database.ProjectRecordAuthor{}, label, description)
+			if err != nil {
+				http.Error(response, "project record schema could not be updated", http.StatusBadRequest)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectRecordSchemaResponseFromModel(*updated))
+		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaRemove) {
+				return
+			}
+			err, removed := store.ProjectRecordSchemaRemove(request.Context(), schema.Ref, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "project record schema could not be removed", http.StatusBadRequest)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
+func workspaceProjectRecordAttributes(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			err, attributes := store.ProjectRecordAttributesGet(request.Context(), schema.Ref, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectRecordAttributeResponse, 0, len(attributes))
+			for _, attribute := range attributes {
+				result = append(result, projectRecordAttributeResponseFromModel(attribute))
+			}
+			writeJSON(response, result)
+		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaEdit) {
+				return
+			}
+			attribute, ok := projectRecordAttributeFromRequest(response, request, schema.Ref, model.ProjectRecordAttribute{}, true)
+			if !ok {
+				return
+			}
+			id, err := typed_id.New(typed_id.ProjectRecordAttribute)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			attribute.Ref.Id = id
+			err, stored := store.ProjectRecordAttributeCreate(request.Context(), attribute, claims.Principal.Ref, database.ProjectRecordAuthor{})
+			if err != nil {
+				http.Error(response, "project record attribute could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, projectRecordAttributeResponseFromModel(stored))
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectRecordAttribute(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		attribute, ok := authorizedProjectRecordAttribute(response, request, store, claims, schema.Ref)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectRecordAttributeResponseFromModel(*attribute))
+		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaEdit) {
+				return
+			}
+			updated, ok := projectRecordAttributeFromRequest(response, request, schema.Ref, *attribute, false)
+			if !ok {
+				return
+			}
+			err, stored := store.ProjectRecordAttributeSetAs(request.Context(), updated, claims.Principal.Ref, database.ProjectRecordAuthor{})
+			if err != nil {
+				http.Error(response, "project record attribute could not be updated", http.StatusBadRequest)
+				return
+			}
+			if stored == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectRecordAttributeResponseFromModel(*stored))
+		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaRemove) {
+				return
+			}
+			err, removed := store.ProjectRecordAttributeRemove(request.Context(), attribute.Ref, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "project record attribute could not be removed", http.StatusBadRequest)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
+		}
+	}
+}
+
+func workspaceProjectRecords(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		switch request.Method {
+		case http.MethodGet:
+			limit, cursor, ok := projectRecordPagination(response, request, typed_id.ProjectRecord)
+			if !ok {
+				return
+			}
+			err, cards := store.ProjectRecordCardsGet(request.Context(), schema.Ref, claims.Principal.Ref, limit, cursor)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			result := make([]projectRecordResponse, 0, len(cards))
+			records := make([]model.ProjectRecord, 0, len(cards))
+			for _, card := range cards {
+				result = append(result, projectRecordResponseFromCard(card))
+				records = append(records, card.Record)
+			}
+			nextCursor, err := projectRecordNextCursor(request.Context(), store, schema.Ref, claims.Principal.Ref, records, limit)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(response, projectRecordSearchResponse{Records: result, NextCursor: nextCursor})
+		case http.MethodPost:
+			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordCreate) {
+				return
+			}
+			var input projectRecordCreateRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil {
+				http.Error(response, "invalid project record", http.StatusBadRequest)
+				return
+			}
+			values, ok := projectRecordValueCreates(response, request, store, schema.Ref, claims.Principal.Ref, input.Values)
+			if !ok {
+				return
+			}
+			id, err := typed_id.New(typed_id.ProjectRecord)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			err, record, created := store.ProjectRecordCreate(request.Context(), model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: id}}, claims.Principal.Ref, database.ProjectRecordAuthor{}, values)
+			if err != nil {
+				http.Error(response, "project record could not be created", http.StatusBadRequest)
+				return
+			}
+			writeJSONStatus(response, http.StatusCreated, struct {
+				Record projectRecordResponse        `json:"record"`
+				Values []projectRecordValueResponse `json:"values"`
+			}{Record: projectRecordResponseFromModel(record), Values: projectRecordValueResponses(created)})
+		default:
+			response.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func workspaceProjectRecord(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodDelete {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		record, ok := authorizedProjectRecord(response, request, store, claims, schema.Ref)
+		if !ok {
+			return
+		}
+		if request.Method == http.MethodGet {
+			writeJSON(response, projectRecordResponseFromModel(*record))
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordRemove) {
+			return
+		}
+		err, removed := store.ProjectRecordRemove(request.Context(), record.Ref, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "project record could not be removed", http.StatusBadRequest)
+			return
+		}
+		if !removed {
+			http.NotFound(response, request)
+			return
+		}
+		noStore(response)
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func workspaceProjectRecordValues(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		record, ok := authorizedProjectRecord(response, request, store, claims, schema.Ref)
+		if !ok {
+			return
+		}
+		limit, cursor, ok := projectRecordPagination(response, request, typed_id.ProjectRecordValue)
+		if !ok {
+			return
+		}
+		err, values := store.ProjectRecordValuesGet(request.Context(), record.Ref, claims.Principal.Ref, limit, cursor)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		err, references := store.ProjectRecordValueReferenceDisplaysGet(request.Context(), record.Ref, claims.Principal.Ref, values)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		nextCursor, err := projectRecordValuesNextCursor(request.Context(), store, record.Ref, claims.Principal.Ref, values, limit)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, projectRecordValuesResponse{Values: projectRecordValueResponsesWithReferences(values, references), NextCursor: nextCursor})
+	}
+}
+
+func workspaceProjectRecordIncomingReferences(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		record, ok := authorizedProjectRecord(response, request, store, claims, schema.Ref)
+		if !ok {
+			return
+		}
+		limit, cursor, ok := projectRecordPagination(response, request, typed_id.ProjectRecordValue)
+		if !ok {
+			return
+		}
+		err, groups := store.ProjectRecordIncomingReferencesGet(request.Context(), record.Ref, claims.Principal.Ref, limit, cursor)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		nextCursor, err := projectRecordIncomingReferencesNextCursor(request.Context(), store, record.Ref, claims.Principal.Ref, groups, limit)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, projectRecordIncomingReferencesResponse{Groups: projectRecordIncomingReferenceGroupResponses(groups), NextCursor: nextCursor})
+	}
+}
+
+func workspaceProjectRecordValuesMutate(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		project, ok := authorizedProject(response, request, store, claims)
+		if !ok {
+			return
+		}
+		schema, ok := authorizedProjectRecordSchema(response, request, store, claims, project)
+		if !ok {
+			return
+		}
+		record, ok := authorizedProjectRecord(response, request, store, claims, schema.Ref)
+		if !ok {
+			return
+		}
+		if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordEdit) {
+			return
+		}
+		var input projectRecordValuesMutationRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&input); err != nil {
+			http.Error(response, "invalid project record value mutation", http.StatusBadRequest)
+			return
+		}
+		creates, ok := projectRecordValueCreates(response, request, store, schema.Ref, claims.Principal.Ref, input.Create)
+		if !ok {
+			return
+		}
+		mutation := database.ProjectRecordValuesMutation{Create: creates}
+		for _, update := range input.Update {
+			mutation.Update = append(mutation.Update, database.ProjectRecordValueUpdate{ID: update.ID, Value: update.Value, Sensitive: update.Sensitive})
+		}
+		for _, deletion := range input.Delete {
+			mutation.Delete = append(mutation.Delete, deletion.ID)
+		}
+		err, result := store.ProjectRecordValuesMutate(request.Context(), record.Ref, claims.Principal.Ref, database.ProjectRecordAuthor{}, mutation)
+		if err != nil {
+			http.Error(response, "project record values could not be mutated", http.StatusBadRequest)
+			return
+		}
+		if len(result.Created) == 0 && len(result.Removed) == 0 {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, projectRecordValuesMutationResponse{Created: projectRecordValueResponses(result.Created), Removed: result.Removed})
 	}
 }
 
@@ -2691,6 +3334,284 @@ func sessionEventTrees(entries []database.SessionEventTreeEntry) []*sessionEvent
 		stack = append(stack[:entry.Depth], node)
 	}
 	return trees
+}
+
+func authorizedProjectRecordSchema(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, project model.ProjectRef) (*model.ProjectRecordSchema, bool) {
+	id := request.PathValue("schema")
+	if !typed_id.Valid(typed_id.ProjectRecordSchema, id) {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	err, schema := store.ProjectRecordSchemaGet(request.Context(), model.ProjectRecordSchemaRef{Project: project, Id: id}, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if schema == nil {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	return schema, true
+}
+
+func authorizedProjectRecordAttribute(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, schema model.ProjectRecordSchemaRef) (*model.ProjectRecordAttribute, bool) {
+	id := request.PathValue("attribute")
+	if !typed_id.Valid(typed_id.ProjectRecordAttribute, id) {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	err, attribute := store.ProjectRecordAttributeGet(request.Context(), model.ProjectRecordAttributeRef{Schema: schema, Id: id}, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if attribute == nil {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	return attribute, true
+}
+
+func authorizedProjectRecord(response http.ResponseWriter, request *http.Request, store *database.Store, claims auth.Claims, schema model.ProjectRecordSchemaRef) (*model.ProjectRecord, bool) {
+	id := request.PathValue("record")
+	if !typed_id.Valid(typed_id.ProjectRecord, id) {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	err, record := store.ProjectRecordGet(request.Context(), model.ProjectRecordRef{Schema: schema, Id: id}, claims.Principal.Ref)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, false
+	}
+	if record == nil {
+		http.NotFound(response, request)
+		return nil, false
+	}
+	return record, true
+}
+
+func projectRecordAttributeFromRequest(response http.ResponseWriter, request *http.Request, schema model.ProjectRecordSchemaRef, current model.ProjectRecordAttribute, create bool) (model.ProjectRecordAttribute, bool) {
+	var input projectRecordAttributeRequest
+	decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		http.Error(response, "invalid project record attribute", http.StatusBadRequest)
+		return model.ProjectRecordAttribute{}, false
+	}
+	if create {
+		if input.Name == nil || input.Label == nil || input.Type == nil || input.Cardinality == nil || input.Uniqueness == nil || input.Display == nil {
+			http.Error(response, "invalid project record attribute", http.StatusBadRequest)
+			return model.ProjectRecordAttribute{}, false
+		}
+		description := ""
+		if input.Description != nil {
+			description = *input.Description
+		}
+		current = model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema}, Name: *input.Name, Label: *input.Label, Description: description, Type: *input.Type, Cardinality: *input.Cardinality, Uniqueness: *input.Uniqueness, Display: *input.Display}
+	} else {
+		if input.Name != nil || (input.Label == nil && input.Description == nil && input.Type == nil && input.TargetSchema == nil && input.Cardinality == nil && input.Uniqueness == nil && input.Display == nil) {
+			http.Error(response, "invalid project record attribute", http.StatusBadRequest)
+			return model.ProjectRecordAttribute{}, false
+		}
+		if input.Label != nil {
+			current.Label = *input.Label
+		}
+		if input.Description != nil {
+			current.Description = *input.Description
+		}
+		if input.Type != nil {
+			current.Type = *input.Type
+			if current.Type != "record" {
+				current.TargetSchema = nil
+			}
+		}
+		if input.Cardinality != nil {
+			current.Cardinality = *input.Cardinality
+		}
+		if input.Uniqueness != nil {
+			current.Uniqueness = *input.Uniqueness
+		}
+		if input.Display != nil {
+			current.Display = *input.Display
+		}
+	}
+	if input.TargetSchema != nil {
+		if !typed_id.Valid(typed_id.ProjectRecordSchema, *input.TargetSchema) {
+			http.Error(response, "invalid project record attribute", http.StatusBadRequest)
+			return model.ProjectRecordAttribute{}, false
+		}
+		current.TargetSchema = &model.ProjectRecordSchemaRef{Project: schema.Project, Id: *input.TargetSchema}
+	}
+	return current, true
+}
+
+func projectRecordPagination(response http.ResponseWriter, request *http.Request, kind string) (int, string, bool) {
+	limit := 50
+	if raw := request.URL.Query().Get("limit"); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed < 1 || parsed > 100 {
+			http.Error(response, "limit must be between 1 and 100", http.StatusBadRequest)
+			return 0, "", false
+		}
+		limit = parsed
+	}
+	cursor := request.URL.Query().Get("cursor")
+	if cursor != "" && !typed_id.Valid(kind, cursor) {
+		http.Error(response, "invalid cursor", http.StatusBadRequest)
+		return 0, "", false
+	}
+	return limit, cursor, true
+}
+
+func projectRecordNextCursor(ctx context.Context, store *database.Store, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, records []model.ProjectRecord, limit int) (string, error) {
+	if len(records) < limit {
+		return "", nil
+	}
+	err, more := store.ProjectRecordsGet(ctx, schema, principal, 1, records[len(records)-1].Ref.Id)
+	if err != nil {
+		return "", err
+	}
+	if len(more) == 0 {
+		return "", nil
+	}
+	return records[len(records)-1].Ref.Id, nil
+}
+
+func projectRecordValuesNextCursor(ctx context.Context, store *database.Store, record model.ProjectRecordRef, principal model.PrincipalRef, values []model.ProjectRecordValue, limit int) (string, error) {
+	if len(values) < limit {
+		return "", nil
+	}
+	err, more := store.ProjectRecordValuesGet(ctx, record, principal, 1, values[len(values)-1].Ref.Id)
+	if err != nil {
+		return "", err
+	}
+	if len(more) == 0 {
+		return "", nil
+	}
+	return values[len(values)-1].Ref.Id, nil
+}
+
+func projectRecordIncomingReferencesNextCursor(ctx context.Context, store *database.Store, record model.ProjectRecordRef, principal model.PrincipalRef, groups []database.ProjectRecordIncomingReferenceGroup, limit int) (string, error) {
+	count, cursor := 0, ""
+	for _, group := range groups {
+		for _, reference := range group.References {
+			count++
+			if cursor == "" || reference.ValueID < cursor {
+				cursor = reference.ValueID
+			}
+		}
+	}
+	if count < limit {
+		return "", nil
+	}
+	err, more := store.ProjectRecordIncomingReferencesGet(ctx, record, principal, 1, cursor)
+	if err != nil {
+		return "", err
+	}
+	if len(more) == 0 {
+		return "", nil
+	}
+	return cursor, nil
+}
+
+func projectRecordValueCreates(response http.ResponseWriter, request *http.Request, store *database.Store, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, input []projectRecordValueCreateRequest) ([]database.ProjectRecordValueCreate, bool) {
+	err, attributes := store.ProjectRecordAttributesGet(request.Context(), schema, principal)
+	if err != nil {
+		http.Error(response, "internal server error", http.StatusInternalServerError)
+		return nil, false
+	}
+	byName := make(map[string]model.ProjectRecordAttributeRef, len(attributes))
+	for _, attribute := range attributes {
+		byName[attribute.Name] = attribute.Ref
+	}
+	result := make([]database.ProjectRecordValueCreate, 0, len(input))
+	for _, value := range input {
+		attribute, ok := byName[value.Attribute]
+		if !ok {
+			http.Error(response, "invalid project record value attribute", http.StatusBadRequest)
+			return nil, false
+		}
+		result = append(result, database.ProjectRecordValueCreate{Attribute: attribute, Value: value.Value, Sensitive: value.Sensitive})
+	}
+	return result, true
+}
+
+func projectRecordSchemaResponseFromModel(schema model.ProjectRecordSchema) projectRecordSchemaResponse {
+	return projectRecordSchemaResponse{ID: schema.Ref.Id, Name: schema.Name, Label: schema.Label, Description: schema.Description, Author: projectRecordAuthorResponse(schema.AuthorPrincipal, schema.AuthorAgent), CreatedAt: schema.CreatedAt}
+}
+
+func projectRecordAttributeResponseFromModel(attribute model.ProjectRecordAttribute) projectRecordAttributeResponse {
+	result := projectRecordAttributeResponse{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, Author: projectRecordAuthorResponse(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
+	if attribute.TargetSchema != nil {
+		result.TargetSchema = &attribute.TargetSchema.Id
+	}
+	return result
+}
+
+func projectRecordResponseFromModel(record model.ProjectRecord) projectRecordResponse {
+	return projectRecordResponse{ID: record.Ref.Id, Author: projectRecordAuthorResponse(record.AuthorPrincipal, record.AuthorAgent), CreatedAt: record.CreatedAt}
+}
+
+func projectRecordResponseFromCard(card database.ProjectRecordCard) projectRecordResponse {
+	result := projectRecordResponseFromModel(card.Record)
+	result.Values = make([]projectRecordCardValueResponse, 0, len(card.Values))
+	for _, value := range card.Values {
+		item := projectRecordCardValueResponse{Attribute: value.Attribute, Value: value.Value, Sensitive: value.Sensitive}
+		if value.Reference != nil {
+			item.Reference = &projectRecordReferenceDisplayResponse{SchemaLabel: value.Reference.SchemaLabel, PrimaryValues: make([]projectRecordReferenceDisplayValueResponse, 0, len(value.Reference.PrimaryValues))}
+			for _, primary := range value.Reference.PrimaryValues {
+				item.Reference.PrimaryValues = append(item.Reference.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive})
+			}
+		}
+		result.Values = append(result.Values, item)
+	}
+	return result
+}
+
+func projectRecordValueResponses(values []model.ProjectRecordValue) []projectRecordValueResponse {
+	return projectRecordValueResponsesWithReferences(values, nil)
+}
+
+func projectRecordValueResponsesWithReferences(values []model.ProjectRecordValue, references map[string]*database.ProjectRecordReferenceDisplay) []projectRecordValueResponse {
+	result := make([]projectRecordValueResponse, 0, len(values))
+	for _, value := range values {
+		item := projectRecordValueResponse{ID: value.Ref.Id, Attribute: value.Attribute.Id, Value: value.Value, Sensitive: value.Sensitive, Author: projectRecordAuthorResponse(value.AuthorPrincipal, value.AuthorAgent), CreatedAt: value.CreatedAt}
+		if reference := references[value.Ref.Id]; reference != nil {
+			item.Reference = &projectRecordReferenceDisplayResponse{SchemaLabel: reference.SchemaLabel, PrimaryValues: make([]projectRecordReferenceDisplayValueResponse, 0, len(reference.PrimaryValues))}
+			for _, primary := range reference.PrimaryValues {
+				item.Reference.PrimaryValues = append(item.Reference.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive})
+			}
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func projectRecordIncomingReferenceGroupResponses(groups []database.ProjectRecordIncomingReferenceGroup) []projectRecordIncomingReferenceGroupResponse {
+	result := make([]projectRecordIncomingReferenceGroupResponse, 0, len(groups))
+	for _, group := range groups {
+		item := projectRecordIncomingReferenceGroupResponse{SourceSchema: projectRecordSchemaReferenceResponse{ID: group.Schema.Id, Label: group.SchemaLabel}, SourceAttribute: projectRecordAttributeReferenceResponse{ID: group.Attribute.Id, Name: group.AttributeName, Label: group.AttributeLabel}, References: make([]projectRecordIncomingReferenceResponse, 0, len(group.References))}
+		for _, reference := range group.References {
+			value := projectRecordIncomingReferenceResponse{ID: reference.Record.Id, PrimaryValues: make([]projectRecordReferenceDisplayValueResponse, 0, len(reference.PrimaryValues))}
+			for _, primary := range reference.PrimaryValues {
+				value.PrimaryValues = append(value.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive})
+			}
+			item.References = append(item.References, value)
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
+func projectRecordAuthorResponse(principal *model.PrincipalRef, agent *model.WorkspaceAgentRef) noteAuthorResponse {
+	result := noteAuthorResponse{}
+	if principal != nil {
+		result.Principal = &projectNoteAuthorResponse{ID: principal.Id}
+	}
+	if agent != nil {
+		result.Agent = &noteAgentAuthorResponse{ID: agent.Id}
+	}
+	return result
 }
 
 func authenticate(response http.ResponseWriter, request *http.Request, tokens *auth.BearerTokens) (auth.Claims, bool) {

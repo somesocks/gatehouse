@@ -1,6 +1,6 @@
 import type { Route } from "./route"
 
-export type RouteOwner = "project-dashboard" | "project-notes" | "project-tasks" | "project-secrets" | "session-chat" | "session-notes" | "session-tasks" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-binding-list" | "workspace-storage-binding-new" | "workspace-storage-binding-detail" | "workspace-dashboard" | "access"
+export type RouteOwner = "project-dashboard" | "project-notes" | "project-tasks" | "project-secrets" | "project-records" | "session-chat" | "session-notes" | "session-tasks" | "session-secrets" | "chat-collection" | "project-collection" | "groups" | "system-overview" | "system-grants" | "principals" | "agent-provider-list" | "agent-provider-new" | "agent-provider-detail" | "agent-model-list" | "agent-model-new" | "agent-model-detail" | "storage-provider-list" | "storage-provider-new" | "storage-provider-detail" | "workspace-agent-binding-list" | "workspace-agent-binding-new" | "workspace-agent-binding-detail" | "workspace-storage-binding-list" | "workspace-storage-binding-new" | "workspace-storage-binding-detail" | "workspace-dashboard" | "access"
 
 function unhandledRoute(route: never): never {
   throw new Error(`Unhandled route ${JSON.stringify(route)}`)
@@ -22,6 +22,14 @@ export function routeOwner(route: Route): RouteOwner {
     case "project-secret-new":
     case "project-secret":
       return "project-secrets"
+    case "project-records":
+    case "project-record-schema-new":
+    case "project-record-schema":
+    case "project-record-schema-edit":
+    case "project-record-new":
+    case "project-record":
+    case "project-record-edit":
+      return "project-records"
     case "session-chat":
       return "session-chat"
     case "session-notes":

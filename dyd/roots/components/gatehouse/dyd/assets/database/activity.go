@@ -28,6 +28,9 @@ const (
 	ActivityResourceKindProjectNote              = "project_note"
 	ActivityResourceKindProjectTask              = "project_task"
 	ActivityResourceKindProjectSecret            = "project_secret"
+	ActivityResourceKindProjectRecordSchema      = "project_record_schema"
+	ActivityResourceKindProjectRecordAttribute   = "project_record_attribute"
+	ActivityResourceKindProjectRecord            = "project_record"
 	ActivityResourceKindSession                  = "session"
 	ActivityResourceKindSessionEvent             = "session_event"
 	ActivityResourceKindSessionFile              = "session_file"
@@ -53,6 +56,9 @@ var activityEventNames = []string{
 	"project_note.create", "project_note.remove", "project_note.update",
 	"project_task.create", "project_task.remove", "project_task.update",
 	"project_secret.create", "project_secret.remove", "project_secret.update",
+	"project_record_schema.create", "project_record_schema.remove", "project_record_schema.update",
+	"project_record_attribute.create", "project_record_attribute.remove", "project_record_attribute.update",
+	"project_record.create", "project_record.remove", "project_record.update",
 	"session.create", "session.project.link", "session.project.move", "session.project.unlink", "session.update", "session_event.create",
 	"session_file.create", "session_file.remove", "session_file.update",
 	"session_grant.create", "session_grant.update",
@@ -91,6 +97,18 @@ func ActivityTopicProjectTask(task model.ProjectTaskRef) string {
 
 func ActivityTopicProjectSecret(secret model.ProjectSecretRef) string {
 	return ActivityTopicProject(secret.Project) + "/" + secret.Id
+}
+
+func ActivityTopicProjectRecordSchema(schema model.ProjectRecordSchemaRef) string {
+	return ActivityTopicProject(schema.Project) + "/" + schema.Id
+}
+
+func ActivityTopicProjectRecordAttribute(attribute model.ProjectRecordAttributeRef) string {
+	return ActivityTopicProjectRecordSchema(attribute.Schema) + "/" + attribute.Id
+}
+
+func ActivityTopicProjectRecord(record model.ProjectRecordRef) string {
+	return ActivityTopicProjectRecordSchema(record.Schema) + "/" + record.Id
 }
 
 func ActivityTopicProjectGrant(project model.ProjectRef, grantID string) string {
@@ -233,8 +251,8 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 
 func activityEventInsertSQL(placeholder func(int) string) string {
 	return `INSERT INTO gatehouse_activity_events (
-		id, event, resource_kind, resource_keychain_id, resource_keychain_version, resource_agent_provider, resource_agent_model, resource_group, resource_group_member_group, resource_group_member_principal, resource_identity, resource_principal, resource_project, resource_project_file, resource_project_grant, resource_project_note, resource_project_task, resource_project_secret, resource_session, resource_session_event, resource_session_file, resource_session_grant, resource_session_note, resource_session_task, resource_session_secret, resource_storage_provider, resource_system_grant, resource_workspace, resource_workspace_agent_workspace, resource_workspace_agent_id, resource_workspace_grant, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at
-	) VALUES (` + placeholder(1) + `, ` + placeholder(2) + `, ` + placeholder(3) + `, ` + placeholder(4) + `, ` + placeholder(5) + `, ` + placeholder(6) + `, ` + placeholder(7) + `, ` + placeholder(8) + `, ` + placeholder(9) + `, ` + placeholder(10) + `, ` + placeholder(11) + `, ` + placeholder(12) + `, ` + placeholder(13) + `, ` + placeholder(14) + `, ` + placeholder(15) + `, ` + placeholder(16) + `, ` + placeholder(17) + `, ` + placeholder(18) + `, ` + placeholder(19) + `, ` + placeholder(20) + `, ` + placeholder(21) + `, ` + placeholder(22) + `, ` + placeholder(23) + `, ` + placeholder(24) + `, ` + placeholder(25) + `, ` + placeholder(26) + `, ` + placeholder(27) + `, ` + placeholder(28) + `, ` + placeholder(29) + `, ` + placeholder(30) + `, ` + placeholder(31) + `, ` + placeholder(32) + `, ` + placeholder(33) + `, ` + placeholder(34) + `)`
+		id, event, resource_kind, resource_keychain_id, resource_keychain_version, resource_agent_provider, resource_agent_model, resource_group, resource_group_member_group, resource_group_member_principal, resource_identity, resource_principal, resource_project, resource_project_file, resource_project_grant, resource_project_note, resource_project_task, resource_project_secret, resource_project_record_schema, resource_project_record_attribute, resource_project_record, resource_session, resource_session_event, resource_session_file, resource_session_grant, resource_session_note, resource_session_task, resource_session_secret, resource_storage_provider, resource_system_grant, resource_workspace, resource_workspace_agent_workspace, resource_workspace_agent_id, resource_workspace_grant, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at
+	) VALUES (` + placeholder(1) + `, ` + placeholder(2) + `, ` + placeholder(3) + `, ` + placeholder(4) + `, ` + placeholder(5) + `, ` + placeholder(6) + `, ` + placeholder(7) + `, ` + placeholder(8) + `, ` + placeholder(9) + `, ` + placeholder(10) + `, ` + placeholder(11) + `, ` + placeholder(12) + `, ` + placeholder(13) + `, ` + placeholder(14) + `, ` + placeholder(15) + `, ` + placeholder(16) + `, ` + placeholder(17) + `, ` + placeholder(18) + `, ` + placeholder(19) + `, ` + placeholder(20) + `, ` + placeholder(21) + `, ` + placeholder(22) + `, ` + placeholder(23) + `, ` + placeholder(24) + `, ` + placeholder(25) + `, ` + placeholder(26) + `, ` + placeholder(27) + `, ` + placeholder(28) + `, ` + placeholder(29) + `, ` + placeholder(30) + `, ` + placeholder(31) + `, ` + placeholder(32) + `, ` + placeholder(33) + `, ` + placeholder(34) + `, ` + placeholder(35) + `, ` + placeholder(36) + `, ` + placeholder(37) + `)`
 }
 
 func activityEventValues(activity model.ActivityEvent) []any {
@@ -251,7 +269,7 @@ func activityEventValues(activity model.ActivityEvent) []any {
 		return *target
 	}
 	return []any{activity.Ref.Id, activity.Event, activity.ResourceKind,
-		value(activity.ResourceKeychainId), version(activity.ResourceKeychainVersion), value(activity.ResourceAgentProvider), value(activity.ResourceAgentModel), value(activity.ResourceGroup), value(activity.ResourceGroupMemberGroup), value(activity.ResourceGroupMemberPrincipal), value(activity.ResourceIdentity), value(activity.ResourcePrincipal), value(activity.ResourceProject), value(activity.ResourceProjectFile), value(activity.ResourceProjectGrant), value(activity.ResourceProjectNote), value(activity.ResourceProjectTask), value(activity.ResourceProjectSecret), value(activity.ResourceSession), value(activity.ResourceSessionEvent), value(activity.ResourceSessionFile), value(activity.ResourceSessionGrant), value(activity.ResourceSessionNote), value(activity.ResourceSessionTask), value(activity.ResourceSessionSecret), value(activity.ResourceStorageProvider), value(activity.ResourceSystemGrant), value(activity.ResourceWorkspace), value(activity.ResourceWorkspaceAgentWorkspace), value(activity.ResourceWorkspaceAgentId), value(activity.ResourceWorkspaceGrant), value(activity.ResourceWorkspaceStorageProviderWorkspace), value(activity.ResourceWorkspaceStorageProviderProvider), activity.CreatedAt}
+		value(activity.ResourceKeychainId), version(activity.ResourceKeychainVersion), value(activity.ResourceAgentProvider), value(activity.ResourceAgentModel), value(activity.ResourceGroup), value(activity.ResourceGroupMemberGroup), value(activity.ResourceGroupMemberPrincipal), value(activity.ResourceIdentity), value(activity.ResourcePrincipal), value(activity.ResourceProject), value(activity.ResourceProjectFile), value(activity.ResourceProjectGrant), value(activity.ResourceProjectNote), value(activity.ResourceProjectTask), value(activity.ResourceProjectSecret), value(activity.ResourceProjectRecordSchema), value(activity.ResourceProjectRecordAttribute), value(activity.ResourceProjectRecord), value(activity.ResourceSession), value(activity.ResourceSessionEvent), value(activity.ResourceSessionFile), value(activity.ResourceSessionGrant), value(activity.ResourceSessionNote), value(activity.ResourceSessionTask), value(activity.ResourceSessionSecret), value(activity.ResourceStorageProvider), value(activity.ResourceSystemGrant), value(activity.ResourceWorkspace), value(activity.ResourceWorkspaceAgentWorkspace), value(activity.ResourceWorkspaceAgentId), value(activity.ResourceWorkspaceGrant), value(activity.ResourceWorkspaceStorageProviderWorkspace), value(activity.ResourceWorkspaceStorageProviderProvider), activity.CreatedAt}
 }
 
 func validateActivityEvent(activity *model.ActivityEvent, topics []string) error {
@@ -271,7 +289,7 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 		}
 		seenTopics[topic] = struct{}{}
 	}
-	targets := []*string{activity.ResourceKeychainId, activity.ResourceAgentProvider, activity.ResourceAgentModel, activity.ResourceGroup, activity.ResourceGroupMemberGroup, activity.ResourceGroupMemberPrincipal, activity.ResourceIdentity, activity.ResourcePrincipal, activity.ResourceProject, activity.ResourceProjectFile, activity.ResourceProjectGrant, activity.ResourceProjectNote, activity.ResourceProjectTask, activity.ResourceProjectSecret, activity.ResourceSession, activity.ResourceSessionEvent, activity.ResourceSessionFile, activity.ResourceSessionGrant, activity.ResourceSessionNote, activity.ResourceSessionTask, activity.ResourceSessionSecret, activity.ResourceStorageProvider, activity.ResourceSystemGrant, activity.ResourceWorkspace, activity.ResourceWorkspaceAgentWorkspace, activity.ResourceWorkspaceAgentId, activity.ResourceWorkspaceGrant, activity.ResourceWorkspaceStorageProviderWorkspace, activity.ResourceWorkspaceStorageProviderProvider}
+	targets := []*string{activity.ResourceKeychainId, activity.ResourceAgentProvider, activity.ResourceAgentModel, activity.ResourceGroup, activity.ResourceGroupMemberGroup, activity.ResourceGroupMemberPrincipal, activity.ResourceIdentity, activity.ResourcePrincipal, activity.ResourceProject, activity.ResourceProjectFile, activity.ResourceProjectGrant, activity.ResourceProjectNote, activity.ResourceProjectTask, activity.ResourceProjectSecret, activity.ResourceProjectRecordSchema, activity.ResourceProjectRecordAttribute, activity.ResourceProjectRecord, activity.ResourceSession, activity.ResourceSessionEvent, activity.ResourceSessionFile, activity.ResourceSessionGrant, activity.ResourceSessionNote, activity.ResourceSessionTask, activity.ResourceSessionSecret, activity.ResourceStorageProvider, activity.ResourceSystemGrant, activity.ResourceWorkspace, activity.ResourceWorkspaceAgentWorkspace, activity.ResourceWorkspaceAgentId, activity.ResourceWorkspaceGrant, activity.ResourceWorkspaceStorageProviderWorkspace, activity.ResourceWorkspaceStorageProviderProvider}
 	count := 0
 	for _, target := range targets {
 		if target != nil {
@@ -326,6 +344,12 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 		return require(1, activity.ResourceProjectTask)
 	case ActivityResourceKindProjectSecret:
 		return require(1, activity.ResourceProjectSecret)
+	case ActivityResourceKindProjectRecordSchema:
+		return require(1, activity.ResourceProjectRecordSchema)
+	case ActivityResourceKindProjectRecordAttribute:
+		return require(1, activity.ResourceProjectRecordAttribute)
+	case ActivityResourceKindProjectRecord:
+		return require(1, activity.ResourceProjectRecord)
 	case ActivityResourceKindSession:
 		return require(1, activity.ResourceSession)
 	case ActivityResourceKindSessionEvent:

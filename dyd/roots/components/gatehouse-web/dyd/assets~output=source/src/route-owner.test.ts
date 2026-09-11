@@ -16,6 +16,7 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "project-tasks", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-tasks")
     expect(routeOwner({ kind: "project-task-new", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-tasks")
     expect(routeOwner({ kind: "project-task", workspaceID: "wsp_a", projectID: "prj_a", taskID: "ptk_a" })).toBe("project-tasks")
+    expect(routeOwner({ kind: "project-records", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-records")
   })
 
   it("assigns every Project Secrets URL to its route owner", () => {

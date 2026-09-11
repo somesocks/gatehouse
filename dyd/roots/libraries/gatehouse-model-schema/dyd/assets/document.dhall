@@ -698,6 +698,120 @@ let ProjectSecret =
         }
         s.record.meta::{ name = Some "ProjectSecret", description = Some "An encrypted secret attached to a project." }
 
+let ProjectRecordSchemaRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "owning project identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project record schema identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectRecordSchemaRef", description = Some "The stable identity of a project record schema." }
+
+let ProjectRecordSchema =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectRecordSchemaRef" } s.reference.meta::{ description = Some "record schema identity" }
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "immutable schema machine name" }
+            , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "schema display label" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "schema description" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "schema creation timestamp" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal responsible for the schema state" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent responsible for the schema state" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectRecordSchema", description = Some "A project-local schema for structured records." }
+
+let ProjectRecordAttributeRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { schema = s.reference.from s.reference.props::{ to = "ProjectRecordSchemaRef" } s.reference.meta::{ description = Some "owning record schema" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project record attribute identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectRecordAttributeRef", description = Some "The stable identity of a project record attribute." }
+
+let ProjectRecordAttribute =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectRecordAttributeRef" } s.reference.meta::{ description = Some "record attribute identity" }
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "immutable attribute machine name" }
+            , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "attribute display label" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "attribute description" }
+            , type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "attribute type" }
+            , cardinality = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "one or many values" }
+            , uniqueness = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "none, record, or global uniqueness" }
+            , display = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "default display tier" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "attribute creation timestamp" }
+            }
+        , optional = toMap
+            { target_schema = s.reference.from s.reference.props::{ to = "ProjectRecordSchemaRef" } s.reference.meta::{ description = Some "target schema for record references" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal responsible for the attribute state" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent responsible for the attribute state" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectRecordAttribute", description = Some "A typed field defined by a project record schema." }
+
+let ProjectRecordRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { schema = s.reference.from s.reference.props::{ to = "ProjectRecordSchemaRef" } s.reference.meta::{ description = Some "owning record schema" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project record identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectRecordRef", description = Some "The stable identity of a project record." }
+
+let ProjectRecord =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectRecordRef" } s.reference.meta::{ description = Some "record identity" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "record creation timestamp" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal record author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent record author" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectRecord", description = Some "An immutable container for values in a project record schema." }
+
+let ProjectRecordValueRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { record = s.reference.from s.reference.props::{ to = "ProjectRecordRef" } s.reference.meta::{ description = Some "owning record" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project record value identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ProjectRecordValueRef", description = Some "The stable identity of a project record value." }
+
+let ProjectRecordValue =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "ProjectRecordValueRef" } s.reference.meta::{ description = Some "record value identity" }
+            , attribute = s.reference.from s.reference.props::{ to = "ProjectRecordAttributeRef" } s.reference.meta::{ description = Some "attribute that defines the value" }
+            , value = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "typed scalar value" }
+            , sensitive = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the value is sensitive" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "value creation timestamp" }
+            }
+        , optional = toMap
+            { author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal value author" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent value author" }
+            }
+        }
+        s.record.meta::{ name = Some "ProjectRecordValue", description = Some "An immutable typed value on a project record." }
+
 let SessionNoteRef =
       s.record.from
         s.record.props::{
@@ -1010,6 +1124,9 @@ let ActivityEvent =
                 , resource_project_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note resource ID" }
 				, resource_project_task = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project task resource ID" }
                 , resource_project_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret resource ID" }
+                , resource_project_record_schema = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record schema resource ID" }
+                , resource_project_record_attribute = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record attribute resource ID" }
+                , resource_project_record = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record resource ID" }
                , resource_session = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session resource ID" }
                , resource_session_event = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session event resource ID" }
                , resource_session_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file resource ID" }
@@ -1186,6 +1303,14 @@ in  Document::{
 			, s.root.from ProjectTask s.root.meta::{ name = "ProjectTask" }
 			, s.root.from ProjectSecretRef s.root.meta::{ name = "ProjectSecretRef" }
 			, s.root.from ProjectSecret s.root.meta::{ name = "ProjectSecret" }
+			, s.root.from ProjectRecordSchemaRef s.root.meta::{ name = "ProjectRecordSchemaRef" }
+			, s.root.from ProjectRecordSchema s.root.meta::{ name = "ProjectRecordSchema" }
+			, s.root.from ProjectRecordAttributeRef s.root.meta::{ name = "ProjectRecordAttributeRef" }
+			, s.root.from ProjectRecordAttribute s.root.meta::{ name = "ProjectRecordAttribute" }
+			, s.root.from ProjectRecordRef s.root.meta::{ name = "ProjectRecordRef" }
+			, s.root.from ProjectRecord s.root.meta::{ name = "ProjectRecord" }
+			, s.root.from ProjectRecordValueRef s.root.meta::{ name = "ProjectRecordValueRef" }
+			, s.root.from ProjectRecordValue s.root.meta::{ name = "ProjectRecordValue" }
               , s.root.from SessionNoteRef s.root.meta::{ name = "SessionNoteRef" }
               , s.root.from SessionNote s.root.meta::{ name = "SessionNote" }
 			 , s.root.from SessionNoteRevisionRef s.root.meta::{ name = "SessionNoteRevisionRef" }

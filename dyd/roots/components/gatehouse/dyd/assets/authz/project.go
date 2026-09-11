@@ -16,6 +16,12 @@ const (
 	ProjectSecretCreate  ProjectAction = "project.secret.create"
 	ProjectSecretEdit    ProjectAction = "project.secret.edit"
 	ProjectSecretRemove  ProjectAction = "project.secret.remove"
+	ProjectRecordCreate  ProjectAction = "project.record.create"
+	ProjectRecordEdit    ProjectAction = "project.record.edit"
+	ProjectRecordRemove  ProjectAction = "project.record.remove"
+	ProjectRecordSchemaCreate ProjectAction = "project.record_schema.create"
+	ProjectRecordSchemaEdit   ProjectAction = "project.record_schema.edit"
+	ProjectRecordSchemaRemove ProjectAction = "project.record_schema.remove"
 	ProjectSessionCreate ProjectAction = "project.session.create"
 	ProjectGrantManage   ProjectAction = "project.grant.manage"
 )
@@ -32,6 +38,7 @@ func ProjectAllows(roles []Role, action ProjectAction) bool {
 			switch action {
 			case ProjectNoteCreate, ProjectNoteEdit, ProjectNoteRemove,
 				ProjectTaskCreate, ProjectTaskEdit, ProjectTaskRemove,
+				ProjectRecordCreate, ProjectRecordEdit, ProjectRecordRemove,
 				ProjectFileCreate, ProjectFileFinish, ProjectFileRemove,
 				ProjectSecretCreate, ProjectSecretEdit, ProjectSecretRemove,
 				ProjectSessionCreate:
@@ -48,6 +55,8 @@ func validProjectAction(action ProjectAction) bool {
 		ProjectTaskCreate, ProjectTaskEdit, ProjectTaskRemove,
 		ProjectFileCreate, ProjectFileFinish, ProjectFileRemove,
 		ProjectSecretCreate, ProjectSecretEdit, ProjectSecretRemove,
+		ProjectRecordCreate, ProjectRecordEdit, ProjectRecordRemove,
+		ProjectRecordSchemaCreate, ProjectRecordSchemaEdit, ProjectRecordSchemaRemove,
 		ProjectSessionCreate, ProjectGrantManage:
 		return true
 	default:

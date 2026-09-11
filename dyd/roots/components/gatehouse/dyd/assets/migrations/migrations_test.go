@@ -704,7 +704,12 @@ func TestSQLiteMigrationV041UpgradesWorkspaceAgentBindings(t *testing.T) {
 	defer opened.Close()
 	store := opened.DB
 	registry := testSQLiteRegistry(t)
-	registry.Versioned = registry.Versioned[:len(registry.Versioned)-1]
+	for index, migration := range registry.Versioned {
+		if migration.Index >= 41 {
+			registry.Versioned = registry.Versioned[:index]
+			break
+		}
+	}
 	registry.Repeatable = nil
 	if err := migrateSQLite(ctx, store, registry); err != nil {
 		t.Fatal(err)
@@ -794,6 +799,96 @@ func TestSQLiteMigrationV041UpgradesWorkspaceAgentBindings(t *testing.T) {
 	var oldActivityColumn int
 	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('gatehouse_activity_events') WHERE name = 'resource_workspace_agent_workspace'`).Scan(&oldActivityColumn); err != nil || oldActivityColumn != 1 {
 		t.Fatalf("activity workspace-agent workspace columns = (%d, %v), want 1", oldActivityColumn, err)
+	}
+}
+
+func TestSQLiteMigrationV044BackfillsAndCascadesProjectRecordValues(t *testing.T) {
+	ctx := context.Background()
+	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	store := opened.DB
+	registry := testSQLiteRegistry(t)
+	for index, migration := range registry.Versioned {
+		if migration.Index >= 44 {
+			registry.Versioned = registry.Versioned[:index]
+			break
+		}
+	}
+	registry.Repeatable = nil
+	if err := migrateSQLite(ctx, store, registry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES ('wsp_00000000000000000000000000', 'Workspace', TRUE);
+		INSERT INTO gatehouse_principals (id, alias, revision, enabled) VALUES ('prn_00000000000000000000000000', 'principal', 1, TRUE);
+		INSERT INTO gatehouse_projects (workspace, id, name, enabled, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'Project', TRUE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_schemas (workspace, project, id, name, label, description, author_principal, created_at) VALUES
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'targets', 'Targets', '', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z'),
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000001', 'sources', 'Sources', '', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, target_schema, cardinality, uniqueness, display, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000001', 'pra_00000000000000000000000000', 'target', 'Target', '', 'record', 'prs_00000000000000000000000000', 'one', 'none', 'secondary', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_records (workspace, project, schema, id, author_principal, created_at) VALUES
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'prr_00000000000000000000000000', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z'),
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000001', 'prr_00000000000000000000000001', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_values (workspace, project, schema, record, id, attribute, value_type, value_reference, value_key, attribute_cardinality, attribute_uniqueness, sensitive, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000001', 'prr_00000000000000000000000001', 'prv_00000000000000000000000000', 'pra_00000000000000000000000000', 'record', 'prr_00000000000000000000000000', 'record:prr_00000000000000000000000000', 'one', 'none', FALSE, 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV044ConstrainProjectRecordReferences().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	var referenceSchema string
+	if err := store.QueryRowContext(ctx, `SELECT value_reference_schema FROM gatehouse_project_record_values WHERE id = 'prv_00000000000000000000000000'`).Scan(&referenceSchema); err != nil || referenceSchema != "prs_00000000000000000000000000" {
+		t.Fatalf("backfilled reference schema = (%q, %v)", referenceSchema, err)
+	}
+	if _, err := store.ExecContext(ctx, `DELETE FROM gatehouse_project_record_attributes WHERE id = 'pra_00000000000000000000000000'`); err != nil {
+		t.Fatal(err)
+	}
+	var values int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_project_record_values`).Scan(&values); err != nil || values != 0 {
+		t.Fatalf("values after attribute deletion = (%d, %v)", values, err)
+	}
+}
+
+func TestSQLiteMigrationV045DropsReplyAuthorizationSnapshots(t *testing.T) {
+	ctx := context.Background()
+	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	store := opened.DB
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_session_events (workspace TEXT NOT NULL, session TEXT NOT NULL, id TEXT NOT NULL, PRIMARY KEY (workspace, session, id)) STRICT;
+		CREATE TABLE gatehouse_agent_tasks__session_event_reply (
+			workspace TEXT NOT NULL, session TEXT NOT NULL, event TEXT NOT NULL, created_at TEXT NOT NULL,
+			request_principal TEXT, request_project TEXT, request_project_actions TEXT,
+			PRIMARY KEY (workspace, session, event),
+			FOREIGN KEY (workspace, session, event) REFERENCES gatehouse_session_events (workspace, session, id)
+		) STRICT;
+		INSERT INTO gatehouse_session_events (workspace, session, id) VALUES ('workspace', 'session', 'event');
+		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at, request_principal, request_project, request_project_actions) VALUES ('workspace', 'session', 'event', '2026-01-01T00:00:00.000Z', 'principal', 'project', '["project.edit"]');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV045DropReplyAuthorizationSnapshots().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	var createdAt string
+	if err := store.QueryRowContext(ctx, `SELECT created_at FROM gatehouse_agent_tasks__session_event_reply WHERE workspace = 'workspace' AND session = 'session' AND event = 'event'`).Scan(&createdAt); err != nil || createdAt != "2026-01-01T00:00:00.000Z" {
+		t.Fatalf("reply task after v045 = (%q, %v)", createdAt, err)
+	}
+	for _, column := range []string{"request_principal", "request_project", "request_project_actions"} {
+		var count int
+		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('gatehouse_agent_tasks__session_event_reply') WHERE name = ?`, column).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("reply task column %q = (%d, %v)", column, count, err)
+		}
 	}
 }
 

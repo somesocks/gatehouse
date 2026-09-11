@@ -602,26 +602,22 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		projectNotes.Remove = runtime.projectNoteRemove(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	if projectTasks != nil {
-		err, project := runtime.store.SessionProjectGet(ctx, input.Request.Ref.Session)
-		if err != nil || project == nil {
-			if err == nil {
-				err = fmt.Errorf("project task authorization: linked project is unavailable")
-			}
-			return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
-		}
-		err, projectRoles := runtime.store.ProjectRolesGet(ctx, *project, input.Principal)
-		if err != nil {
-			return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
-		}
-		if authz.ProjectAllows(projectRoles, authz.ProjectTaskCreate) {
-			projectTasks.Create = runtime.projectTaskCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
-		}
-		if authz.ProjectAllows(projectRoles, authz.ProjectTaskEdit) {
-			projectTasks.Update = runtime.projectTaskUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
-		}
-		if authz.ProjectAllows(projectRoles, authz.ProjectTaskRemove) {
-			projectTasks.Remove = runtime.projectTaskRemove(ctx, input.Request.Ref.Session, input.Principal)
-		}
+		projectTasks.Create = runtime.projectTaskCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectTasks.Update = runtime.projectTaskUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectTasks.Remove = runtime.projectTaskRemove(ctx, input.Request.Ref.Session, input.Principal)
+	}
+	var projectRecords *ProjectRecords
+	if projectInfo != nil {
+		projectRecords = runtime.projectRecords(ctx, input.Request.Ref.Session, input.Principal)
+		projectRecords.SchemaCreate = runtime.projectRecordSchemaCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectRecords.SchemaUpdate = runtime.projectRecordSchemaUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectRecords.SchemaRemove = runtime.projectRecordSchemaRemove(ctx, input.Request.Ref.Session, input.Principal)
+		projectRecords.AttributeCreate = runtime.projectRecordAttributeCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectRecords.AttributeUpdate = runtime.projectRecordAttributeUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectRecords.AttributeRemove = runtime.projectRecordAttributeRemove(ctx, input.Request.Ref.Session, input.Principal)
+		projectRecords.RecordCreate = runtime.projectRecordCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
+		projectRecords.RecordRemove = runtime.projectRecordRemove(ctx, input.Request.Ref.Session, input.Principal)
+		projectRecords.ValuesMutate = runtime.projectRecordValuesMutate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
@@ -681,7 +677,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return nil, value
 	}
 	modules := []lisp.HostModule{
-		NewProjectModuleWithSecrets(projectInfo, projectFiles, projectNotes, projectSecrets, projectTasks),
+		NewProjectModuleWithSecretsAndRecords(projectInfo, projectFiles, projectNotes, projectSecrets, projectRecords, projectTasks),
 		NewSessionModuleWithSecretsAndTasks(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
@@ -929,15 +925,45 @@ func (runtime *SessionEventReplyRuntime) sessionTaskRemove(ctx dbos.Context, ses
 	}
 }
 
+func (runtime *SessionEventReplyRuntime) sessionProjectGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (*model.ProjectRef, error) {
+	err, project := runtime.store.SessionProjectGet(ctx, session)
+	if err != nil {
+		return nil, err
+	}
+	if project == nil {
+		return nil, fmt.Errorf("project is unavailable")
+	}
+	err, available := runtime.store.ProjectGet(ctx, *project, principal)
+	if err != nil {
+		return nil, err
+	}
+	if available == nil {
+		return nil, fmt.Errorf("project is unavailable")
+	}
+	return project, nil
+}
+
+func (runtime *SessionEventReplyRuntime) sessionProjectActionGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef, action authz.ProjectAction) (*model.ProjectRef, error) {
+	project, err := runtime.sessionProjectGet(ctx, session, principal)
+	if err != nil {
+		return nil, err
+	}
+	err, roles := runtime.store.ProjectRolesGet(ctx, *project, principal)
+	if err != nil {
+		return nil, err
+	}
+	if !authz.ProjectAllows(roles, action) {
+		return nil, fmt.Errorf("project action is unavailable")
+	}
+	return project, nil
+}
+
 func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectNoteCreate {
 	return func(title, description, body string, sensitive bool) (error, ProjectNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectNoteCreate)
 			if err != nil {
-				return ProjectNote{}, err
-			}
-			if project == nil {
-				return ProjectNote{}, fmt.Errorf("create project note: project is unavailable")
+				return ProjectNote{}, fmt.Errorf("create project note: %w", err)
 			}
 			id, err := typed_id.New(typed_id.ProjectNote)
 			if err != nil {
@@ -958,11 +984,9 @@ func (runtime *SessionEventReplyRuntime) projectNoteCreate(ctx dbos.Context, ses
 func (runtime *SessionEventReplyRuntime) projectTaskCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskCreate {
 	return func(title, description, status string, sensitive bool) (error, Task) {
 		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
-			if err != nil || project == nil {
-				if err == nil {
-					err = fmt.Errorf("create project task: project is unavailable")
-				}
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectTaskCreate)
+			if err != nil {
+				err = fmt.Errorf("create project task: %w", err)
 				return Task{}, err
 			}
 			id, err := typed_id.New(typed_id.ProjectTask)
@@ -984,12 +1008,9 @@ func (runtime *SessionEventReplyRuntime) projectTaskCreate(ctx dbos.Context, ses
 
 func (runtime *SessionEventReplyRuntime) projectTaskRead(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) TaskRead {
 	return func(id string, offset, length int64) (error, []byte, bool) {
-		err, project := runtime.store.SessionProjectGet(ctx, session)
-		if err != nil || project == nil {
-			if err != nil {
-				return err, nil, false
-			}
-			return fmt.Errorf("read project task: unavailable"), nil, false
+		project, err := runtime.sessionProjectGet(ctx, session, principal)
+		if err != nil {
+			return fmt.Errorf("read project task: %w", err), nil, false
 		}
 		err, detail := runtime.store.ProjectTaskGet(ctx, model.ProjectTaskRef{Project: *project, Id: id}, principal)
 		if err != nil || detail == nil {
@@ -1017,11 +1038,9 @@ func (runtime *SessionEventReplyRuntime) projectTaskRead(ctx context.Context, se
 func (runtime *SessionEventReplyRuntime) projectTaskUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) TaskUpdate {
 	return func(id, title, description, status string, sensitive bool) (error, Task) {
 		task, err := dbos.RunAsStep(ctx, func(step context.Context) (Task, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
-			if err != nil || project == nil {
-				if err == nil {
-					err = fmt.Errorf("update project task: project is unavailable")
-				}
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectTaskEdit)
+			if err != nil {
+				err = fmt.Errorf("update project task: %w", err)
 				return Task{}, err
 			}
 			err, updated := runtime.store.ProjectTaskDetailsSetAs(step, model.ProjectTaskRef{Project: *project, Id: id}, principal, database.TaskAuthor{Agent: &agent}, sensitive, status, title, &description)
@@ -1040,11 +1059,9 @@ func (runtime *SessionEventReplyRuntime) projectTaskUpdate(ctx dbos.Context, ses
 func (runtime *SessionEventReplyRuntime) projectTaskRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) TaskRemove {
 	return func(id string) (error, bool) {
 		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
-			if err != nil || project == nil {
-				if err == nil {
-					err = fmt.Errorf("remove project task: project is unavailable")
-				}
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectTaskRemove)
+			if err != nil {
+				err = fmt.Errorf("remove project task: %w", err)
 				return false, err
 			}
 			err, removed := runtime.store.ProjectTaskRemove(step, model.ProjectTaskRef{Project: *project, Id: id}, principal)
@@ -1057,12 +1074,9 @@ func (runtime *SessionEventReplyRuntime) projectTaskRemove(ctx dbos.Context, ses
 func (runtime *SessionEventReplyRuntime) projectNoteRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) NoteRemove {
 	return func(id string) (error, bool) {
 		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectNoteRemove)
 			if err != nil {
-				return false, err
-			}
-			if project == nil {
-				return false, fmt.Errorf("remove project note: project is unavailable")
+				return false, fmt.Errorf("remove project note: %w", err)
 			}
 			err, removed := runtime.store.ProjectNoteRemove(step, model.ProjectNoteRef{Project: *project, Id: id}, principal)
 			return removed, err
@@ -1074,11 +1088,9 @@ func (runtime *SessionEventReplyRuntime) projectNoteRemove(ctx dbos.Context, ses
 func (runtime *SessionEventReplyRuntime) projectNoteUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectNoteUpdate {
 	return func(id, title, description, body string, sensitive bool) (error, ProjectNote) {
 		note, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectNote, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
-			if err != nil || project == nil {
-				if err == nil {
-					err = fmt.Errorf("update project note: project is unavailable")
-				}
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectNoteEdit)
+			if err != nil {
+				err = fmt.Errorf("update project note: %w", err)
 				return ProjectNote{}, err
 			}
 			err, updated := runtime.store.ProjectNoteDetailsSetAs(step, model.ProjectNoteRef{Project: *project, Id: id}, principal, database.NoteAuthor{Agent: &agent}, sensitive, &title, &description, &body)
@@ -1097,12 +1109,9 @@ func (runtime *SessionEventReplyRuntime) projectNoteUpdate(ctx dbos.Context, ses
 func (runtime *SessionEventReplyRuntime) projectInfoSet(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectInfoSet {
 	return func(name, description string) (error, ProjectInfo) {
 		updated, err := dbos.RunAsStep(ctx, func(step context.Context) (model.Project, error) {
-			err, project := runtime.store.SessionProjectGet(step, session)
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectEdit)
 			if err != nil {
-				return model.Project{}, err
-			}
-			if project == nil {
-				return model.Project{}, fmt.Errorf("update project details: project is unavailable")
+				return model.Project{}, fmt.Errorf("update project details: %w", err)
 			}
 			err, updated := runtime.store.ProjectDetailsSet(step, *project, principal, &name, &description)
 			if err != nil {
@@ -1115,6 +1124,369 @@ func (runtime *SessionEventReplyRuntime) projectInfoSet(ctx dbos.Context, sessio
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-info-set"))
 		return err, ProjectInfo{Name: updated.Name, Description: updated.Description, CreatedAt: updated.CreatedAt}
 	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecords(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) *ProjectRecords {
+	return &ProjectRecords{
+		Schemas: func() (error, []ProjectRecordSchema) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, schemas := runtime.store.ProjectRecordSchemasGet(ctx, *project, principal)
+			if err != nil {
+				return err, nil
+			}
+			result := make([]ProjectRecordSchema, 0, len(schemas))
+			for _, schema := range schemas {
+				result = append(result, projectRecordSchemaFromModel(schema))
+			}
+			return nil, result
+		},
+		Schema: func(id string) (error, *ProjectRecordSchema) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, schema := runtime.store.ProjectRecordSchemaGet(ctx, model.ProjectRecordSchemaRef{Project: *project, Id: id}, principal)
+			if err != nil || schema == nil {
+				return err, nil
+			}
+			result := projectRecordSchemaFromModel(*schema)
+			return nil, &result
+		},
+		Attributes: func(schemaID string) (error, []ProjectRecordAttribute) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, attributes := runtime.store.ProjectRecordAttributesGet(ctx, model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, principal)
+			if err != nil {
+				return err, nil
+			}
+			result := make([]ProjectRecordAttribute, 0, len(attributes))
+			for _, attribute := range attributes {
+				result = append(result, projectRecordAttributeFromModel(attribute))
+			}
+			return nil, result
+		},
+		Attribute: func(schemaID, id string) (error, *ProjectRecordAttribute) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, attribute := runtime.store.ProjectRecordAttributeGet(ctx, model.ProjectRecordAttributeRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: id}, principal)
+			if err != nil || attribute == nil {
+				return err, nil
+			}
+			result := projectRecordAttributeFromModel(*attribute)
+			return nil, &result
+		},
+		Records: func(schemaID string) (error, []ProjectRecord) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, records := runtime.store.ProjectRecordsGet(ctx, model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, principal, 100, "")
+			if err != nil {
+				return err, nil
+			}
+			result := make([]ProjectRecord, 0, len(records))
+			for _, record := range records {
+				result = append(result, projectRecordFromModel(record))
+			}
+			return nil, result
+		},
+		Record: func(schemaID, id string) (error, *ProjectRecord) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, record := runtime.store.ProjectRecordGet(ctx, model.ProjectRecordRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: id}, principal)
+			if err != nil || record == nil {
+				return err, nil
+			}
+			result := projectRecordFromModel(*record)
+			return nil, &result
+		},
+		Values: func(schemaID, recordID string) (error, []ProjectRecordValue) {
+			project, err := runtime.sessionProjectGet(ctx, session, principal)
+			if err != nil {
+				return err, nil
+			}
+			err, values := runtime.store.ProjectRecordValuesGet(ctx, model.ProjectRecordRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: recordID}, principal, 100, "")
+			if err != nil {
+				return err, nil
+			}
+			result := make([]ProjectRecordValue, 0, len(values))
+			for _, value := range values {
+				result = append(result, projectRecordValueFromModel(value))
+			}
+			return nil, result
+		},
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordSchemaCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordSchemaCreate {
+	return func(name, label, description string) (error, ProjectRecordSchema) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectRecordSchema, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaCreate)
+			if err != nil {
+				return ProjectRecordSchema{}, err
+			}
+			id, err := typed_id.New(typed_id.ProjectRecordSchema)
+			if err != nil {
+				return ProjectRecordSchema{}, err
+			}
+			err, schema := runtime.store.ProjectRecordSchemaCreate(step, model.ProjectRecordSchema{Ref: model.ProjectRecordSchemaRef{Project: *project, Id: id}, Name: name, Label: label, Description: description}, principal, database.ProjectRecordAuthor{Agent: &agent})
+			return projectRecordSchemaFromModel(schema), err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-schema-create"))
+		return err, result
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordSchemaUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordSchemaUpdate {
+	return func(id, label, description string) (error, *ProjectRecordSchema) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (*ProjectRecordSchema, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaEdit)
+			if err != nil {
+				return nil, err
+			}
+			err, schema := runtime.store.ProjectRecordSchemaDetailsSetAs(step, model.ProjectRecordSchemaRef{Project: *project, Id: id}, principal, database.ProjectRecordAuthor{Agent: &agent}, label, description)
+			if err != nil || schema == nil {
+				return nil, err
+			}
+			result := projectRecordSchemaFromModel(*schema)
+			return &result, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-schema-update"))
+		return err, result
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordSchemaRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectRecordSchemaRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaRemove)
+			if err != nil {
+				return false, err
+			}
+			err, removed := runtime.store.ProjectRecordSchemaRemove(step, model.ProjectRecordSchemaRef{Project: *project, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-schema-remove"))
+		return err, removed
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordAttributeCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordAttributeCreate {
+	return func(schemaID string, input ProjectRecordAttributeInput) (error, ProjectRecordAttribute) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectRecordAttribute, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaEdit)
+			if err != nil {
+				return ProjectRecordAttribute{}, err
+			}
+			id, err := typed_id.New(typed_id.ProjectRecordAttribute)
+			if err != nil {
+				return ProjectRecordAttribute{}, err
+			}
+			schema := model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}
+			attribute := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema, Id: id}, Name: input.Name, Label: input.Label, Description: input.Description, Type: input.Type, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display}
+			if input.TargetSchema != nil {
+				attribute.TargetSchema = &model.ProjectRecordSchemaRef{Project: *project, Id: *input.TargetSchema}
+			}
+			err, stored := runtime.store.ProjectRecordAttributeCreate(step, attribute, principal, database.ProjectRecordAuthor{Agent: &agent})
+			return projectRecordAttributeFromModel(stored), err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-attribute-create"))
+		return err, result
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordAttributeUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordAttributeUpdate {
+	return func(schemaID, id string, input ProjectRecordAttributeUpdateInput) (error, *ProjectRecordAttribute) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (*ProjectRecordAttribute, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaEdit)
+			if err != nil {
+				return nil, err
+			}
+			schema := model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}
+			err, current := runtime.store.ProjectRecordAttributeGet(step, model.ProjectRecordAttributeRef{Schema: schema, Id: id}, principal)
+			if err != nil || current == nil {
+				return nil, err
+			}
+			current.Label, current.Description, current.Type, current.Cardinality, current.Uniqueness, current.Display = input.Label, input.Description, input.Type, input.Cardinality, input.Uniqueness, input.Display
+			current.TargetSchema = nil
+			if input.TargetSchema != nil {
+				current.TargetSchema = &model.ProjectRecordSchemaRef{Project: *project, Id: *input.TargetSchema}
+			}
+			err, stored := runtime.store.ProjectRecordAttributeSetAs(step, *current, principal, database.ProjectRecordAuthor{Agent: &agent})
+			if err != nil || stored == nil {
+				return nil, err
+			}
+			value := projectRecordAttributeFromModel(*stored)
+			return &value, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-attribute-update"))
+		return err, result
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordAttributeRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectRecordAttributeRemove {
+	return func(schemaID, id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordSchemaRemove)
+			if err != nil {
+				return false, err
+			}
+			err, removed := runtime.store.ProjectRecordAttributeRemove(step, model.ProjectRecordAttributeRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-attribute-remove"))
+		return err, removed
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordCreate {
+	return func(schemaID string, values []ProjectRecordValueInput) (error, ProjectRecord, []ProjectRecordValue) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (struct {
+			Record ProjectRecord
+			Values []ProjectRecordValue
+		}, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordCreate)
+			if err != nil {
+				return struct {
+					Record ProjectRecord
+					Values []ProjectRecordValue
+				}{}, err
+			}
+			schema := model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}
+			err, attributes := runtime.store.ProjectRecordAttributesGet(step, schema, principal)
+			if err != nil {
+				return struct {
+					Record ProjectRecord
+					Values []ProjectRecordValue
+				}{}, err
+			}
+			byName := make(map[string]model.ProjectRecordAttributeRef, len(attributes))
+			for _, attribute := range attributes {
+				byName[attribute.Name] = attribute.Ref
+			}
+			creates := make([]database.ProjectRecordValueCreate, 0, len(values))
+			for _, value := range values {
+				attribute, ok := byName[value.Attribute]
+				if !ok {
+					return struct {
+						Record ProjectRecord
+						Values []ProjectRecordValue
+					}{}, fmt.Errorf("record attribute is unavailable")
+				}
+				creates = append(creates, database.ProjectRecordValueCreate{Attribute: attribute, Value: value.Value, Sensitive: value.Sensitive})
+			}
+			id, err := typed_id.New(typed_id.ProjectRecord)
+			if err != nil {
+				return struct {
+					Record ProjectRecord
+					Values []ProjectRecordValue
+				}{}, err
+			}
+			err, record, created := runtime.store.ProjectRecordCreate(step, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema, Id: id}}, principal, database.ProjectRecordAuthor{Agent: &agent}, creates)
+			if err != nil {
+				return struct {
+					Record ProjectRecord
+					Values []ProjectRecordValue
+				}{}, err
+			}
+			result := struct {
+				Record ProjectRecord
+				Values []ProjectRecordValue
+			}{Record: projectRecordFromModel(record), Values: make([]ProjectRecordValue, 0, len(created))}
+			for _, value := range created {
+				result.Values = append(result.Values, projectRecordValueFromModel(value))
+			}
+			return result, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-create"))
+		return err, result.Record, result.Values
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectRecordRemove {
+	return func(schemaID, id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordRemove)
+			if err != nil {
+				return false, err
+			}
+			err, removed := runtime.store.ProjectRecordRemove(step, model.ProjectRecordRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-remove"))
+		return err, removed
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectRecordValuesMutate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) ProjectRecordValuesMutate {
+	return func(schemaID, recordID string, input ProjectRecordValuesMutation) (error, ProjectRecordValuesMutationResult) {
+		result, err := dbos.RunAsStep(ctx, func(step context.Context) (ProjectRecordValuesMutationResult, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectRecordEdit)
+			if err != nil {
+				return ProjectRecordValuesMutationResult{}, err
+			}
+			schema := model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}
+			record := model.ProjectRecordRef{Schema: schema, Id: recordID}
+			err, attributes := runtime.store.ProjectRecordAttributesGet(step, schema, principal)
+			if err != nil {
+				return ProjectRecordValuesMutationResult{}, err
+			}
+			byName := make(map[string]model.ProjectRecordAttributeRef, len(attributes))
+			for _, attribute := range attributes {
+				byName[attribute.Name] = attribute.Ref
+			}
+			mutation := database.ProjectRecordValuesMutation{Delete: input.Remove}
+			for _, value := range input.Create {
+				attribute, ok := byName[value.Attribute]
+				if !ok {
+					return ProjectRecordValuesMutationResult{}, fmt.Errorf("record attribute is unavailable")
+				}
+				mutation.Create = append(mutation.Create, database.ProjectRecordValueCreate{Attribute: attribute, Value: value.Value, Sensitive: value.Sensitive})
+			}
+			for _, value := range input.Update {
+				sensitive := value.Sensitive
+				mutation.Update = append(mutation.Update, database.ProjectRecordValueUpdate{ID: value.ID, Value: value.Value, Sensitive: &sensitive})
+			}
+			err, stored := runtime.store.ProjectRecordValuesMutate(step, record, principal, database.ProjectRecordAuthor{Agent: &agent}, mutation)
+			if err != nil {
+				return ProjectRecordValuesMutationResult{}, err
+			}
+			result := ProjectRecordValuesMutationResult{Removed: stored.Removed, Created: make([]ProjectRecordValue, 0, len(stored.Created))}
+			for _, value := range stored.Created {
+				result.Created = append(result.Created, projectRecordValueFromModel(value))
+			}
+			return result, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-record-values-mutate"))
+		return err, result
+	}
+}
+
+func projectRecordAuthorID(principal *model.PrincipalRef, agent *model.WorkspaceAgentRef) string {
+	if agent != nil {
+		return agent.Id
+	}
+	if principal != nil {
+		return principal.Id
+	}
+	return ""
+}
+func projectRecordSchemaFromModel(schema model.ProjectRecordSchema) ProjectRecordSchema {
+	return ProjectRecordSchema{ID: schema.Ref.Id, Name: schema.Name, Label: schema.Label, Description: schema.Description, AuthorID: projectRecordAuthorID(schema.AuthorPrincipal, schema.AuthorAgent), CreatedAt: schema.CreatedAt}
+}
+func projectRecordAttributeFromModel(attribute model.ProjectRecordAttribute) ProjectRecordAttribute {
+	result := ProjectRecordAttribute{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, AuthorID: projectRecordAuthorID(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
+	if attribute.TargetSchema != nil {
+		target := attribute.TargetSchema.Id
+		result.TargetSchema = &target
+	}
+	return result
+}
+func projectRecordFromModel(record model.ProjectRecord) ProjectRecord {
+	return ProjectRecord{ID: record.Ref.Id, AuthorID: projectRecordAuthorID(record.AuthorPrincipal, record.AuthorAgent), CreatedAt: record.CreatedAt}
+}
+func projectRecordValueFromModel(value model.ProjectRecordValue) ProjectRecordValue {
+	return ProjectRecordValue{ID: value.Ref.Id, Attribute: value.Attribute.Id, Value: value.Value, Sensitive: value.Sensitive, AuthorID: projectRecordAuthorID(value.AuthorPrincipal, value.AuthorAgent), CreatedAt: value.CreatedAt}
 }
 
 func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input SessionToolCallInput, description string) error {
@@ -1597,7 +1969,11 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				projectFiles.Files = append(projectFiles.Files, File{ID: file.ID, Name: file.Name, MediaType: file.MediaType, Size: file.Size, Fingerprint: file.Fingerprint})
 			}
 			projectFiles.Read = func(id string, offset, length int64) (error, []byte) {
-				err, file, object := runtime.store.ProjectFileGet(ctx, model.ProjectFileRef{Project: *project, Id: id}, principal)
+				current, err := runtime.sessionProjectGet(ctx, session, principal)
+				if err != nil {
+					return fmt.Errorf("read project file: %w", err), nil
+				}
+				err, file, object := runtime.store.ProjectFileGet(ctx, model.ProjectFileRef{Project: *current, Id: id}, principal)
 				if err != nil || file == nil || object == nil {
 					if err != nil {
 						return err, nil
@@ -1616,7 +1992,11 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				projectNotes.Notes = append(projectNotes.Notes, ProjectNote{ID: note.Ref.Id, Title: note.Title, Description: note.Description, Sensitive: note.Sensitive, AuthorID: authorID, AuthorName: authorName, CreatedAt: note.CreatedAt, Revision: note.Revision})
 			}
 			projectNotes.Read = func(id string, offset, length int64) (error, []byte, bool) {
-				err, detail := runtime.store.ProjectNoteGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
+				current, err := runtime.sessionProjectGet(ctx, session, principal)
+				if err != nil {
+					return fmt.Errorf("read project note: %w", err), nil, false
+				}
+				err, detail := runtime.store.ProjectNoteGet(ctx, model.ProjectNoteRef{Project: *current, Id: id}, principal)
 				if err != nil || detail == nil {
 					if err != nil {
 						return err, nil, false
@@ -1634,7 +2014,11 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				return nil, append([]byte(nil), body[offset:end]...), detail.Note.Sensitive
 			}
 			projectNotes.Revisions = func(id string) (error, []NoteRevision) {
-				err, summaries := runtime.store.ProjectNoteRevisionsGet(ctx, model.ProjectNoteRef{Project: *project, Id: id}, principal)
+				current, err := runtime.sessionProjectGet(ctx, session, principal)
+				if err != nil {
+					return err, nil
+				}
+				err, summaries := runtime.store.ProjectNoteRevisionsGet(ctx, model.ProjectNoteRef{Project: *current, Id: id}, principal)
 				if err != nil {
 					return err, nil
 				}
@@ -1646,7 +2030,11 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				return nil, revisions
 			}
 			projectNotes.RevisionRead = func(id string, revision int, offset, length int64) (error, []byte, bool) {
-				err, detail := runtime.store.ProjectNoteRevisionGet(ctx, model.ProjectNoteRevisionRef{Note: model.ProjectNoteRef{Project: *project, Id: id}, Revision: revision}, principal)
+				current, err := runtime.sessionProjectGet(ctx, session, principal)
+				if err != nil {
+					return fmt.Errorf("read project note revision: %w", err), nil, false
+				}
+				err, detail := runtime.store.ProjectNoteRevisionGet(ctx, model.ProjectNoteRevisionRef{Note: model.ProjectNoteRef{Project: *current, Id: id}, Revision: revision}, principal)
 				if err != nil || detail == nil {
 					if err != nil {
 						return err, nil, false
@@ -1681,7 +2069,11 @@ func (runtime *SessionEventReplyRuntime) turnEnvironment(ctx context.Context, se
 				projectSecrets.Secrets = append(projectSecrets.Secrets, ProjectSecret{ID: secret.Ref.Id, Description: secret.Description, AuthorID: secret.AuthorPrincipal.Id, AuthorName: secret.AuthorName, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt})
 			}
 			projectSecrets.Read = func(id string) (error, []byte) {
-				err, detail := runtime.store.ProjectSecretGet(ctx, model.ProjectSecretRef{Project: *project, Id: id}, principal)
+				current, err := runtime.sessionProjectGet(ctx, session, principal)
+				if err != nil {
+					return fmt.Errorf("read project secret: %w", err), nil
+				}
+				err, detail := runtime.store.ProjectSecretGet(ctx, model.ProjectSecretRef{Project: *current, Id: id}, principal)
 				if err != nil || detail == nil {
 					if err != nil {
 						return err, nil

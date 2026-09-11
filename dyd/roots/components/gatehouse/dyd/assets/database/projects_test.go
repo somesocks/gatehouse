@@ -180,10 +180,10 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:      []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -401,6 +401,213 @@ func TestProjectTasksUseProjectAuthorizationAndActivity(t *testing.T) {
 		if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events AS events JOIN gatehouse_activity_event_topics AS topics ON topics.activity = events.id WHERE events.event = ? AND events.resource_project_task = ? AND topics.topic = ?`, event, task.Id, database.ActivityTopicProjectTask(task)).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("project task activity %q = (%d, %v)", event, count, err)
 		}
+	}
+}
+
+func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	projectID, err := typed_id.NewAt(typed_id.Project, time.Date(2026, 1, 2, 3, 4, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	project := model.ProjectRef{Workspace: workspace, Id: projectID}
+	if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, alice, nil); err != nil {
+		t.Fatal(err)
+	}
+	schemaID, err := typed_id.NewAt(typed_id.ProjectRecordSchema, time.Date(2026, 1, 2, 3, 4, 1, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := model.ProjectRecordSchema{Ref: model.ProjectRecordSchemaRef{Project: project, Id: schemaID}, Name: "contacts", Label: "Contacts"}
+	err, schema = store.ProjectRecordSchemaCreate(ctx, schema, alice, database.ProjectRecordAuthor{})
+	if err != nil || schema.CreatedAt != "2026-01-02T03:04:01.000Z" || schema.AuthorPrincipal == nil || *schema.AuthorPrincipal != alice {
+		t.Fatalf("ProjectRecordSchemaCreate() = (%#v, %v)", schema, err)
+	}
+	emailID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 2, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	email := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: emailID}, Name: "email", Label: "Email", Type: "text", Cardinality: "one", Uniqueness: "global", Display: "primary"}
+	err, email = store.ProjectRecordAttributeCreate(ctx, email, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recordID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 3, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: recordID}}
+	err, record, values := store.ProjectRecordCreate(ctx, record, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: email.Ref, Value: "ada@example.test"}})
+	if err != nil || len(values) != 1 || values[0].Value != "ada@example.test" || values[0].AuthorPrincipal == nil || *values[0].AuthorPrincipal != alice {
+		t.Fatalf("ProjectRecordCreate() = (%#v, %#v, %v)", record, values, err)
+	}
+	duplicateID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 4, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err, _, _ := store.ProjectRecordCreate(ctx, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: duplicateID}}, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: email.Ref, Value: "ada@example.test"}}); err == nil {
+		t.Fatal("ProjectRecordCreate() accepted a duplicate globally unique value")
+	}
+	relatedID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 4, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	related := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: relatedID}, Name: "related", Label: "Related", Type: "record", TargetSchema: &schema.Ref, Cardinality: "one", Uniqueness: "none", Display: "secondary"}
+	err, related = store.ProjectRecordAttributeCreate(ctx, related, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	referencingID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, _, _ = store.ProjectRecordCreate(ctx, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: referencingID}}, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: related.Ref, Value: record.Ref.Id}})
+	if err != nil {
+		t.Fatalf("ProjectRecordCreate() with a record value: %v", err)
+	}
+	err, cards := store.ProjectRecordCardsGet(ctx, schema.Ref, alice, 100, "")
+	if err != nil || len(cards) != 2 || cards[0].Record.Ref.Id != referencingID || len(cards[0].Values) != 1 || cards[0].Values[0].Reference == nil || cards[0].Values[0].Reference.SchemaLabel != "Contacts" || len(cards[0].Values[0].Reference.PrimaryValues) != 1 || cards[0].Values[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+		t.Fatalf("ProjectRecordCardsGet() = (%#v, %v)", cards, err)
+	}
+	relatedManyID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relatedMany := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: relatedManyID}, Name: "related_many", Label: "Related many", Type: "record", TargetSchema: &schema.Ref, Cardinality: "many", Uniqueness: "none", Display: "secondary"}
+	err, relatedMany = store.ProjectRecordAttributeCreate(ctx, relatedMany, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, _ = store.ProjectRecordValuesMutate(ctx, model.ProjectRecordRef{Schema: schema.Ref, Id: referencingID}, alice, database.ProjectRecordAuthor{}, database.ProjectRecordValuesMutation{Create: []database.ProjectRecordValueCreate{{Attribute: relatedMany.Ref, Value: record.Ref.Id}, {Attribute: relatedMany.Ref, Value: record.Ref.Id}}})
+	if err != nil {
+		t.Fatalf("ProjectRecordValuesMutate() related many = %v", err)
+	}
+	err, incoming := store.ProjectRecordIncomingReferencesGet(ctx, record.Ref, alice, 100, "")
+	if err != nil || len(incoming) != 2 {
+		t.Fatalf("ProjectRecordIncomingReferencesGet() = (%#v, %v)", incoming, err)
+	}
+	var many *database.ProjectRecordIncomingReferenceGroup
+	for index := range incoming {
+		if incoming[index].Attribute.Id == relatedMany.Ref.Id {
+			many = &incoming[index]
+		}
+	}
+	if many == nil || many.SchemaLabel != "Contacts" || many.AttributeLabel != "Related many" || len(many.References) != 2 || many.References[0].Record.Id != referencingID || many.References[1].Record.Id != referencingID {
+		t.Fatalf("ProjectRecordIncomingReferencesGet() many group = %#v", many)
+	}
+	targetSchemaID, err := typed_id.NewAt(typed_id.ProjectRecordSchema, time.Date(2026, 1, 2, 3, 4, 7, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetSchema := model.ProjectRecordSchema{Ref: model.ProjectRecordSchemaRef{Project: project, Id: targetSchemaID}, Name: "organizations", Label: "Organizations"}
+	err, targetSchema = store.ProjectRecordSchemaCreate(ctx, targetSchema, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatalf("ProjectRecordSchemaCreate() target = %v", err)
+	}
+	targetRecordID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 8, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetRecord := model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: targetSchema.Ref, Id: targetRecordID}}
+	err, targetRecord, _ = store.ProjectRecordCreate(ctx, targetRecord, alice, database.ProjectRecordAuthor{}, nil)
+	if err != nil {
+		t.Fatalf("ProjectRecordCreate() target = %v", err)
+	}
+	targetAttributeID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 9, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetAttribute := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: targetAttributeID}, Name: "organization", Label: "Organization", Type: "record", TargetSchema: &targetSchema.Ref, Cardinality: "one", Uniqueness: "none", Display: "secondary"}
+	err, targetAttribute = store.ProjectRecordAttributeCreate(ctx, targetAttribute, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatalf("ProjectRecordAttributeCreate() target = %v", err)
+	}
+	err, _ = store.ProjectRecordValuesMutate(ctx, model.ProjectRecordRef{Schema: schema.Ref, Id: referencingID}, alice, database.ProjectRecordAuthor{}, database.ProjectRecordValuesMutation{Create: []database.ProjectRecordValueCreate{{Attribute: targetAttribute.Ref, Value: targetRecord.Ref.Id}}})
+	if err != nil {
+		t.Fatalf("ProjectRecordValuesMutate() cross-schema reference = %v", err)
+	}
+	err, incomingTarget := store.ProjectRecordIncomingReferencesGet(ctx, targetRecord.Ref, alice, 100, "")
+	if err != nil || len(incomingTarget) != 1 || incomingTarget[0].Attribute != targetAttribute.Ref || len(incomingTarget[0].References) != 1 || incomingTarget[0].References[0].Record.Id != referencingID {
+		t.Fatalf("ProjectRecordIncomingReferencesGet() cross-schema = (%#v, %v)", incomingTarget, err)
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, targetRecord.Ref, alice); err == nil || removed {
+		t.Fatal("ProjectRecordRemove() removed a cross-schema referenced record")
+	}
+	updatedRelated := related
+	updatedRelated.Uniqueness = "global"
+	err, updated := store.ProjectRecordAttributeSetAs(ctx, updatedRelated, alice, database.ProjectRecordAuthor{})
+	if err != nil || updated == nil || updated.Uniqueness != "global" {
+		t.Fatalf("ProjectRecordAttributeSetAs() uniqueness = (%#v, %v)", updated, err)
+	}
+	related = *updated
+	invalidRelatedMany := relatedMany
+	invalidRelatedMany.Cardinality = "one"
+	if err, _ := store.ProjectRecordAttributeSetAs(ctx, invalidRelatedMany, alice, database.ProjectRecordAuthor{}); err == nil {
+		t.Fatal("ProjectRecordAttributeSetAs() accepted one cardinality with duplicate values")
+	}
+	err, currentRelatedMany := store.ProjectRecordAttributeGet(ctx, relatedMany.Ref, alice)
+	if err != nil || currentRelatedMany == nil || currentRelatedMany.Cardinality != "many" {
+		t.Fatalf("ProjectRecordAttributeGet() after rejected cardinality = (%#v, %v)", currentRelatedMany, err)
+	}
+	err, mutation := store.ProjectRecordValuesMutate(ctx, record.Ref, alice, database.ProjectRecordAuthor{}, database.ProjectRecordValuesMutation{Update: []database.ProjectRecordValueUpdate{{ID: values[0].Ref.Id, Value: "ada.lovelace@example.test"}}})
+	if err != nil || len(mutation.Created) != 1 || mutation.Created[0].Ref.Id == values[0].Ref.Id || len(mutation.Removed) != 1 || mutation.Removed[0] != values[0].Ref.Id {
+		t.Fatalf("ProjectRecordValuesMutate() = (%#v, %v)", mutation, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, email.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() with values = (%t, %v)", removed, err)
+	}
+	err, remainingValues := store.ProjectRecordValuesGet(ctx, record.Ref, alice, 100, "")
+	if err != nil || len(remainingValues) != 0 {
+		t.Fatalf("ProjectRecordValuesGet() after attribute removal = (%#v, %v)", remainingValues, err)
+	}
+	if err, removed := store.ProjectRecordSchemaRemove(ctx, schema.Ref, alice); err == nil || removed {
+		t.Fatal("ProjectRecordSchemaRemove() removed a schema with records")
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, record.Ref, alice); err == nil || removed {
+		t.Fatal("ProjectRecordRemove() removed a referenced record")
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, model.ProjectRecordRef{Schema: schema.Ref, Id: referencingID}, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordRemove() referring record = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, targetRecord.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordRemove() target record = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, record.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordRemove() = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, related.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() after values = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, relatedMany.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() related many = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, targetAttribute.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() target = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordSchemaRemove(ctx, schema.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordSchemaRemove() after records = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordSchemaRemove(ctx, targetSchema.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordSchemaRemove() target = (%t, %v)", removed, err)
+	}
+	var updates int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event = 'project_record.update' AND resource_project_record = ?`, record.Ref.Id).Scan(&updates); err != nil || updates != 1 {
+		t.Fatalf("project record update activity = (%d, %v)", updates, err)
 	}
 }
 

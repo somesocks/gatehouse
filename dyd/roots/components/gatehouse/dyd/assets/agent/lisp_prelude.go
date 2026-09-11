@@ -27,22 +27,9 @@ const agentPrelude = `(let
 
         (let
           (
-            ; Mutating operations require user approval before invocation.
+            ; Session and project secret mutations opt into approval when exposed.
             (prelude/operations
-              (list
-                (list 'session/notes/create "Create a session note" session/notes/create)
-                (list 'project/notes/create "Create a project note" project/notes/create)
-				(list 'session/notes/update "Update a session note" session/notes/update)
-				(list 'project/notes/update "Update a project note" project/notes/update)
-                (list 'session/notes/remove "Remove a session note" session/notes/remove)
-                (list 'project/notes/remove "Remove a project note" project/notes/remove)
-				(list 'session/tasks/create "Create a session task" session/tasks/create)
-				(list 'project/tasks/create "Create a project task" project/tasks/create)
-				(list 'session/tasks/update "Update a session task" session/tasks/update)
-				(list 'project/tasks/update "Update a project task" project/tasks/update)
-				(list 'session/tasks/remove "Remove a session task" session/tasks/remove)
-				(list 'project/tasks/remove "Remove a project task" project/tasks/remove)
-                (list 'project/info/set "Update project details" project/info/set)))
+              (list))
             (prelude/operation-binding
               (fn (operation)
                 (list

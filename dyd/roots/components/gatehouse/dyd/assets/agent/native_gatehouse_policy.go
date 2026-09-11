@@ -14,10 +14,12 @@ var (
 )
 
 const policyRequireApprovalSource = `(fn (description call)
-  (fn args
-    (begin
-      (await-approval description)
-      (fn/apply call args))))`
+  (help/document
+    (fn args
+      (begin
+        (await-approval description)
+        (fn/apply call args)))
+    (help call)))`
 
 // NewPolicyModule constructs the policy capability module for one agent evaluation.
 func NewPolicyModule(requestApproval func(description string) error) lisp.HostModule {

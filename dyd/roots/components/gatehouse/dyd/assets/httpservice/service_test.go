@@ -964,6 +964,148 @@ func TestProjectSecretCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 }
 
+func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
+	tokens, store, refs := testBearerTokens(t)
+	engineering := refs["engineering"]
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	login := httptest.NewRecorder()
+	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
+	var credentials loginResponse
+	if err := json.Unmarshal(login.Body.Bytes(), &credentials); err != nil || credentials.AccessToken == "" {
+		t.Fatalf("POST login = (%d, %#v, %v)", login.Code, credentials, err)
+	}
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+credentials.AccessToken)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+
+	createdProject := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/projects", `{"name":"Records"}`)
+	var project projectResponse
+	if err := json.Unmarshal(createdProject.Body.Bytes(), &project); err != nil || createdProject.Code != http.StatusCreated {
+		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/record-schemas"
+	createdSchema := request(http.MethodPost, base, `{"name":"contacts","label":"Contacts","description":"Customer contacts"}`)
+	var schema projectRecordSchemaResponse
+	if err := json.Unmarshal(createdSchema.Body.Bytes(), &schema); err != nil || createdSchema.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectRecordSchema, schema.ID) || schema.Name != "contacts" || schema.Author.Principal == nil {
+		t.Fatalf("POST project record schema = (%d, %#v, %v)", createdSchema.Code, schema, err)
+	}
+	listedSchemas := request(http.MethodGet, base, "")
+	var schemas []projectRecordSchemaResponse
+	if err := json.Unmarshal(listedSchemas.Body.Bytes(), &schemas); err != nil || listedSchemas.Code != http.StatusOK || len(schemas) != 1 || schemas[0].ID != schema.ID {
+		t.Fatalf("GET project record schemas = (%d, %#v, %v)", listedSchemas.Code, schemas, err)
+	}
+	if detail := request(http.MethodGet, base+"/"+schema.ID, ""); detail.Code != http.StatusOK {
+		t.Fatalf("GET project record schema = %d", detail.Code)
+	}
+	attributesPath := base + "/" + schema.ID + "/attributes"
+	createdAttribute := request(http.MethodPost, attributesPath, `{"name":"email","label":"Email","type":"text","cardinality":"one","uniqueness":"none","display":"primary"}`)
+	var attribute projectRecordAttributeResponse
+	if err := json.Unmarshal(createdAttribute.Body.Bytes(), &attribute); err != nil || createdAttribute.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectRecordAttribute, attribute.ID) || attribute.Name != "email" {
+		t.Fatalf("POST project record attribute = (%d, %#v, %v)", createdAttribute.Code, attribute, err)
+	}
+	if updated := request(http.MethodPatch, attributesPath+"/"+attribute.ID, `{"description":"Primary email"}`); updated.Code != http.StatusOK {
+		t.Fatalf("PATCH project record attribute = %d", updated.Code)
+	}
+	listedAttributes := request(http.MethodGet, attributesPath, "")
+	var attributes []projectRecordAttributeResponse
+	if err := json.Unmarshal(listedAttributes.Body.Bytes(), &attributes); err != nil || listedAttributes.Code != http.StatusOK || len(attributes) != 1 || attributes[0].ID != attribute.ID || attributes[0].Display != "primary" {
+		t.Fatalf("GET project record attributes = (%d, %#v, %v)", listedAttributes.Code, attributes, err)
+	}
+	if detail := request(http.MethodGet, attributesPath+"/"+attribute.ID, ""); detail.Code != http.StatusOK {
+		t.Fatalf("GET project record attribute = %d", detail.Code)
+	}
+
+	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'contributor' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	if denied := request(http.MethodPost, base, `{"name":"denied","label":"Denied"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("POST project record schema as contributor = %d, want %d", denied.Code, http.StatusForbidden)
+	}
+	recordsPath := base + "/" + schema.ID + "/records"
+	createdRecord := request(http.MethodPost, recordsPath, `{"values":[{"attribute":"email","value":"ada@example.test","sensitive":true}]}`)
+	var recordResult struct {
+		Record projectRecordResponse        `json:"record"`
+		Values []projectRecordValueResponse `json:"values"`
+	}
+	if err := json.Unmarshal(createdRecord.Body.Bytes(), &recordResult); err != nil || createdRecord.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectRecord, recordResult.Record.ID) || len(recordResult.Values) != 1 || !typed_id.Valid(typed_id.ProjectRecordValue, recordResult.Values[0].ID) || recordResult.Values[0].Attribute != attribute.ID || !recordResult.Values[0].Sensitive {
+		t.Fatalf("POST project record = (%d, %#v, %v)", createdRecord.Code, recordResult, err)
+	}
+	if detail := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID, ""); detail.Code != http.StatusOK {
+		t.Fatalf("GET project record = %d", detail.Code)
+	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	relatedAttribute := request(http.MethodPost, attributesPath, `{"name":"related","label":"Related","type":"record","target_schema":"`+schema.ID+`","cardinality":"one","uniqueness":"none","display":"secondary"}`)
+	var related projectRecordAttributeResponse
+	if err := json.Unmarshal(relatedAttribute.Body.Bytes(), &related); err != nil || relatedAttribute.Code != http.StatusCreated {
+		t.Fatalf("POST related project record attribute = (%d, %#v, %v)", relatedAttribute.Code, related, err)
+	}
+	secondRecord := request(http.MethodPost, recordsPath, `{"values":[{"attribute":"related","value":"`+recordResult.Record.ID+`","sensitive":false}]}`)
+	if secondRecord.Code != http.StatusCreated {
+		t.Fatalf("POST second project record = %d", secondRecord.Code)
+	}
+	var second struct {
+		Record projectRecordResponse `json:"record"`
+	}
+	if err := json.Unmarshal(secondRecord.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	listedRecords := request(http.MethodGet, recordsPath+"?limit=1", "")
+	var records projectRecordSearchResponse
+	if err := json.Unmarshal(listedRecords.Body.Bytes(), &records); err != nil || listedRecords.Code != http.StatusOK || len(records.Records) != 1 || !typed_id.Valid(typed_id.ProjectRecord, records.NextCursor) || len(records.Records[0].Values) != 1 || records.Records[0].Values[0].Reference == nil || records.Records[0].Values[0].Reference.SchemaLabel != "Contacts" || len(records.Records[0].Values[0].Reference.PrimaryValues) != 1 || records.Records[0].Values[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+		t.Fatalf("GET project records = (%d, %#v, %v)", listedRecords.Code, records, err)
+	}
+	secondValues := request(http.MethodGet, recordsPath+"/"+second.Record.ID+"/values", "")
+	var relatedValues projectRecordValuesResponse
+	if err := json.Unmarshal(secondValues.Body.Bytes(), &relatedValues); err != nil || secondValues.Code != http.StatusOK || len(relatedValues.Values) != 1 || relatedValues.Values[0].Reference == nil || relatedValues.Values[0].Reference.SchemaLabel != "Contacts" || len(relatedValues.Values[0].Reference.PrimaryValues) != 1 || relatedValues.Values[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+		t.Fatalf("GET project record values with reference display = (%d, %#v, %v)", secondValues.Code, relatedValues, err)
+	}
+	incomingReferences := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID+"/references", "")
+	var incoming projectRecordIncomingReferencesResponse
+	if err := json.Unmarshal(incomingReferences.Body.Bytes(), &incoming); err != nil || incomingReferences.Code != http.StatusOK || len(incoming.Groups) != 1 || incoming.Groups[0].SourceSchema.ID != schema.ID || incoming.Groups[0].SourceAttribute.ID != related.ID || len(incoming.Groups[0].References) != 1 || incoming.Groups[0].References[0].ID != second.Record.ID {
+		t.Fatalf("GET project record incoming references = (%d, %#v, %v)", incomingReferences.Code, incoming, err)
+	}
+
+	valuesPath := recordsPath + "/" + recordResult.Record.ID + "/values"
+	listedValues := request(http.MethodGet, valuesPath+"?limit=1", "")
+	var values projectRecordValuesResponse
+	if err := json.Unmarshal(listedValues.Body.Bytes(), &values); err != nil || listedValues.Code != http.StatusOK || len(values.Values) != 1 || !values.Values[0].Sensitive || values.Values[0].Value != "ada@example.test" || values.NextCursor != "" {
+		t.Fatalf("GET project record values = (%d, %#v, %v)", listedValues.Code, values, err)
+	}
+	mutated := request(http.MethodPost, valuesPath+"/mutate", `{"update":[{"id":"`+recordResult.Values[0].ID+`","value":"ada.lovelace@example.test"}]}`)
+	var mutation projectRecordValuesMutationResponse
+	if err := json.Unmarshal(mutated.Body.Bytes(), &mutation); err != nil || mutated.Code != http.StatusOK || len(mutation.Removed) != 1 || mutation.Removed[0] != recordResult.Values[0].ID || len(mutation.Created) != 1 || mutation.Created[0].ID == recordResult.Values[0].ID || !mutation.Created[0].Sensitive || mutation.Created[0].Value != "ada.lovelace@example.test" {
+		t.Fatalf("POST project record value mutation = (%d, %#v, %v)", mutated.Code, mutation, err)
+	}
+	if invalid := request(http.MethodPost, recordsPath, `{"values":[{"attribute":"missing","value":"x"}]}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST project record with missing attribute = %d, want %d", invalid.Code, http.StatusBadRequest)
+	}
+	if removed := request(http.MethodDelete, recordsPath+"/"+second.Record.ID, ""); removed.Code != http.StatusNoContent {
+		t.Fatalf("DELETE second project record = %d", removed.Code)
+	}
+	if removed := request(http.MethodDelete, recordsPath+"/"+recordResult.Record.ID, ""); removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("DELETE project record = (%d, %q)", removed.Code, removed.Header().Get("Cache-Control"))
+	}
+	if removed := request(http.MethodDelete, attributesPath+"/"+attribute.ID, ""); removed.Code != http.StatusNoContent {
+		t.Fatalf("DELETE project record attribute = %d", removed.Code)
+	}
+	if removed := request(http.MethodDelete, attributesPath+"/"+related.ID, ""); removed.Code != http.StatusNoContent {
+		t.Fatalf("DELETE related project record attribute = %d", removed.Code)
+	}
+	if updated := request(http.MethodPatch, base+"/"+schema.ID, `{"label":"People"}`); updated.Code != http.StatusOK {
+		t.Fatalf("PATCH project record schema = %d", updated.Code)
+	}
+	if removed := request(http.MethodDelete, base+"/"+schema.ID, ""); removed.Code != http.StatusNoContent {
+		t.Fatalf("DELETE project record schema = %d", removed.Code)
+	}
+}
+
 func TestSessionNoteCreateUpdateListGetAndRemove(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]

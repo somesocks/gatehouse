@@ -50,6 +50,13 @@ export type Route =
   | ({ kind: "project-secrets" } & ProjectRoute)
   | ({ kind: "project-secret-new" } & ProjectRoute)
   | ({ kind: "project-secret"; secretID: string } & ProjectRoute)
+  | ({ kind: "project-records" } & ProjectRoute)
+  | ({ kind: "project-record-schema-new" } & ProjectRoute)
+  | ({ kind: "project-record-schema"; schemaID: string } & ProjectRoute)
+  | ({ kind: "project-record-schema-edit"; schemaID: string } & ProjectRoute)
+  | ({ kind: "project-record-new"; schemaID: string } & ProjectRoute)
+  | ({ kind: "project-record"; schemaID: string; recordID: string } & ProjectRoute)
+  | ({ kind: "project-record-edit"; schemaID: string; recordID: string } & ProjectRoute)
   | { kind: "not-found" }
 
 export type NavigableRoute = Exclude<Route, { kind: "not-found" }>
@@ -214,6 +221,21 @@ export function parseRoute(url: URL): Route {
         ? { kind: "project-secret-new", workspaceID, projectID: resourceID }
         : { kind: "project-secret", workspaceID, projectID: resourceID, secretID: segments[6] }
     }
+    if (segments.length === 6 && section === "records") {
+      return { kind: "project-records", workspaceID, projectID: resourceID }
+    }
+    if (segments.length === 7 && section === "records") {
+      if (segments[6] === "new") return { kind: "project-record-schema-new", workspaceID, projectID: resourceID }
+      return { kind: "project-record-schema", workspaceID, projectID: resourceID, schemaID: segments[6] }
+    }
+    if (segments.length === 8 && section === "records") {
+      if (segments[7] === "edit" && segments[6] !== "new") return { kind: "project-record-schema-edit", workspaceID, projectID: resourceID, schemaID: segments[6] }
+      if (segments[7] === "new" && segments[6] !== "new") return { kind: "project-record-new", workspaceID, projectID: resourceID, schemaID: segments[6] }
+      if (segments[6] !== "new") return { kind: "project-record", workspaceID, projectID: resourceID, schemaID: segments[6], recordID: segments[7] }
+    }
+    if (segments.length === 9 && section === "records" && segments[8] === "edit" && segments[6] !== "new") {
+      return { kind: "project-record-edit", workspaceID, projectID: resourceID, schemaID: segments[6], recordID: segments[7] }
+    }
   }
 
   return notFound()
@@ -317,5 +339,19 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets/new`
     case "project-secret":
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets/${segment(route.secretID)}`
+    case "project-records":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records`
+    case "project-record-schema-new":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/new`
+    case "project-record-schema":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/${segment(route.schemaID)}`
+    case "project-record-schema-edit":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/${segment(route.schemaID)}/edit`
+    case "project-record-new":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/${segment(route.schemaID)}/new`
+    case "project-record":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/${segment(route.schemaID)}/${segment(route.recordID)}`
+    case "project-record-edit":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records/${segment(route.schemaID)}/${segment(route.recordID)}/edit`
   }
 }

@@ -95,6 +95,16 @@ func NewProjectModuleWithSecrets(info *ProjectInfo, files *ProjectFiles, notes *
 	return newProjectModule(info, files, notes, projectTasksArgument(tasks), secrets)
 }
 
+// NewProjectModuleWithRecords constructs the project module with record capabilities.
+func NewProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
+	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), nil, records)
+}
+
+// NewProjectModuleWithSecretsAndRecords constructs the project module with secret and record capabilities.
+func NewProjectModuleWithSecretsAndRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
+	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), secrets, records)
+}
+
 func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
 	if len(tasks) == 0 {
 		return nil
@@ -103,6 +113,10 @@ func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
 }
 
 func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets) lisp.HostModule {
+	return newProjectModuleWithRecords(info, files, notes, tasks, secrets, nil)
+}
+
+func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets, records *ProjectRecords) lisp.HostModule {
 	infoGet := projectInfoGetFunction(info)
 	infoSet := unavailableCreate("project/info/set")
 	if info != nil && info.Set != nil {
@@ -170,7 +184,7 @@ func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		secretRead = projectSecretReadFunction(secrets.Read, "project/secrets/read")
 	}
 
-	return lisp.HostModule{ID: gatehouseProjectModuleID, Exports: []lisp.HostExport{
+	exports := []lisp.HostExport{
 		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)},
 		{Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)},
 		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
@@ -190,7 +204,9 @@ func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNote
 		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), projectTaskRemoveDocumentation)},
 		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), projectSecretListDocumentation)},
 		{Name: "secrets/read", Value: document(lisp.Function(secretRead), projectSecretReadDocumentation)},
-	}}
+	}
+	exports = append(exports, projectRecordsExports(records)...)
+	return lisp.HostModule{ID: gatehouseProjectModuleID, Exports: exports}
 }
 
 func projectNoteUpdateFunction(update ProjectNoteUpdate, name string) func([]lisp.Expr) (error, lisp.Expr) {

@@ -1,0 +1,235 @@
+<script lang="ts">
+  import { ArrowLeft, Building, Folder, Menu } from "@lucide/svelte"
+  import { signOut } from "../../app/auth"
+  import { fetchProject, type Project } from "../../app/projects"
+  import { createProjectRecord, createProjectRecordAttribute, createProjectRecordSchema, fetchProjectRecord, fetchProjectRecordAttributes, fetchProjectRecordIncomingReferences, fetchProjectRecordSchema, fetchProjectRecordSchemas, fetchProjectRecords, fetchProjectRecordValues, mutateProjectRecordValues, removeProjectRecord, removeProjectRecordAttribute, removeProjectRecordSchema, updateProjectRecordAttribute, updateProjectRecordSchema, type ProjectRecord, type ProjectRecordAttribute, type ProjectRecordIncomingReferenceGroup, type ProjectRecordSchema, type ProjectRecordValue } from "../../app/project-records"
+  import { useRuntime } from "../../app/runtime.svelte"
+  import RouterLink from "../../components/RouterLink.svelte"
+  import WorkspaceFrame from "../../components/WorkspaceFrame.svelte"
+  import type { Route } from "../../route"
+
+  type RecordsRoute = Extract<Route, { kind: "project-records" | "project-record-schema-new" | "project-record-schema" | "project-record-schema-edit" | "project-record-new" | "project-record" | "project-record-edit" }>
+  type Status = "checking" | "ready" | "unavailable"
+  type ValueDraft = { id?: string; attribute: string; value: unknown; sensitive: boolean; removed?: boolean }
+  type AttributeForm = { id?: string; name: string; label: string; description: string; type: ProjectRecordAttribute["type"]; target_schema: string; cardinality: ProjectRecordAttribute["cardinality"]; uniqueness: ProjectRecordAttribute["uniqueness"]; display: ProjectRecordAttribute["display"] }
+
+  const runtime = useRuntime()
+  const { activity, access, auth } = runtime
+  let mobileMenuOpen = $state(false)
+  let project = $state<Project | null>(null)
+  let projectStatus = $state<Status>("checking")
+  let schemas = $state<ProjectRecordSchema[]>([])
+  let schemasStatus = $state<Status>("checking")
+  let schema = $state<ProjectRecordSchema | null>(null)
+  let attributes = $state<ProjectRecordAttribute[]>([])
+  let records = $state<ProjectRecord[]>([])
+  let recordsStatus = $state<Status>("ready")
+  let active = $state<ProjectRecord | null>(null)
+  let activeValues = $state<ProjectRecordValue[]>([])
+  let incomingReferences = $state<ProjectRecordIncomingReferenceGroup[]>([])
+  let incomingReferencesNextCursor = $state<string | undefined>(undefined)
+  let incomingReferencesLoading = $state(false)
+  let drafts = $state<ValueDraft[]>([])
+  let saving = $state(false)
+  let error = $state("")
+  let schemaName = $state("")
+  let schemaLabel = $state("")
+  let schemaDescription = $state("")
+  let attributeForm = $state<AttributeForm>({ name: "", label: "", description: "", type: "text", target_schema: "", cardinality: "one", uniqueness: "none", display: "none" })
+  let generation = 0
+  let abortController: AbortController | null = null
+  let unsubscribe: (() => void) | undefined
+
+  const currentRoute = $derived(runtime.state.route as RecordsRoute)
+  const workspace = $derived(access.state.workspaces.find((candidate) => candidate.id === currentRoute.workspaceID) ?? null)
+  const projectPath = (workspaceID: string, projectID: string) => `/app/wsp/${encodeURIComponent(workspaceID)}/prj/${encodeURIComponent(projectID)}`
+  const recordsPath = (workspaceID: string, projectID: string) => `${projectPath(workspaceID, projectID)}/records`
+  const schemaPath = (workspaceID: string, projectID: string, schemaID: string) => `${recordsPath(workspaceID, projectID)}/${encodeURIComponent(schemaID)}`
+  const recordPath = (workspaceID: string, projectID: string, schemaID: string, recordID: string) => `${schemaPath(workspaceID, projectID, schemaID)}/${encodeURIComponent(recordID)}`
+  const backTarget = $derived.by(() => {
+    if (currentRoute.kind === "project-records") return { href: projectPath(workspace.id, currentRoute.projectID), label: "Back to project" }
+    if (currentRoute.kind === "project-record-schema-new") return { href: recordsPath(workspace.id, currentRoute.projectID), label: "Back to record schemas" }
+    if (currentRoute.kind === "project-record-schema-edit") return { href: schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID), label: "Back to records" }
+    if (currentRoute.kind === "project-record-edit") return { href: recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID), label: "Back to record" }
+    if (currentRoute.kind === "project-record") return { href: schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID), label: `Back to ${schema?.label ?? "records"}` }
+    if (currentRoute.kind === "project-record-new") return { href: schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID), label: "Back to records" }
+    return { href: recordsPath(workspace.id, currentRoute.projectID), label: "Back to record schemas" }
+  })
+  const isSchemaRoute = (route: RecordsRoute): route is Extract<RecordsRoute, { schemaID: string }> => "schemaID" in route
+  const isCurrent = (value: number, route: RecordsRoute) => value === generation && currentRoute.workspaceID === route.workspaceID && currentRoute.projectID === route.projectID && !abortController?.signal.aborted
+  const valueLabel = (value: unknown) => typeof value === "boolean" ? (value ? "Yes" : "No") : String(value)
+  const displayAttributes = $derived(attributes.filter((attribute) => attribute.display !== "none"))
+
+  $effect(() => { const route = currentRoute; return activate(route) })
+
+  function activate(route: RecordsRoute): () => void {
+    const value = ++generation
+    abortController?.abort(); abortController = new AbortController(); unsubscribe?.(); unsubscribe = undefined
+    mobileMenuOpen = false; project = null; projectStatus = "checking"; schemas = []; schemasStatus = "checking"; schema = null; attributes = []; records = []; recordsStatus = route.kind === "project-record-schema" || route.kind === "project-record" || route.kind === "project-record-edit" ? "checking" : "ready"; active = null; activeValues = []; incomingReferences = []; incomingReferencesNextCursor = undefined; incomingReferencesLoading = false; drafts = []; saving = false; error = ""; schemaName = ""; schemaLabel = ""; schemaDescription = ""; resetAttributeForm()
+    if (auth.state.status === "authenticated" && access.state.workspaceStatus === "ready") void loadRoute(route, value, abortController.signal)
+    else if (auth.state.status === "authenticated") void runtime.refresh()
+    return () => { if (value === generation) { abortController?.abort(); unsubscribe?.(); unsubscribe = undefined } }
+  }
+
+  async function loadRoute(route: RecordsRoute, value: number, signal: AbortSignal): Promise<void> {
+    if (!access.state.workspaces.some((candidate) => candidate.id === route.workspaceID)) { runtime.navigate(access.state.workspaces.length === 0 ? "/app/no-access" : `/app/wsp/${encodeURIComponent(access.state.workspaces[0].id)}`, true); return }
+    try {
+      const response = await fetchProject(route.workspaceID, route.projectID, signal)
+      if (!isCurrent(value, route) || signal.aborted) return
+      if (response.status === 401) { runtime.requireLogin(); return }
+      if (response.status === 404) { runtime.navigate(`/app/wsp/${encodeURIComponent(route.workspaceID)}/prj`, true); return }
+      if (!response.ok) throw new Error()
+      project = await response.json() as Project; projectStatus = "ready"
+      if (!await loadSchemas(route, value, signal)) return
+      subscribe(route, value)
+      if (route.kind === "project-record-schema-new") return
+      if (!isSchemaRoute(route)) return
+      if (!await loadSchema(route, value, signal)) return
+      if (route.kind === "project-record-schema-edit") { schemaLabel = schema?.label ?? ""; schemaDescription = schema?.description ?? ""; return }
+      if (route.kind === "project-record-new") { drafts = attributes.map(emptyDraft); return }
+      if (route.kind === "project-record" || route.kind === "project-record-edit") { await loadRecord(route, value, signal); return }
+      await loadRecords(route, value, signal)
+    } catch { if (isCurrent(value, route) && !signal.aborted) projectStatus = "unavailable" }
+  }
+
+  function subscribe(route: RecordsRoute, value: number): void {
+    unsubscribe = activity.subscribe([{ name: "project-records", topic: `${route.workspaceID}/${route.projectID}`, events: ["project_record_schema.*", "project_record_attribute.*", "project_record.*"] }], async ({ signal }) => {
+      if (!isCurrent(value, route) || signal.aborted) return
+      if (!await loadSchemas(route, value, signal)) throw new Error("project records refresh failed")
+      if (isSchemaRoute(route) && !await loadSchema(route, value, signal)) throw new Error("project record schema refresh failed")
+      if (route.kind === "project-record" || route.kind === "project-record-edit") { if (!await loadRecord(route, value, signal)) throw new Error("project record refresh failed") }
+      else if (route.kind === "project-record-schema") { if (!await loadRecords(route, value, signal)) throw new Error("project record list refresh failed") }
+    })
+    void activity.poll()
+  }
+
+  async function loadSchemas(route: RecordsRoute, value: number, signal: AbortSignal): Promise<boolean> {
+    schemasStatus = "checking"
+    try { const response = await fetchProjectRecordSchemas(route.workspaceID, route.projectID, signal); if (!isCurrent(value, route) || signal.aborted) return false; if (response.status === 401) { runtime.requireLogin(); return false }; if (!response.ok) throw new Error(); schemas = await response.json() as ProjectRecordSchema[]; schemasStatus = "ready"; return true } catch { if (isCurrent(value, route) && !signal.aborted) schemasStatus = "unavailable"; return false }
+  }
+
+  async function loadSchema(route: Extract<RecordsRoute, { schemaID: string }>, value: number, signal: AbortSignal): Promise<boolean> {
+    try {
+      const [schemaResponse, attributesResponse] = await Promise.all([fetchProjectRecordSchema(route.workspaceID, route.projectID, route.schemaID, signal), fetchProjectRecordAttributes(route.workspaceID, route.projectID, route.schemaID, signal)])
+      if (!isCurrent(value, route) || signal.aborted) return false
+      if (schemaResponse.status === 401 || attributesResponse.status === 401) { runtime.requireLogin(); return false }
+      if (schemaResponse.status === 404) { runtime.navigate(recordsPath(route.workspaceID, route.projectID), true); return false }
+      if (!schemaResponse.ok || !attributesResponse.ok) throw new Error()
+      schema = await schemaResponse.json() as ProjectRecordSchema; attributes = await attributesResponse.json() as ProjectRecordAttribute[]; return true
+    } catch { error = "The record schema could not be loaded."; return false }
+  }
+
+  async function loadRecords(route: Extract<RecordsRoute, { kind: "project-record-schema" }>, value: number, signal: AbortSignal): Promise<boolean> {
+    recordsStatus = "checking"
+    try {
+      const response = await fetchProjectRecords(route.workspaceID, route.projectID, route.schemaID, signal)
+      if (!isCurrent(value, route) || signal.aborted) return false
+      if (response.status === 401) { runtime.requireLogin(); return false }
+      if (!response.ok) throw new Error()
+      records = (await response.json() as { records: ProjectRecord[] }).records
+      recordsStatus = "ready"; return true
+    } catch { if (isCurrent(value, route) && !signal.aborted) recordsStatus = "unavailable"; return false }
+  }
+
+  async function loadRecord(route: Extract<RecordsRoute, { recordID: string }>, value: number, signal: AbortSignal): Promise<boolean> {
+    recordsStatus = "checking"
+    try {
+      const [recordResponse, valuesResponse, referencesResponse] = await Promise.all([fetchProjectRecord(route.workspaceID, route.projectID, route.schemaID, route.recordID, signal), fetchProjectRecordValues(route.workspaceID, route.projectID, route.schemaID, route.recordID, signal), fetchProjectRecordIncomingReferences(route.workspaceID, route.projectID, route.schemaID, route.recordID, undefined, signal)])
+      if (!isCurrent(value, route) || signal.aborted) return false
+      if (recordResponse.status === 401 || valuesResponse.status === 401 || referencesResponse.status === 401) { runtime.requireLogin(); return false }
+      if (recordResponse.status === 404) { runtime.navigate(schemaPath(route.workspaceID, route.projectID, route.schemaID), true); return false }
+      if (!recordResponse.ok || !valuesResponse.ok || !referencesResponse.ok) throw new Error()
+      active = await recordResponse.json() as ProjectRecord; activeValues = (await valuesResponse.json() as { values: ProjectRecordValue[] }).values; const references = await referencesResponse.json() as { groups: ProjectRecordIncomingReferenceGroup[]; next_cursor?: string }; incomingReferences = references.groups; incomingReferencesNextCursor = references.next_cursor; drafts = activeValues.map((item) => ({ id: item.id, attribute: item.attribute, value: item.value, sensitive: item.sensitive })); recordsStatus = "ready"; return true
+    } catch { if (isCurrent(value, route) && !signal.aborted) recordsStatus = "unavailable"; return false }
+  }
+
+  function emptyDraft(attribute: ProjectRecordAttribute): ValueDraft { return { attribute: attribute.id, value: attribute.type === "boolean" ? false : "", sensitive: false } }
+  function resetAttributeForm(): void { attributeForm = { name: "", label: "", description: "", type: "text", target_schema: "", cardinality: "one", uniqueness: "none", display: "none" } }
+  function attributeFor(id: string) { return attributes.find((attribute) => attribute.id === id) }
+  function attributeValues(id: string) { return drafts.filter((draft) => draft.attribute === id && !draft.removed) }
+  function editAttribute(attribute: ProjectRecordAttribute): void { attributeForm = { id: attribute.id, name: attribute.name, label: attribute.label, description: attribute.description, type: attribute.type, target_schema: attribute.target_schema ?? "", cardinality: attribute.cardinality, uniqueness: attribute.uniqueness, display: attribute.display } }
+  function setDraft(index: number, patch: Partial<ValueDraft>): void { drafts = drafts.map((draft, position) => position === index ? { ...draft, ...patch } : draft) }
+  function draftIndex(draft: ValueDraft): number { return drafts.indexOf(draft) }
+  function typedValue(attribute: ProjectRecordAttribute, raw: string): unknown { return attribute.type === "number" ? Number(raw) : raw }
+  function valueLines(attribute: ProjectRecordAttribute, value: ProjectRecordValue): string[] {
+    if (attribute.type !== "record") return [valueLabel(value.value)]
+    if (value.reference !== undefined && value.reference.primary_values.length !== 0) return value.reference.primary_values.map((primary) => valueLabel(primary.value))
+    return [`${value.reference?.schema_label ?? schemas.find((schema) => schema.id === attribute.target_schema)?.label ?? "Record"} · ${valueLabel(value.value)}`]
+  }
+  function referencePath(attribute: ProjectRecordAttribute, value: ProjectRecordValue): string | undefined { return attribute.type === "record" && attribute.target_schema !== undefined && typeof value.value === "string" ? recordPath(workspace.id, currentRoute.projectID, attribute.target_schema, value.value) : undefined }
+  function primaryLines(recordValues: ProjectRecordValue[]): string[] { const value = recordValues.find((item) => attributes.find((attribute) => attribute.id === item.attribute)?.display === "primary"); if (value === undefined) return ["Untitled record"]; const attribute = attributeFor(value.attribute); return attribute === undefined ? [valueLabel(value.value)] : valueLines(attribute, value) }
+  function incomingReferenceLines(group: ProjectRecordIncomingReferenceGroup, reference: ProjectRecordIncomingReferenceGroup["references"][number]): string[] { return reference.primary_values.length === 0 ? [`${group.source_schema.label} · ${reference.id}`] : reference.primary_values.map((primary) => valueLabel(primary.value)) }
+  function appendIncomingReferences(groups: ProjectRecordIncomingReferenceGroup[]): void { incomingReferences = groups.reduce((result, group) => { const current = result.find((candidate) => candidate.source_schema.id === group.source_schema.id && candidate.source_attribute.id === group.source_attribute.id); if (current === undefined) return [...result, { ...group, references: [...group.references] }]; return result.map((candidate) => candidate === current ? { ...candidate, references: [...candidate.references, ...group.references] } : candidate) }, incomingReferences) }
+  async function loadMoreIncomingReferences(): Promise<void> { const route = currentRoute; const value = generation; if (route.kind !== "project-record" || incomingReferencesNextCursor === undefined || incomingReferencesLoading) return; incomingReferencesLoading = true; try { const response = await fetchProjectRecordIncomingReferences(route.workspaceID, route.projectID, route.schemaID, route.recordID, incomingReferencesNextCursor, abortController?.signal); if (!isCurrent(value, route)) return; if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok) throw new Error(); const next = await response.json() as { groups: ProjectRecordIncomingReferenceGroup[]; next_cursor?: string }; appendIncomingReferences(next.groups); incomingReferencesNextCursor = next.next_cursor } catch { error = "More reverse references could not be loaded." } finally { if (isCurrent(value, route)) incomingReferencesLoading = false } }
+
+  async function saveSchema(): Promise<void> {
+    const route = currentRoute; const value = generation; saving = true; error = ""
+    try {
+      const response = route.kind === "project-record-schema-new" ? await createProjectRecordSchema(route.workspaceID, route.projectID, { name: schemaName, label: schemaLabel, description: schemaDescription }, abortController?.signal) : isSchemaRoute(route) ? await updateProjectRecordSchema(route.workspaceID, route.projectID, route.schemaID, { label: schemaLabel, description: schemaDescription }, abortController?.signal) : undefined
+      if (response === undefined || !isCurrent(value, route)) return
+      if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok) throw new Error()
+      const saved = await response.json() as ProjectRecordSchema; runtime.navigate(`${schemaPath(route.workspaceID, route.projectID, saved.id)}/edit`)
+    } catch { if (isCurrent(value, route)) error = "The schema could not be saved. Check its name and label." } finally { if (isCurrent(value, route)) saving = false }
+  }
+
+  async function deleteSchema(): Promise<void> {
+    const route = currentRoute; if (!isSchemaRoute(route) || !window.confirm(`Remove ${schema?.label ?? "this schema"}?`)) return; saving = true; error = ""
+    try { const response = await removeProjectRecordSchema(route.workspaceID, route.projectID, route.schemaID, abortController?.signal); if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok) throw new Error(); runtime.navigate(recordsPath(route.workspaceID, route.projectID)) } catch { error = "The schema could not be removed. Records may still reference it." } finally { saving = false }
+  }
+
+  async function saveAttribute(): Promise<void> {
+    const route = currentRoute; if (!isSchemaRoute(route)) return; saving = true; error = ""
+    const { id, name, target_schema, ...input } = attributeForm
+    try {
+      const response = id === undefined ? await createProjectRecordAttribute(route.workspaceID, route.projectID, route.schemaID, { name, ...input, ...(input.type === "record" ? { target_schema } : {}) }, abortController?.signal) : await updateProjectRecordAttribute(route.workspaceID, route.projectID, route.schemaID, id, { ...input, ...(input.type === "record" ? { target_schema } : {}) }, abortController?.signal)
+      if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok) throw new Error()
+      attributes = await fetchAttributes(route); resetAttributeForm()
+    } catch { error = "The field could not be saved. Field names must be lowercase snake case." } finally { saving = false }
+  }
+
+  async function fetchAttributes(route: Extract<RecordsRoute, { schemaID: string }>): Promise<ProjectRecordAttribute[]> { const response = await fetchProjectRecordAttributes(route.workspaceID, route.projectID, route.schemaID, abortController?.signal); if (!response.ok) throw new Error(); return await response.json() as ProjectRecordAttribute[] }
+  async function deleteAttribute(attribute: ProjectRecordAttribute): Promise<void> { const route = currentRoute; if (!isSchemaRoute(route) || !window.confirm(`Remove ${attribute.label}?`)) return; saving = true; try { const response = await removeProjectRecordAttribute(route.workspaceID, route.projectID, route.schemaID, attribute.id, abortController?.signal); if (!response.ok) throw new Error(); attributes = attributes.filter((candidate) => candidate.id !== attribute.id); resetAttributeForm() } catch { error = "The field could not be removed. It may have values." } finally { saving = false } }
+
+  async function saveRecord(): Promise<void> {
+    const route = currentRoute; if (!isSchemaRoute(route)) return; const value = generation; saving = true; error = ""
+    try {
+      if (route.kind === "project-record-new") {
+        const response = await createProjectRecord(route.workspaceID, route.projectID, route.schemaID, drafts.filter((draft) => !draft.removed).map(({ attribute, value, sensitive }) => ({ attribute, value, sensitive })), abortController?.signal)
+        if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok) throw new Error(); const created = await response.json() as { record: ProjectRecord }; runtime.navigate(recordPath(route.workspaceID, route.projectID, route.schemaID, created.record.id)); return
+      }
+      if (route.kind !== "project-record-edit") return
+      const response = await mutateProjectRecordValues(route.workspaceID, route.projectID, route.schemaID, route.recordID, { create: drafts.filter((draft) => draft.id === undefined && !draft.removed).map(({ attribute, value, sensitive }) => ({ attribute, value, sensitive })), update: drafts.filter((draft) => draft.id !== undefined && !draft.removed).map(({ id, value, sensitive }) => ({ id: id!, value, sensitive })), delete: drafts.filter((draft) => draft.id !== undefined && draft.removed).map(({ id }) => ({ id: id! })) }, abortController?.signal)
+      if (response.status === 401) { runtime.requireLogin(); return }; if (!response.ok && response.status !== 404) throw new Error()
+      runtime.navigate(recordPath(route.workspaceID, route.projectID, route.schemaID, route.recordID))
+    } catch { if (isCurrent(value, route)) error = "The record could not be saved. Check the values and uniqueness rules." } finally { if (isCurrent(value, route)) saving = false }
+  }
+
+  async function deleteRecord(): Promise<void> { const route = currentRoute; if (route.kind !== "project-record-edit" || !window.confirm("Remove this record?")) return; saving = true; try { const response = await removeProjectRecord(route.workspaceID, route.projectID, route.schemaID, route.recordID, abortController?.signal); if (!response.ok) throw new Error(); runtime.navigate(schemaPath(route.workspaceID, route.projectID)) } catch { error = "The record could not be removed." } finally { saving = false } }
+  async function logout(): Promise<void> { try { await signOut() } finally { runtime.requireLogin() } }
+</script>
+
+{#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
+  <main class="auth-shell" aria-busy="true"><section class="status-card"><div class="loading-mark" aria-hidden="true"></div><p>Loading your workspaces.</p></section></main>
+{:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
+  <main class="auth-shell"><section class="status-card"><h1 class="title is-3">Connection unavailable</h1><button class="button is-primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></section></main>
+{:else if auth.state.status !== "authenticated"}
+  <main class="auth-shell"><section class="status-card"><h1 class="title is-3">Sign in required</h1><button class="button is-primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></section></main>
+{:else if access.state.workspaceStatus === "empty" || workspace === null}
+  <main class="auth-shell"><section class="status-card"><h1 class="title is-3">No workspace access</h1></section></main>
+{:else}
+  <WorkspaceFrame {mobileMenuOpen} onMenuClose={() => mobileMenuOpen = false}>
+    {#snippet sidebar()}<RouterLink class="brand" href="/app/">Gatehouse</RouterLink><div class="workspace-switcher"><label for="workspace">Workspace</label><div class="select is-fullwidth"><select id="workspace" value={workspace.id} onchange={(event) => runtime.navigate(`/app/wsp/${encodeURIComponent(event.currentTarget.value)}`)}>{#each access.state.workspaces as candidate (candidate.id)}<option value={candidate.id}>{candidate.name ?? candidate.id}</option>{/each}</select></div></div><nav class="sidebar-nav" aria-label="Workspace navigation"><section class="sidebar-section"><ul><li><RouterLink href={`${projectPath(workspace.id, currentRoute.projectID).replace(/\/prj\/[^/]+$/, "/ses")}`}>Chats</RouterLink></li><li><RouterLink class="active" href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li><li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/grp`}>Groups</RouterLink></li></ul></section></nav>{#if access.state.systemAccess === "available"}<div class="sidebar-system-link"><RouterLink href="/app/system" target="_blank" rel="noopener">System</RouterLink></div>{/if}<div class="sidebar-footer"><span>{auth.state.claims?.principal.name ?? "User"}</span><button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button></div>{/snippet}
+    {#snippet header()}<button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}><Menu size={20} aria-hidden="true" /></button><h1 class="workspace-breadcrumb"><RouterLink class="workspace-breadcrumb-segment" href={`/app/wsp/${encodeURIComponent(workspace.id)}`}><Building size={16} aria-hidden="true" />{workspace.name ?? workspace.id}</RouterLink><span class="workspace-breadcrumb-separator">/</span><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink><span class="workspace-breadcrumb-separator">/</span><RouterLink class="workspace-breadcrumb-segment" href={projectPath(workspace.id, currentRoute.projectID)}><Folder size={16} aria-hidden="true" />{project?.name ?? "Project"}</RouterLink><span class="workspace-breadcrumb-separator">/</span><span>Records</span></h1>{/snippet}
+    <section class="project-records-page">
+      <RouterLink class="record-back-link" href={backTarget.href}><ArrowLeft size={16} aria-hidden="true" />{backTarget.label}</RouterLink>
+      {#if projectStatus === "checking"}<p class="dashboard-empty">Loading project...</p>
+      {:else if projectStatus === "unavailable"}<p class="dashboard-empty">Project unavailable.</p><button class="button is-primary" type="button" onclick={() => void loadRoute(currentRoute, generation, abortController!.signal)}>Try again</button>
+      {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}<form class="record-schema-editor" onsubmit={(event) => { event.preventDefault(); void saveSchema() }}><div class="project-note-page-heading"><div><p class="eyebrow">Record schema</p><h2>{currentRoute.kind === "project-record-schema-new" ? "New schema" : `Edit ${schema?.label ?? "schema"}`}</h2></div>{#if currentRoute.kind === "project-record-schema-edit"}<button class="button is-danger is-light" type="button" disabled={saving} onclick={() => void deleteSchema()}>Remove schema</button>{/if}</div><div class="field"><label class="label" for="schema-name">Name</label><div class="control"><input class="input" id="schema-name" required disabled={currentRoute.kind !== "project-record-schema-new"} maxlength="64" bind:value={schemaName} placeholder="contacts" /></div><p class="help">Lowercase letters, numbers, and underscores only.</p></div><div class="field"><label class="label" for="schema-label">Label</label><div class="control"><input class="input" id="schema-label" required maxlength="256" bind:value={schemaLabel} /></div></div><div class="field"><label class="label" for="schema-description">Description</label><div class="control"><textarea class="textarea" id="schema-description" rows="3" maxlength="4096" bind:value={schemaDescription}></textarea></div></div>{#if error !== ""}<p class="help is-danger">{error}</p>{/if}<div class="project-note-actions"><button class="button" type="button" onclick={() => runtime.navigate(recordsPath(workspace.id, currentRoute.projectID))}>Cancel</button><button class="button is-primary" type="submit" disabled={saving}>{saving ? "Saving..." : "Save schema"}</button></div></form>
+      {:else if currentRoute.kind === "project-record"}<section><header class="block"><p class="eyebrow">{schema?.label ?? "Record"}</p><h1 class="title is-3">{#if recordsStatus === "checking"}Loading record...{:else}{#each primaryLines(activeValues) as line}<span class="is-block">{line}</span>{/each}{/if}</h1></header><section class="block mb-6"><h2 class="title is-4">Record</h2>{#if recordsStatus === "checking"}<p class="dashboard-empty">Loading record...</p>{:else}{#if activeValues.length === 0}<p class="dashboard-empty">This record has no values.</p>{:else}<dl class="record-view-values">{#each attributes as attribute (attribute.id)}{@const items = activeValues.filter((item) => item.attribute === attribute.id)}{#if items.length !== 0}<div><dt>{attribute.label}</dt><dd>{#each items as item (item.id)}{@const href = referencePath(attribute, item)}{#if href}<RouterLink class="record-reference record-view-value" href={href}>{#each valueLines(attribute, item) as line}<span>{line}</span>{/each}</RouterLink>{:else}<div class="record-view-value">{#each valueLines(attribute, item) as line}<span>{line}</span>{/each}</div>{/if}{/each}</dd></div>{/if}{/each}</dl>{/if}<div class="buttons mt-5"><RouterLink class="button is-primary is-small" href={`${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`}>Edit record</RouterLink></div>{/if}</section>{#if incomingReferences.length !== 0}<section class="block"><h2 class="title is-4">Referenced by</h2><dl class="record-view-values">{#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<div><dt>{group.source_schema.label} / {group.source_attribute.label}</dt><dd>{#each group.references as reference, index (`${reference.id}-${index}`)}<RouterLink class="record-reference record-view-value mb-2" href={recordPath(workspace.id, currentRoute.projectID, group.source_schema.id, reference.id)}>{#each incomingReferenceLines(group, reference) as line}<span>{line}</span>{/each}</RouterLink>{/each}</dd></div>{/each}</dl>{#if incomingReferencesNextCursor !== undefined}<button class="button is-small mt-5" type="button" disabled={incomingReferencesLoading} onclick={() => void loadMoreIncomingReferences()}>{incomingReferencesLoading ? "Loading..." : "Show more"}</button>{/if}</section>{/if}</section>
+      {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}<form class="record-editor record-edit-form" onsubmit={(event) => { event.preventDefault(); void saveRecord() }}><div class="project-note-page-heading"><div><p class="eyebrow">{schema?.label ?? "Record"}</p><h2>{currentRoute.kind === "project-record-new" ? "New record" : "Edit record"}</h2></div>{#if currentRoute.kind === "project-record-edit"}<button class="button is-danger is-light" type="button" disabled={saving} onclick={() => void deleteRecord()}>Remove record</button>{/if}</div>{#if recordsStatus === "checking"}<p class="dashboard-empty">Loading record...</p>{:else if attributes.length === 0}<p class="dashboard-empty">Add fields to this schema before creating records.</p>{:else}{#each attributes as attribute (attribute.id)}<fieldset class="record-value-field"><legend>{attribute.label} <small>{attribute.type}{attribute.cardinality === "many" ? ", many" : ""}</small></legend>{#if attribute.description !== ""}<p>{attribute.description}</p>{/if}{#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index = draftIndex(draft)}<div class="record-value-input">{#if attribute.type === "boolean"}<label class="checkbox"><input type="checkbox" checked={draft.value === true} onchange={(event) => setDraft(index, { value: event.currentTarget.checked })} /> Yes</label>{:else}<input class="input" required value={valueLabel(draft.value)} type={attribute.type === "number" ? "number" : "text"} placeholder={attribute.type === "datetime" ? "RFC 3339 timestamp" : attribute.type === "record" ? "Record ID" : ""} oninput={(event) => setDraft(index, { value: typedValue(attribute, event.currentTarget.value) })} />{/if}<label class="checkbox sensitive-value"><input type="checkbox" checked={draft.sensitive} onchange={(event) => setDraft(index, { sensitive: event.currentTarget.checked })} /> Sensitive</label><button class="button is-small is-danger is-light" type="button" onclick={() => draft.id === undefined ? drafts = drafts.filter((candidate) => candidate !== draft) : setDraft(index, { removed: true })}>Remove</button></div>{/each}{#if attribute.cardinality === "many"}<button class="button is-small" type="button" onclick={() => drafts = [...drafts, emptyDraft(attribute)]}>Add value</button>{/if}</fieldset>{/each}{/if}{#if error !== ""}<p class="help is-danger">{error}</p>{/if}<div class="project-note-actions"><button class="button" type="button" onclick={() => runtime.navigate(currentRoute.kind === "project-record-edit" ? recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID) : schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID))}>Cancel</button><button class="button is-primary" type="submit" disabled={saving || attributes.length === 0}>{saving ? "Saving..." : "Save record"}</button></div></form>
+      {:else if currentRoute.kind === "project-record-schema"}<div class="level mb-5"><div class="level-left"><div><p class="eyebrow">Record schema</p><h2 class="title is-3">{schema?.label ?? "Records"}</h2>{#if schema?.description}<p class="subtitle is-6">{schema.description}</p>{/if}</div></div><div class="level-right"><div class="buttons"><RouterLink class="button is-small" href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`}>Edit schema</RouterLink><RouterLink class="button is-primary is-small" href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`}>New record</RouterLink></div></div></div>{#if recordsStatus === "checking"}<p class="dashboard-empty">Loading records...</p>{:else if recordsStatus === "unavailable"}<p class="dashboard-empty">Records could not be loaded.</p>{:else}<div class="columns is-multiline">{#each records as record (record.id)}<div class="column is-half-tablet is-one-third-desktop"><article class="card"><div class="card-content p-4"><RouterLink class="title is-5 is-block mb-4" href={recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, record.id)}>{#each primaryLines(record.values ?? []) as line}<span class="is-block">{line}</span>{/each}</RouterLink>{#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}{@const item = record.values?.find((candidate) => candidate.attribute === attribute.id)}{#if item !== undefined}{@const href = referencePath(attribute, item)}<div class="block"><p class="heading">{attribute.label}</p>{#if href}<RouterLink href={href}>{#each valueLines(attribute, item) as line}<span class="is-block">{line}</span>{/each}</RouterLink>{:else}<div>{#each valueLines(attribute, item) as line}<span class="is-block">{line}</span>{/each}</div>{/if}</div>{/if}{/each}</div></article></div>{:else}<p class="dashboard-empty">No records yet.</p>{/each}</div>{/if}
+      {:else}<div class="level mb-5"><div class="level-left"><div><p class="eyebrow">Project records</p><h2 class="title is-3">Record schemas</h2><p class="subtitle is-6">Define reusable record types and their fields.</p></div></div><div class="level-right"><RouterLink class="button is-primary" href={`${recordsPath(workspace.id, currentRoute.projectID)}/new`}>New schema</RouterLink></div></div>{#if schemasStatus === "checking"}<p class="dashboard-empty">Loading schemas...</p>{:else if schemasStatus === "unavailable"}<p class="dashboard-empty">Schemas could not be loaded.</p>{:else}<div class="columns is-multiline">{#each schemas as item (item.id)}<div class="column is-half-tablet is-one-third-desktop"><article class="card"><div class="card-content p-4"><RouterLink class="is-block" href={schemaPath(workspace.id, currentRoute.projectID, item.id)}><p class="title is-5">{item.label}</p>{#if item.description !== ""}<p class="subtitle is-6">{item.description}</p>{/if}</RouterLink></div></article></div>{:else}<p class="dashboard-empty">No schemas yet. Create one to begin tracking records.</p>{/each}</div>{/if}{/if}
+      {#if currentRoute.kind === "project-record-schema-edit" && schema !== null}<section class="attribute-editor"><div class="record-list-heading"><div><p class="eyebrow">Schema fields</p><h2>{attributeForm.id === undefined ? "Add field" : `Edit ${attributeForm.label}`}</h2></div></div><form onsubmit={(event) => { event.preventDefault(); void saveAttribute() }}><div class="record-field-grid"><div class="field"><label class="label" for="attribute-name">Name</label><input class="input" id="attribute-name" required disabled={attributeForm.id !== undefined} bind:value={attributeForm.name} /></div><div class="field"><label class="label" for="attribute-label">Label</label><input class="input" id="attribute-label" required bind:value={attributeForm.label} /></div><div class="field"><label class="label" for="attribute-type">Type</label><div class="select is-fullwidth"><select id="attribute-type" bind:value={attributeForm.type}><option value="text">Text</option><option value="number">Number</option><option value="boolean">Boolean</option><option value="datetime">Date and time</option><option value="record">Record reference</option></select></div></div>{#if attributeForm.type === "record"}<div class="field"><label class="label" for="attribute-target">Target schema</label><div class="select is-fullwidth"><select id="attribute-target" required bind:value={attributeForm.target_schema}><option value="" disabled>Select schema</option>{#each schemas as item (item.id)}<option value={item.id}>{item.label}</option>{/each}</select></div></div>{/if}<div class="field"><label class="label" for="attribute-cardinality">Values</label><div class="select is-fullwidth"><select id="attribute-cardinality" bind:value={attributeForm.cardinality}><option value="one">One</option><option value="many">Many</option></select></div></div><div class="field"><label class="label" for="attribute-uniqueness">Uniqueness</label><div class="select is-fullwidth"><select id="attribute-uniqueness" bind:value={attributeForm.uniqueness}><option value="none">None</option><option value="record">Within record</option><option value="global">Across records</option></select></div></div><div class="field"><label class="label" for="attribute-display">Card display</label><div class="select is-fullwidth"><select id="attribute-display" bind:value={attributeForm.display}><option value="none">Hidden</option><option value="primary">Primary</option><option value="secondary">Secondary</option></select></div></div></div><div class="field"><label class="label" for="attribute-description">Description</label><textarea class="textarea" id="attribute-description" rows="2" bind:value={attributeForm.description}></textarea></div><div class="project-note-actions"><button class="button" type="button" onclick={resetAttributeForm}>Cancel</button><button class="button is-primary" type="submit" disabled={saving}>{saving ? "Saving..." : "Save field"}</button></div></form><div class="collection-list">{#each attributes as attribute (attribute.id)}<div class="dashboard-row record-attribute-row"><span class="dashboard-row-content"><strong>{attribute.label}</strong><span>{attribute.name} · {attribute.type} · {attribute.cardinality}</span></span><span class="project-note-actions"><button class="button is-small" type="button" onclick={() => editAttribute(attribute)}>Edit</button><button class="button is-small is-danger is-light" type="button" onclick={() => void deleteAttribute(attribute)}>Remove</button></span></div>{:else}<p class="dashboard-empty">No fields yet.</p>{/each}</div></section>{/if}
+    </section>
+  </WorkspaceFrame>
+{/if}

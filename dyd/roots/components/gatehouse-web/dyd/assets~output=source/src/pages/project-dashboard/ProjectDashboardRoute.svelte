@@ -5,6 +5,7 @@
   import { createProjectChat, fetchProjectChats, type Chat, type ChatSearchResponse } from "../../app/chats"
   import { fetchProjectFiles, finishProjectFileUpload, projectFileDownloadPath, removeProjectFile as deleteProjectFile, startProjectFileUpload, type ProjectFile } from "../../app/project-files"
   import { fetchProjectNotes, type ProjectNote } from "../../app/project-notes"
+  import { fetchProjectRecordSchemas, type ProjectRecordSchema } from "../../app/project-records"
   import { fetchProject, updateProject, type Project } from "../../app/projects"
   import { fetchProjectSecrets, type ProjectSecret } from "../../app/project-secrets"
   import { fetchProjectTasks, type ProjectTask, type TaskAuthor, type TaskStatus } from "../../app/project-tasks"
@@ -35,6 +36,8 @@
   let tasksStatus = $state<Status>("checking")
   let secrets = $state<ProjectSecret[]>([])
   let secretsStatus = $state<Status>("checking")
+  let recordSchemas = $state<ProjectRecordSchema[]>([])
+  let recordSchemasStatus = $state<Status>("checking")
   let actionError = $state("")
   let creatingChat = $state(false)
   let editDialog = $state<HTMLDialogElement | undefined>()
@@ -58,6 +61,8 @@
   const taskPath = (workspaceID: string, projectID: string, taskID: string) => `${tasksPath(workspaceID, projectID)}/${encodeURIComponent(taskID)}`
   const secretsPath = (workspaceID: string, projectID: string) => `${projectPath(workspaceID, projectID)}/secrets`
   const secretPath = (workspaceID: string, projectID: string, secretID: string) => `${secretsPath(workspaceID, projectID)}/${encodeURIComponent(secretID)}`
+  const recordsPath = (workspaceID: string, projectID: string) => `${projectPath(workspaceID, projectID)}/records`
+  const recordSchemaPath = (workspaceID: string, projectID: string, schemaID: string) => `${recordsPath(workspaceID, projectID)}/${encodeURIComponent(schemaID)}`
   const dateLabel = (value: string) => { const date = new Date(value); if (Number.isNaN(date.getTime())) return value; const part = (number: number) => number.toString().padStart(2, "0"); return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}` }
   const sortByCreated = <T extends { id: string; created_at: string }>(loaded: T[]) => [...loaded].sort((left, right) => { const difference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime(); return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id) })
   const sortSecrets = (loaded: ProjectSecret[]) => [...loaded].sort((left, right) => { const difference = new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(); return Number.isFinite(difference) && difference !== 0 ? difference : right.id.localeCompare(left.id) })
@@ -101,6 +106,8 @@
     tasksStatus = "checking"
     secrets = []
     secretsStatus = "checking"
+    recordSchemas = []
+    recordSchemasStatus = "checking"
     actionError = ""
     creatingChat = false
     editError = ""
@@ -119,7 +126,7 @@
     const loaded = await loadProject(value, workspaceID, projectID, signal)
     if (!loaded || !isCurrent(value, workspaceID, projectID)) return
     subscribe(route, value)
-    await Promise.all([loadChats(value, workspaceID, projectID, signal), loadFiles(value, workspaceID, projectID, signal), loadNotes(value, workspaceID, projectID, signal), loadTasks(value, workspaceID, projectID, signal), loadSecrets(value, workspaceID, projectID, signal)])
+    await Promise.all([loadChats(value, workspaceID, projectID, signal), loadFiles(value, workspaceID, projectID, signal), loadNotes(value, workspaceID, projectID, signal), loadTasks(value, workspaceID, projectID, signal), loadSecrets(value, workspaceID, projectID, signal), loadRecordSchemas(value, workspaceID, projectID, signal)])
   }
 
   async function loadProject(value: number, workspaceID: string, projectID: string, signal: AbortSignal, showLoading = true): Promise<boolean> {
@@ -143,9 +150,9 @@
 
   function subscribe(route: DashboardRoute, value: number): void {
     const { workspaceID, projectID } = route
-    unsubscribe = activity.subscribe([{ name: "project-dashboard", topic: `${workspaceID}/${projectID}`, events: ["project.*", "project_file.*", "project_note.*", "project_task.*", "project_secret.*", "session.*"] }], async ({ signal }) => {
+    unsubscribe = activity.subscribe([{ name: "project-dashboard", topic: `${workspaceID}/${projectID}`, events: ["project.*", "project_file.*", "project_note.*", "project_task.*", "project_secret.*", "project_record_schema.*", "session.*"] }], async ({ signal }) => {
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
-      const refreshed = await Promise.all([loadProject(value, workspaceID, projectID, signal, false), loadChats(value, workspaceID, projectID, signal), loadFiles(value, workspaceID, projectID, signal, false), loadNotes(value, workspaceID, projectID, signal, false), loadTasks(value, workspaceID, projectID, signal, false), loadSecrets(value, workspaceID, projectID, signal, false)])
+      const refreshed = await Promise.all([loadProject(value, workspaceID, projectID, signal, false), loadChats(value, workspaceID, projectID, signal), loadFiles(value, workspaceID, projectID, signal, false), loadNotes(value, workspaceID, projectID, signal, false), loadTasks(value, workspaceID, projectID, signal, false), loadSecrets(value, workspaceID, projectID, signal, false), loadRecordSchemas(value, workspaceID, projectID, signal, false)])
       if (!refreshed.every(Boolean) || signal.aborted || !isCurrent(value, workspaceID, projectID)) throw new Error("project dashboard refresh failed")
     })
     void activity.poll()
@@ -222,6 +229,21 @@
       secretsStatus = "ready"
       return true
     } catch { if (isCurrent(value, workspaceID, projectID) && !signal.aborted) secretsStatus = "unavailable"; return false }
+  }
+
+  async function loadRecordSchemas(value: number, workspaceID: string, projectID: string, signal: AbortSignal, showLoading = true): Promise<boolean> {
+    if (showLoading && isCurrent(value, workspaceID, projectID)) recordSchemasStatus = "checking"
+    try {
+      const response = await fetchProjectRecordSchemas(workspaceID, projectID, signal)
+      if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return false
+      if (response.status === 401) { runtime.requireLogin(); return false }
+      if (!response.ok) throw new Error("record schemas unavailable")
+      const loaded = await response.json() as ProjectRecordSchema[]
+      if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return false
+      recordSchemas = sortByCreated(loaded)
+      recordSchemasStatus = "ready"
+      return true
+    } catch { if (isCurrent(value, workspaceID, projectID) && !signal.aborted) recordSchemasStatus = "unavailable"; return false }
   }
 
   async function createChat(): Promise<void> {
@@ -331,6 +353,7 @@
         <section class="dashboard-widget dashboard-widget-wide project-notes-widget"><div class="dashboard-widget-heading"><h2>Project Notes</h2><RouterLink class="button is-primary is-small" href={`${notesPath(workspace.id, project.id)}/new`}>New note</RouterLink></div>{#if notesStatus === "checking"}<p class="dashboard-empty">Loading notes...</p>{:else if notesStatus === "unavailable"}<p class="dashboard-empty">Notes could not be loaded.</p><button class="button is-primary is-small" type="button" onclick={() => void loadNotes(generation, currentRoute.workspaceID, currentRoute.projectID, abortController!.signal)}>Try again</button>{:else}{#each notes as note (note.id)}<RouterLink class="dashboard-row project-note-row" href={notePath(workspace.id, project.id, note.id)}><span class="dashboard-row-content"><span class="project-note-title">{note.title}{#if note.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span>{#if note.description !== ""}<span class="project-note-description">{note.description}</span>{/if}<span class="dashboard-row-meta"><time datetime={note.created_at}>{dateLabel(note.created_at)}</time></span></span></RouterLink>{:else}<p class="dashboard-empty">No notes yet.</p>{/each}{/if}</section>
         <section class="dashboard-widget dashboard-widget-wide"><div class="dashboard-widget-heading"><h2>Project Tasks</h2><RouterLink class="button is-primary is-small" href={`${tasksPath(workspace.id, project.id)}/new`}>New task</RouterLink></div>{#if tasksStatus === "checking"}<p class="dashboard-empty">Loading tasks...</p>{:else if tasksStatus === "unavailable"}<p class="dashboard-empty">Tasks could not be loaded.</p><button class="button is-primary is-small" type="button" onclick={() => void loadTasks(generation, currentRoute.workspaceID, currentRoute.projectID, abortController!.signal)}>Try again</button>{:else}{#each tasks.slice(0, 5) as task (task.id)}<RouterLink class="dashboard-row task-row" href={taskPath(workspace.id, project.id, task.id)}><span class="dashboard-row-content"><span><strong>{task.title}</strong> <span class="task-status task-status-{task.status}">{statusLabel(task.status)}</span>{#if task.sensitive}<span class="sensitive-note-badge">Sensitive</span>{/if}</span><span class="dashboard-row-meta"><time datetime={task.created_at}>{dateLabel(task.created_at)}</time></span></span></RouterLink>{:else}<p class="dashboard-empty">No tasks yet.</p>{/each}{/if}{#if tasks.length > 5}<RouterLink class="dashboard-view-all" href={tasksPath(workspace.id, project.id)}>View all tasks</RouterLink>{/if}</section>
         <section class="dashboard-widget dashboard-widget-wide project-notes-widget"><div class="dashboard-widget-heading"><h2>Project Secrets</h2><RouterLink class="button is-primary is-small" href={`${secretsPath(workspace.id, project.id)}/new`}>New secret</RouterLink></div>{#if secretsStatus === "checking"}<p class="dashboard-empty">Loading secrets...</p>{:else if secretsStatus === "unavailable"}<p class="dashboard-empty">Secrets could not be loaded.</p><button class="button is-primary is-small" type="button" onclick={() => void loadSecrets(generation, currentRoute.workspaceID, currentRoute.projectID, abortController!.signal)}>Try again</button>{:else}{#each secrets as secret (secret.id)}<RouterLink class="dashboard-row project-note-row" href={secretPath(workspace.id, project.id, secret.id)}><span class="dashboard-row-content"><span class="project-note-title">{secret.description}</span><span class="dashboard-row-meta"><span>{secret.author.name ?? secret.author.id}</span><time datetime={secret.updated_at}>Updated {dateLabel(secret.updated_at)}</time></span></span></RouterLink>{:else}<p class="dashboard-empty">No secrets yet.</p>{/each}{/if}{#if secrets.length > 0}<RouterLink class="dashboard-view-all" href={secretsPath(workspace.id, project.id)}>View all secrets</RouterLink>{/if}</section>
+        <section class="dashboard-widget dashboard-widget-wide project-notes-widget"><div class="dashboard-widget-heading"><h2>Project Records</h2></div>{#if recordSchemasStatus === "checking"}<p class="dashboard-empty">Loading record types...</p>{:else if recordSchemasStatus === "unavailable"}<p class="dashboard-empty">Record types could not be loaded.</p><button class="button is-primary is-small" type="button" onclick={() => void loadRecordSchemas(generation, currentRoute.workspaceID, currentRoute.projectID, abortController!.signal)}>Try again</button>{:else}{#each recordSchemas.slice(0, 5) as schema (schema.id)}<RouterLink class="dashboard-row project-note-row" href={recordSchemaPath(workspace.id, project.id, schema.id)}><span class="dashboard-row-content"><span class="project-note-title">{schema.label}</span>{#if schema.description !== ""}<span class="project-note-description">{schema.description}</span>{/if}</span></RouterLink>{:else}<p class="dashboard-empty">No record types yet.</p>{/each}<RouterLink class="dashboard-view-all" href={recordsPath(workspace.id, project.id)}>View all records</RouterLink>{/if}</section>
         {#if actionError !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{actionError}</p>{/if}
       </section>
     {/if}

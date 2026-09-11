@@ -24,6 +24,7 @@
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import TasksRoute from "./pages/tasks/TasksRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
+  import ProjectRecordsRoute from "./pages/project-records/ProjectRecordsRoute.svelte"
   import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
   import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
   import SessionSecretsRoute from "./pages/session-secrets/SessionSecretsRoute.svelte"
@@ -55,6 +56,8 @@
     <TasksRoute />
 {:else if owner === "project-secrets"}
   <ProjectSecretsRoute />
+{:else if owner === "project-records"}
+  <ProjectRecordsRoute />
 {:else if owner === "session-chat"}
   <SessionChatRoute />
 {:else if owner === "session-notes"}
