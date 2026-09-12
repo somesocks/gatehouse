@@ -18,7 +18,7 @@
   }
 </script>
 
-<div class="app-shell">
+<div class="app-shell brand-workspace-frame brand-system-frame">
   {#if mobileMenuOpen}<button class="mobile-menu-backdrop" type="button" aria-label="Close navigation menu" onclick={() => mobileMenuOpen = false}></button>{/if}
   <aside class:mobile-menu-open={mobileMenuOpen} class="sidebar">
     <RouterLink class="brand" href="/app/">Gatehouse</RouterLink>

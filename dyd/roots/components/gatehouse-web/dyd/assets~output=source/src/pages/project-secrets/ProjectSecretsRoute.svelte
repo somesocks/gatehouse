@@ -269,7 +269,7 @@
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
   <main class="auth-shell"><section class="status-card"><p class="eyebrow">Gatehouse</p><h1 class="title is-3">No workspace access</h1><p class="subtitle is-6">Ask an administrator to add you to a workspace group.</p><button class="button is-primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></section></main>
 {:else}
-  <WorkspaceFrame {mobileMenuOpen} onMenuClose={() => mobileMenuOpen = false}>
+  <WorkspaceFrame {mobileMenuOpen} brandTheme onMenuClose={() => mobileMenuOpen = false}>
     {#snippet sidebar()}
       <RouterLink class="brand" href="/app/">Gatehouse</RouterLink>
       <div class="workspace-switcher"><label for="workspace">Workspace</label><div class="select is-fullwidth"><select id="workspace" value={workspace.id} onchange={(event) => runtime.navigate(`/app/wsp/${encodeURIComponent(event.currentTarget.value)}`)}>{#each access.state.workspaces as candidate (candidate.id)}<option value={candidate.id}>{candidate.name ?? candidate.id}</option>{/each}</select></div></div>

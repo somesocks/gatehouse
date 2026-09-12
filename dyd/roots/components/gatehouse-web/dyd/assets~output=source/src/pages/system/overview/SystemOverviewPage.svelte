@@ -6,8 +6,8 @@
 <SystemFrame active="overview" title="Overview">
   <section class="system-page">
     <p class="eyebrow">System</p>
-    <h2 class="title is-3">System administration</h2>
-    <p class="subtitle is-6">Manage global Gatehouse state.</p>
+    <h2 class="system-page-title">System administration</h2>
+    <p class="system-page-intro">Manage global Gatehouse state.</p>
     <RouterLink class="system-section-link" href="/app/system/principals"><span><strong>Principals</strong><small>View and enable or disable principals and their identities.</small></span></RouterLink>
     <RouterLink class="system-section-link" href="/app/system/grants"><span><strong>System grants</strong><small>Grant or revoke system-manager access.</small></span></RouterLink>
     <RouterLink class="system-section-link" href="/app/system/agent-providers"><span><strong>Agent providers</strong><small>Configure model-provider protocols and credentials.</small></span></RouterLink>

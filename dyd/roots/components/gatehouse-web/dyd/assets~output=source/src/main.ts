@@ -1,5 +1,7 @@
-import "bulma/css/bulma.min.css"
 import "katex/dist/katex.min.css"
+import "@fontsource/ibm-plex-sans/500.css"
+import "@fontsource/ibm-plex-sans-condensed/500.css"
+import "@fontsource/ibm-plex-sans-condensed/600.css"
 import "./app.css"
 import { mount } from "svelte"
 

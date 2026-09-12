@@ -33,20 +33,20 @@
   }
 </script>
 
-<section class="dashboard-grid">
-  <section class="dashboard-widget dashboard-widget-wide">
-    <div class="dashboard-widget-heading"><h2>Latest Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void onCreateSession()}>New chat</button></div>
+<section class="brand-dashboard-grid">
+  <section class="brand-dashboard-card">
+    <div class="brand-card-heading"><h2 class="brand-card-title">Latest Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void onCreateSession()}>New chat</button></div>
     {#each sessions as session}
-      <RouterLink class="dashboard-row" href={`${sessionsPath()}/${encodeURIComponent(session.id)}`}><span class="dashboard-row-content"><span>{session.name ?? "New Chat"}</span><span class="dashboard-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></RouterLink>
-    {:else}<p class="dashboard-empty">No chats yet.</p>{/each}
-    {#if sessions.length > 0}<RouterLink class="dashboard-view-all" href={sessionsPath()}>View all chats</RouterLink>{/if}
+      <RouterLink class="brand-dashboard-row" href={`${sessionsPath()}/${encodeURIComponent(session.id)}`}><span class="brand-row-content"><span>{session.name ?? "New Chat"}</span><span class="brand-row-meta"><time datetime={session.created_at}>{createdAtLabel(session.created_at)}</time>{#if session.project !== undefined}<span aria-hidden="true">/</span><span>{session.project.name ?? "New Project"}</span>{/if}</span></span></RouterLink>
+    {:else}<p class="brand-empty">No chats yet.</p>{/each}
+    {#if sessions.length > 0}<RouterLink class="brand-view-all" href={sessionsPath()}>View all chats</RouterLink>{/if}
   </section>
-  <section class="dashboard-widget dashboard-widget-wide">
-    <div class="dashboard-widget-heading"><h2>Latest Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void onCreateProject()}>New project</button></div>
+  <section class="brand-dashboard-card">
+    <div class="brand-card-heading"><h2 class="brand-card-title">Latest Projects</h2><button class="button is-primary is-small" type="button" disabled={creatingProject} onclick={() => void onCreateProject()}>New project</button></div>
     {#each projects as project}
-      <RouterLink class="dashboard-row" href={`${projectsPath()}/${encodeURIComponent(project.id)}`}><span class="dashboard-row-content"><span>{project.name ?? "New Project"}</span><time datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></RouterLink>
-    {:else}<p class="dashboard-empty">No projects yet.</p>{/each}
-    {#if projects.length > 0}<RouterLink class="dashboard-view-all" href={projectsPath()}>View all projects</RouterLink>{/if}
+      <RouterLink class="brand-dashboard-row" href={`${projectsPath()}/${encodeURIComponent(project.id)}`}><span class="brand-row-content"><span>{project.name ?? "New Project"}</span><time class="brand-row-meta" datetime={project.created_at}>{createdAtLabel(project.created_at)}</time></span></RouterLink>
+    {:else}<p class="brand-empty">No projects yet.</p>{/each}
+    {#if projects.length > 0}<RouterLink class="brand-view-all" href={projectsPath()}>View all projects</RouterLink>{/if}
   </section>
-  {#if error !== ""}<p class="help is-danger dashboard-error" aria-live="polite">{error}</p>{/if}
+  {#if error !== ""}<p class="help is-danger brand-error" aria-live="polite">{error}</p>{/if}
 </section>
