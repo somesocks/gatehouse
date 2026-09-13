@@ -35,6 +35,18 @@ agent_models:
       buffer_bytes: 24576
     max_turns: 127
     max_output_tokens: 16000
+  - alias: openai-luna-high
+    revision: 4
+    provider: openai
+    model: gpt-5.6-luna
+    parameters:
+      reasoning_effort: high
+    compaction:
+      algorithm: mcmtr
+      history_bytes: 196608
+      buffer_bytes: 24576
+    max_turns: 127
+    max_output_tokens: 16000
 storage_providers:
   - alias: local-s3
     revision: 1
@@ -51,16 +63,21 @@ workspaces:
   - alias: development
     name: Development
     agents:
-      - alias: luna-low
-        model: openai-luna-low
+      - alias: luna-high
+        model: openai-luna-high
         revision: 1
-        label: GPT 5.6 Luna Low
+        label: GPT 5.6 Luna High
         priority: 1
       - alias: luna-medium
         model: openai-luna-medium
         revision: 1
-        label: GPT 5.6 Luna Medium
-        priority: 1
+        label: GPT 5.6 Luna Med
+        priority: 2
+      - alias: luna-low
+        model: openai-luna-low
+        revision: 1
+        label: GPT 5.6 Luna Low
+        priority: 3
     storage_providers:
       - provider: local-s3
         revision: 1
