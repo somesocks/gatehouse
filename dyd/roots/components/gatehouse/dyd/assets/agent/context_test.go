@@ -82,6 +82,39 @@ func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T
 	}
 }
 
+func TestCompileMCMTRContextCapsNativeToolResultContent(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
+	active := event(session, "active", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
+	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(read)", "reason": "Read the value.", "batch": float64(0), "position": float64(0)})
+	call.Parent = &active.Ref
+	rawOutput := strings.Repeat("x", mcmtrToolResultContentMaximumBytes+1)
+	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"output": rawOutput})
+	result.Parent = &call.Ref
+
+	messages, _, err := compileMCMTRContext([]model.SessionEvent{active, call, result}, active.Ref, mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: contextBufferBytes}, mcmtrContextState{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 3 || messages[2].Role != "tool" || messages[2].ToolCallID != "call-1" {
+		t.Fatalf("messages = %#v", messages)
+	}
+	content := messages[2].Content
+	if !strings.Contains(content, `truncated="true"`) || !strings.Contains(content, `size-bytes="4097"`) || !strings.Contains(content, `shown-bytes="4096"`) {
+		t.Fatalf("tool output metadata = %q", content)
+	}
+	outputStart := strings.Index(content, "<output")
+	if outputStart < 0 {
+		t.Fatalf("tool output = %q", content)
+	}
+	outputStart += strings.Index(content[outputStart:], ">") + 1
+	outputEnd := strings.Index(content[outputStart:], "</output>")
+	if outputEnd < 0 || content[outputStart:outputStart+outputEnd] != rawOutput[:mcmtrToolResultContentMaximumBytes] {
+		t.Fatalf("shown tool output = %q", content)
+	}
+}
+
 func TestCompileMCMTRContextAppendsResolvedToolBatches(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}

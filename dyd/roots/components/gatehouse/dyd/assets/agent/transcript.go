@@ -225,6 +225,8 @@ type mcmtrText struct {
 	shownBytes int
 }
 
+const mcmtrToolResultContentMaximumBytes = 4 * 1024
+
 type mcmtrRecord struct {
 	event    model.SessionEvent
 	kind     string
@@ -290,7 +292,7 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 			continue
 		}
 		if high[record.event.Ref.Id] {
-			record.contents = mcmtrLimitText(record.contents.value, max(0, remaining[record.stream]-512))
+			record.contents = mcmtrLimitExistingText(record.contents, max(0, remaining[record.stream]-512))
 			remaining[record.stream] = max(0, remaining[record.stream]-mcmtrRecordCost(record))
 			highRecords = append(highRecords, record)
 			continue
@@ -306,7 +308,7 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 	selected := append([]mcmtrRecord(nil), highRecords...)
 	for index := len(lowerRecords) - 1; index >= 0; index-- {
 		record := lowerRecords[index]
-		record.contents = mcmtrLimitText(record.contents.value, max(0, min(1024, shared-512)))
+		record.contents = mcmtrLimitExistingText(record.contents, max(0, min(1024, shared-512)))
 		if mcmtrRecordCost(record) > shared {
 			continue
 		}
@@ -363,7 +365,7 @@ func mcmtrRecordMessages(records []mcmtrRecord) []openAICompatibleMessage {
 			continue
 		}
 		if batch, ok := resultBatches[record.event.Ref.Id]; ok {
-			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: batch.resultCallIDs[record.event.Ref.Id], Content: transcriptToolResultEvent(transcriptToolOutput{Event: record.event, Status: record.status}, record.contents.value)})
+			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: batch.resultCallIDs[record.event.Ref.Id], Content: transcriptToolResultEvent(transcriptToolOutput{Event: record.event, Status: record.status, Truncated: record.contents.truncated, Omitted: record.contents.omitted, SizeBytes: record.contents.sizeBytes, ShownBytes: record.contents.shownBytes}, record.contents.value)})
 			continue
 		}
 		messages = append(messages, mcmtrHistoryMessage(record))
@@ -398,7 +400,7 @@ func mcmtrNativeBatches(records []mcmtrRecord) []mcmtrNativeBatch {
 			}
 			candidates[key].calls = append(candidates[key].calls, candidateCall{record: record, position: int(position)})
 		case "tool-result":
-			if !record.contents.truncated && !record.contents.omitted && record.event.Parent != nil {
+			if !record.contents.omitted && record.event.Parent != nil {
 				results[record.event.Parent.Id] = record
 			}
 		}
@@ -557,13 +559,20 @@ func mcmtrHighTier(records []mcmtrRecord, state mcmtrContextState, buffer int) (
 }
 
 func mcmtrLimitText(value string, limit int) mcmtrText {
-	content := mcmtrText{value: value, sizeBytes: len(value), shownBytes: len(value)}
-	if limit <= 0 && len(value) > 0 {
+	return mcmtrLimitExistingText(mcmtrText{value: value, sizeBytes: len(value), shownBytes: len(value)}, limit)
+}
+
+// mcmtrLimitExistingText retains the raw-size metadata from an earlier cap.
+func mcmtrLimitExistingText(content mcmtrText, limit int) mcmtrText {
+	if !content.truncated && !content.omitted && content.sizeBytes == 0 && content.shownBytes == 0 {
+		content.sizeBytes, content.shownBytes = len(content.value), len(content.value)
+	}
+	if limit <= 0 && len(content.value) > 0 {
 		content.value, content.omitted, content.shownBytes = "", true, 0
 		return content
 	}
-	if limit < len(value) {
-		content.value, content.shownBytes = transcriptPreview(value, limit)
+	if limit < len(content.value) {
+		content.value, content.shownBytes = transcriptPreview(content.value, limit)
 		content.truncated = true
 	}
 	return content
@@ -622,7 +631,7 @@ func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
 		if !ok {
 			return mcmtrRecord{}, false, fmt.Errorf("session tool output %q has no text output", event.Ref.Id)
 		}
-		record.kind, record.contents.value, record.channel = "tool-result", output, toolResultSchedule
+		record.kind, record.contents, record.channel = "tool-result", mcmtrLimitText(output, mcmtrToolResultContentMaximumBytes), toolResultSchedule
 		if event.Kind == "tool.success" {
 			record.status = "success"
 		} else {
