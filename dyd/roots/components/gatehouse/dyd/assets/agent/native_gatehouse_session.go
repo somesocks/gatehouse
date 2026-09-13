@@ -5,10 +5,16 @@ import (
 	"strings"
 
 	"gatehouse/lisp"
+	"gatehouse/sessionsearch"
 	"gatehouse/typed_id"
 )
 
 const gatehouseSessionModuleID = "native:gatehouse/session/v1"
+
+const (
+	sessionEventSearchResultMaximumBytes  = 3 << 10
+	sessionEventSearchResultMaximumRanges = 8
+)
 
 // SessionNotes contains the authorized notes in the current session.
 type SessionNotes struct {
@@ -35,7 +41,8 @@ var (
 	fileInfoDocumentation                 = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata for an sfi_ ID, or null when the file is unavailable.", "(session/files/info \"sfi_example-file-id\")", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	fileReadDocumentation                 = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful current-session file with an sfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"sfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
 	fileCreateDocumentation               = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
-	sessionEventReadDocumentation         = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from a message text or tool result in the current session. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
+	sessionEventReadDocumentation         = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from current-session message text, tool request code and reason, tool results, or approval descriptions. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
+	sessionEventSearchDocumentation       = capabilityDocumentation{"(session/events/search expression [cursor]) -> List", "Searches current-session message text, tool request code and reason, tool results, and approval descriptions using a constrained Lisp source expression with strings and non-empty and/or forms. Returns newest-first matches, byte ranges for session/events/read, and an optional next_cursor.", "(session/events/search \"(and \\\"Conroe\\\" \\\"ordinance\\\")\")", "((events . (((id . \"sev_...\") (kind . \"tool.success\") (size . 12) (preview . \"...\") (matches . (((offset . 0) (length . 7))))))) (next_cursor))"}
 	sessionSecretListDocumentation        = capabilityDocumentation{"(session/secrets/list) -> List", "Returns public metadata for secrets in the current session. Secret values are not included.", "(session/secrets/list)", "((id . \"ssc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	sessionSecretReadDocumentation        = capabilityDocumentation{"(session/secrets/read id) -> Bytes", "Reads an encrypted session secret by ID. The returned Bytes are secret-tainted.", "(session/secrets/read \"ssc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	sessionNoteListDocumentation          = capabilityDocumentation{"(session/notes/list) -> List", "Returns notes in the current session with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(session/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this session works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
@@ -54,22 +61,34 @@ var (
 
 // NewSessionModule constructs the session capability module for one agent evaluation.
 func NewSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, nil, nil, eventReads...)
+	return newSessionModule(files, read, create, notes, nil, nil, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, nil, secrets, eventReads...)
+	return newSessionModule(files, read, create, notes, nil, secrets, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, tasks, nil, eventReads...)
+	return newSessionModule(files, read, create, notes, tasks, nil, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithSecretsAndTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, notes, tasks, secrets, eventReads...)
+	return newSessionModule(files, read, create, notes, tasks, secrets, firstSessionEventRead(eventReads), nil)
 }
 
-func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
+// NewSessionModuleWithSecretsTasksAndEventSearch adds current-session event search.
+func NewSessionModuleWithSecretsTasksAndEventSearch(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
+	return newSessionModule(files, read, create, notes, tasks, secrets, eventRead, eventSearch)
+}
+
+func firstSessionEventRead(reads []SessionEventRead) SessionEventRead {
+	if len(reads) == 0 {
+		return nil
+	}
+	return reads[0]
+}
+
+func newSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
 	fileRead := unavailableRead("session/files/read")
 	if read != nil {
 		fileRead = fileReadFunction(read, "session/files/read", typed_id.SessionFile, "session")
@@ -80,9 +99,13 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 	if create != nil {
 		fileCreate = sessionFileCreateFunction(create, "session/files/create")
 	}
-	eventRead := unavailableRead("session/events/read")
-	if len(eventReads) > 0 && eventReads[0] != nil {
-		eventRead = sessionEventReadFunction(eventReads[0], "session/events/read")
+	eventReadFunction := unavailableRead("session/events/read")
+	if eventRead != nil {
+		eventReadFunction = sessionEventReadFunction(eventRead, "session/events/read")
+	}
+	eventSearchFunction := unavailableSessionEventSearch("session/events/search")
+	if eventSearch != nil {
+		eventSearchFunction = sessionEventSearchFunction(eventSearch, "session/events/search")
 	}
 	notesList, noteRead := sessionNoteListFunction(nil, "session/notes/list"), unavailableRead("session/notes/read")
 	noteRevisionsList, noteRevisionRead := unavailableNoteRevisionList("session/notes/revisions/list"), unavailableRead("session/notes/revisions/read")
@@ -142,7 +165,8 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(fileInfoFunction(files, "session/files/info", typed_id.SessionFile, "session")), fileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
-		{Name: "events/read", Value: document(lisp.Function(eventRead), sessionEventReadDocumentation)},
+		{Name: "events/read", Value: document(lisp.Function(eventReadFunction), sessionEventReadDocumentation)},
+		{Name: "events/search", Value: document(lisp.FunctionNonLeaky(eventSearchFunction), sessionEventSearchDocumentation)},
 		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), sessionSecretListDocumentation)},
 		{Name: "secrets/read", Value: document(lisp.Function(secretRead), sessionSecretReadDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
@@ -158,6 +182,82 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, not
 		{Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), sessionTaskUpdateDocumentation)},
 		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), sessionTaskRemoveDocumentation)},
 	}}
+}
+
+func unavailableSessionEventSearch(name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func([]lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("%s is unavailable", name), nil
+	}
+}
+
+func sessionEventSearchFunction(search SessionEventSearch, name string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) < 1 || len(arguments) > 2 {
+			return lisp.Errorf("%s requires an expression and optional cursor", name), nil
+		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || (len(arguments) == 2 && lisp.TaintOf(arguments[1]) != lisp.TaintNone) {
+			return lisp.Errorf("%s expression and cursor must not be sensitive", name), nil
+		}
+		err, expression := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		cursor := ""
+		if len(arguments) == 2 {
+			err, cursor = lisp.RequireString(arguments[1])
+			if err != nil {
+				return err, nil
+			}
+		}
+		err, result := search(expression, cursor)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		events := make([]lisp.Expr, 0, len(result.Events))
+		nextCursor := result.NextCursor
+		for _, event := range result.Events {
+			candidate := append(append([]lisp.Expr{}, events...), sessionEventSearchEventValue(event))
+			if len(sessionEventSearchResultValue(candidate, nextCursor).String()) > sessionEventSearchResultMaximumBytes {
+				if len(events) > 0 {
+					nextCursor = sessionsearch.NextCursor(expression, result.Events[len(events)-1].ID)
+				}
+				break
+			}
+			events = candidate
+		}
+		return nil, sessionEventSearchResultValue(events, nextCursor)
+	}
+}
+
+func sessionEventSearchEventValue(event sessionsearch.EventResult) lisp.Expr {
+	matches := make([]lisp.Expr, 0, len(event.Matches))
+	for _, match := range event.Matches {
+		if len(matches) == sessionEventSearchResultMaximumRanges {
+			break
+		}
+		matches = append(matches, lisp.List(
+			lisp.Pair("offset", lisp.Integer(match.Offset)),
+			lisp.Pair("length", lisp.Integer(match.Length)),
+		))
+	}
+	return lisp.List(
+		lisp.Pair("id", lisp.String(event.ID)),
+		lisp.Pair("kind", lisp.String(event.Kind)),
+		lisp.Pair("size", lisp.Integer(event.Size)),
+		lisp.Pair("preview", lisp.String(event.Preview)),
+		lisp.Pair("matches", lisp.List(matches...)),
+	)
+}
+
+func sessionEventSearchResultValue(events []lisp.Expr, cursor string) lisp.Expr {
+	next := lisp.Null()
+	if cursor != "" {
+		next = lisp.String(cursor)
+	}
+	return lisp.List(
+		lisp.Pair("events", lisp.List(events...)),
+		lisp.Pair("next_cursor", next),
+	)
 }
 
 func sessionNoteUpdateFunction(update SessionNoteUpdate, name string) func([]lisp.Expr) (error, lisp.Expr) {

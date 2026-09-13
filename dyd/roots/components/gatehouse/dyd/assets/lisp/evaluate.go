@@ -158,10 +158,10 @@ func functionWithContext(leaky bool, call func(*FunctionContext, []Expr) (error,
 
 // FunctionContext invokes Lisp values while a context-aware host function runs.
 type FunctionContext struct {
-	mutex                  sync.Mutex
-	evaluator              *evaluator
-	environment            *environment
-	active                 bool
+	mutex       sync.Mutex
+	evaluator   *evaluator
+	environment *environment
+	active      bool
 }
 
 func (context *FunctionContext) Call(callee Expr, arguments ...Expr) (error, Expr) {
@@ -196,13 +196,21 @@ func Document(expression Expr, signature, description, example, result string) E
 	return withHelp(expression, doc(signature, description, example, result).text())
 }
 func RequireString(expression Expr) (error, string) { return requireString(expression) }
+func RequireSymbol(expression Expr) (error, string) {
+	base, _ := unwrap(expression)
+	symbol, ok := base.(*symbolExpr)
+	if !ok {
+		return expressionError("expected a symbol"), ""
+	}
+	return nil, symbol.value
+}
 func RequireInteger(expression Expr) (error, int64) { return requireInteger(expression) }
 func RequireBytes(expression Expr) (error, []byte) {
 	err, value := requireBytes(expression)
 	return err, []byte(value)
 }
-func Errorf(format string, args ...any) error       { return expressionError(format, args...) }
-func MarkSensitive(expression Expr) Expr             { return withTaint(expression, TaintSensitive) }
-func MarkSecret(expression Expr) Expr                { return withTaint(expression, TaintSecret) }
-func IsSensitive(expression Expr) bool               { return TaintOf(expression) == TaintSensitive }
-func IsSecret(expression Expr) bool                  { return TaintOf(expression) == TaintSecret }
+func Errorf(format string, args ...any) error { return expressionError(format, args...) }
+func MarkSensitive(expression Expr) Expr      { return withTaint(expression, TaintSensitive) }
+func MarkSecret(expression Expr) Expr         { return withTaint(expression, TaintSecret) }
+func IsSensitive(expression Expr) bool        { return TaintOf(expression) == TaintSensitive }
+func IsSecret(expression Expr) bool           { return TaintOf(expression) == TaintSecret }

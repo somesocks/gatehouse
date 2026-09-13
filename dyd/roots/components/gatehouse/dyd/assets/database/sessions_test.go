@@ -14,6 +14,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
+	"gatehouse/sessionsearch"
 	"gatehouse/typed_id"
 
 	"github.com/oklog/ulid/v2"
@@ -391,10 +392,10 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals:     []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels: []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:      []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Priority: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -1170,6 +1171,70 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000005', 'sev_00000000000000000000000005', 'message.text', ?, '{}', '2026-01-01T00:00:00.000Z')
 	`, workspace.Id, alice.Id); err == nil {
 		t.Fatal("session events accepted a self parent")
+	}
+}
+
+func TestSessionEventsSearch(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range []model.SessionEvent{
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "Conroe ordinance"}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"output": "Conroe zoning"}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Kind: "gateway.notice", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "Conroe ordinance"}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Kind: "approval.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"description": "Approve Conroe ordinance"}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Kind: "tool.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": `say "Conroe"`, "reason": "Explain the quote."}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000005"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": float64(42)}},
+	} {
+		if err, _ := store.SessionEventsCreate(ctx, event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	err, expression := sessionsearch.Parse(`(and "conroe" (or "ordinance" "zoning"))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, events, more := store.SessionEventsSearch(ctx, session, expression, "", 2)
+	if err != nil || !more || len(events) != 2 || events[0].Ref.Id != "sev_00000000000000000000000003" || events[1].Ref.Id != "sev_00000000000000000000000001" {
+		t.Fatalf("SessionEventsSearch() = (%#v, %t, %v)", events, more, err)
+	}
+	err, events, more = store.SessionEventsSearch(ctx, session, expression, events[1].Ref.Id, 2)
+	if err != nil || more || len(events) != 1 || events[0].Ref.Id != "sev_00000000000000000000000000" {
+		t.Fatalf("SessionEventsSearch() second page = (%#v, %t, %v)", events, more, err)
+	}
+	err, expression = sessionsearch.Parse(`"\"Conroe\""`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, events, more = store.SessionEventsSearch(ctx, session, expression, "", 2)
+	if err != nil || more || len(events) != 1 || events[0].Ref.Id != "sev_00000000000000000000000004" {
+		t.Fatalf("SessionEventsSearch() quoted request = (%#v, %t, %v)", events, more, err)
+	}
+	err, expression = sessionsearch.Parse(`"42"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, events, more = store.SessionEventsSearch(ctx, session, expression, "", 2)
+	if err != nil || more || len(events) != 0 {
+		t.Fatalf("SessionEventsSearch() malformed text = (%#v, %t, %v)", events, more, err)
 	}
 }
 

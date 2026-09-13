@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"gatehouse/lisp"
+	"gatehouse/sessionsearch"
 	"gatehouse/typed_id"
 )
 
@@ -45,6 +46,15 @@ type SessionFileCreate func(name, mediaType string, source io.Reader) (error, st
 
 // SessionEventRead reads an authorized byte range from a current-session event.
 type SessionEventRead func(id string, offset, length int64) (error, []byte)
+
+// SessionEventSearchResult is one bounded page of current-session event matches.
+type SessionEventSearchResult struct {
+	Events     []sessionsearch.EventResult
+	NextCursor string
+}
+
+// SessionEventSearch searches authorized current-session event bodies.
+type SessionEventSearch func(expression, cursor string) (error, SessionEventSearchResult)
 
 // ProjectNoteCreate creates an authorized project note.
 type ProjectNoteCreate func(title, description, body string, sensitive bool) (error, ProjectNote)

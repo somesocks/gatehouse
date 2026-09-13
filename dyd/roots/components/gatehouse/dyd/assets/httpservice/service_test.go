@@ -452,6 +452,21 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if len(polled) != 1 || polled[0].Event.Ref != event.Ref || len(polled[0].Children) != 0 {
 		t.Fatalf("GET events response = %#v", polled)
 	}
+	search := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events/search", `{"expression":"\"HEL\""}`)
+	if search.Code != http.StatusOK || search.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("POST event search = status %d cache %q", search.Code, search.Header().Get("Cache-Control"))
+	}
+	var searched sessionEventSearchResponse
+	if err := json.Unmarshal(search.Body.Bytes(), &searched); err != nil {
+		t.Fatal(err)
+	}
+	if len(searched.Events) != 1 || searched.Events[0].ID != event.Ref.Id || searched.Events[0].Kind != "message.text" || searched.Events[0].Size != 5 || len(searched.Events[0].Matches) != 1 || searched.Events[0].Matches[0].Offset != 0 || searched.Events[0].Matches[0].Length != 3 {
+		t.Fatalf("POST event search response = %#v", searched)
+	}
+	invalidSearch := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events/search", `{"expression":"(not \"hello\")"}`)
+	if invalidSearch.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid event search = status %d body %q", invalidSearch.Code, invalidSearch.Body.String())
+	}
 	parentTimestamp, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)
 	if err != nil {
 		t.Fatal(err)

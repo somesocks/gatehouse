@@ -23,6 +23,7 @@ import (
 	"gatehouse/database"
 	"gatehouse/keychain"
 	"gatehouse/model"
+	"gatehouse/sessionsearch"
 	"gatehouse/typed_id"
 )
 
@@ -181,6 +182,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/secrets/{secret}", workspaceSessionSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/activity", activity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events/search", workspaceSessionEventSearch(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
@@ -366,6 +368,29 @@ type sessionMessageRequest struct {
 	Text        string   `json:"text"`
 	Agent       string   `json:"agent"`
 	Attachments []string `json:"attachments"`
+}
+
+type sessionEventSearchRequest struct {
+	Expression string `json:"expression"`
+	Cursor     string `json:"cursor,omitempty"`
+}
+
+type sessionEventSearchMatchResponse struct {
+	Offset int64 `json:"offset"`
+	Length int64 `json:"length"`
+}
+
+type sessionEventSearchEventResponse struct {
+	ID      string                            `json:"id"`
+	Kind    string                            `json:"kind"`
+	Size    int64                             `json:"size"`
+	Preview string                            `json:"preview"`
+	Matches []sessionEventSearchMatchResponse `json:"matches"`
+}
+
+type sessionEventSearchResponse struct {
+	Events     []sessionEventSearchEventResponse `json:"events"`
+	NextCursor string                            `json:"next_cursor,omitempty"`
 }
 
 type sessionFileCreateRequest struct {
@@ -3318,6 +3343,73 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			entries[index].Event = hydrated[index]
 		}
 		writeJSON(response, sessionEventTrees(entries))
+	}
+}
+
+func workspaceSessionEventSearch(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		claims, ok := authenticate(response, request, tokens)
+		if !ok {
+			return
+		}
+		workspaceID := request.PathValue("workspace")
+		sessionID := request.PathValue("session")
+		if workspaceID == "" || !typed_id.Valid(typed_id.Session, sessionID) {
+			http.NotFound(response, request)
+			return
+		}
+		session := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, authorized := store.SessionGet(request.Context(), session, claims.Principal.Ref)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if authorized == nil {
+			http.NotFound(response, request)
+			return
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 8<<10))
+		decoder.DisallowUnknownFields()
+		input := sessionEventSearchRequest{}
+		if err := decoder.Decode(&input); err != nil {
+			http.Error(response, "invalid session event search request", http.StatusBadRequest)
+			return
+		}
+		err, expression := sessionsearch.Parse(input.Expression)
+		if err != nil {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+		err, beforeID := sessionsearch.Cursor(input.Expression, input.Cursor)
+		if err != nil {
+			http.Error(response, err.Error(), http.StatusBadRequest)
+			return
+		}
+		err, events, more := store.SessionEventsSearch(request.Context(), session, expression, beforeID, 8)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		result := sessionEventSearchResponse{Events: make([]sessionEventSearchEventResponse, 0, len(events))}
+		for _, event := range events {
+			entry, matches := sessionsearch.Result(event, expression)
+			if !matches {
+				continue
+			}
+			locations := make([]sessionEventSearchMatchResponse, len(entry.Matches))
+			for index, location := range entry.Matches {
+				locations[index] = sessionEventSearchMatchResponse{Offset: location.Offset, Length: location.Length}
+			}
+			result.Events = append(result.Events, sessionEventSearchEventResponse{ID: entry.ID, Kind: entry.Kind, Size: entry.Size, Preview: entry.Preview, Matches: locations})
+		}
+		if more && len(events) > 0 {
+			result.NextCursor = sessionsearch.NextCursor(input.Expression, events[len(events)-1].Ref.Id)
+		}
+		writeJSON(response, result)
 	}
 }
 

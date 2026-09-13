@@ -7,6 +7,7 @@ import (
 
 	"gatehouse/lisp"
 	"gatehouse/model"
+	"gatehouse/sessionsearch"
 )
 
 func TestGatehouseSessionNoteCreate(t *testing.T) {
@@ -77,15 +78,44 @@ func TestGatehouseSessionNoteUpdate(t *testing.T) {
 		Bindings: []lisp.Binding{{Name: "body", Value: lisp.MarkSensitive(lisp.String("# Decision"))}},
 		HostModules: []lisp.HostModule{
 			NewSessionModule(nil, nil, nil, &SessionNotes{Update: func(id, title, description, body string, sensitive bool) (error, SessionNote) {
-			if id != "note" || title != "Decision" || description != "Updated" || body != "# Decision" || !sensitive {
-				t.Fatalf("session note update = (%q, %q, %q, %q, %t)", id, title, description, body, sensitive)
-			}
-			return nil, SessionNote{ID: id, Title: title, Description: description, Sensitive: true, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 2}
+				if id != "note" || title != "Decision" || description != "Updated" || body != "# Decision" || !sensitive {
+					t.Fatalf("session note update = (%q, %q, %q, %q, %t)", id, title, description, body, sensitive)
+				}
+				return nil, SessionNote{ID: id, Title: title, Description: description, Sensitive: true, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z", Revision: 2}
 			}}),
 		},
 	})
 	if err != nil || result.String() != `((id . "note") (title . "Decision") (description . "Updated") (sensitive . #t) (author_id . "agent") (author_name) (created_at . "2026-01-01T00:00:00.000Z") (revision . 2))` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseSessionEventSearch(t *testing.T) {
+	called := false
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/events/search "(and \"Conroe\" \"ordinance\")"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
+			called = true
+			if expression != `(and "Conroe" "ordinance")` || cursor != "" {
+				t.Fatalf("session event search = (%q, %q)", expression, cursor)
+			}
+			return nil, SessionEventSearchResult{Events: []sessionsearch.EventResult{{ID: "sev_00000000000000000000000000", Kind: "tool.success", Size: 16, Preview: "Conroe ordinance", Matches: []sessionsearch.Range{{Offset: 0, Length: 7}, {Offset: 8, Length: 9}}}}}
+		})},
+	})
+	if err != nil || !called || !strings.Contains(result.String(), `"sev_00000000000000000000000000"`) || !strings.Contains(result.String(), `(offset . 8)`) {
+		t.Fatalf("Evaluate() = (%s, %v), called = %t", result, err, called)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (error/value (error/catch (session/events/search "(not \"Conroe\")"))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
+			return lisp.Errorf("unsupported expression"), SessionEventSearchResult{}
+		})},
+	})
+	if err != nil || result.String() != `"session/events/search failed"` {
+		t.Fatalf("Evaluate() invalid search = (%s, %v)", result, err)
 	}
 }
 
@@ -194,8 +224,11 @@ func TestSessionEventReadRange(t *testing.T) {
 		{name: "message UTF-8 bytes", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "aéz"}}, offset: 1, length: 2, output: "é"},
 		{name: "tool success", event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "done"}}, offset: 0, length: 4096, output: "done"},
 		{name: "tool failure", event: model.SessionEvent{Kind: "tool.failure", Payload: map[string]interface{}{"output": "failure"}}, offset: 2, length: 8, output: "ilure"},
+		{name: "tool request", event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": `say "Conroe"`, "reason": "Explain the quote."}}, offset: 0, length: 4096, output: "say \"Conroe\"\nExplain the quote."},
+		{name: "approval request", event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": `Approve "Conroe"`}}, offset: 0, length: 4096, output: `Approve "Conroe"`},
 		{name: "other kind", event: model.SessionEvent{Kind: "thinking.completed", Payload: map[string]interface{}{}}, offset: 0, length: 1, output: "{"},
 		{name: "missing payload", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{}}, offset: 0, length: 1, fails: true},
+		{name: "invalid tool request", event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": "", "reason": "reason"}}, offset: 0, length: 1, fails: true},
 		{name: "unavailable offset", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "hello"}}, offset: 6, length: 1, fails: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -21,6 +21,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/model"
+	"gatehouse/sessionsearch"
 	"gatehouse/storage"
 	"gatehouse/typed_id"
 )
@@ -643,6 +644,31 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		}
 		return sessionEventReadRange(*event, offset, length)
 	}
+	sessionEventSearch := func(source, cursor string) (error, SessionEventSearchResult) {
+		err, expression := sessionsearch.Parse(source)
+		if err != nil {
+			return err, SessionEventSearchResult{}
+		}
+		err, beforeID := sessionsearch.Cursor(source, cursor)
+		if err != nil {
+			return err, SessionEventSearchResult{}
+		}
+		err, events, more := runtime.store.SessionEventsSearch(ctx, input.Request.Ref.Session, expression, beforeID, 8)
+		if err != nil {
+			return err, SessionEventSearchResult{}
+		}
+		result := SessionEventSearchResult{Events: make([]sessionsearch.EventResult, 0, len(events))}
+		for _, event := range events {
+			entry, matches := sessionsearch.Result(event, expression)
+			if matches {
+				result.Events = append(result.Events, entry)
+			}
+		}
+		if more && len(events) > 0 {
+			result.NextCursor = sessionsearch.NextCursor(source, events[len(events)-1].Ref.Id)
+		}
+		return nil, result
+	}
 	err, secretSummaries := runtime.store.SessionSecretsGet(ctx, input.Request.Ref.Session, input.Principal)
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
@@ -678,7 +704,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	modules := []lisp.HostModule{
 		NewProjectModuleWithSecretsAndRecords(projectInfo, projectFiles, projectNotes, projectSecrets, projectRecords, projectTasks),
-		NewSessionModuleWithSecretsAndTasks(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead),
+		NewSessionModuleWithSecretsTasksAndEventSearch(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead, sessionEventSearch),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
@@ -735,24 +761,7 @@ func watchCancellation(requested func(context.Context) bool, cancel context.Canc
 }
 
 func sessionEventReadRange(event model.SessionEvent, offset, length int64) (error, []byte) {
-	var output string
-	var available bool
-	switch event.Kind {
-	case "message.text":
-		output, available = event.Payload["text"].(string)
-	case "tool.request":
-		call, err := openAICompatibleStoredToolCall(event)
-		if err == nil {
-			output, available = call.Function.Arguments, true
-		}
-	case "tool.success", "tool.failure":
-		output, available = event.Payload["output"].(string)
-	default:
-		encoded, err := json.Marshal(event.Payload)
-		if err == nil {
-			output, available = string(encoded), true
-		}
-	}
+	output, available := sessionsearch.EventReadableBody(event)
 	if !available {
 		return fmt.Errorf("read session event: unavailable"), nil
 	}
