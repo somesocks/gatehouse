@@ -1,5 +1,8 @@
+# dryad artifacts
 /dyd/heap/
 /dyd/sprouts/
 /dyd/shed/heap/
 /dyd/shed/scopes/default
+
+# for the local-dev env file
 /local-dev.env
