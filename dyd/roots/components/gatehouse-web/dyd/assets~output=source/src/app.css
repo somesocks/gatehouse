@@ -149,11 +149,11 @@ body {
 }
 
 .hero,
-.auth-shell {
+.status-page {
   min-height: 100vh;
 }
 
-.auth-shell {
+.status-page {
   background: var(--brand-canvas);
   color: var(--brand-text);
   display: grid;
@@ -168,9 +168,9 @@ body {
 .login-card,
 .status-card {
   width: min(100%, 27rem);
-  border: 1px solid var(--brand-border);
+  border: 0;
   border-radius: calc(var(--brand-radius) * 2);
-  background: var(--brand-surface);
+  background: var(--brand-canvas-2);
   box-shadow: none;
   padding: 2rem;
 }
@@ -193,20 +193,20 @@ body {
   margin-bottom: 2rem;
 }
 
-.auth-shell .eyebrow { color: var(--brand-text-muted); font-weight: var(--brand-font-weight); letter-spacing: 0.08em; }
-.auth-shell .label { color: var(--brand-text); font-size: 0.8125rem; font-weight: var(--brand-font-weight); letter-spacing: 0.04em; text-transform: uppercase; }
-.auth-shell .input { background: var(--brand-surface-raised); border-color: var(--brand-border); border-radius: var(--brand-radius); box-shadow: none; color: var(--brand-text); font: inherit; }
-.auth-shell .input:focus { border-color: var(--brand-focus); box-shadow: 0 0 0 1px var(--brand-focus); }
-.auth-shell .help.is-danger { color: var(--brand-accent); text-decoration: underline; }
-.auth-shell .button { background: var(--brand-surface); border-color: var(--brand-border); border-radius: var(--brand-radius); box-shadow: none; color: var(--brand-text); font-family: var(--brand-font-body); font-weight: var(--brand-font-weight); }
-.auth-shell .button.is-primary { background: var(--brand-primary); border-color: var(--brand-primary); color: var(--brand-on-primary); }
-.auth-shell .button.is-primary.is-light,
-.auth-shell .button.is-danger.is-light { background: transparent; }
-.auth-shell .button.is-primary.is-light { border-color: var(--brand-primary); color: var(--brand-primary); }
-.auth-shell .button.is-danger.is-light { border-color: var(--brand-accent); color: var(--brand-accent); }
-.auth-shell .button:hover:not(:disabled) { background: var(--brand-surface-hover); border-color: var(--brand-focus); color: var(--brand-text); }
-.auth-shell .button.is-primary:hover:not(:disabled) { background: var(--brand-accent); border-color: var(--brand-accent); color: var(--brand-on-primary); }
-.auth-shell .button:focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
+.status-page .eyebrow { color: var(--brand-text-muted); font-weight: var(--brand-font-weight); letter-spacing: 0.08em; }
+.status-page .label { color: var(--brand-text); font-size: 0.8125rem; font-weight: var(--brand-font-weight); letter-spacing: 0.04em; text-transform: uppercase; }
+.status-page .input { background: var(--brand-surface-raised); border-color: var(--brand-border); border-radius: var(--brand-radius); box-shadow: none; color: var(--brand-text); font: inherit; }
+.status-page .input:focus { border-color: var(--brand-focus); box-shadow: 0 0 0 1px var(--brand-focus); }
+.status-page .help.is-danger { color: var(--brand-accent); text-decoration: underline; }
+.status-page .button { background: var(--brand-surface); border-color: var(--brand-border); border-radius: var(--brand-radius); box-shadow: none; color: var(--brand-text); font-family: var(--brand-font-body); font-weight: var(--brand-font-weight); }
+.status-page .button.is-primary { background: var(--brand-primary); border-color: var(--brand-primary); color: var(--brand-on-primary); }
+.status-page .button.is-primary.is-light,
+.status-page .button.is-danger.is-light { background: transparent; }
+.status-page .button.is-primary.is-light { border-color: var(--brand-primary); color: var(--brand-primary); }
+.status-page .button.is-danger.is-light { border-color: var(--brand-accent); color: var(--brand-accent); }
+.status-page .button:hover:not(:disabled) { background: var(--brand-surface-hover); border-color: var(--brand-focus); color: var(--brand-text); }
+.status-page .button.is-primary:hover:not(:disabled) { background: var(--brand-accent); border-color: var(--brand-accent); color: var(--brand-on-primary); }
+.status-page .button:focus-visible { outline: 2px solid var(--brand-focus); outline-offset: 2px; }
 
 .login-action {
   margin-top: 1.5rem;
@@ -323,10 +323,6 @@ body {
   font-size: 0.8rem;
   gap: 0.2rem;
   margin-top: 0.35rem;
-}
-
-.system-access-denied {
-  max-width: 38rem;
 }
 
 @media (max-width: 640px) {
@@ -2621,41 +2617,6 @@ a.message-file:focus-visible {
 .brand-system-frame .system-page dl dd { color: var(--brand-text); margin: 0.3rem 0 0; overflow-wrap: anywhere; }
 .brand-system-frame .has-text-success,
 .brand-system-frame .has-text-grey { color: var(--brand-text-muted) !important; }
-
-.brand-system-access.auth-shell {
-	background: var(--brand-canvas);
-	color: var(--brand-text);
-	font-family: var(--brand-font-body);
-	font-weight: var(--brand-font-weight);
-}
-
-.brand-system-access .status-card,
-.brand-system-access.system-page {
-	background: var(--brand-surface);
-	border-color: var(--brand-border);
-	box-shadow: none;
-	color: var(--brand-text);
-}
-
-.brand-system-access .title {
-	color: var(--brand-text);
-	font-family: var(--brand-font-display);
-	font-weight: var(--brand-font-weight-display);
-}
-
-.brand-system-access .subtitle,
-.brand-system-access .dashboard-empty { color: var(--brand-text-muted); }
-.brand-system-access .eyebrow { color: var(--brand-text-muted); }
-.brand-system-access .loading-mark { border-color: var(--brand-border); border-top-color: var(--brand-primary); }
-.brand-system-access .button {
-	background: var(--brand-primary);
-	border-color: var(--brand-primary);
-	border-radius: var(--brand-radius);
-	box-shadow: none;
-	color: var(--brand-on-primary);
-	font-family: var(--brand-font-body);
-	font-weight: var(--brand-font-weight);
-}
 
 @media (max-width: 700px) {
 	.brand-system-frame .system-page { padding: 1rem; }

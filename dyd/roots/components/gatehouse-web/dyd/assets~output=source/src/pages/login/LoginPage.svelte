@@ -7,7 +7,7 @@
   const controller = untrack(() => createLoginController(auth, onAuthenticated))
 </script>
 
-<main class="auth-shell">
+<main class="status-page">
   <section class="login-card">
     <p class="eyebrow">Gatehouse</p>
     <h1 class="title is-2">Welcome back.</h1>

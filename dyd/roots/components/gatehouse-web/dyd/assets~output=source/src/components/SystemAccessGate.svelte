@@ -9,15 +9,15 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="auth-shell brand-system-access" aria-busy="true" aria-live="polite"><section class="status-card"><p class="eyebrow">Gatehouse</p><div class="loading-mark" aria-hidden="true"></div><p>{auth.state.status === "checking" ? "Checking your session." : "Loading your workspaces."}</p></section></main>
+  <main class="status-page" aria-busy="true" aria-live="polite"><section class="status-card"><p class="eyebrow">Gatehouse</p><div class="loading-mark" aria-hidden="true"></div><p>{auth.state.status === "checking" ? "Checking your session." : "Loading your workspaces."}</p></section></main>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="auth-shell brand-system-access"><section class="status-card"><p class="eyebrow">Gatehouse</p><h1 class="title is-3">Connection unavailable</h1><p class="subtitle is-6">Gatehouse could not load your account.</p><button class="button is-primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></section></main>
+  <main class="status-page"><section class="status-card"><p class="eyebrow">Gatehouse</p><h1 class="title is-3">Connection unavailable</h1><p class="subtitle is-6">Gatehouse could not load your account.</p><button class="button is-primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></section></main>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
 {:else if access.state.systemAccess === "checking"}
-  <section class="system-page brand-system-access"><p class="dashboard-empty">Loading system access...</p></section>
+  <main class="status-page" aria-busy="true" aria-live="polite"><section class="status-card"><p>Loading system access...</p></section></main>
 {:else if access.state.systemAccess !== "available"}
-  <section class="system-page system-access-denied brand-system-access"><p class="eyebrow">System</p><h2 class="title is-3">System access required</h2><p>You do not currently have an enabled system manager grant.</p></section>
+  <main class="status-page"><section class="status-card"><p class="eyebrow">System</p><h1 class="title is-3">System access required</h1><p>You do not currently have an enabled system manager grant.</p></section></main>
 {:else}
   {@render children()}
 {/if}
