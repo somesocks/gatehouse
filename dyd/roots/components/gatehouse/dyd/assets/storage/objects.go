@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -85,7 +86,11 @@ func (client *Client) Finish(ctx context.Context, id string) error {
 	}
 }
 
-func (client *Client) Get(ctx context.Context, id string) (error, io.ReadCloser) {
+// Get streams a successful object beginning at offset.
+func (client *Client) Get(ctx context.Context, id string, offset int64) (error, io.ReadCloser) {
+	if offset < 0 {
+		return fmt.Errorf("download storage object: offset is invalid"), nil
+	}
 	err, provider := client.store.StorageObjectSuccessGet(ctx, id)
 	if err != nil {
 		return err, nil
@@ -93,16 +98,23 @@ func (client *Client) Get(ctx context.Context, id string) (error, io.ReadCloser)
 	if provider == nil {
 		return nil, nil
 	}
+	if offset >= provider.Object.Size {
+		return nil, io.NopCloser(bytes.NewReader(nil))
+	}
 	switch provider.Protocol {
 	case "embedded":
-		return client.store.StorageObjectGetEmbedded(ctx, id)
+		return client.store.StorageObjectGetEmbedded(ctx, id, offset)
 	case "s3":
 		err, configuration := client.s3Config(ctx, provider)
 		if err != nil {
 			return err, nil
 		}
 		defer clear(configuration.SecretAccessKey)
-		content, err := s3.Get(ctx, configuration, provider.Object.Object, "")
+		byteRange := ""
+		if offset > 0 {
+			byteRange = fmt.Sprintf("bytes=%d-", offset)
+		}
+		content, err := s3.Get(ctx, configuration, provider.Object.Object, byteRange)
 		if err != nil {
 			return fmt.Errorf("download S3 storage object: %w", err), nil
 		}
@@ -137,7 +149,7 @@ func (client *Client) read(ctx context.Context, id string, offset, length int64)
 	}
 	switch provider.Protocol {
 	case "embedded":
-		contentErr, content := client.store.StorageObjectGetEmbedded(ctx, id)
+		contentErr, content := client.store.StorageObjectGetEmbedded(ctx, id, offset)
 		if contentErr != nil || content == nil {
 			if contentErr != nil {
 				return contentErr, nil
@@ -145,9 +157,6 @@ func (client *Client) read(ctx context.Context, id string, offset, length int64)
 			return fmt.Errorf("read storage object: unavailable"), nil
 		}
 		defer content.Close()
-		if _, err := io.CopyN(io.Discard, content, offset); err != nil {
-			return fmt.Errorf("skip embedded storage object bytes: %w", err), nil
-		}
 		data, err := io.ReadAll(io.LimitReader(content, length))
 		if err != nil {
 			return fmt.Errorf("read embedded storage object bytes: %w", err), nil

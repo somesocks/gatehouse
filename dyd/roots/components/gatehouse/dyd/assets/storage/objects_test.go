@@ -55,8 +55,12 @@ func TestClientStoresS3Objects(t *testing.T) {
 			response.WriteHeader(http.StatusOK)
 		case http.MethodGet:
 			contents := object
-			if request.Header.Get("Range") == "bytes=6-10" {
+			switch request.Header.Get("Range") {
+			case "bytes=6-10":
 				contents = object[6:11]
+				response.WriteHeader(http.StatusPartialContent)
+			case "bytes=6-":
+				contents = object[6:]
 				response.WriteHeader(http.StatusPartialContent)
 			}
 			_, _ = response.Write(contents)
@@ -146,7 +150,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	if err != nil || len(references) != 1 || references[0].ID != fileID {
 		t.Fatalf("SessionFileReferencesFilter() = (%#v, %v)", references, err)
 	}
-	err, content := client.Get(ctx, objectID)
+	err, content := client.Get(ctx, objectID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,6 +161,15 @@ func TestClientStoresS3Objects(t *testing.T) {
 	bytes, err := io.ReadAll(content)
 	if err != nil || string(bytes) != "hello, S3 world" {
 		t.Fatalf("S3 object = (%q, %v)", bytes, err)
+	}
+	err, content = client.Get(ctx, objectID, 6)
+	if err != nil || content == nil {
+		t.Fatalf("S3 object at offset = (%#v, %v)", content, err)
+	}
+	bytes, err = io.ReadAll(content)
+	closeErr := content.Close()
+	if err != nil || closeErr != nil || string(bytes) != " S3 world" {
+		t.Fatalf("S3 object at offset = (%q, %v, %v)", bytes, err, closeErr)
 	}
 	err, bytes = client.Read(ctx, objectID, 6, 5)
 	if err != nil || string(bytes) != " S3 w" {
@@ -177,6 +190,76 @@ func TestClientStoresS3Objects(t *testing.T) {
 	err, references = store.SessionFileReferencesFilter(ctx, file.Ref.Session, []string{fileID})
 	if err != nil || len(references) != 0 {
 		t.Fatalf("SessionFileReferencesFilter() after removal = (%#v, %v)", references, err)
+	}
+}
+
+func TestClientStreamsEmbeddedObjectsAtOffset(t *testing.T) {
+	ctx := context.Background()
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	err, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
+		StorageProviders: []config.StorageProvider{{
+			Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true,
+		}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
+	}
+	err, set := migrations.Build(config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, state, keyring)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrations.Run(ctx, store, set); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	principalID, err := typed_id.New(typed_id.Principal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, revision, enabled) VALUES (?, 1, TRUE)`, principalID); err != nil {
+		t.Fatal(err)
+	}
+	principal := model.PrincipalRef{Id: principalID}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &principal, Enabled: true}, principal); err != nil {
+		t.Fatal(err)
+	}
+	fileID, err := typed_id.New(typed_id.SessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectID, err := typed_id.New(typed_id.StorageObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: "source.txt", Enabled: true}
+	if err, _, objectID = store.SessionFileCreate(ctx, file, objectID, principal); err != nil {
+		t.Fatal(err)
+	}
+	contents := append(bytes.Repeat([]byte("a"), database.EmbeddedStorageChunkSize), []byte("marker")...)
+	client := storage.NewClient(store, keyring)
+	if err := client.Put(ctx, objectID, bytes.NewReader(contents), int64(len(contents))); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Finish(ctx, objectID); err != nil {
+		t.Fatal(err)
+	}
+	err, reader := client.Get(ctx, objectID, database.EmbeddedStorageChunkSize+1)
+	if err != nil || reader == nil {
+		t.Fatalf("Get() = (%#v, %v)", reader, err)
+	}
+	data, readErr := io.ReadAll(reader)
+	closeErr := reader.Close()
+	if readErr != nil || closeErr != nil || string(data) != "arker" {
+		t.Fatalf("embedded object at offset = (%q, %v, %v)", data, readErr, closeErr)
 	}
 }
 

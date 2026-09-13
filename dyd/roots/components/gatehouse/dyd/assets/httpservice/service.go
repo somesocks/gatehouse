@@ -3024,7 +3024,7 @@ func workspaceProjectFileDownload(store *database.Store, tokens *auth.BearerToke
 			http.Error(response, "storage object is not ready", http.StatusConflict)
 			return
 		}
-		err, content := tokens.StorageClient().Get(request.Context(), object.ID)
+		err, content := tokens.StorageClient().Get(request.Context(), object.ID, 0)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -3108,7 +3108,7 @@ func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
 			noStore(response)
 			response.WriteHeader(http.StatusNoContent)
 		case request.Method == http.MethodGet && token.Action == "get":
-			err, content := objects.Get(request.Context(), token.ID)
+			err, content := objects.Get(request.Context(), token.ID, 0)
 			if err != nil || content == nil {
 				http.NotFound(response, request)
 				return

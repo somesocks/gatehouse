@@ -880,9 +880,9 @@ func (store *Store) StorageObjectFinishEmbedded(ctx context.Context, id string) 
 	return nil
 }
 
-func (store *Store) StorageObjectGetEmbedded(ctx context.Context, id string) (error, io.ReadCloser) {
-	if !typed_id.Valid(typed_id.StorageObject, id) {
-		return fmt.Errorf("get embedded storage object: ID is invalid"), nil
+func (store *Store) StorageObjectGetEmbedded(ctx context.Context, id string, offset int64) (error, io.ReadCloser) {
+	if !typed_id.Valid(typed_id.StorageObject, id) || offset < 0 {
+		return fmt.Errorf("get embedded storage object: ID or offset is invalid"), nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
@@ -901,17 +901,18 @@ func (store *Store) StorageObjectGetEmbedded(ctx context.Context, id string) (er
 	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT bytes FROM gatehouse_embedded_storage_object_chunks
-		WHERE embedded_storage_object = `+placeholder(1)+` ORDER BY ordinal
-	`, embeddedID)
+		WHERE embedded_storage_object = `+placeholder(1)+` AND ordinal >= `+placeholder(2)+` ORDER BY ordinal
+	`, embeddedID, offset/EmbeddedStorageChunkSize)
 	if err != nil {
 		return fmt.Errorf("get embedded storage chunks: %w", err), nil
 	}
-	return nil, &embeddedStorageReader{rows: rows}
+	return nil, &embeddedStorageReader{rows: rows, skip: offset % EmbeddedStorageChunkSize}
 }
 
 type embeddedStorageReader struct {
 	rows *sql.Rows
 	data []byte
+	skip int64
 }
 
 func (reader *embeddedStorageReader) Read(destination []byte) (int, error) {
@@ -924,6 +925,11 @@ func (reader *embeddedStorageReader) Read(destination []byte) (int, error) {
 		}
 		if err := reader.rows.Scan(&reader.data); err != nil {
 			return 0, err
+		}
+		if reader.skip > 0 {
+			skipped := min(int64(len(reader.data)), reader.skip)
+			reader.data = reader.data[skipped:]
+			reader.skip -= skipped
 		}
 	}
 	read := copy(destination, reader.data)
