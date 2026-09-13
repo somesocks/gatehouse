@@ -528,6 +528,7 @@ type projectRecordAttributeRequest struct {
 	Cardinality  *string `json:"cardinality"`
 	Uniqueness   *string `json:"uniqueness"`
 	Display      *string `json:"display"`
+	DisplayOrder *int    `json:"display_order"`
 }
 
 type projectRecordAttributeResponse struct {
@@ -540,6 +541,7 @@ type projectRecordAttributeResponse struct {
 	Cardinality  string             `json:"cardinality"`
 	Uniqueness   string             `json:"uniqueness"`
 	Display      string             `json:"display"`
+	DisplayOrder int                `json:"display_order"`
 	Author       noteAuthorResponse `json:"author"`
 	CreatedAt    string             `json:"created_at"`
 }
@@ -3407,9 +3409,13 @@ func projectRecordAttributeFromRequest(response http.ResponseWriter, request *ht
 		if input.Description != nil {
 			description = *input.Description
 		}
-		current = model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema}, Name: *input.Name, Label: *input.Label, Description: description, Type: *input.Type, Cardinality: *input.Cardinality, Uniqueness: *input.Uniqueness, Display: *input.Display}
+		displayOrder := 0
+		if input.DisplayOrder != nil {
+			displayOrder = *input.DisplayOrder
+		}
+		current = model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema}, Name: *input.Name, Label: *input.Label, Description: description, Type: *input.Type, Cardinality: *input.Cardinality, Uniqueness: *input.Uniqueness, Display: *input.Display, DisplayOrder: displayOrder}
 	} else {
-		if input.Name != nil || (input.Label == nil && input.Description == nil && input.Type == nil && input.TargetSchema == nil && input.Cardinality == nil && input.Uniqueness == nil && input.Display == nil) {
+		if input.Name != nil || (input.Label == nil && input.Description == nil && input.Type == nil && input.TargetSchema == nil && input.Cardinality == nil && input.Uniqueness == nil && input.Display == nil && input.DisplayOrder == nil) {
 			http.Error(response, "invalid project record attribute", http.StatusBadRequest)
 			return model.ProjectRecordAttribute{}, false
 		}
@@ -3434,6 +3440,13 @@ func projectRecordAttributeFromRequest(response http.ResponseWriter, request *ht
 		if input.Display != nil {
 			current.Display = *input.Display
 		}
+		if input.DisplayOrder != nil {
+			current.DisplayOrder = *input.DisplayOrder
+		}
+	}
+	if input.DisplayOrder != nil && *input.DisplayOrder < 0 {
+		http.Error(response, "invalid project record attribute", http.StatusBadRequest)
+		return model.ProjectRecordAttribute{}, false
 	}
 	if input.TargetSchema != nil {
 		if !typed_id.Valid(typed_id.ProjectRecordSchema, *input.TargetSchema) {
@@ -3541,7 +3554,7 @@ func projectRecordSchemaResponseFromModel(schema model.ProjectRecordSchema) proj
 }
 
 func projectRecordAttributeResponseFromModel(attribute model.ProjectRecordAttribute) projectRecordAttributeResponse {
-	result := projectRecordAttributeResponse{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, Author: projectRecordAuthorResponse(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
+	result := projectRecordAttributeResponse{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, DisplayOrder: attribute.DisplayOrder, Author: projectRecordAuthorResponse(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
 	if attribute.TargetSchema != nil {
 		result.TargetSchema = &attribute.TargetSchema.Id
 	}

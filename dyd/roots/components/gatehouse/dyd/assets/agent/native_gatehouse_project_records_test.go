@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,6 +89,55 @@ func TestGatehouseProjectRecordAttributeErrorsAndHelp(t *testing.T) {
 	})
 	if err != nil || !strings.Contains(result.String(), "record") || !strings.Contains(result.String(), "target-schema") {
 		t.Fatalf("Evaluate() record attribute help = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseProjectRecordAttributeDisplayOrder(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		expression string
+		display    int
+		update     bool
+	}{
+		{name: "create legacy default", expression: `(project/records/attributes/create "schema" "organization" "Organization" "Owning organization" "record" "target" "one" "none" "secondary")`, display: 0},
+		{name: "create explicit", expression: `(project/records/attributes/create "schema" "organization" "Organization" "Owning organization" "record" "target" "one" "none" "secondary" 23)`, display: 23},
+		{name: "update legacy default", expression: `(project/records/attributes/update "schema" "attribute" "Organization" "Owning organization" "record" "target" "one" "none" "secondary")`, display: 0, update: true},
+		{name: "update explicit", expression: `(project/records/attributes/update "schema" "attribute" "Organization" "Owning organization" "record" "target" "one" "none" "secondary" 23)`, display: 23, update: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			attribute := ProjectRecordAttribute{ID: "attribute", Name: "organization", Label: "Organization", Description: "Owning organization", Type: "record", Cardinality: "one", Uniqueness: "none", Display: "secondary", DisplayOrder: test.display, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z"}
+			err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  `+test.expression+`)`, lisp.EvalOptions{HostModules: []lisp.HostModule{NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{
+				AttributeCreate: func(schemaID string, input ProjectRecordAttributeInput) (error, ProjectRecordAttribute) {
+					if test.update || schemaID != "schema" || input.DisplayOrder != test.display {
+						t.Fatalf("attribute create = (%q, %#v)", schemaID, input)
+					}
+					return nil, attribute
+				},
+				AttributeUpdate: func(schemaID, id string, input ProjectRecordAttributeUpdateInput) (error, *ProjectRecordAttribute) {
+					if !test.update || schemaID != "schema" || id != "attribute" || input.DisplayOrder != test.display {
+						t.Fatalf("attribute update = (%q, %q, %#v)", schemaID, id, input)
+					}
+					return nil, &attribute
+				},
+			})}})
+			if err != nil || !strings.Contains(result.String(), "(display_order . "+strconv.Itoa(test.display)+")") {
+				t.Fatalf("Evaluate() display order = (%s, %v)", result, err)
+			}
+		})
+	}
+
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (error/value (error/catch (project/records/attributes/create "schema" "organization" "Organization" "Owning organization" "record" "target" "one" "none" "secondary" -1))))`, lisp.EvalOptions{HostModules: []lisp.HostModule{NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{
+		AttributeCreate: func(string, ProjectRecordAttributeInput) (error, ProjectRecordAttribute) {
+			t.Fatal("attribute create callback was called with a negative display order")
+			return nil, ProjectRecordAttribute{}
+		},
+	})}})
+	if err != nil || result.String() != `"project/records/attributes/create has invalid attribute input"` {
+		t.Fatalf("Evaluate() negative display order = (%s, %v)", result, err)
 	}
 }
 

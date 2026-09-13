@@ -45,7 +45,7 @@
 </script>
 
 <section class="collection-page">
-  <div class="collection-heading"><h2>Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void onCreate()}>New chat</button></div>
+  <div class="collection-heading"><h1 class="brand-dashboard-title">Chats</h1><button class="button is-primary is-small" type="button" onclick={() => void onCreate()}>New chat</button></div>
   <form class="collection-search" onsubmit={(event) => { event.preventDefault(); onNavigate(searchPath()) }}>
     <label><span>Search chats</span><input class="input" type="search" autocomplete="off" placeholder="Search chats" bind:value={controller.state.search} /></label>
     <button class="button" type="submit" aria-label="Search chats" title="Search chats"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>

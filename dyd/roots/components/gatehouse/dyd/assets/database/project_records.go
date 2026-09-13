@@ -172,6 +172,9 @@ func normalizeProjectRecordAttribute(attribute *model.ProjectRecordAttribute) er
 	if err := normalizeProjectRecordLabelAndDescription(&attribute.Label, &attribute.Description); err != nil {
 		return err
 	}
+	if attribute.DisplayOrder < 0 {
+		return fmt.Errorf("attribute display order must be nonnegative")
+	}
 	switch attribute.Type {
 	case projectRecordValueTypeText, projectRecordValueTypeNumber, projectRecordValueTypeBoolean, projectRecordValueTypeDatetime:
 		if attribute.TargetSchema != nil {
@@ -460,7 +463,7 @@ func (store *Store) ProjectRecordAttributesGet(ctx context.Context, schema model
 		return nil, []model.ProjectRecordAttribute{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` ORDER BY name`, schema.Project.Workspace.Id, schema.Project.Id, schema.Id)
+	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` ORDER BY display_order ASC, name ASC, id ASC`, schema.Project.Workspace.Id, schema.Project.Id, schema.Id)
 	if err != nil {
 		return fmt.Errorf("get project record attributes: %w", err), nil
 	}
@@ -483,7 +486,7 @@ func scanProjectRecordAttribute(scanner interface{ Scan(...any) error }, schema 
 	attribute := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema}}
 	var targetSchema, principalID, agentID sql.NullString
 	var createdAt any
-	if err := scanner.Scan(&attribute.Ref.Id, &attribute.Name, &attribute.Label, &attribute.Description, &attribute.Type, &targetSchema, &attribute.Cardinality, &attribute.Uniqueness, &attribute.Display, &principalID, &agentID, &createdAt); err != nil {
+	if err := scanner.Scan(&attribute.Ref.Id, &attribute.Name, &attribute.Label, &attribute.Description, &attribute.Type, &targetSchema, &attribute.Cardinality, &attribute.Uniqueness, &attribute.Display, &attribute.DisplayOrder, &principalID, &agentID, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return attribute, err
 		}
@@ -505,7 +508,7 @@ func (store *Store) ProjectRecordAttributeGet(ctx context.Context, reference mod
 		return err, nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	attribute, err := scanProjectRecordAttribute(store.QueryRowContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` AND id = `+placeholder(4), reference.Schema.Project.Workspace.Id, reference.Schema.Project.Id, reference.Schema.Id, reference.Id), reference.Schema)
+	attribute, err := scanProjectRecordAttribute(store.QueryRowContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` AND id = `+placeholder(4), reference.Schema.Project.Workspace.Id, reference.Schema.Project.Id, reference.Schema.Id, reference.Id), reference.Schema)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -551,7 +554,7 @@ func (store *Store) ProjectRecordAttributeCreate(ctx context.Context, attribute 
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	authorPrincipal, authorAgent := projectRecordAuthorValues(author)
-	if _, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, target_schema, cardinality, uniqueness, display, author_principal, author_agent, created_at) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`, `+placeholder(12)+`, `+placeholder(13)+`, `+placeholder(14)+`, `+placeholder(15)+`)`, attribute.Ref.Schema.Project.Workspace.Id, attribute.Ref.Schema.Project.Id, attribute.Ref.Schema.Id, attribute.Ref.Id, attribute.Name, attribute.Label, attribute.Description, attribute.Type, targetSchema, attribute.Cardinality, attribute.Uniqueness, attribute.Display, authorPrincipal, authorAgent, attribute.CreatedAt); err != nil {
+	if _, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`, `+placeholder(12)+`, `+placeholder(13)+`, `+placeholder(14)+`, `+placeholder(15)+`, `+placeholder(16)+`)`, attribute.Ref.Schema.Project.Workspace.Id, attribute.Ref.Schema.Project.Id, attribute.Ref.Schema.Id, attribute.Ref.Id, attribute.Name, attribute.Label, attribute.Description, attribute.Type, targetSchema, attribute.Cardinality, attribute.Uniqueness, attribute.Display, attribute.DisplayOrder, authorPrincipal, authorAgent, attribute.CreatedAt); err != nil {
 		return fmt.Errorf("insert project record attribute: %w", err), model.ProjectRecordAttribute{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{Event: "project_record_attribute.create", ResourceKind: ActivityResourceKindProjectRecordAttribute, ResourceProjectRecordAttribute: &attribute.Ref.Id}, []string{ActivityTopicProjectRecordAttribute(attribute.Ref)}); err != nil {
@@ -590,7 +593,7 @@ func (store *Store) ProjectRecordAttributeSetAs(ctx context.Context, attribute m
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	authorPrincipal, authorAgent := projectRecordAuthorValues(author)
-	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_project_record_attributes SET label = `+placeholder(1)+`, description = `+placeholder(2)+`, type = `+placeholder(3)+`, target_schema = `+placeholder(4)+`, cardinality = `+placeholder(5)+`, uniqueness = `+placeholder(6)+`, display = `+placeholder(7)+`, author_principal = `+placeholder(8)+`, author_agent = `+placeholder(9)+` WHERE workspace = `+placeholder(10)+` AND project = `+placeholder(11)+` AND schema = `+placeholder(12)+` AND id = `+placeholder(13), attribute.Label, attribute.Description, attribute.Type, targetSchema, attribute.Cardinality, attribute.Uniqueness, attribute.Display, authorPrincipal, authorAgent, attribute.Ref.Schema.Project.Workspace.Id, attribute.Ref.Schema.Project.Id, attribute.Ref.Schema.Id, attribute.Ref.Id)
+	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_project_record_attributes SET label = `+placeholder(1)+`, description = `+placeholder(2)+`, type = `+placeholder(3)+`, target_schema = `+placeholder(4)+`, cardinality = `+placeholder(5)+`, uniqueness = `+placeholder(6)+`, display = `+placeholder(7)+`, display_order = `+placeholder(8)+`, author_principal = `+placeholder(9)+`, author_agent = `+placeholder(10)+` WHERE workspace = `+placeholder(11)+` AND project = `+placeholder(12)+` AND schema = `+placeholder(13)+` AND id = `+placeholder(14), attribute.Label, attribute.Description, attribute.Type, targetSchema, attribute.Cardinality, attribute.Uniqueness, attribute.Display, attribute.DisplayOrder, authorPrincipal, authorAgent, attribute.Ref.Schema.Project.Workspace.Id, attribute.Ref.Schema.Project.Id, attribute.Ref.Schema.Id, attribute.Ref.Id)
 	if err != nil {
 		return fmt.Errorf("update project record attribute: %w", err), nil
 	}
@@ -707,7 +710,7 @@ func (store *Store) ProjectRecordCardsGet(ctx context.Context, schema model.Proj
 		recordPlaceholders[index] = placeholder(len(arguments) + 1)
 		arguments = append(arguments, record.Ref.Id)
 	}
-	rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.attribute, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.schema = `+placeholder(3)+` AND record_values.record IN (`+strings.Join(recordPlaceholders, ", ")+`) AND attributes.display <> 'none' ORDER BY record_values.record, attributes.name, record_values.id`, arguments...)
+	rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.attribute, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.schema = `+placeholder(3)+` AND record_values.record IN (`+strings.Join(recordPlaceholders, ", ")+`) AND attributes.display <> 'none' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
 	if err != nil {
 		return fmt.Errorf("get project record card values: %w", err), nil
 	}
@@ -842,7 +845,7 @@ func (store *Store) projectRecordReferenceDisplaysGet(ctx context.Context, proje
 		referencePlaceholders = append(referencePlaceholders, placeholder(len(referenceArguments)+1))
 		referenceArguments = append(referenceArguments, id)
 	}
-	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.name, record_values.id`, referenceArguments...)
+	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, referenceArguments...)
 	if err != nil {
 		return fmt.Errorf("get project record reference primary values: %w", err), nil
 	}
@@ -923,7 +926,7 @@ func (store *Store) ProjectRecordIncomingReferencesGet(ctx context.Context, targ
 			placeholders = append(placeholders, placeholder(len(arguments)+1))
 			arguments = append(arguments, id)
 		}
-		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.name, record_values.id`, arguments...)
+		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
 		if err != nil {
 			return fmt.Errorf("get project record incoming reference primary values: %w", err), nil
 		}
@@ -1062,7 +1065,7 @@ func (store *Store) ProjectRecordRemove(ctx context.Context, reference model.Pro
 
 func (store *Store) projectRecordAttributeGetInTransaction(ctx context.Context, transaction *sql.Tx, reference model.ProjectRecordAttributeRef) (model.ProjectRecordAttribute, error) {
 	placeholder := keychainPlaceholder(store.kind)
-	attribute, err := scanProjectRecordAttribute(transaction.QueryRowContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` AND id = `+placeholder(4), reference.Schema.Project.Workspace.Id, reference.Schema.Project.Id, reference.Schema.Id, reference.Id), reference.Schema)
+	attribute, err := scanProjectRecordAttribute(transaction.QueryRowContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` AND id = `+placeholder(4), reference.Schema.Project.Workspace.Id, reference.Schema.Project.Id, reference.Schema.Id, reference.Id), reference.Schema)
 	if err == sql.ErrNoRows {
 		return attribute, fmt.Errorf("project record attribute is unavailable")
 	}

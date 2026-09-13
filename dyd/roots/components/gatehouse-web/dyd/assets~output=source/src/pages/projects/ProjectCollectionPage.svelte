@@ -46,7 +46,7 @@
 </script>
 
 <section class="collection-page">
-  <div class="collection-heading"><h2>Projects</h2><button class="button is-primary is-small" type="button" disabled={creating} onclick={() => void onCreate()}>New project</button></div>
+  <div class="collection-heading"><h1 class="brand-dashboard-title">Projects</h1><button class="button is-primary is-small" type="button" disabled={creating} onclick={() => void onCreate()}>New project</button></div>
   <form class="collection-search" onsubmit={(event) => { event.preventDefault(); onNavigate(searchPath()) }}>
     <label><span>Search projects</span><input class="input" type="search" autocomplete="off" placeholder="Search projects" bind:value={controller.state.search} /></label>
     <button class="button" type="submit" aria-label="Search projects" title="Search projects"><Search size={20} strokeWidth={2} aria-hidden="true" /></button>

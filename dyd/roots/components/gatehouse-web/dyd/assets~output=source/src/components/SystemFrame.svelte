@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu, ShieldCheck } from "@lucide/svelte"
+  import { Menu } from "@lucide/svelte"
   import { signOut } from "../app/auth"
   import { useRuntime } from "../app/runtime.svelte"
   import RouterLink from "./RouterLink.svelte"
@@ -37,7 +37,7 @@
     <div class="sidebar-footer"><span>{runtime.auth.state.claims?.principal.name ?? "User"}</span><button class="button is-small is-danger is-light" type="button" onclick={() => void logout()}>Log out</button></div>
   </aside>
   <main class="workspace-main">
-    <header class="workspace-header system-header"><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}><Menu size={20} strokeWidth={2} aria-hidden="true" /></button><h1 class="workspace-breadcrumb"><RouterLink class="workspace-breadcrumb-segment" href="/app/system"><ShieldCheck size={18} strokeWidth={2} aria-hidden="true" /><span>System</span></RouterLink><span class="workspace-breadcrumb-separator" aria-hidden="true">/</span><span>{title}</span></h1></header>
+    <header class="workspace-header system-header"><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu" aria-expanded={mobileMenuOpen} onclick={() => mobileMenuOpen = true}><Menu size={20} strokeWidth={2} aria-hidden="true" /></button><h1 class="workspace-breadcrumb"><RouterLink class="workspace-breadcrumb-segment" href="/app/system"><span>System</span></RouterLink><span class="workspace-breadcrumb-separator" aria-hidden="true">/</span><span>{title}</span></h1></header>
     {@render children()}
   </main>
 </div>

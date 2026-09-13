@@ -442,18 +442,52 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	email := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: emailID}, Name: "email", Label: "Email", Type: "text", Cardinality: "one", Uniqueness: "global", Display: "primary"}
+	email := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: emailID}, Name: "zulu_email", Label: "Email", Type: "text", Cardinality: "one", Uniqueness: "global", Display: "primary", DisplayOrder: 20}
 	err, email = store.ProjectRecordAttributeCreate(ctx, email, alice, database.ProjectRecordAuthor{})
+	if err != nil || email.DisplayOrder != 20 {
+		t.Fatalf("ProjectRecordAttributeCreate() email = (%#v, %v)", email, err)
+	}
+	alphaNameID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 2, 1_000_000, time.UTC))
 	if err != nil {
 		t.Fatal(err)
+	}
+	alphaName := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: alphaNameID}, Name: "alpha_name", Label: "Alpha name", Type: "text", Cardinality: "one", Uniqueness: "none", Display: "primary", DisplayOrder: 20}
+	err, alphaName = store.ProjectRecordAttributeCreate(ctx, alphaName, alice, database.ProjectRecordAuthor{})
+	if err != nil || alphaName.DisplayOrder != 20 {
+		t.Fatalf("ProjectRecordAttributeCreate() alpha name = (%#v, %v)", alphaName, err)
+	}
+	middleNameID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 2, 2_000_000, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	middleName := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: middleNameID}, Name: "middle_name", Label: "Middle name", Type: "text", Cardinality: "one", Uniqueness: "none", Display: "primary", DisplayOrder: 10}
+	err, middleName = store.ProjectRecordAttributeCreate(ctx, middleName, alice, database.ProjectRecordAuthor{})
+	if err != nil || middleName.DisplayOrder != 10 {
+		t.Fatalf("ProjectRecordAttributeCreate() middle name = (%#v, %v)", middleName, err)
+	}
+	invalidDisplayOrder := email
+	invalidDisplayOrder.DisplayOrder = -1
+	if err, _ := store.ProjectRecordAttributeCreate(ctx, invalidDisplayOrder, alice, database.ProjectRecordAuthor{}); err == nil {
+		t.Fatal("ProjectRecordAttributeCreate() accepted a negative display order")
+	}
+	if err, _ := store.ProjectRecordAttributeSetAs(ctx, invalidDisplayOrder, alice, database.ProjectRecordAuthor{}); err == nil {
+		t.Fatal("ProjectRecordAttributeSetAs() accepted a negative display order")
+	}
+	err, storedEmail := store.ProjectRecordAttributeGet(ctx, email.Ref, alice)
+	if err != nil || storedEmail == nil || storedEmail.DisplayOrder != 20 {
+		t.Fatalf("ProjectRecordAttributeGet() display order = (%#v, %v)", storedEmail, err)
+	}
+	err, attributes := store.ProjectRecordAttributesGet(ctx, schema.Ref, alice)
+	if err != nil || len(attributes) != 3 || attributes[0].Ref != middleName.Ref || attributes[0].DisplayOrder != 10 || attributes[1].Ref != alphaName.Ref || attributes[1].DisplayOrder != 20 || attributes[2].Ref != email.Ref || attributes[2].DisplayOrder != 20 {
+		t.Fatalf("ProjectRecordAttributesGet() display ordering = (%#v, %v)", attributes, err)
 	}
 	recordID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 3, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 	record := model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: recordID}}
-	err, record, values := store.ProjectRecordCreate(ctx, record, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: email.Ref, Value: "ada@example.test"}})
-	if err != nil || len(values) != 1 || values[0].Value != "ada@example.test" || values[0].AuthorPrincipal == nil || *values[0].AuthorPrincipal != alice {
+	err, record, values := store.ProjectRecordCreate(ctx, record, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: email.Ref, Value: "ada@example.test"}, {Attribute: alphaName.Ref, Value: "Ada"}, {Attribute: middleName.Ref, Value: "Lovelace"}})
+	if err != nil || len(values) != 3 || values[0].Value != "ada@example.test" || values[0].AuthorPrincipal == nil || *values[0].AuthorPrincipal != alice {
 		t.Fatalf("ProjectRecordCreate() = (%#v, %#v, %v)", record, values, err)
 	}
 	duplicateID, err := typed_id.NewAt(typed_id.ProjectRecord, time.Date(2026, 1, 2, 3, 4, 4, 0, time.UTC))
@@ -481,7 +515,7 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 		t.Fatalf("ProjectRecordCreate() with a record value: %v", err)
 	}
 	err, cards := store.ProjectRecordCardsGet(ctx, schema.Ref, alice, 100, "")
-	if err != nil || len(cards) != 2 || cards[0].Record.Ref.Id != referencingID || len(cards[0].Values) != 1 || cards[0].Values[0].Reference == nil || cards[0].Values[0].Reference.SchemaLabel != "Contacts" || len(cards[0].Values[0].Reference.PrimaryValues) != 1 || cards[0].Values[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+	if err != nil || len(cards) != 2 || cards[0].Record.Ref.Id != referencingID || len(cards[0].Values) != 1 || cards[0].Values[0].Reference == nil || cards[0].Values[0].Reference.SchemaLabel != "Contacts" || len(cards[0].Values[0].Reference.PrimaryValues) != 3 || cards[0].Values[0].Reference.PrimaryValues[0].Value != "Lovelace" || cards[0].Values[0].Reference.PrimaryValues[1].Value != "Ada" || cards[0].Values[0].Reference.PrimaryValues[2].Value != "ada@example.test" || cards[1].Record.Ref.Id != recordID || len(cards[1].Values) != 3 || cards[1].Values[0].Attribute != middleName.Ref.Id || cards[1].Values[1].Attribute != alphaName.Ref.Id || cards[1].Values[2].Attribute != email.Ref.Id {
 		t.Fatalf("ProjectRecordCardsGet() = (%#v, %v)", cards, err)
 	}
 	relatedManyID, err := typed_id.NewAt(typed_id.ProjectRecordAttribute, time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC))
@@ -572,7 +606,7 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 		t.Fatalf("ProjectRecordAttributeRemove() with values = (%t, %v)", removed, err)
 	}
 	err, remainingValues := store.ProjectRecordValuesGet(ctx, record.Ref, alice, 100, "")
-	if err != nil || len(remainingValues) != 0 {
+	if err != nil || len(remainingValues) != 2 || !((remainingValues[0].Attribute == middleName.Ref && remainingValues[1].Attribute == alphaName.Ref) || (remainingValues[0].Attribute == alphaName.Ref && remainingValues[1].Attribute == middleName.Ref)) {
 		t.Fatalf("ProjectRecordValuesGet() after attribute removal = (%#v, %v)", remainingValues, err)
 	}
 	if err, removed := store.ProjectRecordSchemaRemove(ctx, schema.Ref, alice); err == nil || removed {
@@ -598,6 +632,12 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 	}
 	if err, removed := store.ProjectRecordAttributeRemove(ctx, targetAttribute.Ref, alice); err != nil || !removed {
 		t.Fatalf("ProjectRecordAttributeRemove() target = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, alphaName.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() alpha name = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectRecordAttributeRemove(ctx, middleName.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordAttributeRemove() middle name = (%t, %v)", removed, err)
 	}
 	if err, removed := store.ProjectRecordSchemaRemove(ctx, schema.Ref, alice); err != nil || !removed {
 		t.Fatalf("ProjectRecordSchemaRemove() after records = (%t, %v)", removed, err)

@@ -1289,7 +1289,7 @@ func (runtime *SessionEventReplyRuntime) projectRecordAttributeCreate(ctx dbos.C
 				return ProjectRecordAttribute{}, err
 			}
 			schema := model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}
-			attribute := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema, Id: id}, Name: input.Name, Label: input.Label, Description: input.Description, Type: input.Type, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display}
+			attribute := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema, Id: id}, Name: input.Name, Label: input.Label, Description: input.Description, Type: input.Type, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display, DisplayOrder: input.DisplayOrder}
 			if input.TargetSchema != nil {
 				attribute.TargetSchema = &model.ProjectRecordSchemaRef{Project: *project, Id: *input.TargetSchema}
 			}
@@ -1312,7 +1312,7 @@ func (runtime *SessionEventReplyRuntime) projectRecordAttributeUpdate(ctx dbos.C
 			if err != nil || current == nil {
 				return nil, err
 			}
-			current.Label, current.Description, current.Type, current.Cardinality, current.Uniqueness, current.Display = input.Label, input.Description, input.Type, input.Cardinality, input.Uniqueness, input.Display
+			current.Label, current.Description, current.Type, current.Cardinality, current.Uniqueness, current.Display, current.DisplayOrder = input.Label, input.Description, input.Type, input.Cardinality, input.Uniqueness, input.Display, input.DisplayOrder
 			current.TargetSchema = nil
 			if input.TargetSchema != nil {
 				current.TargetSchema = &model.ProjectRecordSchemaRef{Project: *project, Id: *input.TargetSchema}
@@ -1475,7 +1475,7 @@ func projectRecordSchemaFromModel(schema model.ProjectRecordSchema) ProjectRecor
 	return ProjectRecordSchema{ID: schema.Ref.Id, Name: schema.Name, Label: schema.Label, Description: schema.Description, AuthorID: projectRecordAuthorID(schema.AuthorPrincipal, schema.AuthorAgent), CreatedAt: schema.CreatedAt}
 }
 func projectRecordAttributeFromModel(attribute model.ProjectRecordAttribute) ProjectRecordAttribute {
-	result := ProjectRecordAttribute{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, AuthorID: projectRecordAuthorID(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
+	result := ProjectRecordAttribute{ID: attribute.Ref.Id, Name: attribute.Name, Label: attribute.Label, Description: attribute.Description, Type: attribute.Type, Cardinality: attribute.Cardinality, Uniqueness: attribute.Uniqueness, Display: attribute.Display, DisplayOrder: attribute.DisplayOrder, AuthorID: projectRecordAuthorID(attribute.AuthorPrincipal, attribute.AuthorAgent), CreatedAt: attribute.CreatedAt}
 	if attribute.TargetSchema != nil {
 		target := attribute.TargetSchema.Id
 		result.TargetSchema = &target

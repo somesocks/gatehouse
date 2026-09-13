@@ -33,6 +33,7 @@
   }
 </script>
 
+<header class="brand-dashboard-heading"><div><p class="eyebrow">Workspace</p><h1 class="brand-dashboard-title">{workspace.name ?? workspace.id}</h1></div></header>
 <section class="brand-dashboard-grid">
   <section class="brand-dashboard-card">
     <div class="brand-card-heading"><h2 class="brand-card-title">Latest Chats</h2><button class="button is-primary is-small" type="button" onclick={() => void onCreateSession()}>New chat</button></div>

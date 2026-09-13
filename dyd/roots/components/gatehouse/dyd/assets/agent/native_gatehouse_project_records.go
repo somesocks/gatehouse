@@ -62,6 +62,7 @@ type ProjectRecordAttribute struct {
 	Cardinality  string
 	Uniqueness   string
 	Display      string
+	DisplayOrder int
 	AuthorID     string
 	CreatedAt    string
 }
@@ -90,6 +91,7 @@ type ProjectRecordAttributeInput struct {
 	Cardinality  string
 	Uniqueness   string
 	Display      string
+	DisplayOrder int
 }
 
 type ProjectRecordAttributeUpdateInput struct {
@@ -100,6 +102,7 @@ type ProjectRecordAttributeUpdateInput struct {
 	Cardinality  string
 	Uniqueness   string
 	Display      string
+	DisplayOrder int
 }
 
 type ProjectRecordValueInput struct {
@@ -131,10 +134,10 @@ var (
 	projectRecordSchemaCreateDocumentation    = capabilityDocumentation{"(project/records/schemas/create name label description) -> List", "Creates a record schema. Name is its immutable lowercase snake-case machine name.", "(project/records/schemas/create \"contacts\" \"Contacts\" \"People to contact\")", "((id . \"prs_...\") (name . \"contacts\") (label . \"Contacts\") (description . \"People to contact\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordSchemaUpdateDocumentation    = capabilityDocumentation{"(project/records/schemas/update id label description) -> List | Null", "Updates a record schema label and description.", "(project/records/schemas/update \"prs_...\" \"Contacts\" \"People to contact\")", "((id . \"prs_...\") (name . \"contacts\") (label . \"Contacts\") (description . \"People to contact\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordSchemaRemoveDocumentation    = capabilityDocumentation{"(project/records/schemas/remove id) -> Boolean", "Removes a record schema. Returns false when unavailable.", "(project/records/schemas/remove \"prs_...\")", "#t"}
-	projectRecordAttributesListDocumentation  = capabilityDocumentation{"(project/records/attributes/list schema-id) -> List", "Returns attributes in a record schema.", "(project/records/attributes/list \"prs_...\")", "((id . \"pra_...\") (name . \"email\") (label . \"Email\") (description . \"\") (type . \"text\") (target_schema) (cardinality . \"one\") (uniqueness . \"global\") (display . \"primary\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectRecordAttributeGetDocumentation    = capabilityDocumentation{"(project/records/attributes/get schema-id id) -> List | Null", "Returns an attribute by durable pra_ ID, or null when unavailable.", "(project/records/attributes/get \"prs_...\" \"pra_...\")", "((id . \"pra_...\") (name . \"email\") (label . \"Email\") (description . \"\") (type . \"text\") (target_schema) (cardinality . \"one\") (uniqueness . \"global\") (display . \"primary\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectRecordAttributeCreateDocumentation = capabilityDocumentation{"(project/records/attributes/create schema-id name label description type target-schema cardinality uniqueness display) -> List", "Creates an attribute. Name is immutable lowercase snake case; target-schema is null except for record attributes.", "(project/records/attributes/create \"prs_...\" \"organization\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\")", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectRecordAttributeUpdateDocumentation = capabilityDocumentation{"(project/records/attributes/update schema-id id label description type target-schema cardinality uniqueness display) -> List | Null", "Replaces mutable attribute details. Target-schema is null except for record attributes.", "(project/records/attributes/update \"prs_...\" \"pra_...\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\")", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordAttributesListDocumentation  = capabilityDocumentation{"(project/records/attributes/list schema-id) -> List", "Returns attributes in a record schema.", "(project/records/attributes/list \"prs_...\")", "((id . \"pra_...\") (name . \"email\") (label . \"Email\") (description . \"\") (type . \"text\") (target_schema) (cardinality . \"one\") (uniqueness . \"global\") (display . \"primary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordAttributeGetDocumentation    = capabilityDocumentation{"(project/records/attributes/get schema-id id) -> List | Null", "Returns an attribute by durable pra_ ID, or null when unavailable.", "(project/records/attributes/get \"prs_...\" \"pra_...\")", "((id . \"pra_...\") (name . \"email\") (label . \"Email\") (description . \"\") (type . \"text\") (target_schema) (cardinality . \"one\") (uniqueness . \"global\") (display . \"primary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordAttributeCreateDocumentation = capabilityDocumentation{"(project/records/attributes/create schema-id name label description type target-schema cardinality uniqueness display display-order) -> List", "Creates an attribute. Name is immutable lowercase snake case; target-schema is null except for record attributes; display-order is a non-negative integer and defaults to 0 when omitted.", "(project/records/attributes/create \"prs_...\" \"organization\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\" 0)", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordAttributeUpdateDocumentation = capabilityDocumentation{"(project/records/attributes/update schema-id id label description type target-schema cardinality uniqueness display display-order) -> List | Null", "Replaces mutable attribute details. Target-schema is null except for record attributes; display-order is a non-negative integer and defaults to 0 when omitted.", "(project/records/attributes/update \"prs_...\" \"pra_...\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\" 0)", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordAttributeRemoveDocumentation = capabilityDocumentation{"(project/records/attributes/remove schema-id id) -> Boolean", "Removes an attribute. Returns false when unavailable.", "(project/records/attributes/remove \"prs_...\" \"pra_...\")", "#t"}
 	projectRecordsListDocumentation           = capabilityDocumentation{"(project/records/list schema-id) -> List", "Returns records in a schema.", "(project/records/list \"prs_...\")", "((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordGetDocumentation             = capabilityDocumentation{"(project/records/get schema-id id) -> List | Null", "Returns a record by durable prr_ ID, or null when unavailable.", "(project/records/get \"prs_...\" \"prr_...\")", "((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
@@ -362,8 +365,8 @@ func projectRecordAttributeGetFunction(get ProjectRecordAttributeGet) func([]lis
 }
 func projectRecordAttributeCreateFunction(create ProjectRecordAttributeCreate) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 9 {
-			return lisp.Errorf("project/records/attributes/create requires schema id, name, label, description, type, target schema, cardinality, uniqueness, and display"), nil
+		if len(arguments) != 9 && len(arguments) != 10 {
+			return lisp.Errorf("project/records/attributes/create requires schema id, name, label, description, type, target schema, cardinality, uniqueness, display, and optional display order"), nil
 		}
 		err, schemaID := projectRecordID(arguments[0], "project/records/attributes/create")
 		if err != nil {
@@ -382,8 +385,8 @@ func projectRecordAttributeCreateFunction(create ProjectRecordAttributeCreate) f
 }
 func projectRecordAttributeUpdateFunction(update ProjectRecordAttributeUpdate) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 9 {
-			return lisp.Errorf("project/records/attributes/update requires schema id, attribute id, label, description, type, target schema, cardinality, uniqueness, and display"), nil
+		if len(arguments) != 9 && len(arguments) != 10 {
+			return lisp.Errorf("project/records/attributes/update requires schema id, attribute id, label, description, type, target schema, cardinality, uniqueness, display, and optional display order"), nil
 		}
 		err, ids := projectRecordStrings(arguments[:2], "project/records/attributes/update")
 		if err != nil {
@@ -393,7 +396,7 @@ func projectRecordAttributeUpdateFunction(update ProjectRecordAttributeUpdate) f
 		if err != nil {
 			return err, nil
 		}
-		err, attribute := update(ids[0], ids[1], ProjectRecordAttributeUpdateInput{Label: input.Label, Description: input.Description, Type: input.Type, TargetSchema: input.TargetSchema, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display})
+		err, attribute := update(ids[0], ids[1], ProjectRecordAttributeUpdateInput{Label: input.Label, Description: input.Description, Type: input.Type, TargetSchema: input.TargetSchema, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display, DisplayOrder: input.DisplayOrder})
 		if err != nil {
 			return projectRecordMutationError("project/records/attributes/update", err), nil
 		}
@@ -569,7 +572,7 @@ func projectRecordValuesMutateFunction(mutate ProjectRecordValuesMutate) func([]
 }
 
 func projectRecordAttributeInput(arguments []lisp.Expr, name string, create bool) (error, ProjectRecordAttributeInput) {
-	if len(arguments) != 7 && (!create || len(arguments) != 8) {
+	if (create && len(arguments) != 8 && len(arguments) != 9) || (!create && len(arguments) != 7 && len(arguments) != 8) {
 		return lisp.Errorf("%s has invalid attribute input", name), ProjectRecordAttributeInput{}
 	}
 	for _, argument := range arguments {
@@ -596,7 +599,7 @@ func projectRecordAttributeInput(arguments []lisp.Expr, name string, create bool
 		}
 	}
 	values := arguments[start:]
-	if len(values) != 7 {
+	if len(values) != 7 && len(values) != 8 {
 		return lisp.Errorf("%s has invalid attribute input", name), input
 	}
 	err, label := lisp.RequireString(values[0])
@@ -622,6 +625,13 @@ func projectRecordAttributeInput(arguments []lisp.Expr, name string, create bool
 	err, display := lisp.RequireString(values[6])
 	if err != nil {
 		return err, input
+	}
+	if len(values) == 8 {
+		err, displayOrder := lisp.RequireInteger(values[7])
+		if err != nil || displayOrder < 0 || displayOrder > int64(^uint(0)>>1) {
+			return lisp.Errorf("%s has invalid attribute input", name), input
+		}
+		input.DisplayOrder = int(displayOrder)
 	}
 	input.Label, input.Description, input.Type, input.Cardinality, input.Uniqueness, input.Display = label, description, valueType, cardinality, uniqueness, display
 	if !lisp.IsNull(values[3]) {
@@ -792,14 +802,14 @@ func projectRecordAttributeValues(attributes []ProjectRecordAttribute, name stri
 	return nil, lisp.List(values...)
 }
 func projectRecordAttributeValue(attribute ProjectRecordAttribute, name string) (error, lisp.Expr) {
-	if attribute.ID == "" || attribute.Name == "" || attribute.Label == "" || attribute.Type == "" || attribute.Cardinality == "" || attribute.Uniqueness == "" || attribute.Display == "" || attribute.AuthorID == "" || attribute.CreatedAt == "" {
+	if attribute.ID == "" || attribute.Name == "" || attribute.Label == "" || attribute.Type == "" || attribute.Cardinality == "" || attribute.Uniqueness == "" || attribute.Display == "" || attribute.DisplayOrder < 0 || attribute.AuthorID == "" || attribute.CreatedAt == "" {
 		return lisp.Errorf("%s has invalid record attribute metadata", name), nil
 	}
 	target := lisp.Null()
 	if attribute.TargetSchema != nil {
 		target = lisp.String(*attribute.TargetSchema)
 	}
-	return nil, lisp.List(lisp.Pair("id", lisp.String(attribute.ID)), lisp.Pair("name", lisp.String(attribute.Name)), lisp.Pair("label", lisp.String(attribute.Label)), lisp.Pair("description", lisp.String(attribute.Description)), lisp.Pair("type", lisp.String(attribute.Type)), lisp.Pair("target_schema", target), lisp.Pair("cardinality", lisp.String(attribute.Cardinality)), lisp.Pair("uniqueness", lisp.String(attribute.Uniqueness)), lisp.Pair("display", lisp.String(attribute.Display)), lisp.Pair("author_id", lisp.String(attribute.AuthorID)), lisp.Pair("created_at", lisp.String(attribute.CreatedAt)))
+	return nil, lisp.List(lisp.Pair("id", lisp.String(attribute.ID)), lisp.Pair("name", lisp.String(attribute.Name)), lisp.Pair("label", lisp.String(attribute.Label)), lisp.Pair("description", lisp.String(attribute.Description)), lisp.Pair("type", lisp.String(attribute.Type)), lisp.Pair("target_schema", target), lisp.Pair("cardinality", lisp.String(attribute.Cardinality)), lisp.Pair("uniqueness", lisp.String(attribute.Uniqueness)), lisp.Pair("display", lisp.String(attribute.Display)), lisp.Pair("display_order", lisp.Integer(int64(attribute.DisplayOrder))), lisp.Pair("author_id", lisp.String(attribute.AuthorID)), lisp.Pair("created_at", lisp.String(attribute.CreatedAt)))
 }
 func projectRecordValues(records []ProjectRecord, name string) (error, lisp.Expr) {
 	values := make([]lisp.Expr, 0, len(records))

@@ -20,7 +20,7 @@
 </script>
 
 <section class="collection-page">
-  <div class="collection-heading"><h2>Groups</h2></div>
+  <div class="collection-heading"><h1 class="brand-dashboard-title">Groups</h1></div>
   <div class="collection-search"><label><span>Search groups</span><input class="input" type="search" autocomplete="off" placeholder="Search groups" bind:value={controller.state.search} /></label></div>
   <div class="collection-list">
     {#each ordered(controller.state.groups.filter((group) => matchesSearch(group, controller.state.search))) as group}

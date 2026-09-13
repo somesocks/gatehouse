@@ -1,7 +1,7 @@
 export type RecordAuthor = { principal?: { id: string; name?: string }; agent?: { id: string; label?: string }; gateway?: string }
 
 export type ProjectRecordSchema = { id: string; name: string; label: string; description: string; author: RecordAuthor; created_at: string }
-export type ProjectRecordAttribute = { id: string; name: string; label: string; description: string; type: "text" | "number" | "boolean" | "datetime" | "record"; target_schema?: string; cardinality: "one" | "many"; uniqueness: "none" | "record" | "global"; display: "none" | "primary" | "secondary"; author: RecordAuthor; created_at: string }
+export type ProjectRecordAttribute = { id: string; name: string; label: string; description: string; type: "text" | "number" | "boolean" | "datetime" | "record"; target_schema?: string; cardinality: "one" | "many"; uniqueness: "none" | "record" | "global"; display: "none" | "primary" | "secondary"; display_order: number; author: RecordAuthor; created_at: string }
 export type ProjectRecordReferenceDisplay = { schema_label: string; primary_values: { value: unknown; sensitive: boolean }[] }
 export type ProjectRecordValue = { id: string; attribute: string; value: unknown; sensitive: boolean; author: RecordAuthor; created_at: string; reference?: ProjectRecordReferenceDisplay }
 export type ProjectRecord = { id: string; author: RecordAuthor; created_at: string; values?: ProjectRecordValue[] }

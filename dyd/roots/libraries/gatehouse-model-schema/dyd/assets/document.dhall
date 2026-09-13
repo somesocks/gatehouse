@@ -749,6 +749,7 @@ let ProjectRecordAttribute =
             , cardinality = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "one or many values" }
             , uniqueness = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "none, record, or global uniqueness" }
             , display = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "default display tier" }
+            , display_order = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "nonnegative attribute display order" }
             , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "attribute creation timestamp" }
             }
         , optional = toMap

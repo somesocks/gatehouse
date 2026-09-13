@@ -892,6 +892,76 @@ func TestSQLiteMigrationV045DropsReplyAuthorizationSnapshots(t *testing.T) {
 	}
 }
 
+func TestSQLiteMigrationV046AddsProjectRecordAttributeDisplayOrder(t *testing.T) {
+	ctx := context.Background()
+	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	store := opened.DB
+	registry := testSQLiteRegistry(t)
+	for index, migration := range registry.Versioned {
+		if migration.Index >= 46 {
+			registry.Versioned = registry.Versioned[:index]
+			break
+		}
+	}
+	registry.Repeatable = nil
+	if err := migrateSQLite(ctx, store, registry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES ('wsp_00000000000000000000000000', 'Workspace', TRUE);
+		INSERT INTO gatehouse_principals (id, alias, revision, enabled) VALUES ('prn_00000000000000000000000000', 'principal', 1, TRUE);
+		INSERT INTO gatehouse_projects (workspace, id, name, enabled, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'Project', TRUE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_schemas (workspace, project, id, name, label, description, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'records', 'Records', '', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, cardinality, uniqueness, display, author_principal, created_at) VALUES
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'pra_00000000000000000000000000', 'first', 'First', '', 'text', 'one', 'none', 'primary', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z'),
+			('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'pra_00000000000000000000000001', 'second', 'Second', '', 'text', 'one', 'none', 'secondary', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV046AddProjectRecordAttributeDisplayOrder().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+
+	var displayOrder, notNull int
+	var defaultValue any
+	if err := store.QueryRowContext(ctx, `SELECT display_order FROM gatehouse_project_record_attributes WHERE id = 'pra_00000000000000000000000000'`).Scan(&displayOrder); err != nil || displayOrder != 0 {
+		t.Fatalf("existing attribute display order = (%d, %v), want 0", displayOrder, err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT "notnull", dflt_value FROM pragma_table_info('gatehouse_project_record_attributes') WHERE name = 'display_order'`).Scan(&notNull, &defaultValue); err != nil || notNull != 1 || defaultValue != "0" {
+		t.Fatalf("display_order column = (not null: %d, default: %v, error: %v), want (1, 0, nil)", notNull, defaultValue, err)
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_project_record_attributes SET display_order = -1 WHERE id = 'pra_00000000000000000000000000'`); err == nil {
+		t.Fatal("project record attributes accepted a negative display order")
+	}
+
+	rows, err := store.QueryContext(ctx, `SELECT seqno, name FROM pragma_index_info('gatehouse_project_record_attributes_by_schema_display_order_name') ORDER BY seqno`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var columns []string
+	for rows.Next() {
+		var sequence int
+		var name string
+		if err := rows.Scan(&sequence, &name); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, name)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"workspace", "project", "schema", "display_order", "name", "id"}; !reflect.DeepEqual(columns, want) {
+		t.Fatalf("display order index columns = %#v, want %#v", columns, want)
+	}
+}
+
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{
