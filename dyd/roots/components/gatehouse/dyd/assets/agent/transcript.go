@@ -227,6 +227,8 @@ type mcmtrText struct {
 
 const mcmtrToolResultContentMaximumBytes = 4 * 1024
 
+var mcmtrStreams = []string{"user", "agent", "tool"}
+
 type mcmtrRecord struct {
 	event    model.SessionEvent
 	kind     string
@@ -268,11 +270,8 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 		record.stream = mcmtrChannel(event)
 		all = append(all, record)
 	}
-	high, state := mcmtrHighTier(all, state, profile.BufferBytes)
-
-	userRemaining := profile.BufferBytes
 	activeText, _ := activeEvent.Payload["text"].(string)
-	activeContent := mcmtrLimitText(activeText, max(0, userRemaining-512))
+	activeContent := mcmtrLimitText(activeText, max(0, profile.BufferBytes/len(mcmtrStreams)-512))
 	activeMessage, _, _ := transcriptMessageContent(activeEvent)
 	activeMessage.Truncated = activeContent.truncated
 	activeMessage.Omitted = activeContent.omitted
@@ -282,29 +281,32 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 	if activeContent.omitted {
 		activeRendered = transcriptOmittedEvent(activeEvent, "message", "", "", activeContent.sizeBytes)
 	}
-	userRemaining = max(0, userRemaining-len(activeRendered))
+	highInput := make([]mcmtrRecord, 0, len(all)-1)
+	for _, record := range all {
+		if record.event.Ref.Id != active.Id {
+			highInput = append(highInput, record)
+		}
+	}
+	highBudget := max(0, profile.BufferBytes-len(activeRendered))
+	high, state := mcmtrHighTier(highInput, state, highBudget, profile.BufferBytes/(2*len(mcmtrStreams)))
 
 	highRecords := make([]mcmtrRecord, 0, len(all))
 	lowerRecords := make([]mcmtrRecord, 0, len(all))
-	remaining := map[string]int{"user": userRemaining, "agent": profile.BufferBytes, "tool": profile.BufferBytes}
+	remainingHigh := highBudget
 	for _, record := range all {
 		if record.event.Ref.Id == active.Id {
 			continue
 		}
 		if high[record.event.Ref.Id] {
-			record.contents = mcmtrLimitExistingText(record.contents, max(0, remaining[record.stream]-512))
-			remaining[record.stream] = max(0, remaining[record.stream]-mcmtrRecordCost(record))
+			record.contents = mcmtrLimitExistingText(record.contents, max(0, remainingHigh-512))
+			remainingHigh = max(0, remainingHigh-mcmtrRecordCost(record))
 			highRecords = append(highRecords, record)
 			continue
 		}
 		lowerRecords = append(lowerRecords, record)
 	}
 
-	fixed := len(activeRendered)
-	for _, record := range highRecords {
-		fixed += mcmtrRecordCost(record)
-	}
-	shared := max(0, profile.HistoryBytes-fixed)
+	shared := max(0, profile.HistoryBytes-profile.BufferBytes)
 	selected := append([]mcmtrRecord(nil), highRecords...)
 	for index := len(lowerRecords) - 1; index >= 0; index-- {
 		record := lowerRecords[index]
@@ -497,61 +499,54 @@ func mcmtrChannel(event model.SessionEvent) string {
 	return "agent"
 }
 
-func mcmtrHighTier(records []mcmtrRecord, state mcmtrContextState, buffer int) (map[string]bool, mcmtrContextState) {
-	high := map[string]bool{}
-	for _, stream := range []string{"user", "agent", "tool"} {
-		checkpoint := ""
-		switch stream {
-		case "user":
-			checkpoint = state.UserHighFrom
-		case "agent":
-			checkpoint = state.AgentHighFrom
-		case "tool":
-			checkpoint = state.ToolHighFrom
+func mcmtrHighTier(records []mcmtrRecord, state mcmtrContextState, buffer, retainedPerStream int) (map[string]bool, mcmtrContextState) {
+	candidates := make(map[string][]mcmtrRecord, len(mcmtrStreams))
+	used := 0
+	for _, record := range records {
+		checkpoint := mcmtrHighCheckpoint(state, record.stream)
+		if checkpoint == "" || record.event.Ref.Id >= checkpoint {
+			candidates[record.stream] = append(candidates[record.stream], record)
+			used += mcmtrRecordCost(record)
 		}
-		candidates := make([]mcmtrRecord, 0)
-		for _, record := range records {
-			if record.stream == stream && (checkpoint == "" || record.event.Ref.Id >= checkpoint) {
-				candidates = append(candidates, record)
+	}
+
+	high := map[string]bool{}
+	if used <= buffer {
+		for _, stream := range mcmtrStreams {
+			streamCandidates := candidates[stream]
+			if len(streamCandidates) == 0 {
+				continue
+			}
+			if mcmtrHighCheckpoint(state, stream) == "" {
+				mcmtrSetHighCheckpoint(&state, stream, streamCandidates[0].event.Ref.Id)
+			}
+			for _, record := range streamCandidates {
+				high[record.event.Ref.Id] = true
 			}
 		}
-		if len(candidates) == 0 {
+		return high, state
+	}
+
+	for _, stream := range mcmtrStreams {
+		streamCandidates := candidates[stream]
+		if len(streamCandidates) == 0 {
 			continue
 		}
 		used := 0
-		for _, record := range candidates {
-			used += len(record.render())
-		}
-		start := 0
-		advance := checkpoint == ""
-		if used > buffer {
-			advance = true
-			used = 0
-			start = len(candidates)
-			for index := len(candidates) - 1; index >= 0; index-- {
-				cost := len(candidates[index].render())
-				if used > 0 && used+cost > buffer/2 {
-					break
-				}
-				used += cost
-				start = index
+		start := len(streamCandidates)
+		for index := len(streamCandidates) - 1; index >= 0; index-- {
+			cost := mcmtrRecordCost(streamCandidates[index])
+			if used > 0 && used+cost > retainedPerStream {
+				break
 			}
-			if start == len(candidates) {
-				start = len(candidates) - 1
-			}
+			used += cost
+			start = index
 		}
-		if advance {
-			checkpoint = candidates[start].event.Ref.Id
+		if start == len(streamCandidates) {
+			start = len(streamCandidates) - 1
 		}
-		switch stream {
-		case "user":
-			state.UserHighFrom = checkpoint
-		case "agent":
-			state.AgentHighFrom = checkpoint
-		case "tool":
-			state.ToolHighFrom = checkpoint
-		}
-		for _, record := range candidates[start:] {
+		mcmtrSetHighCheckpoint(&state, stream, streamCandidates[start].event.Ref.Id)
+		for _, record := range streamCandidates[start:] {
 			high[record.event.Ref.Id] = true
 		}
 	}

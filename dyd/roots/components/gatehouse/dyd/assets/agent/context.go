@@ -15,8 +15,9 @@ import (
 
 const (
 	contextMaximumBytes  = 96 * 1024
-	contextBufferBytes   = 16 * 1024
+	contextBufferBytes   = 48 * 1024
 	contextEventPageSize = 128
+	mcmtrAlgorithmVersion = "mcmtr-v2"
 )
 
 type mcmtrProfile struct {
@@ -32,7 +33,7 @@ type mcmtrContextState struct {
 }
 
 func mcmtrProfileFingerprint(selected *database.WorkspaceAgentModel) string {
-	value := selected.AgentModel.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected)
+	value := mcmtrAlgorithmVersion + "\x00" + selected.AgentModel.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
@@ -156,7 +157,8 @@ func mcmtrContextEventsWithActive(events []model.SessionEvent, active model.Sess
 }
 
 func mcmtrHighTiersNeedOlder(events []model.SessionEvent, profile mcmtrProfile, state mcmtrContextState, oldestID string) (bool, error) {
-	used := map[string]int{"user": 0, "agent": 0, "tool": 0}
+	used := 0
+	missingCheckpoint := false
 	events = mcmtrAnnotateRoots(events)
 	for _, event := range events {
 		record, include, err := mcmtrRecordFor(event)
@@ -169,10 +171,10 @@ func mcmtrHighTiersNeedOlder(events []model.SessionEvent, profile mcmtrProfile, 
 		record.stream = mcmtrChannel(event)
 		checkpoint := mcmtrHighCheckpoint(state, record.stream)
 		if checkpoint == "" || record.event.Ref.Id >= checkpoint {
-			used[record.stream] += mcmtrRecordCost(record)
+			used += mcmtrRecordCost(record)
 		}
 	}
-	for _, stream := range []string{"user", "agent", "tool"} {
+	for _, stream := range mcmtrStreams {
 		checkpoint := mcmtrHighCheckpoint(state, stream)
 		if checkpoint != "" {
 			if oldestID > checkpoint {
@@ -180,9 +182,10 @@ func mcmtrHighTiersNeedOlder(events []model.SessionEvent, profile mcmtrProfile, 
 			}
 			continue
 		}
-		if used[stream] <= profile.BufferBytes {
-			return true, nil
-		}
+		missingCheckpoint = true
+	}
+	if missingCheckpoint && used <= profile.BufferBytes {
+		return true, nil
 	}
 	return false, nil
 }
@@ -200,12 +203,23 @@ func mcmtrHighCheckpoint(state mcmtrContextState, stream string) string {
 	}
 }
 
+func mcmtrSetHighCheckpoint(state *mcmtrContextState, stream, checkpoint string) {
+	switch stream {
+	case "user":
+		state.UserHighFrom = checkpoint
+	case "agent":
+		state.AgentHighFrom = checkpoint
+	case "tool":
+		state.ToolHighFrom = checkpoint
+	}
+}
+
 func selectedMCMTRProfile(selected *database.WorkspaceAgentModel) (mcmtrProfile, error) {
 	profile := mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: contextBufferBytes}
 	if err := json.Unmarshal([]byte(selected.Compaction), &profile); err != nil {
 		return mcmtrProfile{}, fmt.Errorf("decode MCMTR profile for model %q: %w", selected.AgentModel.Id, err)
 	}
-	if profile.Algorithm != "mcmtr" || profile.HistoryBytes <= 0 || profile.BufferBytes <= 0 || profile.BufferBytes > profile.HistoryBytes/6 {
+	if profile.Algorithm != "mcmtr" || profile.HistoryBytes <= 0 || profile.BufferBytes <= 0 || profile.BufferBytes > profile.HistoryBytes/2 {
 		return mcmtrProfile{}, fmt.Errorf("invalid MCMTR profile for model %q", selected.AgentModel.Id)
 	}
 	return profile, nil

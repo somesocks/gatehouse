@@ -400,7 +400,7 @@ let AgentModelCompaction =
             , buffer_bytes =
                 s.number.from
                   s.number.props::{ variant = s.number.variants.integer }
-                   s.number.meta::{ description = Some "per-channel high-tier rendered transcript buffer before compaction in bytes" }
+                    s.number.meta::{ description = Some "shared high-tier rendered transcript buffer before compaction in bytes" }
             }
         }
         s.record.meta::{ name = Some "AgentModelCompaction" }

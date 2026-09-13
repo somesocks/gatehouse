@@ -69,7 +69,7 @@ func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T
 	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"output": strings.Repeat("o", 20*1024)})
 	result.Parent = &call.Ref
 
-	messages, _, err := compileMCMTRContext([]model.SessionEvent{active, call, result}, active.Ref, mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: contextBufferBytes}, mcmtrContextState{})
+	messages, _, err := compileMCMTRContext([]model.SessionEvent{active, call, result}, active.Ref, mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: contextMaximumBytes, BufferBytes: 16 * 1024}, mcmtrContextState{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,27 +164,90 @@ func TestMCMTRRecordMessagesRendersUnpairedResultAsHistory(t *testing.T) {
 	}
 }
 
-func TestMCMTRHighTierAdvancesToHalfBuffer(t *testing.T) {
+func TestMCMTRHighTierRebalancesSharedBuffer(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
-	records := make([]mcmtrRecord, 0, 4)
-	for index := 0; index < 4; index++ {
-		event := event(session, "user-"+string(rune('a'+index)), "message.text", &principal, nil, map[string]interface{}{"text": strings.Repeat("x", 400)})
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
+	records := make([]mcmtrRecord, 0, 12)
+	for _, stream := range mcmtrStreams {
+		for index := 0; index < 4; index++ {
+			id := stream + "-" + string(rune('a'+index))
+			event := event(session, id, "message.text", &principal, nil, map[string]interface{}{"text": strings.Repeat("x", 600)})
+			if stream != "user" {
+				event.AuthorPrincipal = nil
+				event.AuthorAgent = &agent
+			}
+			record, included, err := mcmtrRecordFor(event)
+			if err != nil || !included {
+				t.Fatalf("mcmtrRecordFor() = (%#v, %t, %v)", record, included, err)
+			}
+			record.stream = stream
+			records = append(records, record)
+		}
+	}
+
+	high, state := mcmtrHighTier(records, mcmtrContextState{}, 4*1024, 4*1024/(2*len(mcmtrStreams)))
+	for _, stream := range mcmtrStreams {
+		checkpoint := mcmtrHighCheckpoint(state, stream)
+		if checkpoint != stream+"-d" || !high[checkpoint] {
+			t.Fatalf("%s high tier = (%#v, %#v)", stream, high, state)
+		}
+	}
+	_, next := mcmtrHighTier(records, state, 4*1024, 4*1024/(2*len(mcmtrStreams)))
+	if next != state {
+		t.Fatalf("checkpoint advanced without filling the shared buffer: %#v -> %#v", state, next)
+	}
+}
+
+func TestMCMTRHighTierDoesNotRedistributeSparseChannelCapacity(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
+	records := make([]mcmtrRecord, 0, 8)
+	for index := 0; index < 8; index++ {
+		event := event(session, "tool-"+string(rune('a'+index)), "message.text", nil, &agent, map[string]interface{}{"text": strings.Repeat("x", 600)})
 		record, included, err := mcmtrRecordFor(event)
 		if err != nil || !included {
 			t.Fatalf("mcmtrRecordFor() = (%#v, %t, %v)", record, included, err)
 		}
-		record.stream = "user"
+		record.stream = "tool"
 		records = append(records, record)
 	}
 
-	high, state := mcmtrHighTier(records, mcmtrContextState{}, 1024)
-	if state.UserHighFrom != "user-d" || !high["user-d"] || len(high) != 1 {
-		t.Fatalf("initial high tier = (%#v, %#v)", high, state)
+	retained := 4 * 1024 / (2 * len(mcmtrStreams))
+	high, state := mcmtrHighTier(records, mcmtrContextState{}, 4*1024, retained)
+	if state.ToolHighFrom != "tool-h" || len(high) != 1 || !high["tool-h"] {
+		t.Fatalf("sparse-channel high tier = (%#v, %#v)", high, state)
 	}
-	_, next := mcmtrHighTier(records, state, 1024)
-	if next.UserHighFrom != state.UserHighFrom {
-		t.Fatalf("checkpoint advanced without filling buffer: %#v -> %#v", state, next)
+}
+
+func TestCompileMCMTRContextKeepsLowerTierPrefixWhileHighTierGrows(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
+	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_agent"}
+	events := make([]model.SessionEvent, 0, 11)
+	for index := 1; index <= 8; index++ {
+		events = append(events, event(session, "event-0"+string(rune('0'+index)), "message.text", &principal, nil, map[string]interface{}{"text": strings.Repeat("h", 800)}))
+	}
+	active := event(session, "event-09", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
+	events = append(events, active)
+	firstAgent := event(session, "event-10", "message.text", nil, &agent, map[string]interface{}{"text": strings.Repeat("a", 800)})
+	firstAgent.Parent = &active.Ref
+	events = append(events, firstAgent)
+	profile := mcmtrProfile{Algorithm: "mcmtr", HistoryBytes: 8 * 1024, BufferBytes: 4 * 1024}
+	state := mcmtrContextState{UserHighFrom: active.Ref.Id, AgentHighFrom: firstAgent.Ref.Id}
+
+	first, next, err := compileMCMTRContext(events, active.Ref, profile, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondAgent := event(session, "event-11", "message.text", nil, &agent, map[string]interface{}{"text": strings.Repeat("b", 800)})
+	secondAgent.Parent = &active.Ref
+	second, _, err := compileMCMTRContext(append(events, secondAgent), active.Ref, profile, next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(second) != len(first)+1 || !reflect.DeepEqual(second[:len(first)], first) {
+		t.Fatalf("high-tier growth rewrote the context prefix: first=%#v second=%#v", first, second)
 	}
 }
 

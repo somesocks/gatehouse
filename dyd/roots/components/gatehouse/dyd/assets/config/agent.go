@@ -62,18 +62,18 @@ const (
 	DefaultAgentModelMaxTurns        = 127
 	DefaultAgentModelMaxOutputTokens = 16000
 	DefaultAgentModelHistoryBytes    = 96 * 1024
-	DefaultAgentModelBufferBytes     = 16 * 1024
+	DefaultAgentModelBufferBytes     = 48 * 1024
 )
 
 func defaultAgentModelCompaction(model string) AgentModelCompaction {
 	// Known reasoning models receive profiles tuned for their context and pricing.
 	switch model {
 	case "gpt-5.6", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "openai/gpt-5.6", "openai/gpt-5.6-luna", "openai/gpt-5.6-terra", "openai/gpt-5.6-sol", "gpt-5.3-codex", "openai/gpt-5.3-codex":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 64 * 1024}
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 192 * 1024}
 	case "claude-sonnet-5", "claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-opus-5":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 80 * 1024}
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 240 * 1024}
 	case "gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview", "grok-4.6", "x-ai/grok-4.6":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 40 * 1024}
+		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 120 * 1024}
 	default:
 		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
 	}
@@ -224,8 +224,8 @@ func resolveAgentModelCompaction(model string, configured *configschema.Gatehous
 	if compaction.HistoryBytes <= 0 {
 		return AgentModelCompaction{}, fmt.Errorf("history_bytes must be positive")
 	}
-	if compaction.BufferBytes <= 0 || compaction.BufferBytes > compaction.HistoryBytes/6 {
-		return AgentModelCompaction{}, fmt.Errorf("buffer_bytes must be positive and at most one sixth of history_bytes")
+	if compaction.BufferBytes <= 0 || compaction.BufferBytes > compaction.HistoryBytes/2 {
+		return AgentModelCompaction{}, fmt.Errorf("buffer_bytes must be positive and at most one half of history_bytes")
 	}
 	return compaction, nil
 }

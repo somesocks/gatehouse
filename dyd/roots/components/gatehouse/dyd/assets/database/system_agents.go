@@ -345,7 +345,7 @@ func validateSystemAgentModelInput(input SystemAgentModelInput) error {
 	var parameters map[string]any
 	if err := json.Unmarshal([]byte(input.Parameters), &parameters); err != nil || parameters == nil { return fmt.Errorf("system agent model parameters are invalid") }
 	var compaction struct { Algorithm string `json:"algorithm"`; HistoryBytes int `json:"history_bytes"`; BufferBytes int `json:"buffer_bytes"` }
-	if err := json.Unmarshal([]byte(input.Compaction), &compaction); err != nil || compaction.Algorithm != "mcmtr" || compaction.HistoryBytes < 1 || compaction.BufferBytes < 1 || compaction.BufferBytes > compaction.HistoryBytes/6 { return fmt.Errorf("system agent model compaction is invalid") }
+	if err := json.Unmarshal([]byte(input.Compaction), &compaction); err != nil || compaction.Algorithm != "mcmtr" || compaction.HistoryBytes < 1 || compaction.BufferBytes < 1 || compaction.BufferBytes > compaction.HistoryBytes/2 { return fmt.Errorf("system agent model compaction is invalid") }
 	return nil
 }
 
