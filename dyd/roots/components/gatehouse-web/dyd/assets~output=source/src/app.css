@@ -637,9 +637,7 @@ body {
   gap: 0.75rem;
   min-height: 3.75rem;
   padding: 0.5rem 0.75rem;
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  position: static;
 }
 
 .session-tabs {
@@ -2061,11 +2059,16 @@ a.message-file:focus-visible {
 	gap: 0.75rem;
 	min-height: 3.75rem;
 	padding: 0.5rem 0;
+	position: static;
+}
+.brand-workspace-frame .workspace-header--pill {
+	background: var(--brand-canvas-2);
+	border-radius: var(--brand-radius);
+	padding: 0.5rem 0.75rem;
 	position: sticky;
 	top: 0;
 	z-index: 2;
 }
-.brand-workspace-frame .workspace-header--pill { background: var(--brand-canvas-2); border-radius: var(--brand-radius); padding: 0.5rem 0.75rem; }
 
 .brand-workspace-breadcrumb {
 	color: var(--brand-text);
