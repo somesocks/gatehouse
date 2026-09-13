@@ -36,11 +36,11 @@ type ProjectRecordAttributeGet func(schemaID, id string) (error, *ProjectRecordA
 type ProjectRecordAttributeCreate func(schemaID string, attribute ProjectRecordAttributeInput) (error, ProjectRecordAttribute)
 type ProjectRecordAttributeUpdate func(schemaID, id string, attribute ProjectRecordAttributeUpdateInput) (error, *ProjectRecordAttribute)
 type ProjectRecordAttributeRemove func(schemaID, id string) (error, bool)
-type ProjectRecordsGet func(schemaID string) (error, []ProjectRecord)
+type ProjectRecordsGet func(schemaID, cursor string) (error, []ProjectRecord)
 type ProjectRecordGet func(schemaID, id string) (error, *ProjectRecord)
 type ProjectRecordCreate func(schemaID string, values []ProjectRecordValueInput) (error, ProjectRecord, []ProjectRecordValue)
 type ProjectRecordRemove func(schemaID, id string) (error, bool)
-type ProjectRecordValuesGet func(schemaID, recordID string) (error, []ProjectRecordValue)
+type ProjectRecordValuesGet func(schemaID, recordID, cursor string) (error, []ProjectRecordValue)
 type ProjectRecordValuesMutate func(schemaID, recordID string, mutation ProjectRecordValuesMutation) (error, ProjectRecordValuesMutationResult)
 
 type ProjectRecordSchema struct {
@@ -139,11 +139,11 @@ var (
 	projectRecordAttributeCreateDocumentation = capabilityDocumentation{"(project/records/attributes/create schema-id name label description type target-schema cardinality uniqueness display display-order) -> List", "Creates an attribute. Name is immutable lowercase snake case; target-schema is null except for record attributes; display-order is a non-negative integer and defaults to 0 when omitted.", "(project/records/attributes/create \"prs_...\" \"organization\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\" 0)", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordAttributeUpdateDocumentation = capabilityDocumentation{"(project/records/attributes/update schema-id id label description type target-schema cardinality uniqueness display display-order) -> List | Null", "Replaces mutable attribute details. Target-schema is null except for record attributes; display-order is a non-negative integer and defaults to 0 when omitted.", "(project/records/attributes/update \"prs_...\" \"pra_...\" \"Organization\" \"Owning organization\" \"record\" \"prs_...\" \"one\" \"none\" \"secondary\" 0)", "((id . \"pra_...\") (name . \"organization\") (label . \"Organization\") (description . \"Owning organization\") (type . \"record\") (target_schema . \"prs_...\") (cardinality . \"one\") (uniqueness . \"none\") (display . \"secondary\") (display_order . 0) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordAttributeRemoveDocumentation = capabilityDocumentation{"(project/records/attributes/remove schema-id id) -> Boolean", "Removes an attribute. Returns false when unavailable.", "(project/records/attributes/remove \"prs_...\" \"pra_...\")", "#t"}
-	projectRecordsListDocumentation           = capabilityDocumentation{"(project/records/list schema-id) -> List", "Returns records in a schema.", "(project/records/list \"prs_...\")", "((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordsListDocumentation           = capabilityDocumentation{"(project/records/list schema-id [cursor]) -> List", "Returns up to 100 newest-first records in a schema. Pass the final returned prr_ ID as cursor to read the next page.", "(project/records/list \"prs_...\" \"prr_...\")", "((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordGetDocumentation             = capabilityDocumentation{"(project/records/get schema-id id) -> List | Null", "Returns a record by durable prr_ ID, or null when unavailable.", "(project/records/get \"prs_...\" \"prr_...\")", "((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordCreateDocumentation          = capabilityDocumentation{"(project/records/create schema-id values) -> List", "Creates a record. Values is a list of (attribute-name . value) pairs. Sensitive values remain sensitive-tainted and are stored as sensitive.", "(project/records/create \"prs_...\" (list (pair \"email\" \"ada@example.test\")))", "((record . ((id . \"prr_...\") (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))) (values . (((id . \"prv_...\") (attribute . \"pra_...\") (value . \"ada@example.test\") (sensitive . #f) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))))"}
 	projectRecordRemoveDocumentation          = capabilityDocumentation{"(project/records/remove schema-id id) -> Boolean", "Removes a record. Returns false when unavailable.", "(project/records/remove \"prs_...\" \"prr_...\")", "#t"}
-	projectRecordValuesListDocumentation      = capabilityDocumentation{"(project/records/values/list schema-id record-id) -> List", "Returns values for a record. Sensitive values are sensitive-tainted.", "(project/records/values/list \"prs_...\" \"prr_...\")", "((id . \"prv_...\") (attribute . \"pra_...\") (value . \"ada@example.test\") (sensitive . #f) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
+	projectRecordValuesListDocumentation      = capabilityDocumentation{"(project/records/values/list schema-id record-id [cursor]) -> List", "Returns up to 100 newest-first values for a record. Pass the final returned prv_ ID as cursor to read the next page. Sensitive values are sensitive-tainted.", "(project/records/values/list \"prs_...\" \"prr_...\" \"prv_...\")", "((id . \"prv_...\") (attribute . \"pra_...\") (value . \"ada@example.test\") (sensitive . #f) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectRecordValuesMutateDocumentation    = capabilityDocumentation{"(project/records/values/mutate schema-id record-id create update remove) -> List", "Mutates record values. Create uses (attribute-name . value) pairs, update uses (value-id . value) pairs, and remove is a list of value IDs. Sensitive values remain sensitive-tainted and are stored as sensitive.", "(project/records/values/mutate \"prs_...\" \"prr_...\" (list (pair \"email\" \"ada@example.test\")) (list) (list))", "((created . (((id . \"prv_...\") (attribute . \"pra_...\") (value . \"ada@example.test\") (sensitive . #f) (author_id . \"wag_...\") (created_at . \"2026-01-01T00:00:00.000Z\")))) (removed))"}
 )
 
@@ -425,14 +425,21 @@ func projectRecordAttributeRemoveFunction(remove ProjectRecordAttributeRemove) f
 
 func projectRecordsListFunction(get ProjectRecordsGet) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 1 {
-			return lisp.Errorf("project/records/list requires a schema id"), nil
+		if len(arguments) != 1 && len(arguments) != 2 {
+			return lisp.Errorf("project/records/list requires a schema id and optional cursor"), nil
 		}
 		err, schemaID := projectRecordID(arguments[0], "project/records/list")
 		if err != nil {
 			return err, nil
 		}
-		err, records := get(schemaID)
+		cursor := ""
+		if len(arguments) == 2 {
+			err, cursor = projectRecordID(arguments[1], "project/records/list")
+			if err != nil {
+				return err, nil
+			}
+		}
+		err, records := get(schemaID, cursor)
 		if err != nil {
 			return lisp.Errorf("project/records/list failed"), nil
 		}
@@ -520,14 +527,21 @@ func projectRecordRemoveFunction(remove func(string) (error, bool), name string,
 }
 func projectRecordValuesListFunction(get ProjectRecordValuesGet) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 2 {
-			return lisp.Errorf("project/records/values/list requires schema and record ids"), nil
+		if len(arguments) != 2 && len(arguments) != 3 {
+			return lisp.Errorf("project/records/values/list requires schema id, record id, and optional cursor"), nil
 		}
 		err, ids := projectRecordStrings(arguments, "project/records/values/list")
 		if err != nil {
 			return err, nil
 		}
-		err, values := get(ids[0], ids[1])
+		cursor := ""
+		if len(arguments) == 3 {
+			err, cursor = projectRecordID(arguments[2], "project/records/values/list")
+			if err != nil {
+				return err, nil
+			}
+		}
+		err, values := get(ids[0], ids[1], cursor)
 		if err != nil {
 			return lisp.Errorf("project/records/values/list failed"), nil
 		}

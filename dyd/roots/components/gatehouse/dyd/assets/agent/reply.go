@@ -1191,12 +1191,12 @@ func (runtime *SessionEventReplyRuntime) projectRecords(ctx context.Context, ses
 			result := projectRecordAttributeFromModel(*attribute)
 			return nil, &result
 		},
-		Records: func(schemaID string) (error, []ProjectRecord) {
+		Records: func(schemaID, cursor string) (error, []ProjectRecord) {
 			project, err := runtime.sessionProjectGet(ctx, session, principal)
 			if err != nil {
 				return err, nil
 			}
-			err, records := runtime.store.ProjectRecordsGet(ctx, model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, principal, 100, "")
+			err, records := runtime.store.ProjectRecordsGet(ctx, model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, principal, 100, cursor)
 			if err != nil {
 				return err, nil
 			}
@@ -1218,12 +1218,12 @@ func (runtime *SessionEventReplyRuntime) projectRecords(ctx context.Context, ses
 			result := projectRecordFromModel(*record)
 			return nil, &result
 		},
-		Values: func(schemaID, recordID string) (error, []ProjectRecordValue) {
+		Values: func(schemaID, recordID, cursor string) (error, []ProjectRecordValue) {
 			project, err := runtime.sessionProjectGet(ctx, session, principal)
 			if err != nil {
 				return err, nil
 			}
-			err, values := runtime.store.ProjectRecordValuesGet(ctx, model.ProjectRecordRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: recordID}, principal, 100, "")
+			err, values := runtime.store.ProjectRecordValuesGet(ctx, model.ProjectRecordRef{Schema: model.ProjectRecordSchemaRef{Project: *project, Id: schemaID}, Id: recordID}, principal, 100, cursor)
 			if err != nil {
 				return err, nil
 			}

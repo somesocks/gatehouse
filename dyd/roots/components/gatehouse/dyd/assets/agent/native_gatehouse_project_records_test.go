@@ -26,10 +26,16 @@ func TestGatehouseProjectRecordsInspectAndMutate(t *testing.T) {
 			}
 			return nil, []ProjectRecordAttribute{{ID: "attribute", Name: "email", Label: "Email", Type: "text", Cardinality: "one", Uniqueness: "global", Display: "primary", AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z"}}
 		},
-		Records: func(schemaID string) (error, []ProjectRecord) {
+		Records: func(schemaID, cursor string) (error, []ProjectRecord) {
+			if schemaID != "schema" || cursor != "" {
+				t.Fatalf("records = (%q, %q)", schemaID, cursor)
+			}
 			return nil, []ProjectRecord{{ID: "record", AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z"}}
 		},
-		Values: func(schemaID, recordID string) (error, []ProjectRecordValue) {
+		Values: func(schemaID, recordID, cursor string) (error, []ProjectRecordValue) {
+			if schemaID != "schema" || recordID != "record" || cursor != "" {
+				t.Fatalf("values = (%q, %q, %q)", schemaID, recordID, cursor)
+			}
 			return nil, []ProjectRecordValue{{ID: "value", Attribute: "attribute", Value: "sensitive", Sensitive: true, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z"}}
 		},
 	})}})
@@ -50,6 +56,50 @@ func TestGatehouseProjectRecordsInspectAndMutate(t *testing.T) {
 	})
 	if err != nil || !lisp.IsSensitive(result) {
 		t.Fatalf("Evaluate() create = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseProjectRecordListCursors(t *testing.T) {
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (list
+    (project/records/list "schema" "prr_cursor")
+    (project/records/values/list "schema" "record" "prv_cursor")))`, lisp.EvalOptions{HostModules: []lisp.HostModule{NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{
+		Records: func(schemaID, cursor string) (error, []ProjectRecord) {
+			if schemaID != "schema" || cursor != "prr_cursor" {
+				t.Fatalf("records cursor = (%q, %q)", schemaID, cursor)
+			}
+			return nil, []ProjectRecord{}
+		},
+		Values: func(schemaID, recordID, cursor string) (error, []ProjectRecordValue) {
+			if schemaID != "schema" || recordID != "record" || cursor != "prv_cursor" {
+				t.Fatalf("values cursor = (%q, %q, %q)", schemaID, recordID, cursor)
+			}
+			return nil, []ProjectRecordValue{}
+		},
+	})}})
+	if err != nil || result.String() != `(null null)` {
+		t.Fatalf("Evaluate() cursor pages = (%s, %v)", result, err)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (list
+    (error/value (error/catch (project/records/list "schema" "")))
+    (error/value (error/catch (project/records/values/list "schema" "record" "")))
+    (error/value (error/catch (project/records/list "schema" "cursor" "extra")))
+    (error/value (error/catch (project/records/values/list "schema" "record" "cursor" "extra")))))`, lisp.EvalOptions{HostModules: []lisp.HostModule{NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{
+		Records: func(string, string) (error, []ProjectRecord) {
+			t.Fatal("records callback was called for invalid arguments")
+			return nil, nil
+		},
+		Values: func(string, string, string) (error, []ProjectRecordValue) {
+			t.Fatal("values callback was called for invalid arguments")
+			return nil, nil
+		},
+	})}})
+	if err != nil || result.String() != `("project/records/list requires a non-empty id" "project/records/values/list requires a non-empty id" "project/records/list requires a schema id and optional cursor" "project/records/values/list requires schema id, record id, and optional cursor")` {
+		t.Fatalf("Evaluate() invalid cursors = (%s, %v)", result, err)
 	}
 }
 
