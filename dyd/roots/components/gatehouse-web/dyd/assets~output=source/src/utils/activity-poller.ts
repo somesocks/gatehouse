@@ -7,11 +7,20 @@ export type ActivityTopicCheckpoint = {
   cursor: ActivityCursor | null
 }
 
-export type ActivitySelector = Pick<ActivityTopicCheckpoint, "name" | "topic" | "events">
+export type ActivitySelector = Pick<
+  ActivityTopicCheckpoint,
+  "name" | "topic" | "events"
+>
 
-export type ActivityRefresh = (input: { names: ReadonlySet<string>; signal: AbortSignal }) => Promise<void>
+export type ActivityRefresh = (input: {
+  names: ReadonlySet<string>
+  signal: AbortSignal
+}) => Promise<void>
 
-type ActivityRequest = (topics: ActivityTopicCheckpoint[], signal: AbortSignal) => Promise<ActivityTopicCheckpoint[]>
+type ActivityRequest = (
+  topics: ActivityTopicCheckpoint[],
+  signal: AbortSignal,
+) => Promise<ActivityTopicCheckpoint[]>
 
 type Scheduler = {
   set: (callback: () => void, delay: number) => ReturnType<typeof setTimeout>
@@ -29,7 +38,10 @@ const defaultScheduler: Scheduler = {
   clear: (timer) => clearTimeout(timer),
 }
 
-function sameCursor(left: ActivityCursor | null, right: ActivityCursor | null): boolean {
+function sameCursor(
+  left: ActivityCursor | null,
+  right: ActivityCursor | null,
+): boolean {
   return left?.id === right?.id
 }
 
@@ -38,7 +50,11 @@ export function activitySelectorKey(selector: ActivitySelector): string {
 }
 
 function normalizeSelector(selector: ActivitySelector): ActivitySelector {
-  return { name: selector.name, topic: selector.topic, events: [...new Set(selector.events)].sort() }
+  return {
+    name: selector.name,
+    topic: selector.topic,
+    events: [...new Set(selector.events)].sort(),
+  }
 }
 
 export class ActivityTopicPoller {
@@ -47,25 +63,41 @@ export class ActivityTopicPoller {
   #requestController: AbortController | null = null
   #timer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(private readonly request: ActivityRequest, private readonly interval = 1000, private readonly scheduler: Scheduler = defaultScheduler, private readonly onPollComplete?: () => void) {}
+  constructor(
+    private readonly request: ActivityRequest,
+    private readonly interval = 1000,
+    private readonly scheduler: Scheduler = defaultScheduler,
+    private readonly onPollComplete?: () => void,
+  ) {}
 
-  subscribe(selectors: Iterable<ActivitySelector>, refresh: ActivityRefresh): () => void {
+  subscribe(
+    selectors: Iterable<ActivitySelector>,
+    refresh: ActivityRefresh,
+  ): () => void {
     const normalized = new Map<string, ActivitySelector>()
     for (const selector of selectors) {
       const value = normalizeSelector(selector)
       if (normalized.has(value.name)) {
-        throw new Error(`duplicate activity subscription name ${JSON.stringify(value.name)}`)
+        throw new Error(
+          `duplicate activity subscription name ${JSON.stringify(value.name)}`,
+        )
       }
       normalized.set(value.name, value)
     }
     for (const existing of this.#subscriptions) {
       for (const name of normalized.keys()) {
         if (existing.selectors.has(name)) {
-          throw new Error(`duplicate activity subscription name ${JSON.stringify(name)}`)
+          throw new Error(
+            `duplicate activity subscription name ${JSON.stringify(name)}`,
+          )
         }
       }
     }
-    const subscription: Subscription = { selectors: normalized, refresh, controller: null }
+    const subscription: Subscription = {
+      selectors: normalized,
+      refresh,
+      controller: null,
+    }
     this.#subscriptions.add(subscription)
     this.schedule(0)
     return () => {
@@ -92,7 +124,10 @@ export class ActivityTopicPoller {
     if (this.#requestController !== null || this.#subscriptions.size === 0) {
       return
     }
-    const selectors = new Map<string, { selector: ActivitySelector; names: Set<string> }>()
+    const selectors = new Map<
+      string,
+      { selector: ActivitySelector; names: Set<string> }
+    >()
     for (const subscription of this.#subscriptions) {
       for (const [name, selector] of subscription.selectors) {
         const key = activitySelectorKey(selector)
@@ -111,13 +146,21 @@ export class ActivityTopicPoller {
     const subscriptions = [...this.#subscriptions]
     const controller = new AbortController()
     this.#requestController = controller
-    const input = [...selectors].map(([key, { selector }]) => ({ ...selector, cursor: this.#checkpoints.get(key) ?? null }))
+    const input = [...selectors].map(([key, { selector }]) => ({
+      ...selector,
+      cursor: this.#checkpoints.get(key) ?? null,
+    }))
     try {
       const output = await this.request(input, controller.signal)
       if (controller.signal.aborted) {
         return
       }
-      const inputKeysByName = new Map(input.map((checkpoint) => [checkpoint.name, activitySelectorKey(checkpoint)]))
+      const inputKeysByName = new Map(
+        input.map((checkpoint) => [
+          checkpoint.name,
+          activitySelectorKey(checkpoint),
+        ]),
+      )
       const next = new Map<string, ActivityCursor | null>()
       for (const checkpoint of output) {
         const key = inputKeysByName.get(checkpoint.name)
@@ -125,50 +168,84 @@ export class ActivityTopicPoller {
           next.set(key, checkpoint.cursor)
         }
       }
-      const dispatches: { subscription: Subscription; names: Set<string> }[] = []
+      const dispatches: { subscription: Subscription; names: Set<string> }[] =
+        []
       for (const subscription of subscriptions) {
-        const changed = new Set([...subscription.selectors].filter(([, selector]) => {
-          const key = activitySelectorKey(selector)
-          return this.#checkpoints.has(key) && !sameCursor(this.#checkpoints.get(key) ?? null, next.has(key) ? next.get(key) ?? null : this.#checkpoints.get(key) ?? null)
-        }).map(([name]) => name))
+        const changed = new Set(
+          [...subscription.selectors]
+            .filter(([, selector]) => {
+              const key = activitySelectorKey(selector)
+              return (
+                this.#checkpoints.has(key) &&
+                !sameCursor(
+                  this.#checkpoints.get(key) ?? null,
+                  next.has(key)
+                    ? (next.get(key) ?? null)
+                    : (this.#checkpoints.get(key) ?? null),
+                )
+              )
+            })
+            .map(([name]) => name),
+        )
         if (changed.size > 0) {
           dispatches.push({ subscription, names: changed })
         }
       }
 
       const failedSelectors = new Set<string>()
-      await Promise.all(dispatches.map(async (dispatch) => {
-        if (!this.#subscriptions.has(dispatch.subscription)) {
-          for (const name of dispatch.names) {
-            failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
-          }
-          return
-        }
-        const refreshController = new AbortController()
-        dispatch.subscription.controller?.abort()
-        dispatch.subscription.controller = refreshController
-        try {
-          await dispatch.subscription.refresh({ names: dispatch.names, signal: refreshController.signal })
-          if (refreshController.signal.aborted || !this.#subscriptions.has(dispatch.subscription)) {
+      await Promise.all(
+        dispatches.map(async (dispatch) => {
+          if (!this.#subscriptions.has(dispatch.subscription)) {
             for (const name of dispatch.names) {
-              failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
+              failedSelectors.add(
+                activitySelectorKey(dispatch.subscription.selectors.get(name)!),
+              )
             }
             return
           }
-        } catch {
-          for (const name of dispatch.names) {
-            failedSelectors.add(activitySelectorKey(dispatch.subscription.selectors.get(name)!))
+          const refreshController = new AbortController()
+          dispatch.subscription.controller?.abort()
+          dispatch.subscription.controller = refreshController
+          try {
+            await dispatch.subscription.refresh({
+              names: dispatch.names,
+              signal: refreshController.signal,
+            })
+            if (
+              refreshController.signal.aborted ||
+              !this.#subscriptions.has(dispatch.subscription)
+            ) {
+              for (const name of dispatch.names) {
+                failedSelectors.add(
+                  activitySelectorKey(
+                    dispatch.subscription.selectors.get(name)!,
+                  ),
+                )
+              }
+              return
+            }
+          } catch {
+            for (const name of dispatch.names) {
+              failedSelectors.add(
+                activitySelectorKey(dispatch.subscription.selectors.get(name)!),
+              )
+            }
+          } finally {
+            if (dispatch.subscription.controller === refreshController) {
+              dispatch.subscription.controller = null
+            }
           }
-        } finally {
-          if (dispatch.subscription.controller === refreshController) {
-            dispatch.subscription.controller = null
-          }
-        }
-      }))
+        }),
+      )
 
       for (const key of selectors.keys()) {
         if (!failedSelectors.has(key)) {
-          this.#checkpoints.set(key, next.has(key) ? next.get(key) ?? null : this.#checkpoints.get(key) ?? null)
+          this.#checkpoints.set(
+            key,
+            next.has(key)
+              ? (next.get(key) ?? null)
+              : (this.#checkpoints.get(key) ?? null),
+          )
         }
       }
     } catch {

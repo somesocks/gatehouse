@@ -3,6 +3,12 @@ export type Group = {
   name?: string
 }
 
-export async function fetchWorkspaceGroups(workspaceID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/groups`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function fetchWorkspaceGroups(
+  workspaceID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/groups`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
 }

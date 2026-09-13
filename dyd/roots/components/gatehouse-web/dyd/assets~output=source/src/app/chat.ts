@@ -11,7 +11,16 @@ export type ChatFile = {
 export type ChatEvent = {
   created_at: string
   kind: string
-  payload: { agent?: string; text?: string; name?: string; reason?: string; code?: string; description?: string; output?: string; attachments?: ChatFile[] }
+  payload: {
+    agent?: string
+    text?: string
+    name?: string
+    reason?: string
+    code?: string
+    description?: string
+    output?: string
+    attachments?: ChatFile[]
+  }
   ref: { id: string }
   parent?: { id: string }
   author_principal?: { ref: { id: string }; name?: string }
@@ -20,48 +29,150 @@ export type ChatEvent = {
 
 export type ChatEventTree = { event: ChatEvent; children: ChatEventTree[] }
 
-export type ChatComposerFile = { file: File; id?: string; status: "pending" | "uploading" | "failed"; error?: string }
+export type ChatComposerFile = {
+  file: File
+  id?: string
+  status: "pending" | "uploading" | "failed"
+  error?: string
+}
 
 function chatAPIPath(workspaceID: string, sessionID: string): string {
   return `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions/${encodeURIComponent(sessionID)}`
 }
 
-export function chatFileDownloadPath(workspaceID: string, sessionID: string, fileID: string): string {
+export function chatFileDownloadPath(
+  workspaceID: string,
+  sessionID: string,
+  fileID: string,
+): string {
   return `${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/download`
 }
 
-export async function fetchChatSession(workspaceID: string, sessionID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(chatAPIPath(workspaceID, sessionID), { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function fetchChatSession(
+  workspaceID: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(chatAPIPath(workspaceID, sessionID), {
+    credentials: "same-origin",
+    ...(signal === undefined ? {} : { signal }),
+  })
 }
 
-export async function fetchChatEvents(workspaceID: string, sessionID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/events?limit=100`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function fetchChatEvents(
+  workspaceID: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${chatAPIPath(workspaceID, sessionID)}/events?limit=100`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
 }
 
-export async function fetchChatAgents(workspaceID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/agents`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function fetchChatAgents(
+  workspaceID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/agents`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
 }
 
-export async function sendChatMessage(workspaceID: string, sessionID: string, input: { text?: string; agent?: string; attachments?: string[] }, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), ...(signal === undefined ? {} : { signal }) })
+export async function sendChatMessage(
+  workspaceID: string,
+  sessionID: string,
+  input: { text?: string; agent?: string; attachments?: string[] },
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...(signal === undefined ? {} : { signal }),
+  })
 }
 
-export async function cancelChatReply(workspaceID: string, sessionID: string, messageID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages/${encodeURIComponent(messageID)}/cancel`, { method: "POST", credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function cancelChatReply(
+  workspaceID: string,
+  sessionID: string,
+  messageID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${chatAPIPath(workspaceID, sessionID)}/messages/${encodeURIComponent(messageID)}/cancel`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
-export async function respondToChatApproval(workspaceID: string, sessionID: string, approvalID: string, decision: "approved" | "rejected", signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/approvals/${encodeURIComponent(approvalID)}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision }), ...(signal === undefined ? {} : { signal }) })
+export async function respondToChatApproval(
+  workspaceID: string,
+  sessionID: string,
+  approvalID: string,
+  decision: "approved" | "rejected",
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${chatAPIPath(workspaceID, sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ decision }),
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
-export async function startChatFileUpload(workspaceID: string, sessionID: string, file: File, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: file.name, ...(file.type === "" ? {} : { media_type: file.type }) }), ...(signal === undefined ? {} : { signal }) })
+export async function startChatFileUpload(
+  workspaceID: string,
+  sessionID: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: file.name,
+      ...(file.type === "" ? {} : { media_type: file.type }),
+    }),
+    ...(signal === undefined ? {} : { signal }),
+  })
 }
 
-export async function uploadChatFile(uploadURL: string, file: File, signal?: AbortSignal): Promise<Response> {
-  return await fetch(uploadURL, { method: "PUT", body: file, ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }), ...(signal === undefined ? {} : { signal }) })
+export async function uploadChatFile(
+  uploadURL: string,
+  file: File,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(uploadURL, {
+    method: "PUT",
+    body: file,
+    ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }),
+    ...(signal === undefined ? {} : { signal }),
+  })
 }
 
-export async function finishChatFileUpload(workspaceID: string, sessionID: string, fileID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/finish`, { method: "POST", credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function finishChatFileUpload(
+  workspaceID: string,
+  sessionID: string,
+  fileID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${chatAPIPath(workspaceID, sessionID)}/files/${encodeURIComponent(fileID)}/finish`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }

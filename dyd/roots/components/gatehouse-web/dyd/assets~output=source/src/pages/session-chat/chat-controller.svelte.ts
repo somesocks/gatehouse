@@ -1,5 +1,17 @@
 import { tick } from "svelte"
-import { cancelChatReply, fetchChatAgents, fetchChatEvents, finishChatFileUpload, respondToChatApproval, sendChatMessage, startChatFileUpload, uploadChatFile, type ChatAgent, type ChatComposerFile, type ChatEventTree } from "../../app/chat"
+import {
+  cancelChatReply,
+  fetchChatAgents,
+  fetchChatEvents,
+  finishChatFileUpload,
+  respondToChatApproval,
+  sendChatMessage,
+  startChatFileUpload,
+  uploadChatFile,
+  type ChatAgent,
+  type ChatComposerFile,
+  type ChatEventTree,
+} from "../../app/chat"
 
 type ChatControllerOptions = {
   isNearBottom: () => boolean
@@ -8,26 +20,67 @@ type ChatControllerOptions = {
   focusComposer: () => void
 }
 
-export function createChatController({ isNearBottom, followLatest, resizeComposer, focusComposer }: ChatControllerOptions) {
-  const state = $state({ events: [] as ChatEventTree[], status: "checking" as "checking" | "ready" | "unavailable", agents: [] as ChatAgent[], selectedAgent: "", messageText: "", composerFiles: [] as ChatComposerFile[], messageError: "", sendingMessage: false, awaitingReplyFor: [] as string[], cancellingReplyFor: new Set<string>(), submittingApprovals: new Set<string>(), approvalErrors: new Map<string, string>(), expandedActivity: new Set<string>(), showJumpToLatest: false, activityTimestamp: Date.now(), authenticationRequired: false })
-  let context: { workspaceID: string; sessionID: string; signal: AbortSignal } | null = null
+export function createChatController({
+  isNearBottom,
+  followLatest,
+  resizeComposer,
+  focusComposer,
+}: ChatControllerOptions) {
+  const state = $state({
+    events: [] as ChatEventTree[],
+    status: "checking" as "checking" | "ready" | "unavailable",
+    agents: [] as ChatAgent[],
+    selectedAgent: "",
+    messageText: "",
+    composerFiles: [] as ChatComposerFile[],
+    messageError: "",
+    sendingMessage: false,
+    awaitingReplyFor: [] as string[],
+    cancellingReplyFor: new Set<string>(),
+    submittingApprovals: new Set<string>(),
+    approvalErrors: new Map<string, string>(),
+    expandedActivity: new Set<string>(),
+    showJumpToLatest: false,
+    activityTimestamp: Date.now(),
+    authenticationRequired: false,
+  })
+  let context: {
+    workspaceID: string
+    sessionID: string
+    signal: AbortSignal
+  } | null = null
   let generation = 0
   const current = (value: number) => value === generation
-  const validContext = (value: number, workspaceID: string, sessionID: string) => current(value) && context?.workspaceID === workspaceID && context?.sessionID === sessionID
+  const validContext = (
+    value: number,
+    workspaceID: string,
+    sessionID: string,
+  ) =>
+    current(value) &&
+    context?.workspaceID === workspaceID &&
+    context?.sessionID === sessionID
 
-  async function refreshEvents(value: number, showLoading = false): Promise<boolean> {
+  async function refreshEvents(
+    value: number,
+    showLoading = false,
+  ): Promise<boolean> {
     if (context === null) return false
     const { workspaceID, sessionID, signal } = context
     if (showLoading) state.status = "checking"
     try {
       const response = await fetchChatEvents(workspaceID, sessionID, signal)
       if (!validContext(value, workspaceID, sessionID)) return false
-      if (response.status === 401) { state.authenticationRequired = true; return false }
+      if (response.status === 401) {
+        state.authenticationRequired = true
+        return false
+      }
       if (!response.ok) throw new Error("session events could not be loaded")
-      const loaded = await response.json() as ChatEventTree[]
+      const loaded = (await response.json()) as ChatEventTree[]
       if (!validContext(value, workspaceID, sessionID)) return false
       const knownEvents = new Set(state.events.flatMap(eventTreeIDs))
-      const hasNewEvents = loaded.some((tree) => eventTreeIDs(tree).some((id) => !knownEvents.has(id)))
+      const hasNewEvents = loaded.some((tree) =>
+        eventTreeIDs(tree).some((id) => !knownEvents.has(id)),
+      )
       const shouldFollow = showLoading || isNearBottom()
       state.events = loaded
       state.status = "ready"
@@ -35,11 +88,26 @@ export function createChatController({ isNearBottom, followLatest, resizeCompose
         if (shouldFollow) void followLatest(showLoading ? "instant" : "smooth")
         else state.showJumpToLatest = true
       }
-      const finishedReplies = new Set(loaded.filter((tree) => finalReplies(tree).length > 0 || hasThinkingFailure(tree) || hasCancellationSuccess(tree)).map((tree) => tree.event.ref.id))
-      if (state.awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))) state.awaitingReplyFor = state.awaitingReplyFor.filter((eventID) => !finishedReplies.has(eventID))
+      const finishedReplies = new Set(
+        loaded
+          .filter(
+            (tree) =>
+              finalReplies(tree).length > 0 ||
+              hasThinkingFailure(tree) ||
+              hasCancellationSuccess(tree),
+          )
+          .map((tree) => tree.event.ref.id),
+      )
+      if (
+        state.awaitingReplyFor.some((eventID) => finishedReplies.has(eventID))
+      )
+        state.awaitingReplyFor = state.awaitingReplyFor.filter(
+          (eventID) => !finishedReplies.has(eventID),
+        )
       return true
     } catch {
-      if (validContext(value, workspaceID, sessionID)) state.status = "unavailable"
+      if (validContext(value, workspaceID, sessionID))
+        state.status = "unavailable"
       return false
     }
   }
@@ -50,32 +118,74 @@ export function createChatController({ isNearBottom, followLatest, resizeCompose
     try {
       const response = await fetchChatAgents(workspaceID, signal)
       if (!validContext(value, workspaceID, sessionID)) return false
-      if (response.status === 401) { state.authenticationRequired = true; return false }
+      if (response.status === 401) {
+        state.authenticationRequired = true
+        return false
+      }
       if (!response.ok) throw new Error("agents could not be refreshed")
-      const agents = await response.json() as ChatAgent[]
+      const agents = (await response.json()) as ChatAgent[]
       if (!validContext(value, workspaceID, sessionID)) return false
       state.agents = agents
-      if (!agents.some((agent) => agent.id === state.selectedAgent)) state.selectedAgent = ""
+      if (!agents.some((agent) => agent.id === state.selectedAgent))
+        state.selectedAgent = ""
       return true
-    } catch { return false }
+    } catch {
+      return false
+    }
   }
 
-  function start(workspaceID: string, sessionID: string, signal: AbortSignal): void {
+  function start(
+    workspaceID: string,
+    sessionID: string,
+    signal: AbortSignal,
+  ): void {
     stop()
     context = { workspaceID, sessionID, signal }
     const value = ++generation
-    state.events = []; state.status = "checking"; state.agents = []; state.selectedAgent = ""; state.messageText = ""; state.composerFiles = []; state.messageError = ""; state.sendingMessage = false; state.awaitingReplyFor = []; state.cancellingReplyFor = new Set(); state.submittingApprovals = new Set(); state.approvalErrors = new Map(); state.expandedActivity = new Set(); state.showJumpToLatest = false; state.activityTimestamp = Date.now(); state.authenticationRequired = false
+    state.events = []
+    state.status = "checking"
+    state.agents = []
+    state.selectedAgent = ""
+    state.messageText = ""
+    state.composerFiles = []
+    state.messageError = ""
+    state.sendingMessage = false
+    state.awaitingReplyFor = []
+    state.cancellingReplyFor = new Set()
+    state.submittingApprovals = new Set()
+    state.approvalErrors = new Map()
+    state.expandedActivity = new Set()
+    state.showJumpToLatest = false
+    state.activityTimestamp = Date.now()
+    state.authenticationRequired = false
     void Promise.all([refreshEvents(value, true), refreshAgents(value)])
   }
 
   function stop(): void {
     generation += 1
     context = null
-    state.events = []; state.agents = []; state.selectedAgent = ""; state.messageText = ""; state.composerFiles = []; state.messageError = ""; state.sendingMessage = false; state.awaitingReplyFor = []; state.cancellingReplyFor = new Set(); state.submittingApprovals = new Set(); state.approvalErrors = new Map(); state.expandedActivity = new Set(); state.showJumpToLatest = false
+    state.events = []
+    state.agents = []
+    state.selectedAgent = ""
+    state.messageText = ""
+    state.composerFiles = []
+    state.messageError = ""
+    state.sendingMessage = false
+    state.awaitingReplyFor = []
+    state.cancellingReplyFor = new Set()
+    state.submittingApprovals = new Set()
+    state.approvalErrors = new Map()
+    state.expandedActivity = new Set()
+    state.showJumpToLatest = false
   }
 
   async function sendMessage(): Promise<void> {
-    if (context === null || state.sendingMessage || (state.messageText.trim() === "" && state.composerFiles.length === 0)) return
+    if (
+      context === null ||
+      state.sendingMessage ||
+      (state.messageText.trim() === "" && state.composerFiles.length === 0)
+    )
+      return
     const { workspaceID, sessionID, signal } = context
     const value = generation
     const text = state.messageText
@@ -83,22 +193,41 @@ export function createChatController({ isNearBottom, followLatest, resizeCompose
     state.messageError = ""
     state.sendingMessage = true
     try {
-      const attachments = await Promise.all(state.composerFiles.map((entry) => uploadComposerFile(entry, value, workspaceID, sessionID)))
+      const attachments = await Promise.all(
+        state.composerFiles.map((entry) =>
+          uploadComposerFile(entry, value, workspaceID, sessionID),
+        ),
+      )
       if (!validContext(value, workspaceID, sessionID)) return
-      const response = await sendChatMessage(workspaceID, sessionID, { ...(text.trim() === "" ? {} : { text }), ...(agent === "" ? {} : { agent }), ...(attachments.length === 0 ? {} : { attachments }) }, signal)
+      const response = await sendChatMessage(
+        workspaceID,
+        sessionID,
+        {
+          ...(text.trim() === "" ? {} : { text }),
+          ...(agent === "" ? {} : { agent }),
+          ...(attachments.length === 0 ? {} : { attachments }),
+        },
+        signal,
+      )
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { state.authenticationRequired = true; return }
+      if (response.status === 401) {
+        state.authenticationRequired = true
+        return
+      }
       if (!response.ok) throw new Error("message could not be sent")
-      const event = await response.json() as ChatEventTree["event"]
+      const event = (await response.json()) as ChatEventTree["event"]
       if (!validContext(value, workspaceID, sessionID)) return
-      state.messageText = ""; state.composerFiles = []
+      state.messageText = ""
+      state.composerFiles = []
       await tick()
       resizeComposer()
       state.events = [...state.events, { event, children: [] }]
       void followLatest()
       state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
     } catch {
-      if (current(value)) state.messageError = "Your message or file upload could not be sent. Try again."
+      if (current(value))
+        state.messageError =
+          "Your message or file upload could not be sent. Try again."
     } finally {
       if (current(value)) {
         state.sendingMessage = false
@@ -108,93 +237,334 @@ export function createChatController({ isNearBottom, followLatest, resizeCompose
     }
   }
 
-  async function uploadComposerFile(entry: ChatComposerFile, value: number, workspaceID: string, sessionID: string): Promise<string> {
+  async function uploadComposerFile(
+    entry: ChatComposerFile,
+    value: number,
+    workspaceID: string,
+    sessionID: string,
+  ): Promise<string> {
     if (entry.id !== undefined) return entry.id
     const signal = context?.signal
     updateComposerFile(entry.file, { status: "uploading", error: undefined })
     try {
-      const created = await startChatFileUpload(workspaceID, sessionID, entry.file, signal)
-      if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (created.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
+      const created = await startChatFileUpload(
+        workspaceID,
+        sessionID,
+        entry.file,
+        signal,
+      )
+      if (!validContext(value, workspaceID, sessionID))
+        throw new Error("stale upload")
+      if (created.status === 401) {
+        state.authenticationRequired = true
+        throw new Error("authentication required")
+      }
       if (!created.ok) throw new Error("create file failed")
-      const upload = await created.json() as { file: { ref: { id: string } }; upload_url: string }
-      if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
+      const upload = (await created.json()) as {
+        file: { ref: { id: string } }
+        upload_url: string
+      }
+      if (!validContext(value, workspaceID, sessionID))
+        throw new Error("stale upload")
       const put = await uploadChatFile(upload.upload_url, entry.file, signal)
-      if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (put.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
+      if (!validContext(value, workspaceID, sessionID))
+        throw new Error("stale upload")
+      if (put.status === 401) {
+        state.authenticationRequired = true
+        throw new Error("authentication required")
+      }
       if (!put.ok) throw new Error("upload file failed")
-      const finished = await finishChatFileUpload(workspaceID, sessionID, upload.file.ref.id, signal)
-      if (!validContext(value, workspaceID, sessionID)) throw new Error("stale upload")
-      if (finished.status === 401) { state.authenticationRequired = true; throw new Error("authentication required") }
+      const finished = await finishChatFileUpload(
+        workspaceID,
+        sessionID,
+        upload.file.ref.id,
+        signal,
+      )
+      if (!validContext(value, workspaceID, sessionID))
+        throw new Error("stale upload")
+      if (finished.status === 401) {
+        state.authenticationRequired = true
+        throw new Error("authentication required")
+      }
       if (!finished.ok) throw new Error("finish file failed")
-      updateComposerFile(entry.file, { id: upload.file.ref.id, status: "pending", error: undefined })
+      updateComposerFile(entry.file, {
+        id: upload.file.ref.id,
+        status: "pending",
+        error: undefined,
+      })
       return upload.file.ref.id
     } catch (error) {
-      if (validContext(value, workspaceID, sessionID)) updateComposerFile(entry.file, { status: "failed", error: "Upload failed" })
+      if (validContext(value, workspaceID, sessionID))
+        updateComposerFile(entry.file, {
+          status: "failed",
+          error: "Upload failed",
+        })
       throw error
     }
   }
 
   async function cancelReply(tree: ChatEventTree): Promise<void> {
-    if (context === null || state.cancellingReplyFor.has(tree.event.ref.id)) return
+    if (context === null || state.cancellingReplyFor.has(tree.event.ref.id))
+      return
     const { workspaceID, sessionID, signal } = context
     const value = generation
-    state.cancellingReplyFor = new Set(state.cancellingReplyFor).add(tree.event.ref.id)
+    state.cancellingReplyFor = new Set(state.cancellingReplyFor).add(
+      tree.event.ref.id,
+    )
     try {
-      const response = await cancelChatReply(workspaceID, sessionID, tree.event.ref.id, signal)
+      const response = await cancelChatReply(
+        workspaceID,
+        sessionID,
+        tree.event.ref.id,
+        signal,
+      )
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { state.authenticationRequired = true; return }
+      if (response.status === 401) {
+        state.authenticationRequired = true
+        return
+      }
       if (!response.ok) throw new Error("reply cancellation failed")
       await refreshEvents(value)
-    } catch { if (current(value)) state.messageError = "The reply could not be cancelled. Try again." } finally {
-      if (current(value)) { const pending = new Set(state.cancellingReplyFor); pending.delete(tree.event.ref.id); state.cancellingReplyFor = pending }
+    } catch {
+      if (current(value))
+        state.messageError = "The reply could not be cancelled. Try again."
+    } finally {
+      if (current(value)) {
+        const pending = new Set(state.cancellingReplyFor)
+        pending.delete(tree.event.ref.id)
+        state.cancellingReplyFor = pending
+      }
     }
   }
 
-  async function respondToApproval(approval: ChatEventTree, decision: "approved" | "rejected"): Promise<void> {
-    if (context === null || state.submittingApprovals.has(approval.event.ref.id)) return
+  async function respondToApproval(
+    approval: ChatEventTree,
+    decision: "approved" | "rejected",
+  ): Promise<void> {
+    if (
+      context === null ||
+      state.submittingApprovals.has(approval.event.ref.id)
+    )
+      return
     const { workspaceID, sessionID, signal } = context
     const value = generation
-    state.submittingApprovals = new Set(state.submittingApprovals).add(approval.event.ref.id)
-    const errors = new Map(state.approvalErrors); errors.delete(approval.event.ref.id); state.approvalErrors = errors
+    state.submittingApprovals = new Set(state.submittingApprovals).add(
+      approval.event.ref.id,
+    )
+    const errors = new Map(state.approvalErrors)
+    errors.delete(approval.event.ref.id)
+    state.approvalErrors = errors
     try {
-      const response = await respondToChatApproval(workspaceID, sessionID, approval.event.ref.id, decision, signal)
+      const response = await respondToChatApproval(
+        workspaceID,
+        sessionID,
+        approval.event.ref.id,
+        decision,
+        signal,
+      )
       if (!validContext(value, workspaceID, sessionID)) return
-      if (response.status === 401) { state.authenticationRequired = true; return }
-      if (response.status === 409) throw new Error("This approval has already been decided.")
-      if (!response.ok) throw new Error("The approval response could not be submitted. Try again.")
+      if (response.status === 401) {
+        state.authenticationRequired = true
+        return
+      }
+      if (response.status === 409)
+        throw new Error("This approval has already been decided.")
+      if (!response.ok)
+        throw new Error(
+          "The approval response could not be submitted. Try again.",
+        )
       await refreshEvents(value)
     } catch (error) {
-      if (current(value)) { const next = new Map(state.approvalErrors); next.set(approval.event.ref.id, error instanceof Error ? error.message : "The approval response could not be submitted. Try again."); state.approvalErrors = next }
+      if (current(value)) {
+        const next = new Map(state.approvalErrors)
+        next.set(
+          approval.event.ref.id,
+          error instanceof Error
+            ? error.message
+            : "The approval response could not be submitted. Try again.",
+        )
+        state.approvalErrors = next
+      }
     } finally {
-      if (current(value)) { const pending = new Set(state.submittingApprovals); pending.delete(approval.event.ref.id); state.submittingApprovals = pending }
+      if (current(value)) {
+        const pending = new Set(state.submittingApprovals)
+        pending.delete(approval.event.ref.id)
+        state.submittingApprovals = pending
+      }
     }
   }
 
-  function updateComposerFile(file: File, update: Partial<ChatComposerFile>): void { state.composerFiles = state.composerFiles.map((entry) => entry.file === file ? { ...entry, ...update } : entry) }
-  function selectComposerFiles(input: HTMLInputElement): void { const selected = Array.from(input.files ?? []); state.composerFiles = [...state.composerFiles, ...selected.map((file) => ({ file, status: "pending" as const }))]; input.value = "" }
-  function removeComposerFile(file: File): void { state.composerFiles = state.composerFiles.filter((entry) => entry.file !== file) }
-  function toggleActivity(tree: ChatEventTree): void { const expanded = new Set(state.expandedActivity); expanded.has(tree.event.ref.id) ? expanded.delete(tree.event.ref.id) : expanded.add(tree.event.ref.id); state.expandedActivity = expanded }
-  function trackScroll(): void { if (isNearBottom()) state.showJumpToLatest = false }
-  async function jumpToLatest(): Promise<void> { await followLatest() }
-  function updateActivityTimestamp(): void { state.activityTimestamp = Date.now() }
+  function updateComposerFile(
+    file: File,
+    update: Partial<ChatComposerFile>,
+  ): void {
+    state.composerFiles = state.composerFiles.map((entry) =>
+      entry.file === file ? { ...entry, ...update } : entry,
+    )
+  }
+  function selectComposerFiles(input: HTMLInputElement): void {
+    const selected = Array.from(input.files ?? [])
+    state.composerFiles = [
+      ...state.composerFiles,
+      ...selected.map((file) => ({ file, status: "pending" as const })),
+    ]
+    input.value = ""
+  }
+  function removeComposerFile(file: File): void {
+    state.composerFiles = state.composerFiles.filter(
+      (entry) => entry.file !== file,
+    )
+  }
+  function toggleActivity(tree: ChatEventTree): void {
+    const expanded = new Set(state.expandedActivity)
+    expanded.has(tree.event.ref.id)
+      ? expanded.delete(tree.event.ref.id)
+      : expanded.add(tree.event.ref.id)
+    state.expandedActivity = expanded
+  }
+  function trackScroll(): void {
+    if (isNearBottom()) state.showJumpToLatest = false
+  }
+  async function jumpToLatest(): Promise<void> {
+    await followLatest()
+  }
+  function updateActivityTimestamp(): void {
+    state.activityTimestamp = Date.now()
+  }
 
-  return { state, start, stop, refreshEvents: () => refreshEvents(generation), refreshAgents: () => refreshAgents(generation), sendMessage, cancelReply, respondToApproval, selectComposerFiles, removeComposerFile, toggleActivity, trackScroll, jumpToLatest, updateActivityTimestamp }
+  return {
+    state,
+    start,
+    stop,
+    refreshEvents: () => refreshEvents(generation),
+    refreshAgents: () => refreshAgents(generation),
+    sendMessage,
+    cancelReply,
+    respondToApproval,
+    selectComposerFiles,
+    removeComposerFile,
+    toggleActivity,
+    trackScroll,
+    jumpToLatest,
+    updateActivityTimestamp,
+  }
 }
 
-export function eventTreeIDs(tree: ChatEventTree): string[] { return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)] }
-export function finalReplies(tree: ChatEventTree): ChatEventTree[] { return tree.children.filter((child) => child.event.kind === "message.text" && child.event.author_agent !== undefined && child.event.payload.text !== undefined) }
-export function activityEvents(tree: ChatEventTree): ChatEventTree[] { return tree.children.filter((child) => !finalReplies(tree).includes(child)) }
-export function renderedActivityEvents(tree: ChatEventTree): ChatEventTree[] { return activityEvents(tree).filter((activity) => activity.event.kind === "tool.request" || activity.event.kind === "thinking.started") }
-export function displayedActivityEvents(tree: ChatEventTree, expanded: Set<string>): ChatEventTree[] { const activity = renderedActivityEvents(tree); return expanded.has(tree.event.ref.id) || activity.length <= 5 ? activity : activity.slice(-5) }
-export function hasThinkingFailure(tree: ChatEventTree): boolean { return tree.children.some((child) => child.event.kind === "thinking.started" && thinkingStatus(child) === "failed") }
-export function cancellationRequest(tree: ChatEventTree): ChatEventTree | undefined { return tree.children.find((child) => child.event.kind === "cancel.request") }
-export function hasCancellationSuccess(tree: ChatEventTree): boolean { return cancellationRequest(tree)?.children.some((child) => child.event.kind === "cancel.success") ?? false }
-export function replyCanBeCancelled(tree: ChatEventTree): boolean { return finalReplies(tree).length === 0 && !hasThinkingFailure(tree) && cancellationRequest(tree) === undefined }
-export function activityStatus(tree: ChatEventTree, completedKind: string, failedKind: string): "working" | "succeeded" | "failed" { if (tree.children.some((child) => child.event.kind === failedKind)) return "failed"; return tree.children.some((child) => child.event.kind === completedKind) ? "succeeded" : "working" }
-export function toolStatus(tree: ChatEventTree): "working" | "succeeded" | "failed" { return activityStatus(tree, "tool.success", "tool.failure") }
-export function thinkingStatus(tree: ChatEventTree): "working" | "succeeded" | "failed" { return activityStatus(tree, "thinking.completed", "thinking.failed") }
-export function approvalRequests(tree: ChatEventTree): ChatEventTree[] { return tree.children.filter((child) => child.event.kind === "approval.request") }
-export function approvalResponse(tree: ChatEventTree): ChatEventTree | undefined { return tree.children.find((child) => child.event.kind === "approval.approved" || child.event.kind === "approval.rejected") }
-export function elapsedDuration(startedAt: string, completedAt: string | number): string { const elapsed = new Date(completedAt).getTime() - new Date(startedAt).getTime(); if (!Number.isFinite(elapsed) || elapsed < 0) return ""; if (elapsed < 100) return "<0.1s"; if (elapsed >= 60_000) { const seconds = Math.floor(elapsed / 1000); return `${Math.floor(seconds / 60)}m ${seconds % 60}s` }; return `${(elapsed / 1000).toFixed(1)}s` }
-export function activityDuration(tree: ChatEventTree, completedKind: string, failedKind: string): string { const completed = tree.children.find((child) => child.event.kind === completedKind || child.event.kind === failedKind); return completed === undefined ? "" : elapsedDuration(tree.event.created_at, completed.event.created_at) }
+export function eventTreeIDs(tree: ChatEventTree): string[] {
+  return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)]
+}
+export function finalReplies(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter(
+    (child) =>
+      child.event.kind === "message.text" &&
+      child.event.author_agent !== undefined &&
+      child.event.payload.text !== undefined,
+  )
+}
+export function activityEvents(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter((child) => !finalReplies(tree).includes(child))
+}
+export function renderedActivityEvents(tree: ChatEventTree): ChatEventTree[] {
+  return activityEvents(tree).filter(
+    (activity) =>
+      activity.event.kind === "tool.request" ||
+      activity.event.kind === "thinking.started",
+  )
+}
+export function displayedActivityEvents(
+  tree: ChatEventTree,
+  expanded: Set<string>,
+): ChatEventTree[] {
+  const activity = renderedActivityEvents(tree)
+  return expanded.has(tree.event.ref.id) || activity.length <= 5
+    ? activity
+    : activity.slice(-5)
+}
+export function hasThinkingFailure(tree: ChatEventTree): boolean {
+  return tree.children.some(
+    (child) =>
+      child.event.kind === "thinking.started" &&
+      thinkingStatus(child) === "failed",
+  )
+}
+export function cancellationRequest(
+  tree: ChatEventTree,
+): ChatEventTree | undefined {
+  return tree.children.find((child) => child.event.kind === "cancel.request")
+}
+export function hasCancellationSuccess(tree: ChatEventTree): boolean {
+  return (
+    cancellationRequest(tree)?.children.some(
+      (child) => child.event.kind === "cancel.success",
+    ) ?? false
+  )
+}
+export function replyCanBeCancelled(tree: ChatEventTree): boolean {
+  return (
+    finalReplies(tree).length === 0 &&
+    !hasThinkingFailure(tree) &&
+    cancellationRequest(tree) === undefined
+  )
+}
+export function activityStatus(
+  tree: ChatEventTree,
+  completedKind: string,
+  failedKind: string,
+): "working" | "succeeded" | "failed" {
+  if (tree.children.some((child) => child.event.kind === failedKind))
+    return "failed"
+  return tree.children.some((child) => child.event.kind === completedKind)
+    ? "succeeded"
+    : "working"
+}
+export function toolStatus(
+  tree: ChatEventTree,
+): "working" | "succeeded" | "failed" {
+  return activityStatus(tree, "tool.success", "tool.failure")
+}
+export function thinkingStatus(
+  tree: ChatEventTree,
+): "working" | "succeeded" | "failed" {
+  return activityStatus(tree, "thinking.completed", "thinking.failed")
+}
+export function approvalRequests(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter(
+    (child) => child.event.kind === "approval.request",
+  )
+}
+export function approvalResponse(
+  tree: ChatEventTree,
+): ChatEventTree | undefined {
+  return tree.children.find(
+    (child) =>
+      child.event.kind === "approval.approved" ||
+      child.event.kind === "approval.rejected",
+  )
+}
+export function elapsedDuration(
+  startedAt: string,
+  completedAt: string | number,
+): string {
+  const elapsed =
+    new Date(completedAt).getTime() - new Date(startedAt).getTime()
+  if (!Number.isFinite(elapsed) || elapsed < 0) return ""
+  if (elapsed < 100) return "<0.1s"
+  if (elapsed >= 60_000) {
+    const seconds = Math.floor(elapsed / 1000)
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  }
+  return `${(elapsed / 1000).toFixed(1)}s`
+}
+export function activityDuration(
+  tree: ChatEventTree,
+  completedKind: string,
+  failedKind: string,
+): string {
+  const completed = tree.children.find(
+    (child) =>
+      child.event.kind === completedKind || child.event.kind === failedKind,
+  )
+  return completed === undefined
+    ? ""
+    : elapsedDuration(tree.event.created_at, completed.event.created_at)
+}

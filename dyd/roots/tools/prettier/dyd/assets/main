@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+set -eu
+
+exec node "$DYD_STEM/dyd/assets/node_modules/prettier/bin/prettier.cjs" --plugin="$DYD_STEM/dyd/assets/node_modules/prettier-plugin-svelte/plugin.js" "$@"

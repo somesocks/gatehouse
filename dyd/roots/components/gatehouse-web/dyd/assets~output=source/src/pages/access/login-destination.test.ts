@@ -16,6 +16,8 @@ describe("login destination", () => {
   })
 
   it("preserves same-origin application paths, query strings, and hashes", () => {
-    expect(loginDestination("/app/wsp/wsp_a/ses?name=chat#latest", origin)).toBe("/app/wsp/wsp_a/ses?name=chat#latest")
+    expect(
+      loginDestination("/app/wsp/wsp_a/ses?name=chat#latest", origin),
+    ).toBe("/app/wsp/wsp_a/ses?name=chat#latest")
   })
 })

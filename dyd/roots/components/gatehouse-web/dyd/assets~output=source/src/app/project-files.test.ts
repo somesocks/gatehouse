@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { finishProjectFileUpload, projectFileDownloadPath, removeProjectFile, startProjectFileUpload } from "./project-files"
+import {
+  finishProjectFileUpload,
+  projectFileDownloadPath,
+  removeProjectFile,
+  startProjectFileUpload,
+} from "./project-files"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -15,9 +20,27 @@ describe("project files transport", () => {
     await finishProjectFileUpload("wsp/test", "prj/test", "fil/test")
     await removeProjectFile("wsp/test", "prj/test", "fil/test")
 
-    expect(fetch).toHaveBeenNthCalledWith(1, "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/start", expect.objectContaining({ method: "POST", credentials: "same-origin", body: JSON.stringify({ name: "plan.txt", media_type: "text/plain" }) }))
-    expect(fetch).toHaveBeenNthCalledWith(2, "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest/finish", { method: "POST", credentials: "same-origin", signal: undefined })
-    expect(fetch).toHaveBeenNthCalledWith(3, "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest", { method: "DELETE", credentials: "same-origin", signal: undefined })
-    expect(projectFileDownloadPath("wsp/test", "prj/test", "fil/test")).toBe("/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest/download")
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/start",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "same-origin",
+        body: JSON.stringify({ name: "plan.txt", media_type: "text/plain" }),
+      }),
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest/finish",
+      { method: "POST", credentials: "same-origin", signal: undefined },
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest",
+      { method: "DELETE", credentials: "same-origin", signal: undefined },
+    )
+    expect(projectFileDownloadPath("wsp/test", "prj/test", "fil/test")).toBe(
+      "/api/v1/workspaces/wsp%2Ftest/projects/prj%2Ftest/files/fil%2Ftest/download",
+    )
   })
 })

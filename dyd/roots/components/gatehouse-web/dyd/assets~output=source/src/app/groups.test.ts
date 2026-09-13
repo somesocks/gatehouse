@@ -13,6 +13,9 @@ describe("groups transport", () => {
 
     await fetchWorkspaceGroups("wsp/test", controller.signal)
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/groups", { credentials: "same-origin", signal: controller.signal })
+    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/groups", {
+      credentials: "same-origin",
+      signal: controller.signal,
+    })
   })
 })

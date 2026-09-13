@@ -3,15 +3,26 @@ import type { ActivityClient } from "./activity"
 import { fetchSystemGrants } from "./system"
 
 export type WorkspaceStatus = "checking" | "ready" | "empty" | "unavailable"
-export type SystemAccessStatus = "checking" | "available" | "denied" | "unavailable"
+export type SystemAccessStatus =
+  | "checking"
+  | "available"
+  | "denied"
+  | "unavailable"
 
 type AccessOptions = {
   activity: ActivityClient
   onAuthenticationLost: () => void
 }
 
-export function createAccess({ activity, onAuthenticationLost }: AccessOptions) {
-  const state = $state<{ workspaceStatus: WorkspaceStatus; workspaces: Workspace[]; systemAccess: SystemAccessStatus }>({
+export function createAccess({
+  activity,
+  onAuthenticationLost,
+}: AccessOptions) {
+  const state = $state<{
+    workspaceStatus: WorkspaceStatus
+    workspaces: Workspace[]
+    systemAccess: SystemAccessStatus
+  }>({
     workspaceStatus: "checking",
     workspaces: [],
     systemAccess: "checking",
@@ -35,7 +46,13 @@ export function createAccess({ activity, onAuthenticationLost }: AccessOptions) 
           onAuthenticationLost()
           return false
         }
-        updateSystemAccess(systemResponse.status === 403 ? "denied" : systemResponse.ok ? "available" : "unavailable")
+        updateSystemAccess(
+          systemResponse.status === 403
+            ? "denied"
+            : systemResponse.ok
+              ? "available"
+              : "unavailable",
+        )
 
         const workspaceResponse = await fetchWorkspaces()
         if (currentGeneration !== generation) return false
@@ -47,8 +64,9 @@ export function createAccess({ activity, onAuthenticationLost }: AccessOptions) 
           state.workspaceStatus = "unavailable"
           return false
         }
-        state.workspaces = await workspaceResponse.json() as Workspace[]
-        state.workspaceStatus = state.workspaces.length === 0 ? "empty" : "ready"
+        state.workspaces = (await workspaceResponse.json()) as Workspace[]
+        state.workspaceStatus =
+          state.workspaces.length === 0 ? "empty" : "ready"
         return true
       } catch {
         if (currentGeneration === generation) {
@@ -70,11 +88,20 @@ export function createAccess({ activity, onAuthenticationLost }: AccessOptions) 
 
   function start(principalID: string): () => void {
     stop()
-    unsubscribe = activity.subscribe([{ name: "access", topic: principalID, events: ["workspace_grant.*", "group_member.*", "system_grant.*"] }], async () => {
-      if (!await refresh()) {
-        throw new Error("access refresh failed")
-      }
-    })
+    unsubscribe = activity.subscribe(
+      [
+        {
+          name: "access",
+          topic: principalID,
+          events: ["workspace_grant.*", "group_member.*", "system_grant.*"],
+        },
+      ],
+      async () => {
+        if (!(await refresh())) {
+          throw new Error("access refresh failed")
+        }
+      },
+    )
     return stop
   }
 
@@ -91,11 +118,15 @@ export function createAccess({ activity, onAuthenticationLost }: AccessOptions) 
     state.systemAccess = "checking"
   }
 
-  function setSystemAccess(next: Exclude<SystemAccessStatus, "checking">): void {
+  function setSystemAccess(
+    next: Exclude<SystemAccessStatus, "checking">,
+  ): void {
     updateSystemAccess(next)
   }
 
-  function updateSystemAccess(next: Exclude<SystemAccessStatus, "checking">): void {
+  function updateSystemAccess(
+    next: Exclude<SystemAccessStatus, "checking">,
+  ): void {
     state.systemAccess = next
   }
 

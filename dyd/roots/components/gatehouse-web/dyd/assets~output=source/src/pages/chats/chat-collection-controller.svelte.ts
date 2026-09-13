@@ -4,15 +4,28 @@ type ChatCollectionControllerOptions = {
   onAuthenticationLost: () => void
 }
 
-export function createChatCollectionController({ onAuthenticationLost }: ChatCollectionControllerOptions) {
-  const state = $state({ chats: [] as Chat[], search: "", cursor: null as string | null, loading: false })
+export function createChatCollectionController({
+  onAuthenticationLost,
+}: ChatCollectionControllerOptions) {
+  const state = $state({
+    chats: [] as Chat[],
+    search: "",
+    cursor: null as string | null,
+    loading: false,
+  })
   let generation = 0
 
-  async function load(workspaceID: string, search: string, reset: boolean, signal: AbortSignal, currentGeneration = generation): Promise<void> {
-    if (state.loading && !reset || !reset && state.cursor === null) {
+  async function load(
+    workspaceID: string,
+    search: string,
+    reset: boolean,
+    signal: AbortSignal,
+    currentGeneration = generation,
+  ): Promise<void> {
+    if ((state.loading && !reset) || (!reset && state.cursor === null)) {
       return
     }
-    const cursor = reset ? "" : state.cursor ?? ""
+    const cursor = reset ? "" : (state.cursor ?? "")
     if (reset) {
       state.search = search
       state.chats = []
@@ -31,11 +44,13 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
       if (!response.ok) {
         throw new Error("sessions could not be searched")
       }
-      const loaded = await response.json() as ChatSearchResponse
+      const loaded = (await response.json()) as ChatSearchResponse
       if (currentGeneration !== generation || signal.aborted) {
         return
       }
-      state.chats = reset ? loaded.sessions : [...state.chats, ...loaded.sessions]
+      state.chats = reset
+        ? loaded.sessions
+        : [...state.chats, ...loaded.sessions]
       state.cursor = loaded.next_cursor ?? null
     } finally {
       if (currentGeneration === generation) {
@@ -44,13 +59,21 @@ export function createChatCollectionController({ onAuthenticationLost }: ChatCol
     }
   }
 
-  function start(workspaceID: string, search: string, signal: AbortSignal): () => void {
+  function start(
+    workspaceID: string,
+    search: string,
+    signal: AbortSignal,
+  ): () => void {
     const currentGeneration = ++generation
     void load(workspaceID, search, true, signal, currentGeneration)
     return stop
   }
 
-  function loadMore(workspaceID: string, search: string, signal: AbortSignal): void {
+  function loadMore(
+    workspaceID: string,
+    search: string,
+    signal: AbortSignal,
+  ): void {
     void load(workspaceID, search, false, signal)
   }
 

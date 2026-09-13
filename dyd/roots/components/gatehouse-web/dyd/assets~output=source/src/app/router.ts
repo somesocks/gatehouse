@@ -2,7 +2,11 @@ import { parseRoute, type Route } from "../route"
 
 export type Navigate = (path: string, replace?: boolean) => void
 
-export function createRouter(onRoute: (route: Route) => void): { navigate: Navigate; resolve: () => void; start: () => () => void } {
+export function createRouter(onRoute: (route: Route) => void): {
+  navigate: Navigate
+  resolve: () => void
+  start: () => () => void
+} {
   function resolve(): void {
     onRoute(parseRoute(new URL(window.location.href)))
   }

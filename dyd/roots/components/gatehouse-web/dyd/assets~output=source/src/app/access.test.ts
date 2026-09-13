@@ -13,7 +13,9 @@ describe("access transport", () => {
 
     await fetchWorkspaces()
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces", { credentials: "same-origin" })
+    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces", {
+      credentials: "same-origin",
+    })
   })
 
   it("loads system grants with session credentials", async () => {
@@ -22,6 +24,8 @@ describe("access transport", () => {
 
     await fetchSystemGrants()
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/system/grants", { credentials: "same-origin" })
+    expect(fetch).toHaveBeenCalledWith("/api/v1/system/grants", {
+      credentials: "same-origin",
+    })
   })
 })

@@ -1,1 +1,9 @@
-<script lang="ts">import SystemAccessGate from "../../../components/SystemAccessGate.svelte"; import WorkspaceAgentBindingNewPage from "./WorkspaceAgentBindingNewPage.svelte"</script><SystemAccessGate>{#snippet children()}<WorkspaceAgentBindingNewPage />{/snippet}</SystemAccessGate>
+<script lang="ts">
+  import SystemAccessGate from "../../../components/SystemAccessGate.svelte"
+  import WorkspaceAgentBindingNewPage from "./WorkspaceAgentBindingNewPage.svelte"
+</script>
+
+<SystemAccessGate
+  >{#snippet children()}<WorkspaceAgentBindingNewPage
+    />{/snippet}</SystemAccessGate
+>

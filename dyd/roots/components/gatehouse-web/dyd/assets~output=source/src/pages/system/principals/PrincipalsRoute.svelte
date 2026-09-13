@@ -3,4 +3,6 @@
   import PrincipalsPage from "./PrincipalsPage.svelte"
 </script>
 
-<SystemAccessGate>{#snippet children()}<PrincipalsPage />{/snippet}</SystemAccessGate>
+<SystemAccessGate
+  >{#snippet children()}<PrincipalsPage />{/snippet}</SystemAccessGate
+>

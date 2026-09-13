@@ -1,1 +1,8 @@
-<script lang="ts">import SystemAccessGate from "../../../components/SystemAccessGate.svelte"; import StorageProviderListPage from "./StorageProviderListPage.svelte"</script><SystemAccessGate>{#snippet children()}<StorageProviderListPage />{/snippet}</SystemAccessGate>
+<script lang="ts">
+  import SystemAccessGate from "../../../components/SystemAccessGate.svelte"
+  import StorageProviderListPage from "./StorageProviderListPage.svelte"
+</script>
+
+<SystemAccessGate
+  >{#snippet children()}<StorageProviderListPage />{/snippet}</SystemAccessGate
+>

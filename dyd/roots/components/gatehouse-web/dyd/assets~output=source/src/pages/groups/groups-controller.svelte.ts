@@ -6,12 +6,19 @@ type GroupsControllerOptions = {
   onAuthenticationLost: () => void
 }
 
-export function createGroupsController({ activity, onAuthenticationLost }: GroupsControllerOptions) {
+export function createGroupsController({
+  activity,
+  onAuthenticationLost,
+}: GroupsControllerOptions) {
   const state = $state({ groups: [] as Group[], search: "" })
   let unsubscribe: (() => void) | undefined
   let generation = 0
 
-  async function load(workspaceID: string, signal: AbortSignal, currentGeneration = generation): Promise<boolean> {
+  async function load(
+    workspaceID: string,
+    signal: AbortSignal,
+    currentGeneration = generation,
+  ): Promise<boolean> {
     const response = await fetchWorkspaceGroups(workspaceID, signal)
     if (currentGeneration !== generation || signal.aborted) {
       return false
@@ -23,7 +30,7 @@ export function createGroupsController({ activity, onAuthenticationLost }: Group
     if (!response.ok) {
       throw new Error("groups could not be refreshed")
     }
-    const groups = await response.json() as Group[]
+    const groups = (await response.json()) as Group[]
     if (currentGeneration !== generation || signal.aborted) {
       return false
     }
@@ -36,14 +43,27 @@ export function createGroupsController({ activity, onAuthenticationLost }: Group
     const currentGeneration = ++generation
     state.groups = []
     void load(workspaceID, routeSignal, currentGeneration)
-    unsubscribe = activity.subscribe([{ name: "group", topic: workspaceID, events: ["group.*", "group_member.*"] }], async ({ signal }) => {
-      if (signal.aborted || routeSignal.aborted) {
-        return
-      }
-      if (!await load(workspaceID, routeSignal, currentGeneration) || signal.aborted || routeSignal.aborted) {
-        throw new Error("groups refresh failed")
-      }
-    })
+    unsubscribe = activity.subscribe(
+      [
+        {
+          name: "group",
+          topic: workspaceID,
+          events: ["group.*", "group_member.*"],
+        },
+      ],
+      async ({ signal }) => {
+        if (signal.aborted || routeSignal.aborted) {
+          return
+        }
+        if (
+          !(await load(workspaceID, routeSignal, currentGeneration)) ||
+          signal.aborted ||
+          routeSignal.aborted
+        ) {
+          throw new Error("groups refresh failed")
+        }
+      },
+    )
     return stop
   }
 

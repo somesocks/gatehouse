@@ -10,7 +10,9 @@ const runtimeContext = Symbol("gatehouse-runtime")
 export type ApplicationRuntime = ReturnType<typeof createApplicationRuntime>
 
 export function createApplicationRuntime() {
-  const state = $state<{ route: Route }>({ route: parseRoute(new URL(window.location.href)) })
+  const state = $state<{ route: Route }>({
+    route: parseRoute(new URL(window.location.href)),
+  })
   let started = false
   let stopRouter: (() => void) | undefined
   let accessPrincipalID: string | undefined
@@ -20,7 +22,7 @@ export function createApplicationRuntime() {
   const auth = createAuth()
   const activity = createActivityClient({ onAuthenticationLost: requireLogin })
   const access = createAccess({ activity, onAuthenticationLost: requireLogin })
-  const router = createRouter((route) => state.route = route)
+  const router = createRouter((route) => (state.route = route))
 
   function navigate(path: string, replace = false): void {
     router.navigate(path, replace)
@@ -34,7 +36,8 @@ export function createApplicationRuntime() {
     activity.dispose()
     auth.clear()
     if (state.route.kind !== "login") {
-      const requested = window.location.pathname + window.location.search + window.location.hash
+      const requested =
+        window.location.pathname + window.location.search + window.location.hash
       navigate(`/app/login?next=${encodeURIComponent(requested)}`, true)
     }
   }
@@ -85,16 +88,30 @@ export function createApplicationRuntime() {
     activity.dispose()
   }
 
-  return { state, auth, access, activity, router, navigate: navigate as Navigate, requireLogin, refresh, start, stop }
+  return {
+    state,
+    auth,
+    access,
+    activity,
+    router,
+    navigate: navigate as Navigate,
+    requireLogin,
+    refresh,
+    start,
+    stop,
+  }
 }
 
-export function provideRuntime(runtime: ApplicationRuntime): ApplicationRuntime {
+export function provideRuntime(
+  runtime: ApplicationRuntime,
+): ApplicationRuntime {
   setContext(runtimeContext, runtime)
   return runtime
 }
 
 export function useRuntime(): ApplicationRuntime {
   const runtime = getContext<ApplicationRuntime>(runtimeContext)
-  if (runtime === undefined) throw new Error("Gatehouse application runtime is missing")
+  if (runtime === undefined)
+    throw new Error("Gatehouse application runtime is missing")
   return runtime
 }

@@ -3,4 +3,6 @@
   import SystemOverviewPage from "./SystemOverviewPage.svelte"
 </script>
 
-<SystemAccessGate>{#snippet children()}<SystemOverviewPage />{/snippet}</SystemAccessGate>
+<SystemAccessGate
+  >{#snippet children()}<SystemOverviewPage />{/snippet}</SystemAccessGate
+>

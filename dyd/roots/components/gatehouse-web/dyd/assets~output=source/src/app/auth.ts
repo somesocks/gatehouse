@@ -7,17 +7,22 @@ export type Claims = {
 }
 
 export async function checkAuthentication(): Promise<Claims | null> {
-  const response = await fetch("/api/v1/auth/me", { credentials: "same-origin" })
+  const response = await fetch("/api/v1/auth/me", {
+    credentials: "same-origin",
+  })
   if (response.status === 401) {
     return null
   }
   if (!response.ok) {
     throw new Error(`authentication check returned ${response.status}`)
   }
-  return await response.json() as Claims
+  return (await response.json()) as Claims
 }
 
-export async function signIn(identity: string, password: string): Promise<boolean> {
+export async function signIn(
+  identity: string,
+  password: string,
+): Promise<boolean> {
   const response = await fetch("/api/v1/auth/login", {
     method: "POST",
     credentials: "same-origin",
@@ -34,5 +39,8 @@ export async function signIn(identity: string, password: string): Promise<boolea
 }
 
 export async function signOut(): Promise<void> {
-  await fetch("/api/v1/auth/logout", { method: "POST", credentials: "same-origin" })
+  await fetch("/api/v1/auth/logout", {
+    method: "POST",
+    credentials: "same-origin",
+  })
 }

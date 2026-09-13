@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createChat, createProjectChat, fetchChats, fetchDashboardChats, fetchProjectChats } from "./chats"
+import {
+  createChat,
+  createProjectChat,
+  fetchChats,
+  fetchDashboardChats,
+  fetchProjectChats,
+} from "./chats"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -13,7 +19,10 @@ describe("chats transport", () => {
 
     await fetchChats("wsp/test", "project chat", "ses_1", controller.signal)
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/sessions?limit=50&name=project+chat&cursor=ses_1", { credentials: "same-origin", signal: controller.signal })
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/workspaces/wsp%2Ftest/sessions?limit=50&name=project+chat&cursor=ses_1",
+      { credentials: "same-origin", signal: controller.signal },
+    )
   })
 
   it("creates workspace chats", async () => {
@@ -23,7 +32,16 @@ describe("chats transport", () => {
 
     await createChat("wsp/test", controller.signal)
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/sessions", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}), signal: controller.signal })
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/workspaces/wsp%2Ftest/sessions",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+        signal: controller.signal,
+      },
+    )
   })
 
   it("loads the five latest chats for a dashboard", async () => {
@@ -33,7 +51,10 @@ describe("chats transport", () => {
 
     await fetchDashboardChats("wsp/test", controller.signal)
 
-    expect(fetch).toHaveBeenCalledWith("/api/v1/workspaces/wsp%2Ftest/sessions?limit=5", { credentials: "same-origin", signal: controller.signal })
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/workspaces/wsp%2Ftest/sessions?limit=5",
+      { credentials: "same-origin", signal: controller.signal },
+    )
   })
 
   it("loads and creates chats scoped to a project", async () => {
@@ -43,7 +64,21 @@ describe("chats transport", () => {
     await fetchProjectChats("wsp/test", "prj/test")
     await createProjectChat("wsp/test", "prj/test")
 
-    expect(fetch).toHaveBeenNthCalledWith(1, "/api/v1/workspaces/wsp%2Ftest/sessions?limit=5&project=prj%2Ftest", { credentials: "same-origin", signal: undefined })
-    expect(fetch).toHaveBeenNthCalledWith(2, "/api/v1/workspaces/wsp%2Ftest/sessions", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: "prj/test" }), signal: undefined })
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/workspaces/wsp%2Ftest/sessions?limit=5&project=prj%2Ftest",
+      { credentials: "same-origin", signal: undefined },
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/workspaces/wsp%2Ftest/sessions",
+      {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ project: "prj/test" }),
+        signal: undefined,
+      },
+    )
   })
 })

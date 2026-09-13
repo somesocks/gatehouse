@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+
+set -eu
+
+cd "$DYD_STEM/dyd/assets"
+prettier --write --no-semi 'src/**/*.{css,svelte,ts}'

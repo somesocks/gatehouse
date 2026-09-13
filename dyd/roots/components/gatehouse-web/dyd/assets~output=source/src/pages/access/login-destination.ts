@@ -6,6 +6,12 @@ export function loginDestination(next: string | null, origin: string): string {
   } catch {
     return "/app/"
   }
-  if (destination.origin !== origin || !destination.pathname.startsWith("/app/") || destination.pathname === "/app/login" || destination.pathname === "/app/login/") return "/app/"
+  if (
+    destination.origin !== origin ||
+    !destination.pathname.startsWith("/app/") ||
+    destination.pathname === "/app/login" ||
+    destination.pathname === "/app/login/"
+  )
+    return "/app/"
   return destination.pathname + destination.search + destination.hash
 }

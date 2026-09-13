@@ -10,7 +10,12 @@ export type ChatSearchResponse = {
   next_cursor?: string
 }
 
-export async function fetchChats(workspaceID: string, name: string, cursor: string, signal?: AbortSignal): Promise<Response> {
+export async function fetchChats(
+  workspaceID: string,
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
   const parameters = new URLSearchParams({ limit: "50" })
   if (name.trim() !== "") {
     parameters.set("name", name)
@@ -18,22 +23,63 @@ export async function fetchChats(workspaceID: string, name: string, cursor: stri
   if (cursor !== "") {
     parameters.set("cursor", cursor)
   }
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
 }
 
-export async function createChat(workspaceID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}), ...(signal === undefined ? {} : { signal }) })
+export async function createChat(
+  workspaceID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
-export async function fetchDashboardChats(workspaceID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?limit=5`, { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) })
+export async function fetchDashboardChats(
+  workspaceID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?limit=5`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
 }
 
-export async function fetchProjectChats(workspaceID: string, projectID: string, signal?: AbortSignal): Promise<Response> {
+export async function fetchProjectChats(
+  workspaceID: string,
+  projectID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
   const parameters = new URLSearchParams({ limit: "5", project: projectID })
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`, { credentials: "same-origin", signal })
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`,
+    { credentials: "same-origin", signal },
+  )
 }
 
-export async function createProjectChat(workspaceID: string, projectID: string, signal?: AbortSignal): Promise<Response> {
-  return await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ project: projectID }), signal })
+export async function createProjectChat(
+  workspaceID: string,
+  projectID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions`,
+    {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project: projectID }),
+      signal,
+    },
+  )
 }

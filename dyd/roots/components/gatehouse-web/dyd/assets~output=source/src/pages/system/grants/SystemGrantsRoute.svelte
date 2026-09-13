@@ -3,4 +3,6 @@
   import SystemGrantsPage from "./SystemGrantsPage.svelte"
 </script>
 
-<SystemAccessGate>{#snippet children()}<SystemGrantsPage />{/snippet}</SystemAccessGate>
+<SystemAccessGate
+  >{#snippet children()}<SystemGrantsPage />{/snippet}</SystemAccessGate
+>

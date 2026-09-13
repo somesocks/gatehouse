@@ -1,5 +1,155 @@
 <script lang="ts">
-  import { untrack } from "svelte"; import { useRuntime } from "../../../app/runtime.svelte"; import SystemFrame from "../../../components/SystemFrame.svelte"; import RouterLink from "../../../components/RouterLink.svelte"; import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
-  const runtime = useRuntime(); const controller = untrack(() => createAgentModelFormController({ onAuthenticationLost: runtime.requireLogin, onSystemAccessChange: runtime.access.setSystemAccess })); $effect(() => { void controller.loadProviders() }); async function create(): Promise<void> { const model = await controller.create(); if (model !== null) runtime.navigate(`/app/system/agent-models/${encodeURIComponent(model.id)}`, true) }
+  import { untrack } from "svelte"
+  import { useRuntime } from "../../../app/runtime.svelte"
+  import SystemFrame from "../../../components/SystemFrame.svelte"
+  import RouterLink from "../../../components/RouterLink.svelte"
+  import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
+  const runtime = useRuntime()
+  const controller = untrack(() =>
+    createAgentModelFormController({
+      onAuthenticationLost: runtime.requireLogin,
+      onSystemAccessChange: runtime.access.setSystemAccess,
+    }),
+  )
+  $effect(() => {
+    void controller.loadProviders()
+  })
+  async function create(): Promise<void> {
+    const model = await controller.create()
+    if (model !== null)
+      runtime.navigate(
+        `/app/system/agent-models/${encodeURIComponent(model.id)}`,
+        true,
+      )
+  }
 </script>
-<SystemFrame active="agent-models" title="New agent model"><section class="system-page"><div class="system-page-heading mb-5"><div><p class="eyebrow">System</p><h2 class="title is-3">New agent model</h2><p class="subtitle is-6">Configure a model available for workspace bindings.</p></div></div><form onsubmit={(event) => { event.preventDefault(); void create() }}><div class="field"><label class="label" for="agent-model-alias">Alias</label><div class="control"><input class="input" id="agent-model-alias" required bind:value={controller.state.form.alias} /></div></div><div class="field"><label class="label" for="agent-model-provider">Provider</label><div class="control"><div class="select is-fullwidth"><select id="agent-model-provider" required bind:value={controller.state.form.provider}><option value="">Select provider</option>{#each controller.state.providers as provider (provider.id)}<option value={provider.id} disabled={!provider.enabled}>{provider.alias} / {provider.id}{provider.enabled ? "" : " / Disabled"}</option>{/each}</select></div></div></div><div class="field"><label class="label" for="agent-model-name">Model</label><div class="control"><input class="input" id="agent-model-name" required bind:value={controller.state.form.model} /></div></div><div class="field"><label class="label" for="agent-model-parameters">Parameters</label><div class="control"><input class="input" id="agent-model-parameters" bind:value={controller.state.form.parameters} /></div></div><div class="field"><label class="label" for="agent-model-compaction">Compaction</label><div class="control"><input class="input" id="agent-model-compaction" bind:value={controller.state.form.compaction} /></div></div><div class="field"><label class="label" for="agent-model-max-turns">Max turns</label><div class="control"><input class="input" id="agent-model-max-turns" type="number" min="0" bind:value={controller.state.form.maxTurns} /></div></div><div class="field"><label class="label" for="agent-model-max-output-tokens">Max output tokens</label><div class="control"><input class="input" id="agent-model-max-output-tokens" type="number" min="0" bind:value={controller.state.form.maxOutputTokens} /></div></div><div class="field is-grouped"><p class="control"><button class="button is-primary" type="submit" disabled={controller.state.saving}>{controller.state.saving ? "Saving..." : "Add model"}</button></p><p class="control"><RouterLink class="button" href="/app/system/agent-models">Cancel</RouterLink></p></div></form>{#if controller.state.error !== ""}<p class="help is-danger" aria-live="polite">{controller.state.error}</p>{/if}</section></SystemFrame>
+
+<SystemFrame active="agent-models" title="New agent model"
+  ><section class="system-page">
+    <div class="system-page-heading mb-5">
+      <div>
+        <p class="eyebrow">System</p>
+        <h2 class="title is-3">New agent model</h2>
+        <p class="subtitle is-6">
+          Configure a model available for workspace bindings.
+        </p>
+      </div>
+    </div>
+    <form
+      onsubmit={(event) => {
+        event.preventDefault()
+        void create()
+      }}
+    >
+      <div class="field">
+        <label class="label" for="agent-model-alias">Alias</label>
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-alias"
+            required
+            bind:value={controller.state.form.alias}
+          />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-provider">Provider</label>
+        <div class="control">
+          <div class="select is-fullwidth">
+            <select
+              id="agent-model-provider"
+              required
+              bind:value={controller.state.form.provider}
+              ><option value="">Select provider</option
+              >{#each controller.state.providers as provider (provider.id)}<option
+                  value={provider.id}
+                  disabled={!provider.enabled}
+                  >{provider.alias} / {provider.id}{provider.enabled
+                    ? ""
+                    : " / Disabled"}</option
+                >{/each}</select
+            >
+          </div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-name">Model</label>
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-name"
+            required
+            bind:value={controller.state.form.model}
+          />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-parameters">Parameters</label>
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-parameters"
+            bind:value={controller.state.form.parameters}
+          />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-compaction">Compaction</label>
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-compaction"
+            bind:value={controller.state.form.compaction}
+          />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-max-turns">Max turns</label>
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-max-turns"
+            type="number"
+            min="0"
+            bind:value={controller.state.form.maxTurns}
+          />
+        </div>
+      </div>
+      <div class="field">
+        <label class="label" for="agent-model-max-output-tokens"
+          >Max output tokens</label
+        >
+        <div class="control">
+          <input
+            class="input"
+            id="agent-model-max-output-tokens"
+            type="number"
+            min="0"
+            bind:value={controller.state.form.maxOutputTokens}
+          />
+        </div>
+      </div>
+      <div class="field is-grouped">
+        <p class="control">
+          <button
+            class="button is-primary"
+            type="submit"
+            disabled={controller.state.saving}
+            >{controller.state.saving ? "Saving..." : "Add model"}</button
+          >
+        </p>
+        <p class="control">
+          <RouterLink class="button" href="/app/system/agent-models"
+            >Cancel</RouterLink
+          >
+        </p>
+      </div>
+    </form>
+    {#if controller.state.error !== ""}<p
+        class="help is-danger"
+        aria-live="polite"
+      >
+        {controller.state.error}
+      </p>{/if}
+  </section></SystemFrame
+>

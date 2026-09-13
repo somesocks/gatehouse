@@ -1,7 +1,12 @@
 import type { Auth } from "../../app/auth.svelte"
 
 export function createLoginController(auth: Auth, onAuthenticated: () => void) {
-  const state = $state({ identity: "", password: "", submitting: false, error: "" })
+  const state = $state({
+    identity: "",
+    password: "",
+    submitting: false,
+    error: "",
+  })
 
   async function submit(): Promise<void> {
     state.error = ""
