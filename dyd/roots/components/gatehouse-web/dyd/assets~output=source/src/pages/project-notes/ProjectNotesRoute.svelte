@@ -2,6 +2,8 @@
   import { Menu, X } from "@lucide/svelte"
   import { useRuntime } from "../../app/runtime.svelte"
   import ModalDialog from "../../components/ModalDialog.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
@@ -604,7 +606,7 @@
           >{/if}
         </h1>
       </SidebarPage.Header>
-      <SidebarPage.Body><section class="project-note-page">
+      <SidebarPage.Body><PageBody>
       {#if projectStatus === "checking"}<p class="dashboard-empty">
           Loading project...
         </p>
@@ -625,12 +627,10 @@
             void save()
           }}
         >
-          <div class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">Project Note</p>
-              <h2>{creating ? "New Note" : "Edit Note"}</h2>
-            </div>
-          </div>
+          <PageHeading>
+            <p class="eyebrow">Project Note</p>
+            <h2>{creating ? "New Note" : "Edit Note"}</h2>
+          </PageHeading>
           <div class="field">
             <label class="label" for="project-note-title">Title</label>
             <div class="control">
@@ -719,51 +719,47 @@
         >
       {:else if active !== null}{@const displayed = selectedRevision ?? active}
         <article class="project-note-view">
-          <header class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">
-                {selectedRevision === null
-                  ? "Project Note"
-                  : `Project Note Revision ${selectedRevision.revision}`}
-              </p>
-              <h2>
-                <span class="project-note-title"
-                  >{displayed.title}{#if displayed.sensitive}<span
-                      class="sensitive-note-badge">Sensitive</span
-                    >{/if}</span
-                >
-              </h2>
-              {#if displayed.description !== ""}<p>
-                  {displayed.description}
-                </p>{/if}<small
-                >By {authorLabel(displayed.author)} on {dateLabel(
-                  displayed.created_at,
-                )}</small
-              >
-            </div>
-            <div class="project-note-actions">
-              {#if selectedRevision === null}<button
-                  class="button is-small"
-                  type="button"
-                  onclick={startEdit}>Edit</button
-                >{:else}<button
-                  class="button is-small"
-                  type="button"
-                  onclick={() => (selectedRevision = null)}
-                  >Current revision</button
-                >{/if}<button
+          {#snippet noteActions()}{#if selectedRevision === null}<button
                 class="button is-small"
                 type="button"
-                onclick={() => void openHistory()}>History</button
-              >{#if selectedRevision === null}<button
-                  class="button is-small is-danger is-light"
-                  type="button"
-                  disabled={deleting}
-                  onclick={() => void remove()}
-                  >{deleting ? "Removing..." : "Remove"}</button
-                >{/if}
-            </div>
-          </header>
+                onclick={startEdit}>Edit</button
+              >{:else}<button
+                class="button is-small"
+                type="button"
+                onclick={() => (selectedRevision = null)}
+                >Current revision</button
+              >{/if}<button
+              class="button is-small"
+              type="button"
+              onclick={() => void openHistory()}>History</button
+            >{#if selectedRevision === null}<button
+                class="button is-small is-danger is-light"
+                type="button"
+                disabled={deleting}
+                onclick={() => void remove()}
+                >{deleting ? "Removing..." : "Remove"}</button
+              >{/if}{/snippet}
+          <PageHeading as="header" actions={noteActions}>
+            <p class="eyebrow">
+              {selectedRevision === null
+                ? "Project Note"
+                : `Project Note Revision ${selectedRevision.revision}`}
+            </p>
+            <h2>
+              <span class="project-note-title"
+                >{displayed.title}{#if displayed.sensitive}<span
+                    class="sensitive-note-badge">Sensitive</span
+                  >{/if}</span
+              >
+            </h2>
+            {#if displayed.description !== ""}<p>
+                {displayed.description}
+              </p>{/if}<small
+              >By {authorLabel(displayed.author)} on {dateLabel(
+                displayed.created_at,
+              )}</small
+            >
+          </PageHeading>
           {#if displayed.body !== undefined && displayed.body !== ""}<div
               class="markdown-content project-note-markdown"
             >
@@ -775,17 +771,17 @@
               {error}
             </p>{/if}
         </article>
-      {:else}<div class="collection-heading project-collection-heading">
-          <h2>Project Notes</h2>
-          <button
+      {:else}{#snippet collectionActions()}<button
             class="button is-primary is-small"
             type="button"
             onclick={() =>
               runtime.navigate(
                 `${listPath(workspace.id, currentRoute.projectID)}/new`,
               )}>New note</button
-          >
-        </div>
+          >{/snippet}
+        <PageHeading actions={collectionActions}>
+          <h2>Project Notes</h2>
+        </PageHeading>
         <div class="collection-list">
           {#if notesStatus === "checking"}<p class="dashboard-empty">
               Loading notes...
@@ -822,7 +818,7 @@
                 ></RouterLink
               >{:else}<p class="dashboard-empty">No notes yet.</p>{/each}{/if}
         </div>{/if}
-      </section></SidebarPage.Body>
+      </PageBody></SidebarPage.Body>
     </SidebarPage.Page>
   </SidebarPage.Root>
   <ModalDialog

@@ -7,6 +7,8 @@
     type ChatFile,
   } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
@@ -301,12 +303,10 @@
         {:else if sessionStatus === "unavailable"}
           <p class="dashboard-empty">This chat could not be loaded.</p>
         {:else}
-          <section class="project-note-page">
-            <div class="collection-heading">
-              <div>
-                <h2>Files</h2>
-              </div>
-            </div>
+          <PageBody>
+            <PageHeading>
+              <h2>Files</h2>
+            </PageHeading>
             <div class="collection-list">
               {#if filesStatus === "checking"}
                 <p class="dashboard-empty" aria-busy="true">Loading files...</p>
@@ -341,7 +341,7 @@
                 {/each}
               {/if}
             </div>
-          </section>
+          </PageBody>
         {/if}
       </SidebarPage.Body>
     </SidebarPage.Page>

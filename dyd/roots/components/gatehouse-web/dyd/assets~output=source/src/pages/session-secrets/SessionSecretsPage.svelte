@@ -1,6 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import type { Route } from "../../route"
   import { createSessionSecretsController } from "./session-secrets-controller.svelte"
@@ -72,7 +74,7 @@
   }
 </script>
 
-<section class="project-note-page">
+<PageBody>
   {#if controller.state.editing}
     <form
       class="project-note-editor"
@@ -81,12 +83,10 @@
         void controller.save()
       }}
     >
-      <div class="project-note-page-heading">
-        <div>
-          <p class="eyebrow">Session Secret</p>
-          <h2>{controller.state.creating ? "New Secret" : "Edit Secret"}</h2>
-        </div>
-      </div>
+      <PageHeading>
+        <p class="eyebrow">Session Secret</p>
+        <h2>{controller.state.creating ? "New Secret" : "Edit Secret"}</h2>
+      </PageHeading>
       <div class="field">
         <label class="label" for="session-secret-description">Description</label
         >
@@ -141,22 +141,7 @@
     </form>
   {:else if controller.state.active !== null}
     <article class="project-note-view">
-      <header class="project-note-page-heading">
-        <div>
-          <p class="eyebrow">Session Secret</p>
-          <h2>{controller.state.active.description}</h2>
-          <small
-            >By {controller.state.active.author.name ??
-              controller.state.active.author.id} on {createdAtLabel(
-              controller.state.active.created_at,
-            )}{#if controller.state.active.updated_at !== controller.state.active.created_at}
-              / Updated {createdAtLabel(
-                controller.state.active.updated_at,
-              )}{/if}</small
-          >
-        </div>
-        <div class="project-note-actions">
-          <button
+      {#snippet secretActions()}<button
             class="button is-small"
             type="button"
             onclick={() => controller.startEdit()}>Edit</button
@@ -166,9 +151,20 @@
             disabled={controller.state.deleting}
             onclick={() => void controller.remove()}
             >{controller.state.deleting ? "Removing..." : "Remove"}</button
-          >
-        </div>
-      </header>
+          >{/snippet}
+      <PageHeading as="header" actions={secretActions}>
+        <p class="eyebrow">Session Secret</p>
+        <h2>{controller.state.active.description}</h2>
+        <small
+          >By {controller.state.active.author.name ??
+            controller.state.active.author.id} on {createdAtLabel(
+            controller.state.active.created_at,
+          )}{#if controller.state.active.updated_at !== controller.state.active.created_at}
+            / Updated {createdAtLabel(
+              controller.state.active.updated_at,
+            )}{/if}</small
+        >
+      </PageHeading>
       {#if controller.state.error !== ""}<p
           class="help is-danger"
           aria-live="polite"
@@ -176,15 +172,14 @@
           {controller.state.error}
         </p>{/if}
     </article>
-  {:else}
-    <div class="collection-heading">
-      <h2>Session Secrets</h2>
-      <button
+  {:else}{#snippet collectionActions()}<button
         class="button is-primary is-small"
         type="button"
         onclick={() => controller.startCreate()}>New secret</button
-      >
-    </div>
+      >{/snippet}
+    <PageHeading actions={collectionActions}>
+      <h2>Session Secrets</h2>
+    </PageHeading>
     <div class="collection-list">
       {#if controller.state.status === "checking"}
         <p class="dashboard-empty">Loading secrets...</p>
@@ -209,4 +204,4 @@
       {/if}
     </div>
   {/if}
-</section>
+</PageBody>

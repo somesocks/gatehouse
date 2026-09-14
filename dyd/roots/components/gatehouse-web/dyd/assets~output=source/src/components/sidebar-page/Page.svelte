@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte"
 
-  let { children }: { children: Snippet } = $props()
+  let {
+    element = $bindable<HTMLElement | undefined>(undefined),
+    children,
+  }: { element?: HTMLElement; children: Snippet } = $props()
 </script>
 
-<main class="sidebar-page-page">{@render children()}</main>
+<main bind:this={element} class="sidebar-page-page">{@render children()}</main>

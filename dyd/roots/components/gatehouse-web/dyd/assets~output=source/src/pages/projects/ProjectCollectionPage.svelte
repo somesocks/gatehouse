@@ -2,6 +2,8 @@
   import { untrack } from "svelte"
   import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import { createProjectCollectionController } from "./project-collection-controller.svelte"
 
@@ -57,16 +59,16 @@
   }
 </script>
 
-<section class="collection-page">
-  <div class="collection-heading">
-    <h1 class="brand-dashboard-title">Projects</h1>
-    <button
+<PageBody>
+  {#snippet projectActions()}<button
       class="button is-primary is-small"
       type="button"
       disabled={creating}
       onclick={() => void onCreate()}>New project</button
-    >
-  </div>
+    >{/snippet}
+  <PageHeading actions={projectActions}>
+    <h1>Projects</h1>
+  </PageHeading>
   <form
     class="collection-search"
     onsubmit={(event) => {
@@ -114,4 +116,4 @@
       onclick={() => controller.loadMore(workspace.id, search, signal)}
       >{controller.state.loading ? "Loading..." : "Show more"}</button
     >{/if}
-</section>
+</PageBody>

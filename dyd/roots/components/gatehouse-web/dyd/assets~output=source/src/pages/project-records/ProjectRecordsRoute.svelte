@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowLeft, Menu } from "@lucide/svelte"
+  import { Menu } from "@lucide/svelte"
   import { fetchProject, type Project } from "../../app/projects"
   import {
     createProjectRecord,
@@ -25,6 +25,8 @@
     type ProjectRecordValue,
   } from "../../app/project-records"
   import { useRuntime } from "../../app/runtime.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
@@ -122,59 +124,6 @@
     recordID: string,
   ) =>
     `${schemaPath(workspaceID, projectID, schemaID)}/${encodeURIComponent(recordID)}`
-  const backTarget = $derived.by(() => {
-    if (currentRoute.kind === "project-records")
-      return {
-        href: projectPath(workspace.id, currentRoute.projectID),
-        label: "Back to project",
-      }
-    if (currentRoute.kind === "project-record-schema-new")
-      return {
-        href: recordsPath(workspace.id, currentRoute.projectID),
-        label: "Back to record types",
-      }
-    if (currentRoute.kind === "project-record-schema-edit")
-      return {
-        href: schemaPath(
-          workspace.id,
-          currentRoute.projectID,
-          currentRoute.schemaID,
-        ),
-        label: "Back to records",
-      }
-    if (currentRoute.kind === "project-record-edit")
-      return {
-        href: recordPath(
-          workspace.id,
-          currentRoute.projectID,
-          currentRoute.schemaID,
-          currentRoute.recordID,
-        ),
-        label: "Back to record",
-      }
-    if (currentRoute.kind === "project-record")
-      return {
-        href: schemaPath(
-          workspace.id,
-          currentRoute.projectID,
-          currentRoute.schemaID,
-        ),
-        label: `Back to ${schema?.label ?? "records"}`,
-      }
-    if (currentRoute.kind === "project-record-new")
-      return {
-        href: schemaPath(
-          workspace.id,
-          currentRoute.projectID,
-          currentRoute.schemaID,
-        ),
-        label: "Back to records",
-      }
-    return {
-      href: recordsPath(workspace.id, currentRoute.projectID),
-      label: "Back to record types",
-    }
-  })
   const isSchemaRoute = (
     route: RecordsRoute,
   ): route is Extract<RecordsRoute, { schemaID: string }> => "schemaID" in route
@@ -1007,13 +956,7 @@
         >
         </h1>
       </SidebarPage.Header>
-      <SidebarPage.Body><section class="project-records-page">
-      <RouterLink class="record-back-link" href={backTarget.href}
-        ><ArrowLeft
-          size={16}
-          aria-hidden="true"
-        />{backTarget.label}</RouterLink
-      >
+      <SidebarPage.Body><PageBody>
       {#if projectStatus === "checking"}<p class="dashboard-empty">
           Loading project...
         </p>
@@ -1034,22 +977,20 @@
             void saveSchema()
           }}
         >
-          <div class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">Record type</p>
-              <h2>
-                {currentRoute.kind === "project-record-schema-new"
-                  ? "New record type"
-                  : `Edit ${schema?.label ?? "record type"}`}
-              </h2>
-            </div>
-            {#if currentRoute.kind === "project-record-schema-edit"}<button
+          {#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<button
                 class="button is-danger is-light"
                 type="button"
                 disabled={saving}
                 onclick={() => void deleteSchema()}>Remove record type</button
-              >{/if}
-          </div>
+              >{/if}{/snippet}
+          <PageHeading actions={schemaActions}>
+            <p class="eyebrow">Record type</p>
+            <h2>
+              {currentRoute.kind === "project-record-schema-new"
+                ? "New record type"
+                : `Edit ${schema?.label ?? "record type"}`}
+            </h2>
+          </PageHeading>
           <div class="field">
             <label class="label" for="schema-name">Name</label>
             <div class="control">
@@ -1104,15 +1045,15 @@
             >
           </div>
         </form>
-      {:else if currentRoute.kind === "project-record"}<section>
-          <header class="block">
+        {:else if currentRoute.kind === "project-record"}<section>
+          <PageHeading as="header">
             <p class="eyebrow">{schema?.label ?? "Record"}</p>
-            <h1 class="title is-3">
+            <h2>
               {#if recordsStatus === "checking"}Loading record...{:else}{#each primaryLines(activeValues) as line}<span
                     class="is-block">{line}</span
                   >{/each}{/if}
-            </h1>
-          </header>
+            </h2>
+          </PageHeading>
           <section class="card block mb-6">
             <div class="card-content">
               <h2 class="title is-4">Record</h2>
@@ -1201,22 +1142,20 @@
             void saveRecord()
           }}
         >
-          <div class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">{schema?.label ?? "Record"}</p>
-              <h2>
-                {currentRoute.kind === "project-record-new"
-                  ? "New record"
-                  : "Edit record"}
-              </h2>
-            </div>
-            {#if currentRoute.kind === "project-record-edit"}<button
+          {#snippet recordActions()}{#if currentRoute.kind === "project-record-edit"}<button
                 class="button is-danger is-light"
                 type="button"
                 disabled={saving}
                 onclick={() => void deleteRecord()}>Remove record</button
-              >{/if}
-          </div>
+              >{/if}{/snippet}
+          <PageHeading actions={recordActions}>
+            <p class="eyebrow">{schema?.label ?? "Record"}</p>
+            <h2>
+              {currentRoute.kind === "project-record-new"
+                ? "New record"
+                : "Edit record"}
+            </h2>
+          </PageHeading>
           {#if recordsStatus === "checking"}<p class="dashboard-empty">
               Loading record...
             </p>{:else if attributes.length === 0}<p class="dashboard-empty">
@@ -1320,20 +1259,7 @@
             >
           </div>
         </form>
-      {:else if currentRoute.kind === "project-record-schema"}<div
-          class="level mb-5 project-collection-heading"
-        >
-          <div class="level-left">
-            <div>
-              <p class="eyebrow">Record type</p>
-              <h2 class="title is-3">{schema?.label ?? "Records"}</h2>
-              {#if schema?.description}<p class="subtitle is-6">
-                  {schema.description}
-                </p>{/if}
-            </div>
-          </div>
-          <div class="level-right">
-            <div class="buttons">
+      {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<div class="buttons">
               <RouterLink
                 class="button is-small"
                 href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`}
@@ -1343,9 +1269,14 @@
                 href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`}
                 >New record</RouterLink
               >
-            </div>
-          </div>
-        </div>
+            </div>{/snippet}
+        <PageHeading actions={schemaListActions}>
+          <p class="eyebrow">Record type</p>
+          <h2>{schema?.label ?? "Records"}</h2>
+          {#if schema?.description}<p class="subtitle is-6">
+              {schema.description}
+            </p>{/if}
+        </PageHeading>
         {#if recordsStatus === "checking"}<p class="dashboard-empty">
             Loading records...
           </p>{:else if recordsStatus === "unavailable"}<p
@@ -1385,24 +1316,20 @@
                 >
               </div>{:else}<p class="dashboard-empty">No records yet.</p>{/each}
           </div>{/if}
-      {:else}<div class="level mb-5 project-collection-heading">
-          <div class="level-left">
-            <div>
-              <p class="eyebrow">Project records</p>
-              <h2 class="title is-3">Record Types</h2>
-              <p class="subtitle is-6">
-                Define reusable record types and their fields.
-              </p>
-            </div>
-          </div>
-          <div class="level-right">
+      {:else}{#snippet recordTypesActions()}<div>
             <RouterLink
               class="button is-primary"
               href={`${recordsPath(workspace.id, currentRoute.projectID)}/new`}
               >New record type</RouterLink
             >
-          </div>
-        </div>
+          </div>{/snippet}
+        <PageHeading actions={recordTypesActions}>
+          <p class="eyebrow">Project records</p>
+          <h2>Record Types</h2>
+          <p class="subtitle is-6">
+            Define reusable record types and their fields.
+          </p>
+        </PageHeading>
         {#if schemasStatus === "checking"}<p class="dashboard-empty">
             Loading record types...
           </p>{:else if schemasStatus === "unavailable"}<p
@@ -1433,16 +1360,14 @@
           </div>{/if}{/if}
       {#if currentRoute.kind === "project-record-schema-edit" && schema !== null}
         <section class="attribute-editor">
-          <div class="record-list-heading">
-            <div>
-              <p class="eyebrow">Record type fields</p>
-              <h2>
-                {attributeForm.id === undefined
-                  ? "Add field"
-                  : `Edit ${attributeForm.label}`}
-              </h2>
-            </div>
-          </div>
+          <PageHeading>
+            <p class="eyebrow">Record type fields</p>
+            <h2>
+              {attributeForm.id === undefined
+                ? "Add field"
+                : `Edit ${attributeForm.label}`}
+            </h2>
+          </PageHeading>
           <form
             onsubmit={(event) => {
               event.preventDefault()
@@ -1592,7 +1517,7 @@
           </div>
         </section>
       {/if}
-      </section></SidebarPage.Body>
+      </PageBody></SidebarPage.Body>
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}

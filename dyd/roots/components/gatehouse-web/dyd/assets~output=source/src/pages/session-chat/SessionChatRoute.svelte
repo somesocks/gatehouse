@@ -55,7 +55,7 @@
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   let sessionStatus = $state<Status>("checking")
-  let chatBodyElement = $state<HTMLElement | undefined>()
+  let chatPageElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let generation = 0
@@ -89,10 +89,10 @@
 
   function isNearBottom(): boolean {
     return (
-      chatBodyElement === undefined ||
-      chatBodyElement.scrollHeight -
-        chatBodyElement.scrollTop -
-        chatBodyElement.clientHeight <
+      chatPageElement === undefined ||
+      chatPageElement.scrollHeight -
+        chatPageElement.scrollTop -
+        chatPageElement.clientHeight <
         64
     )
   }
@@ -100,8 +100,8 @@
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
     await tick()
-    chatBodyElement?.scrollTo({
-      top: chatBodyElement.scrollHeight,
+    chatPageElement?.scrollTo({
+      top: chatPageElement.scrollHeight,
       behavior,
     })
   }
@@ -138,7 +138,7 @@
     if (controller.state.authenticationRequired) runtime.requireLogin()
   })
   $effect(() => {
-    const target = chatBodyElement
+    const target = chatPageElement
     if (target === undefined) return
     const track = () => controller.trackScroll()
     target.addEventListener("scroll", track)
@@ -408,7 +408,7 @@
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar>
-    <SidebarPage.Page>
+    <SidebarPage.Page bind:element={chatPageElement}>
       <SidebarPage.Header placement="floating">
         <SidebarPage.Toggle><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu"><Menu size={20} strokeWidth={2} aria-hidden="true" /></button></SidebarPage.Toggle>
         <h1 class="brand-workspace-breadcrumb">
@@ -416,7 +416,7 @@
         </h1>
         {#if session !== null}<SessionNavigation workspaceID={workspace.id} sessionID={session.id} active="chat" />{/if}
       </SidebarPage.Header>
-      <SidebarPage.Body bind:element={chatBodyElement}>
+      <SidebarPage.Body>
     {#if sessionStatus === "checking"}<p
         class="dashboard-empty"
         aria-busy="true"

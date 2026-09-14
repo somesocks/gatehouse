@@ -21,6 +21,8 @@
     updateSessionTask,
   } from "../../app/session-tasks"
   import { useRuntime } from "../../app/runtime.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
@@ -548,7 +550,7 @@
           sessionID={currentRoute.sessionID}
           active="tasks"
         />{/if}</SidebarPage.Header>
-      <SidebarPage.Body><section class="task-page">
+      <SidebarPage.Body><PageBody>
       {#if ownerStatus === "checking"}<p class="dashboard-empty">
           Loading {isProjectRoute(currentRoute) ? "project" : "chat"}...
         </p>
@@ -571,16 +573,14 @@
             void save()
           }}
         >
-          <div class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">
-                {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-              </p>
-              <h2>
-                {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
-              </h2>
-            </div>
-          </div>
+          <PageHeading>
+            <p class="eyebrow">
+              {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
+            </p>
+            <h2>
+              {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
+            </h2>
+          </PageHeading>
           <div class="field">
             <label class="label" for="task-title">Title</label>
             <div class="control">
@@ -667,31 +667,7 @@
           }}>Try again</button
         >
       {:else if active !== null}<article class="task-view">
-          <header class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">
-                {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-              </p>
-              <h2>
-                {active.title}
-                <span class="task-status task-status-{active.status}"
-                  >{statusLabel(active.status)}</span
-                >{#if active.sensitive}<span class="sensitive-note-badge"
-                    >Sensitive</span
-                  >{/if}
-              </h2>
-              {#if isProjectRoute(currentRoute)}<small
-                  >{dateLabel(active.created_at)}</small
-                >{:else}<small
-                  >Created {dateLabel(active.created_at)} by {authorLabel(
-                    active.creator,
-                  )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
-                    active.updater,
-                  )}.</small
-                >{/if}
-            </div>
-            <div class="project-note-actions">
-              <button class="button is-small" type="button" onclick={startEdit}
+          {#snippet taskActions()}<button class="button is-small" type="button" onclick={startEdit}
                 >Edit</button
               ><button
                 class="button is-small is-danger is-light"
@@ -699,9 +675,29 @@
                 disabled={deleting}
                 onclick={() => void remove()}
                 >{deleting ? "Removing..." : "Remove"}</button
-              >
-            </div>
-          </header>
+              >{/snippet}
+          <PageHeading as="header" actions={taskActions}>
+            <p class="eyebrow">
+              {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
+            </p>
+            <h2>
+              {active.title}
+              <span class="task-status task-status-{active.status}"
+                >{statusLabel(active.status)}</span
+              >{#if active.sensitive}<span class="sensitive-note-badge"
+                  >Sensitive</span
+                >{/if}
+            </h2>
+            {#if isProjectRoute(currentRoute)}<small
+                >{dateLabel(active.created_at)}</small
+              >{:else}<small
+                >Created {dateLabel(active.created_at)} by {authorLabel(
+                  active.creator,
+                )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
+                  active.updater,
+                )}.</small
+              >{/if}
+          </PageHeading>
           {#if active.description !== undefined && active.description !== ""}<div
               class="markdown-content task-markdown"
             >
@@ -715,15 +711,15 @@
               {error}
             </p>{/if}
         </article>
-      {:else}<div class="collection-heading project-collection-heading">
-          <h2>{isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks</h2>
-          <button
+      {:else}{#snippet collectionActions()}<button
             class="button is-primary is-small"
             type="button"
             onclick={() => runtime.navigate(`${listPath(currentRoute)}/new`)}
             >New task</button
-          >
-        </div>
+          >{/snippet}
+        <PageHeading actions={collectionActions}>
+          <h2>{isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks</h2>
+        </PageHeading>
         <div class="collection-list">
           {#if tasksStatus === "checking"}<p class="dashboard-empty">
               Loading tasks...
@@ -768,7 +764,7 @@
                 ></RouterLink
               >{:else}<p class="dashboard-empty">No tasks yet.</p>{/each}{/if}
         </div>{/if}
-      </section></SidebarPage.Body>
+      </PageBody></SidebarPage.Body>
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}

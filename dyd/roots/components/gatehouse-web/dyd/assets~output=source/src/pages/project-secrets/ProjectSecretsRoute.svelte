@@ -10,6 +10,8 @@
     type ProjectSecret,
   } from "../../app/project-secrets"
   import { useRuntime } from "../../app/runtime.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
@@ -492,7 +494,7 @@
           >{/if}
         </h1>
       </SidebarPage.Header>
-      <SidebarPage.Body><section class="project-note-page">
+      <SidebarPage.Body><PageBody>
       {#if projectStatus === "checking"}<p class="dashboard-empty">
           Loading project...
         </p>
@@ -513,12 +515,10 @@
             void save()
           }}
         >
-          <div class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">Project Secret</p>
-              <h2>{creating ? "New Secret" : "Edit Secret"}</h2>
-            </div>
-          </div>
+          <PageHeading>
+            <p class="eyebrow">Project Secret</p>
+            <h2>{creating ? "New Secret" : "Edit Secret"}</h2>
+          </PageHeading>
           <div class="field">
             <label class="label" for="project-secret-description"
               >Description</label
@@ -589,19 +589,7 @@
             )}>Try again</button
         >
       {:else if active !== null}<article class="project-note-view">
-          <header class="project-note-page-heading">
-            <div>
-              <p class="eyebrow">Project Secret</p>
-              <h2>{active.description}</h2>
-              <small
-                >By {authorLabel(active.author)} on {dateLabel(
-                  active.created_at,
-                )}{#if active.updated_at !== active.created_at}
-                  / Updated {dateLabel(active.updated_at)}{/if}</small
-              >
-            </div>
-            <div class="project-note-actions">
-              <button class="button is-small" type="button" onclick={startEdit}
+          {#snippet secretActions()}<button class="button is-small" type="button" onclick={startEdit}
                 >Edit</button
               ><button
                 class="button is-small is-danger is-light"
@@ -609,21 +597,29 @@
                 disabled={deleting}
                 onclick={() => void remove()}
                 >{deleting ? "Removing..." : "Remove"}</button
-              >
-            </div>
-          </header>
+              >{/snippet}
+          <PageHeading as="header" actions={secretActions}>
+            <p class="eyebrow">Project Secret</p>
+            <h2>{active.description}</h2>
+            <small
+              >By {authorLabel(active.author)} on {dateLabel(
+                active.created_at,
+              )}{#if active.updated_at !== active.created_at}
+                / Updated {dateLabel(active.updated_at)}{/if}</small
+            >
+          </PageHeading>
           {#if error !== ""}<p class="help is-danger" aria-live="polite">
               {error}
             </p>{/if}
         </article>
-      {:else}<div class="collection-heading project-collection-heading">
-          <h2>Project Secrets</h2>
-          <RouterLink
+      {:else}{#snippet collectionActions()}<RouterLink
             class="button is-primary is-small"
             href={`${listPath(workspace.id, currentRoute.projectID)}/new`}
             >New secret</RouterLink
-          >
-        </div>
+          >{/snippet}
+        <PageHeading actions={collectionActions}>
+          <h2>Project Secrets</h2>
+        </PageHeading>
         <div class="collection-list">
           {#if secretsStatus === "checking"}<p class="dashboard-empty">
               Loading secrets...
@@ -660,7 +656,7 @@
                 ></RouterLink
               >{:else}<p class="dashboard-empty">No secrets yet.</p>{/each}{/if}
         </div>{/if}
-      </section></SidebarPage.Body>
+      </PageBody></SidebarPage.Body>
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}

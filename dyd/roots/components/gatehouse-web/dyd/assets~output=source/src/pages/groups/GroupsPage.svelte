@@ -2,6 +2,8 @@
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
   import type { Workspace } from "../../app/access"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import { createGroupsController } from "./groups-controller.svelte"
 
   let {
@@ -35,10 +37,10 @@
   }
 </script>
 
-<section class="collection-page">
-  <div class="collection-heading">
-    <h1 class="brand-dashboard-title">Groups</h1>
-  </div>
+<PageBody>
+  <PageHeading>
+    <h1>Groups</h1>
+  </PageHeading>
   <div class="collection-search">
     <label
       ><span>Search groups</span><input
@@ -57,4 +59,4 @@
       </div>
     {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
   </div>
-</section>
+</PageBody>

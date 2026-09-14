@@ -2,6 +2,8 @@
   import { untrack } from "svelte"
   import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import { createChatCollectionController } from "./chat-collection-controller.svelte"
 
@@ -55,15 +57,15 @@
   }
 </script>
 
-<section class="collection-page">
-  <div class="collection-heading">
-    <h1 class="brand-dashboard-title">Chats</h1>
-    <button
+<PageBody>
+  {#snippet chatActions()}<button
       class="button is-primary is-small"
       type="button"
       onclick={() => void onCreate()}>New chat</button
-    >
-  </div>
+    >{/snippet}
+  <PageHeading actions={chatActions}>
+    <h1>Chats</h1>
+  </PageHeading>
   <form
     class="collection-search"
     onsubmit={(event) => {
@@ -114,4 +116,4 @@
       onclick={() => controller.loadMore(workspace.id, search, signal)}
       >{controller.state.loading ? "Loading..." : "Show more"}</button
     >{/if}
-</section>
+</PageBody>

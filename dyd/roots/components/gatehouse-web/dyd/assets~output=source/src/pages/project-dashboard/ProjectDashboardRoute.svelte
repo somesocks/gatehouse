@@ -32,6 +32,8 @@
     type TaskStatus,
   } from "../../app/project-tasks"
   import { useRuntime } from "../../app/runtime.svelte"
+  import PageBody from "../../components/PageBody.svelte"
+  import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
@@ -763,14 +765,14 @@
             >{project?.name ?? "New Project"}</span
           >
         </h1></SidebarPage.Header
-      ><SidebarPage.Body>
+      ><SidebarPage.Body><PageBody>
         {#if projectStatus === "checking"}<section
-            class="brand-dashboard project-overview brand-dashboard-status"
+            class="brand-dashboard brand-dashboard-status"
           >
             <p>Loading project...</p>
           </section>
         {:else if projectStatus === "unavailable"}<section
-            class="brand-dashboard project-overview brand-dashboard-status"
+            class="brand-dashboard brand-dashboard-status"
           >
             <p>Project unavailable.</p>
             <Button.Root
@@ -785,17 +787,8 @@
             >
           </section>
         {:else if project !== null}
-          <section class="brand-dashboard project-overview">
-            <header class="brand-dashboard-heading">
-              <div>
-                <h2 class="brand-dashboard-title">
-                  {project.name ?? "New Project"}
-                </h2>
-                <p class="brand-dashboard-description">
-                  {project.description ?? "No description yet."}
-                </p>
-              </div>
-              <DropdownMenu.Root
+          <section>
+            {#snippet projectActions()}<DropdownMenu.Root
                 ><DropdownMenu.Trigger
                   class="brand-icon-button"
                   aria-label="Project actions"
@@ -816,8 +809,16 @@
                     ></DropdownMenu.Content
                   ></DropdownMenu.Portal
                 ></DropdownMenu.Root
-              >
-            </header>
+              >{/snippet}
+            <PageHeading as="header" actions={projectActions}>
+              <p class="eyebrow">PROJECT</p>
+              <h2>
+                {project.name ?? "New Project"}
+              </h2>
+              <p class="subtitle is-6">
+                {project.description ?? "No description yet."}
+              </p>
+            </PageHeading>
             <section class="brand-dashboard-grid">
               <section class="brand-dashboard-card">
                 <div class="brand-card-heading">
@@ -1129,7 +1130,7 @@
               </p>{/if}
           </section>
         {/if}
-      </SidebarPage.Body></SidebarPage.Page
+      </PageBody></SidebarPage.Body></SidebarPage.Page
     ></SidebarPage.Root
   >
   <Dialog.Root bind:open={editOpen}
@@ -1137,13 +1138,13 @@
       ><Dialog.Overlay class="brand-dialog-overlay" /><Dialog.Content
         class="brand-dialog-content"
         ><form
-          class="project-edit-form"
+          class="brand-dialog-form"
           onsubmit={(event) => {
             event.preventDefault()
             void saveProject()
           }}
         >
-          <div class="project-edit-heading">
+          <div class="brand-dialog-heading">
             <Dialog.Title class="brand-dialog-title">Edit project</Dialog.Title
             ><Button.Root
               class="brand-icon-button"
@@ -1174,7 +1175,7 @@
           {#if editError !== ""}<p class="brand-form-error" aria-live="polite">
               {editError}
             </p>{/if}
-          <div class="project-edit-actions">
+          <div class="brand-dialog-actions">
             <Button.Root
               class="brand-button"
               type="button"
