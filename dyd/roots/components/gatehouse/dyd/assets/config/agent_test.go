@@ -455,7 +455,6 @@ agent_models:
 func TestValidateFileRejectsWorkspaceAgentModelLimits(t *testing.T) {
 	for name, limit := range map[string]string{
 		"max turns":         "max_turns: 1",
-		"max input tokens":  "max_input_tokens: 120000",
 		"max output tokens": "max_output_tokens: 16000",
 	} {
 		t.Run(name, func(t *testing.T) {

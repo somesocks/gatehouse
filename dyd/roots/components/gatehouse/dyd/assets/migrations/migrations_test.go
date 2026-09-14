@@ -695,6 +695,45 @@ func TestSQLiteMigrationV040DropsWorkspaceAgentMaxTurns(t *testing.T) {
 	}
 }
 
+func TestSQLiteMigrationV047DropsWorkspaceAgentMaxInputTokens(t *testing.T) {
+	ctx := context.Background()
+	store := openMigrationTestDatabase(t)
+	if _, err := store.ExecContext(ctx, `
+		CREATE TABLE gatehouse_workspace_agents (
+			workspace_id TEXT NOT NULL,
+			model_id TEXT NOT NULL,
+			max_input_tokens INTEGER NOT NULL DEFAULT 120000 CHECK (max_input_tokens > 0),
+			PRIMARY KEY (workspace_id, model_id)
+		) STRICT;
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV047DropWorkspaceAgentMaxInputTokens().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.QueryContext(ctx, `PRAGMA table_info(gatehouse_workspace_agents)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatal(err)
+		}
+		if name == "max_input_tokens" {
+			t.Fatal("workspace agent max_input_tokens column remains")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSQLiteMigrationV041UpgradesWorkspaceAgentBindings(t *testing.T) {
 	ctx := context.Background()
 	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
