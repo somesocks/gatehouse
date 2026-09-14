@@ -17,7 +17,7 @@ const (
 	contextMaximumBytes  = 96 * 1024
 	contextBufferBytes   = 48 * 1024
 	contextEventPageSize = 128
-	mcmtrAlgorithmVersion = "mcmtr-v2"
+	mcmtrAlgorithmVersion = "mcmtr-v3"
 )
 
 type mcmtrProfile struct {

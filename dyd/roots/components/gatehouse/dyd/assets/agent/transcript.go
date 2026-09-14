@@ -225,7 +225,10 @@ type mcmtrText struct {
 	shownBytes int
 }
 
-const mcmtrToolResultContentMaximumBytes = 4 * 1024
+const (
+	mcmtrToolResultContentMaximumBytes = 4 * 1024
+	mcmtrHighTierRetentionDivisor       = 4
+)
 
 var mcmtrStreams = []string{"user", "agent", "tool"}
 
@@ -288,7 +291,7 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 		}
 	}
 	highBudget := max(0, profile.BufferBytes-len(activeRendered))
-	high, state := mcmtrHighTier(highInput, state, highBudget, profile.BufferBytes/(2*len(mcmtrStreams)))
+	high, state := mcmtrHighTier(highInput, state, highBudget, mcmtrHighTierRetainedPerStream(profile.BufferBytes))
 
 	highRecords := make([]mcmtrRecord, 0, len(all))
 	lowerRecords := make([]mcmtrRecord, 0, len(all))
@@ -551,6 +554,10 @@ func mcmtrHighTier(records []mcmtrRecord, state mcmtrContextState, buffer, retai
 		}
 	}
 	return high, state
+}
+
+func mcmtrHighTierRetainedPerStream(buffer int) int {
+	return buffer / (mcmtrHighTierRetentionDivisor * len(mcmtrStreams))
 }
 
 func mcmtrLimitText(value string, limit int) mcmtrText {

@@ -186,16 +186,23 @@ func TestMCMTRHighTierRebalancesSharedBuffer(t *testing.T) {
 		}
 	}
 
-	high, state := mcmtrHighTier(records, mcmtrContextState{}, 4*1024, 4*1024/(2*len(mcmtrStreams)))
+	high, state := mcmtrHighTier(records, mcmtrContextState{}, 4*1024, mcmtrHighTierRetainedPerStream(4*1024))
 	for _, stream := range mcmtrStreams {
 		checkpoint := mcmtrHighCheckpoint(state, stream)
 		if checkpoint != stream+"-d" || !high[checkpoint] {
 			t.Fatalf("%s high tier = (%#v, %#v)", stream, high, state)
 		}
 	}
-	_, next := mcmtrHighTier(records, state, 4*1024, 4*1024/(2*len(mcmtrStreams)))
+	_, next := mcmtrHighTier(records, state, 4*1024, mcmtrHighTierRetainedPerStream(4*1024))
 	if next != state {
 		t.Fatalf("checkpoint advanced without filling the shared buffer: %#v -> %#v", state, next)
+	}
+}
+
+func TestMCMTRHighTierRetainsQuarterBufferAcrossStreams(t *testing.T) {
+	buffer := 96 * 1024
+	if got, want := mcmtrHighTierRetainedPerStream(buffer)*len(mcmtrStreams), buffer/4; got != want {
+		t.Fatalf("high-tier retained bytes = %d, want %d", got, want)
 	}
 }
 
@@ -213,7 +220,7 @@ func TestMCMTRHighTierDoesNotRedistributeSparseChannelCapacity(t *testing.T) {
 		records = append(records, record)
 	}
 
-	retained := 4 * 1024 / (2 * len(mcmtrStreams))
+	retained := mcmtrHighTierRetainedPerStream(4 * 1024)
 	high, state := mcmtrHighTier(records, mcmtrContextState{}, 4*1024, retained)
 	if state.ToolHighFrom != "tool-h" || len(high) != 1 || !high["tool-h"] {
 		t.Fatalf("sparse-channel high tier = (%#v, %#v)", high, state)
