@@ -65,7 +65,7 @@ export async function fetchChatEvents(
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(
-    `${chatAPIPath(workspaceID, sessionID)}/events?limit=100`,
+    `${chatAPIPath(workspaceID, sessionID)}/events?view=transcript&limit=100`,
     { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
   )
 }

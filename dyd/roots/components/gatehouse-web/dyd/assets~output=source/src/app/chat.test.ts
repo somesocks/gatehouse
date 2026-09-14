@@ -42,7 +42,7 @@ describe("chat transport", () => {
     )
     expect(fetch).toHaveBeenNthCalledWith(
       2,
-      "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/events?limit=100",
+      "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/events?view=transcript&limit=100",
       { credentials: "same-origin" },
     )
     expect(fetch).toHaveBeenNthCalledWith(
@@ -103,7 +103,7 @@ describe("chat transport", () => {
       { credentials: "same-origin", signal: controller.signal },
     )
     expect(fetch).toHaveBeenCalledWith(
-      "/api/v1/workspaces/wsp_a/sessions/ses_a/events?limit=100",
+      "/api/v1/workspaces/wsp_a/sessions/ses_a/events?view=transcript&limit=100",
       { credentials: "same-origin", signal: controller.signal },
     )
   })

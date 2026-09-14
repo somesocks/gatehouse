@@ -3334,10 +3334,18 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			limit = parsed
 		}
+		view := request.URL.Query().Get("view")
+		if view != "" && view != "transcript" {
+			http.Error(response, "invalid event view", http.StatusBadRequest)
+			return
+		}
 		err, entries := store.SessionEventsTreePageGet(request.Context(), session, afterID, limit)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
+		}
+		if view == "transcript" {
+			sessionEventTranscriptProject(entries)
 		}
 		events := make([]model.SessionEvent, len(entries))
 		for index, entry := range entries {
@@ -3352,6 +3360,28 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			entries[index].Event = hydrated[index]
 		}
 		writeJSON(response, sessionEventTrees(entries))
+	}
+}
+
+func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
+	for index := range entries {
+		event := &entries[index].Event
+		payload := map[string]interface{}{}
+		var keys []string
+		switch event.Kind {
+		case "message.text":
+			keys = []string{"text", "attachments", "agent"}
+		case "tool.request":
+			keys = []string{"name", "reason"}
+		case "approval.request":
+			keys = []string{"description"}
+		}
+		for _, key := range keys {
+			if value, exists := event.Payload[key]; exists {
+				payload[key] = value
+			}
+		}
+		event.Payload = payload
 	}
 }
 

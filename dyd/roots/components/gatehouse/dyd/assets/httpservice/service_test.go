@@ -23,6 +23,28 @@ import (
 	"gatehouse/typed_id"
 )
 
+func TestSessionEventTranscriptProject(t *testing.T) {
+	entries := []database.SessionEventTreeEntry{
+		{Event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "agent": "assistant", "reasoning": "hidden"}}},
+		{Event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect source.", "code": "(read-all)"}}},
+		{Event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": "Allow access?", "scope": "hidden"}}},
+		{Event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "hidden"}}},
+	}
+
+	sessionEventTranscriptProject(entries)
+
+	for index, want := range []map[string]interface{}{
+		{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "agent": "assistant"},
+		{"name": "lisp", "reason": "Inspect source."},
+		{"description": "Allow access?"},
+		{},
+	} {
+		if got := entries[index].Event.Payload; !reflect.DeepEqual(got, want) {
+			t.Errorf("entry %d payload = %#v, want %#v", index, got, want)
+		}
+	}
+}
+
 func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 	handler := Handler(config.HTTPService{Web: true, API: true}, nil)
 	for _, test := range []struct {
@@ -485,9 +507,51 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err := json.Unmarshal(poll.Body.Bytes(), &polled); err != nil || len(polled) != 1 || len(polled[0].Children) != 1 || polled[0].Children[0].Event.Ref != child.Ref {
 		t.Fatalf("GET nested events response = (%#v, %v)", polled, err)
 	}
+	toolID, err := typed_id.New(typed_id.SessionEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: event.Ref.Session, Id: toolID}, Parent: &event.Ref, Kind: "tool.request", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect source.", "code": "(read-all)"}}
+	if err, _ := store.SessionEventsCreate(context.Background(), tool); err != nil {
+		t.Fatal(err)
+	}
+	resultID, err := typed_id.New(typed_id.SessionEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := model.SessionEvent{Ref: model.SessionEventRef{Session: event.Ref.Session, Id: resultID}, Parent: &tool.Ref, Kind: "tool.success", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"output": strings.Repeat("large result", 1024)}}
+	if err, _ := store.SessionEventsCreate(context.Background(), result); err != nil {
+		t.Fatal(err)
+	}
+	transcript := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?view=transcript", "")
+	if transcript.Code != http.StatusOK {
+		t.Fatalf("GET transcript events = status %d body %q", transcript.Code, transcript.Body.String())
+	}
+	if err := json.Unmarshal(transcript.Body.Bytes(), &polled); err != nil {
+		t.Fatal(err)
+	}
+	var projectedTool, projectedResult *sessionEventTreeResponse
+	for _, child := range polled[0].Children {
+		if child.Event.Ref == tool.Ref {
+			projectedTool = child
+			if len(child.Children) == 1 {
+				projectedResult = child.Children[0]
+			}
+		}
+	}
+	if projectedTool == nil || projectedTool.Event.Payload["name"] != "lisp" || projectedTool.Event.Payload["reason"] != "Inspect source." || projectedTool.Event.Payload["code"] != nil {
+		t.Fatalf("GET transcript tool request = %#v", projectedTool)
+	}
+	if projectedResult == nil || len(projectedResult.Event.Payload) != 0 {
+		t.Fatalf("GET transcript tool result = %#v", projectedResult)
+	}
 	after := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id="+event.Ref.Id, "")
 	if after.Code != http.StatusOK || after.Body.String() != "[]\n" {
 		t.Fatalf("GET events after cursor = status %d body %q", after.Code, after.Body.String())
+	}
+	invalidView := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?view=invalid", "")
+	if invalidView.Code != http.StatusBadRequest {
+		t.Fatalf("GET events with invalid view = status %d", invalidView.Code)
 	}
 	invalidCursor := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/events?after_id=invalid", "")
 	if invalidCursor.Code != http.StatusBadRequest {
@@ -498,7 +562,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(events) != 2 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != principal || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != "Alice" {
+	if len(events) != 4 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != principal || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != "Alice" {
 		t.Fatalf("stored session events = %#v", events)
 	}
 	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)
