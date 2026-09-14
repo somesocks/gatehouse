@@ -501,7 +501,7 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	related := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: relatedID}, Name: "related", Label: "Related", Type: "record", TargetSchema: &schema.Ref, Cardinality: "one", Uniqueness: "none", Display: "secondary"}
+	related := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: relatedID}, Name: "related", Label: "Related", Type: "record", TargetSchema: &schema.Ref, Cardinality: "one", Uniqueness: "none", Display: "primary"}
 	err, related = store.ProjectRecordAttributeCreate(ctx, related, alice, database.ProjectRecordAuthor{})
 	if err != nil {
 		t.Fatal(err)
@@ -536,10 +536,17 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 		t.Fatalf("ProjectRecordIncomingReferencesGet() = (%#v, %v)", incoming, err)
 	}
 	var many *database.ProjectRecordIncomingReferenceGroup
+	var relatedGroup *database.ProjectRecordIncomingReferenceGroup
 	for index := range incoming {
 		if incoming[index].Attribute.Id == relatedMany.Ref.Id {
 			many = &incoming[index]
 		}
+		if incoming[index].Attribute.Id == related.Ref.Id {
+			relatedGroup = &incoming[index]
+		}
+	}
+	if relatedGroup == nil || len(relatedGroup.References) != 1 || len(relatedGroup.References[0].PrimaryValues) != 1 || relatedGroup.References[0].PrimaryValues[0].Value != record.Ref.Id || relatedGroup.References[0].PrimaryValues[0].Reference == nil || len(relatedGroup.References[0].PrimaryValues[0].Reference.PrimaryValues) != 3 || relatedGroup.References[0].PrimaryValues[0].Reference.PrimaryValues[0].Value != "Lovelace" {
+		t.Fatalf("ProjectRecordIncomingReferencesGet() record primary = %#v", relatedGroup)
 	}
 	if many == nil || many.SchemaLabel != "Contacts" || many.AttributeLabel != "Related many" || len(many.References) != 2 || many.References[0].Record.Id != referencingID || many.References[1].Record.Id != referencingID {
 		t.Fatalf("ProjectRecordIncomingReferencesGet() many group = %#v", many)

@@ -573,12 +573,18 @@
       value.reference !== undefined &&
       value.reference.primary_values.length !== 0
     )
-      return value.reference.primary_values.map((primary) =>
-        valueLabel(primary.value),
-      )
+      return value.reference.primary_values.flatMap(referenceValueLines)
     return [
       `${value.reference?.schema_label ?? schemas.find((schema) => schema.id === attribute.target_schema)?.label ?? "Record"} · ${valueLabel(value.value)}`,
     ]
+  }
+  function referenceValueLines(value: {
+    value: unknown
+    reference?: { primary_values: { value: unknown }[] }
+  }): string[] {
+    return value.reference?.primary_values.length
+      ? value.reference.primary_values.map((primary) => valueLabel(primary.value))
+      : [valueLabel(value.value)]
   }
   function referencePath(
     attribute: ProjectRecordAttribute,
@@ -607,13 +613,11 @@
       ? ["Untitled record"]
       : valueLines(attribute, value)
   }
-  function incomingReferenceLines(
-    group: ProjectRecordIncomingReferenceGroup,
+  function incomingReferenceLabel(
     reference: ProjectRecordIncomingReferenceGroup["references"][number],
-  ): string[] {
-    return reference.primary_values.length === 0
-      ? [`${group.source_schema.label} · ${reference.id}`]
-      : reference.primary_values.map((primary) => valueLabel(primary.value))
+  ): string {
+    const values = reference.primary_values.flatMap(referenceValueLines)
+    return values.length === 0 ? "Untitled record" : values.join(" · ")
   }
   function appendIncomingReferences(
     groups: ProjectRecordIncomingReferenceGroup[],
@@ -1108,81 +1112,85 @@
                   >{/each}{/if}
             </h1>
           </header>
-          <section class="block mb-6">
-            <h2 class="title is-4">Record</h2>
-            {#if recordsStatus === "checking"}<p class="dashboard-empty">
-                Loading record...
-              </p>{:else}{#if activeValues.length === 0}<p
+          <section class="card block mb-6">
+            <div class="card-content">
+              <h2 class="title is-4">Record</h2>
+              {#if recordsStatus === "checking"}<p class="dashboard-empty">
+                  Loading record...
+                </p>{:else if activeValues.length === 0}<p
                   class="dashboard-empty"
                 >
                   This record has no values.
-                </p>{:else}<dl class="record-view-values">
+                </p>{:else}<div>
                   {#each attributes as attribute (attribute.id)}{@const items =
                       activeValues.filter(
                         (item) => item.attribute === attribute.id,
-                      )}{#if items.length !== 0}<div>
-                        <dt>{attribute.label}</dt>
-                        <dd>
+                      )}{#if items.length !== 0}<div class="block">
+                        <p class="heading">{attribute.label}</p>
+                        <div>
                           {#each items as item (item.id)}{@const href =
                               referencePath(
                                 attribute,
                                 item,
                               )}{#if href}<RouterLink
-                                class="record-reference record-view-value"
+                                class="is-block"
                                 {href}
                                 >{#each valueLines(attribute, item) as line}<span
+                                    class="is-block"
                                     >{line}</span
                                   >{/each}</RouterLink
-                              >{:else}<div class="record-view-value">
+                              >{:else}<div>
                                 {#each valueLines(attribute, item) as line}<span
+                                    class="is-block"
                                     >{line}</span
                                   >{/each}
                               </div>{/if}{/each}
-                        </dd>
+                        </div>
                       </div>{/if}{/each}
-                </dl>{/if}
-              <div class="buttons mt-5">
-                <RouterLink
-                  class="button is-primary is-small"
-                  href={`${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`}
-                  >Edit record</RouterLink
-                >
-              </div>{/if}
-          </section>
-          {#if incomingReferences.length !== 0}<section class="block">
-              <h2 class="title is-4">Referenced by</h2>
-              <dl class="record-view-values">
-                {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<div
+                </div>{/if}
+              {#if recordsStatus !== "checking"}<div class="buttons mt-5">
+                  <RouterLink
+                    class="button is-primary is-small"
+                    href={`${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`}
+                    >Edit record</RouterLink
                   >
-                    <dt>
+                </div>
+              {/if}
+            </div>
+          </section>
+          {#if incomingReferences.length !== 0}<section class="card block">
+              <div class="card-content">
+                <h2 class="title is-4">Referenced by</h2>
+                {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<div
+                    class="block"
+                  >
+                    <p class="heading">
                       {group.source_schema.label} / {group.source_attribute
                         .label}
-                    </dt>
-                    <dd>
+                    </p>
+                    <div>
                       {#each group.references as reference, index (`${reference.id}-${index}`)}<RouterLink
-                          class="record-reference record-view-value mb-2"
+                          class="is-block block"
                           href={recordPath(
                             workspace.id,
                             currentRoute.projectID,
                             group.source_schema.id,
                             reference.id,
                           )}
-                          >{#each incomingReferenceLines(group, reference) as line}<span
-                              >{line}</span
-                            >{/each}</RouterLink
+                          >{incomingReferenceLabel(reference)}</RouterLink
                         >{/each}
-                    </dd>
+                    </div>
                   </div>{/each}
-              </dl>
-              {#if incomingReferencesNextCursor !== undefined}<button
-                  class="button is-small mt-5"
+                {#if incomingReferencesNextCursor !== undefined}<button
+                  class="button is-small"
                   type="button"
                   disabled={incomingReferencesLoading}
                   onclick={() => void loadMoreIncomingReferences()}
                   >{incomingReferencesLoading
                     ? "Loading..."
                     : "Show more"}</button
-                >{/if}
+                  >{/if}
+              </div>
             </section>{/if}
         </section>
       {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}<form

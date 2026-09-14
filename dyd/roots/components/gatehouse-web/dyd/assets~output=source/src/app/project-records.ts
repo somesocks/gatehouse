@@ -28,7 +28,12 @@ export type ProjectRecordAttribute = {
 }
 export type ProjectRecordReferenceDisplay = {
   schema_label: string
-  primary_values: { value: unknown; sensitive: boolean }[]
+  primary_values: ProjectRecordReferenceDisplayValue[]
+}
+export type ProjectRecordReferenceDisplayValue = {
+  value: unknown
+  sensitive: boolean
+  reference?: ProjectRecordReferenceDisplay
 }
 export type ProjectRecordValue = {
   id: string
@@ -55,7 +60,7 @@ export type ProjectRecordValuesResponse = {
 }
 export type ProjectRecordIncomingReference = {
   id: string
-  primary_values: { value: unknown; sensitive: boolean }[]
+  primary_values: ProjectRecordReferenceDisplayValue[]
 }
 export type ProjectRecordIncomingReferenceGroup = {
   source_schema: { id: string; label: string }

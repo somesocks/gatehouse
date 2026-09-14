@@ -1476,45 +1476,8 @@ body {
   text-decoration: underline;
 }
 
-.record-reference {
-  color: #dfff9b;
-  display: grid;
-  gap: 0.15rem;
-  pointer-events: auto;
-  text-decoration: underline;
-  text-underline-offset: 0.15em;
-}
-.record-reference:hover,
-.record-reference:focus-visible {
-  color: #eff2e8;
-}
-
 .record-schema-editor {
   max-width: 54rem;
-}
-.record-view-values {
-  display: grid;
-  gap: 1.25rem;
-  margin: 0;
-}
-.record-view-values > div {
-  border-top: 1px solid #3f4538;
-  padding-top: 0.85rem;
-}
-.record-view-values dt {
-  color: #aeb3a3;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-.record-view-values dd {
-  margin: 0.35rem 0 0;
-}
-.record-view-value {
-  display: grid;
-  gap: 0.2rem;
-  overflow-wrap: anywhere;
 }
 .attribute-editor {
   border-top: 1px solid #3f4538;
@@ -3399,8 +3362,7 @@ a.message-file:focus-visible {
 .brand-workspace-frame .markdown-content {
   color: var(--brand-text);
 }
-.brand-workspace-frame .markdown-content a,
-.brand-workspace-frame .record-reference {
+.brand-workspace-frame .markdown-content a {
   color: var(--brand-accent);
 }
 .brand-workspace-frame .markdown-content blockquote {
@@ -3423,22 +3385,10 @@ a.message-file:focus-visible {
   color: var(--brand-text);
   padding-top: 0;
 }
-.brand-workspace-frame .record-view-values {
-  background: var(--brand-canvas-2);
-  border-radius: var(--brand-radius);
-  gap: 0;
-  overflow: hidden;
-  padding: 0;
-}
-.brand-workspace-frame .record-view-values > div {
-  border: 0;
-  padding: 0.85rem 1rem;
-}
 .brand-workspace-frame .attribute-editor {
   border: 0;
   padding: 0;
 }
-.brand-workspace-frame .record-view-values dt,
 .brand-workspace-frame .record-value-field legend,
 .brand-workspace-frame .record-value-field legend small,
 .brand-workspace-frame .record-value-field p {
@@ -3448,9 +3398,6 @@ a.message-file:focus-visible {
   background: var(--brand-canvas-3);
   border: 0;
   border-radius: var(--brand-radius);
-}
-.brand-workspace-frame .record-view-value {
-  color: var(--brand-text);
 }
 .brand-workspace-frame .record-field-grid {
   gap: 1rem;

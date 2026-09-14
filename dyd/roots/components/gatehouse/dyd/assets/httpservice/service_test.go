@@ -1127,7 +1127,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
 	}
-	relatedAttribute := request(http.MethodPost, attributesPath, `{"name":"related","label":"Related","type":"record","target_schema":"`+schema.ID+`","cardinality":"one","uniqueness":"none","display":"secondary","display_order":2}`)
+	relatedAttribute := request(http.MethodPost, attributesPath, `{"name":"related","label":"Related","type":"record","target_schema":"`+schema.ID+`","cardinality":"one","uniqueness":"none","display":"primary","display_order":2}`)
 	var related projectRecordAttributeResponse
 	if err := json.Unmarshal(relatedAttribute.Body.Bytes(), &related); err != nil || relatedAttribute.Code != http.StatusCreated || related.DisplayOrder != 2 {
 		t.Fatalf("POST related project record attribute = (%d, %#v, %v)", relatedAttribute.Code, related, err)
@@ -1172,7 +1172,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	}
 	incomingReferences := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID+"/references", "")
 	var incoming projectRecordIncomingReferencesResponse
-	if err := json.Unmarshal(incomingReferences.Body.Bytes(), &incoming); err != nil || incomingReferences.Code != http.StatusOK || len(incoming.Groups) != 1 || incoming.Groups[0].SourceSchema.ID != schema.ID || incoming.Groups[0].SourceAttribute.ID != related.ID || len(incoming.Groups[0].References) != 1 || incoming.Groups[0].References[0].ID != second.Record.ID {
+	if err := json.Unmarshal(incomingReferences.Body.Bytes(), &incoming); err != nil || incomingReferences.Code != http.StatusOK || len(incoming.Groups) != 1 || incoming.Groups[0].SourceSchema.ID != schema.ID || incoming.Groups[0].SourceAttribute.ID != related.ID || len(incoming.Groups[0].References) != 1 || incoming.Groups[0].References[0].ID != second.Record.ID || len(incoming.Groups[0].References[0].PrimaryValues) != 1 || incoming.Groups[0].References[0].PrimaryValues[0].Value != recordResult.Record.ID || incoming.Groups[0].References[0].PrimaryValues[0].Reference == nil || len(incoming.Groups[0].References[0].PrimaryValues[0].Reference.PrimaryValues) != 1 || incoming.Groups[0].References[0].PrimaryValues[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
 		t.Fatalf("GET project record incoming references = (%d, %#v, %v)", incomingReferences.Code, incoming, err)
 	}
 
