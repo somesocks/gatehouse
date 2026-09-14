@@ -127,6 +127,17 @@ func TestGatehouseProjectRecordAttributeErrorsAndHelp(t *testing.T) {
 	if err != nil || result.String() != `"project/records/attributes/create failed"` {
 		t.Fatalf("Evaluate() attribute error = (%s, %v)", result, err)
 	}
+	err, result = lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (project/records/attributes/create "schema" "attachment" "Attachment" "Source file" "file" null "one" "none" "secondary"))`, lisp.EvalOptions{HostModules: []lisp.HostModule{NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{AttributeCreate: func(schemaID string, input ProjectRecordAttributeInput) (error, ProjectRecordAttribute) {
+		if schemaID != "schema" || input.Type != "file" || input.TargetSchema != nil {
+			t.Fatalf("file attribute create = (%q, %#v)", schemaID, input)
+		}
+		return nil, ProjectRecordAttribute{ID: "attribute", Name: input.Name, Label: input.Label, Description: input.Description, Type: input.Type, Cardinality: input.Cardinality, Uniqueness: input.Uniqueness, Display: input.Display, AuthorID: "agent", CreatedAt: "2026-01-01T00:00:00.000Z"}
+	}})}})
+	if err != nil || !strings.Contains(result.String(), `(type . "file")`) {
+		t.Fatalf("Evaluate() file attribute = (%s, %v)", result, err)
+	}
 
 	err, result = lisp.Evaluate(`(help 'project/records/attributes/create)`, lisp.EvalOptions{
 		Prelude: agentPrelude,
@@ -137,7 +148,7 @@ func TestGatehouseProjectRecordAttributeErrorsAndHelp(t *testing.T) {
 			NewWebModule(),
 		},
 	})
-	if err != nil || !strings.Contains(result.String(), "record") || !strings.Contains(result.String(), "target-schema") {
+	if err != nil || !strings.Contains(result.String(), "file") || !strings.Contains(result.String(), "target-schema") {
 		t.Fatalf("Evaluate() record attribute help = (%s, %v)", result, err)
 	}
 }

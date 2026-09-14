@@ -658,6 +658,115 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 	}
 }
 
+func TestProjectRecordFileValuesRequirePublishedFiles(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:                []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:                []config.Principal{{Alias: "alice", Enabled: true}},
+		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	newID := func(kind string) string {
+		id, err := typed_id.New(kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	createProject := func() model.ProjectRef {
+		id, err := typed_id.New(typed_id.Project)
+		if err != nil {
+			t.Fatal(err)
+		}
+		project := model.ProjectRef{Workspace: workspace, Id: id}
+		if err, _ := store.ProjectsCreate(ctx, model.Project{Ref: project, Enabled: true}, alice, nil); err != nil {
+			t.Fatal(err)
+		}
+		return project
+	}
+	createFile := func(project model.ProjectRef, name string, published bool) model.ProjectFileRef {
+		fileID, err := typed_id.New(typed_id.ProjectFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		objectID, err := typed_id.New(typed_id.StorageObject)
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := model.ProjectFile{Ref: model.ProjectFileRef{Project: project, Id: fileID}, Name: name, Enabled: true}
+		if err, _, _ := store.ProjectFileCreate(ctx, file, objectID, alice); err != nil {
+			t.Fatal(err)
+		}
+		if published {
+			digest := sha256.Sum256([]byte(name))
+			if err := store.StorageObjectStoreIntegrity(ctx, objectID, digest[:], int64(len(name))); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.StorageObjectMarkSuccess(ctx, objectID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return file.Ref
+	}
+	project := createProject()
+	schemaID, err := typed_id.New(typed_id.ProjectRecordSchema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema := model.ProjectRecordSchema{Ref: model.ProjectRecordSchemaRef{Project: project, Id: schemaID}, Name: "documents", Label: "Documents"}
+	err, schema = store.ProjectRecordSchemaCreate(ctx, schema, alice, database.ProjectRecordAuthor{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	attributeID, err := typed_id.New(typed_id.ProjectRecordAttribute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attachment := model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: schema.Ref, Id: attributeID}, Name: "attachment", Label: "Attachment", Type: "file", Cardinality: "one", Uniqueness: "none", Display: "secondary"}
+	err, attachment = store.ProjectRecordAttributeCreate(ctx, attachment, alice, database.ProjectRecordAuthor{})
+	if err != nil || attachment.TargetSchema != nil {
+		t.Fatalf("ProjectRecordAttributeCreate() file = (%#v, %v)", attachment, err)
+	}
+	published := createFile(project, "design.pdf", true)
+	err, record, values := store.ProjectRecordCreate(ctx, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: newID(typed_id.ProjectRecord)}}, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: attachment.Ref, Value: published.Id}})
+	if err != nil || len(values) != 1 || values[0].Value != published.Id {
+		t.Fatalf("ProjectRecordCreate() file = (%#v, %#v, %v)", record, values, err)
+	}
+	err, displays := store.ProjectRecordValueFileReferenceDisplaysGet(ctx, record.Ref, alice, values)
+	if err != nil || displays[values[0].Ref.Id] == nil || displays[values[0].Ref.Id].Name != "design.pdf" {
+		t.Fatalf("ProjectRecordValueFileReferenceDisplaysGet() = (%#v, %v)", displays, err)
+	}
+	if err, removed := store.ProjectFileRemove(ctx, published, alice); err == nil || removed {
+		t.Fatal("ProjectFileRemove() removed a referenced file")
+	}
+	pending := createFile(project, "pending.pdf", false)
+	if err, _, _ := store.ProjectRecordCreate(ctx, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: newID(typed_id.ProjectRecord)}}, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: attachment.Ref, Value: pending.Id}}); err == nil {
+		t.Fatal("ProjectRecordCreate() accepted a pending file")
+	}
+	otherProject := createProject()
+	foreign := createFile(otherProject, "other.pdf", true)
+	if err, _, _ := store.ProjectRecordCreate(ctx, model.ProjectRecord{Ref: model.ProjectRecordRef{Schema: schema.Ref, Id: newID(typed_id.ProjectRecord)}}, alice, database.ProjectRecordAuthor{}, []database.ProjectRecordValueCreate{{Attribute: attachment.Ref, Value: foreign.Id}}); err == nil {
+		t.Fatal("ProjectRecordCreate() accepted a cross-project file")
+	}
+	if err, removed := store.ProjectRecordRemove(ctx, record.Ref, alice); err != nil || !removed {
+		t.Fatalf("ProjectRecordRemove() file reference = (%t, %v)", removed, err)
+	}
+	if err, removed := store.ProjectFileRemove(ctx, published, alice); err != nil || !removed {
+		t.Fatalf("ProjectFileRemove() after reference removal = (%t, %v)", removed, err)
+	}
+}
+
 func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}

@@ -1,6 +1,12 @@
 <script lang="ts">
   import { Menu } from "@lucide/svelte"
   import { fetchProject, type Project } from "../../app/projects"
+
+  import {
+    fetchProjectFiles,
+    projectFileDownloadPath,
+    type ProjectFile,
+  } from "../../app/project-files"
   import {
     createProjectRecord,
     createProjectRecordAttribute,
@@ -74,6 +80,7 @@
   let schemasStatus = $state<Status>("checking")
   let schema = $state<ProjectRecordSchema | null>(null)
   let attributes = $state<ProjectRecordAttribute[]>([])
+  let projectFiles = $state<ProjectFile[]>([])
   let records = $state<ProjectRecord[]>([])
   let recordsStatus = $state<Status>("ready")
   let active = $state<ProjectRecord | null>(null)
@@ -155,6 +162,7 @@
     schemasStatus = "checking"
     schema = null
     attributes = []
+    projectFiles = []
     records = []
     recordsStatus =
       route.kind === "project-record-schema" ||
@@ -266,6 +274,7 @@
             "project_record_schema.*",
             "project_record_attribute.*",
             "project_record.*",
+            "project_file.*",
           ],
         },
       ],
@@ -324,7 +333,7 @@
     signal: AbortSignal,
   ): Promise<boolean> {
     try {
-      const [schemaResponse, attributesResponse] = await Promise.all([
+      const [schemaResponse, attributesResponse, filesResponse] = await Promise.all([
         fetchProjectRecordSchema(
           route.workspaceID,
           route.projectID,
@@ -337,9 +346,14 @@
           route.schemaID,
           signal,
         ),
+        fetchProjectFiles(route.workspaceID, route.projectID, signal),
       ])
       if (!isCurrent(value, route) || signal.aborted) return false
-      if (schemaResponse.status === 401 || attributesResponse.status === 401) {
+      if (
+        schemaResponse.status === 401 ||
+        attributesResponse.status === 401 ||
+        filesResponse.status === 401
+      ) {
         runtime.requireLogin()
         return false
       }
@@ -347,9 +361,11 @@
         runtime.navigate(recordsPath(route.workspaceID, route.projectID), true)
         return false
       }
-      if (!schemaResponse.ok || !attributesResponse.ok) throw new Error()
+      if (!schemaResponse.ok || !attributesResponse.ok || !filesResponse.ok)
+        throw new Error()
       schema = (await schemaResponse.json()) as ProjectRecordSchema
       attributes = (await attributesResponse.json()) as ProjectRecordAttribute[]
+      projectFiles = (await filesResponse.json()) as ProjectFile[]
       return true
     } catch {
       error = "The record type could not be loaded."
@@ -517,6 +533,8 @@
     attribute: ProjectRecordAttribute,
     value: ProjectRecordValue,
   ): string[] {
+    if (attribute.type === "file")
+      return [value.file?.name ?? "Unavailable file"]
     if (attribute.type !== "record") return [valueLabel(value.value)]
     if (
       value.reference !== undefined &&
@@ -533,6 +551,12 @@
     attribute: ProjectRecordAttribute,
     value: ProjectRecordValue,
   ): string | undefined {
+    if (attribute.type === "file" && typeof value.value === "string")
+      return projectFileDownloadPath(
+        workspace.id,
+        currentRoute.projectID,
+        value.value,
+      )
     return attribute.type === "record" &&
       attribute.target_schema !== undefined &&
       typeof value.value === "string"
@@ -546,10 +570,10 @@
   }
   function primaryLines(recordValues: ProjectRecordValue[]): string[] {
     const attribute = attributes.find(
-      (candidate) =>
-        candidate.display === "primary" &&
-        candidate.type !== "record" &&
-        recordValues.some((item) => item.attribute === candidate.id),
+        (candidate) =>
+          candidate.display === "primary" &&
+          candidate.type !== "record" &&
+          recordValues.some((item) => item.attribute === candidate.id),
     )
     if (attribute === undefined)
       return [`Anonymous ${schema?.label ?? "Record"}`]
@@ -1077,7 +1101,9 @@
                               )}{#if href}<RouterLink
                                 class="is-block"
                                 {href}
-                                >{#each valueLines(attribute, item) as line}<span
+                                download={attribute.type === "file"
+                                  ? item.file?.name ?? true
+                                  : undefined}>{#each valueLines(attribute, item) as line}<span
                                     class="is-block"
                                     >{line}</span
                                   >{/each}</RouterLink
@@ -1184,7 +1210,20 @@
                               value: event.currentTarget.checked,
                             })}
                         /> Yes</label
-                      >{:else}<input
+                      >{:else if attribute.type === "file"}<div
+                        class="select is-fullwidth"><select
+                          required
+                          value={valueLabel(draft.value)}
+                          onchange={(event) =>
+                            setDraft(index, {
+                              value: event.currentTarget.value,
+                            })}
+                          ><option value="" disabled>Select project file</option
+                          >{#each projectFiles as file (file.id)}<option
+                              value={file.id}>{file.name}</option
+                            >{/each}</select
+                        ></div>
+                      {:else}<input
                         class="input"
                         required
                         value={valueLabel(draft.value)}
@@ -1400,7 +1439,8 @@
                       >Number</option
                     ><option value="boolean">Boolean</option><option
                       value="datetime">Date and time</option
-                    ><option value="record">Record reference</option></select
+                      ><option value="record">Record reference</option><option
+                        value="file">Project file reference</option></select
                   >
                 </div>
               </div>

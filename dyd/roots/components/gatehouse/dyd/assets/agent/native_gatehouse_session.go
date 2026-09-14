@@ -419,7 +419,7 @@ func sessionEventReadFunction(read SessionEventRead, name string) func([]lisp.Ex
 	}
 }
 
-func sessionFileCreateFunction(create SessionFileCreate, name string) func(*lisp.FunctionContext, []lisp.Expr) (error, lisp.Expr) {
+func sessionFileCreateFunction(create func(name, mediaType string, source io.Reader) (error, string), name string) func(*lisp.FunctionContext, []lisp.Expr) (error, lisp.Expr) {
 	return func(context *lisp.FunctionContext, arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 3 {
 			return lisp.Errorf("%s requires name, media_type, and chunks", name), nil
@@ -438,7 +438,7 @@ func sessionFileCreateFunction(create SessionFileCreate, name string) func(*lisp
 		if strings.TrimSpace(fileName) == "" || strings.TrimSpace(mediaType) == "" {
 			return lisp.Errorf("%s requires non-empty name and media_type", name), nil
 		}
-		err, id := create(fileName, mediaType, &sessionFileSequenceReader{context: context, sequence: arguments[2]})
+		err, id := create(fileName, mediaType, &fileSequenceReader{name: name, context: context, sequence: arguments[2]})
 		if err != nil {
 			return lisp.Errorf("%s failed", name), nil
 		}
@@ -446,14 +446,16 @@ func sessionFileCreateFunction(create SessionFileCreate, name string) func(*lisp
 	}
 }
 
-type sessionFileSequenceReader struct {
+
+type fileSequenceReader struct {
+	name           string
 	context        *lisp.FunctionContext
 	sequence, tail lisp.Expr
 	remaining      []byte
 	done           bool
 }
 
-func (reader *sessionFileSequenceReader) Read(destination []byte) (int, error) {
+func (reader *fileSequenceReader) Read(destination []byte) (int, error) {
 	if len(destination) == 0 {
 		return 0, nil
 	}
@@ -474,14 +476,14 @@ func (reader *sessionFileSequenceReader) Read(destination []byte) (int, error) {
 		}
 		head, tail, ok := lisp.DeconstructPair(reader.sequence)
 		if !ok {
-			return 0, lisp.Errorf("session/files/create requires a sequence")
+			return 0, lisp.Errorf("%s requires a sequence", reader.name)
 		}
 		err, contents := lisp.RequireBytes(head)
 		if err != nil {
 			return 0, err
 		}
 		if lisp.TaintOf(head) != lisp.TaintNone {
-			return 0, lisp.Errorf("session/files/create contents must not be sensitive")
+			return 0, lisp.Errorf("%s contents must not be sensitive", reader.name)
 		}
 		reader.remaining, reader.tail = contents, tail
 	}

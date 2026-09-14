@@ -20,6 +20,7 @@ const (
 	projectRecordValueTypeBoolean  = "boolean"
 	projectRecordValueTypeDatetime = "datetime"
 	projectRecordValueTypeRecord   = "record"
+	projectRecordValueTypeFile     = "file"
 )
 
 type ProjectRecordAuthor struct {
@@ -61,11 +62,16 @@ type ProjectRecordCardValue struct {
 	Value     any
 	Sensitive bool
 	Reference *ProjectRecordReferenceDisplay
+	File      *ProjectRecordFileReferenceDisplay
 }
 
 type ProjectRecordReferenceDisplay struct {
 	SchemaLabel   string
 	PrimaryValues []ProjectRecordReferenceDisplayValue
+}
+
+type ProjectRecordFileReferenceDisplay struct {
+	Name string
 }
 
 type ProjectRecordReferenceDisplayValue struct {
@@ -103,6 +109,7 @@ type projectRecordValueStorage struct {
 	datetime        *string
 	referenceSchema *string
 	reference       *string
+	referenceFile   *string
 	key             string
 	value           any
 }
@@ -176,7 +183,7 @@ func normalizeProjectRecordAttribute(attribute *model.ProjectRecordAttribute) er
 		return fmt.Errorf("attribute display order must be nonnegative")
 	}
 	switch attribute.Type {
-	case projectRecordValueTypeText, projectRecordValueTypeNumber, projectRecordValueTypeBoolean, projectRecordValueTypeDatetime:
+	case projectRecordValueTypeText, projectRecordValueTypeNumber, projectRecordValueTypeBoolean, projectRecordValueTypeDatetime, projectRecordValueTypeFile:
 		if attribute.TargetSchema != nil {
 			return fmt.Errorf("only record references may have a target schema")
 		}
@@ -266,6 +273,12 @@ func normalizeProjectRecordValue(attribute model.ProjectRecordAttribute, value a
 		}
 		referenceSchema := attribute.TargetSchema.Id
 		result.referenceSchema, result.reference, result.key, result.value = &referenceSchema, &reference, "record:"+reference, reference
+	case projectRecordValueTypeFile:
+		reference, ok := value.(string)
+		if !ok || !typed_id.Valid(typed_id.ProjectFile, reference) {
+			return result, fmt.Errorf("project file reference value is invalid")
+		}
+		result.referenceFile, result.key, result.value = &reference, "file:"+reference, reference
 	default:
 		return result, fmt.Errorf("attribute type is invalid")
 	}
@@ -710,7 +723,7 @@ func (store *Store) ProjectRecordCardsGet(ctx context.Context, schema model.Proj
 		recordPlaceholders[index] = placeholder(len(arguments) + 1)
 		arguments = append(arguments, record.Ref.Id)
 	}
-	rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.attribute, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.schema = `+placeholder(3)+` AND record_values.record IN (`+strings.Join(recordPlaceholders, ", ")+`) AND attributes.display <> 'none' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
+	rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.attribute, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.value_reference_file, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.schema = `+placeholder(3)+` AND record_values.record IN (`+strings.Join(recordPlaceholders, ", ")+`) AND attributes.display <> 'none' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
 	if err != nil {
 		return fmt.Errorf("get project record card values: %w", err), nil
 	}
@@ -737,11 +750,20 @@ func (store *Store) ProjectRecordCardsGet(ctx context.Context, schema model.Proj
 	if err != nil {
 		return err, nil
 	}
+	err, files := store.projectRecordFileReferenceDisplaysGet(ctx, schema.Project, attributeByID, inputs)
+	if err != nil {
+		return err, nil
+	}
 	for cardIndex := range cards {
 		for valueIndex := range cards[cardIndex].Values {
 			value := &cards[cardIndex].Values[valueIndex]
 			attribute := attributeByID[value.Attribute]
 			if attribute.Type != projectRecordValueTypeRecord {
+				if attribute.Type == projectRecordValueTypeFile {
+					if fileID, ok := value.Value.(string); ok {
+						value.File = files[fileID]
+					}
+				}
 				continue
 			}
 			if recordID, ok := value.Value.(string); ok {
@@ -782,6 +804,81 @@ func (store *Store) ProjectRecordValueReferenceDisplaysGet(ctx context.Context, 
 		if recordID, ok := value.Value.(string); ok {
 			result[value.Ref.Id] = references[recordID]
 		}
+	}
+	return nil, result
+}
+
+// ProjectRecordValueFileReferenceDisplaysGet returns one project-file display projection per value ID.
+func (store *Store) ProjectRecordValueFileReferenceDisplaysGet(ctx context.Context, record model.ProjectRecordRef, principal model.PrincipalRef, values []model.ProjectRecordValue) (error, map[string]*ProjectRecordFileReferenceDisplay) {
+	if len(values) == 0 {
+		return nil, map[string]*ProjectRecordFileReferenceDisplay{}
+	}
+	err, attributes := store.ProjectRecordAttributesGet(ctx, record.Schema, principal)
+	if err != nil {
+		return err, nil
+	}
+	attributeByID := make(map[string]model.ProjectRecordAttribute, len(attributes))
+	for _, attribute := range attributes {
+		attributeByID[attribute.Ref.Id] = attribute
+	}
+	inputs := make([]projectRecordReferenceInput, 0, len(values))
+	for _, value := range values {
+		inputs = append(inputs, projectRecordReferenceInput{Attribute: value.Attribute.Id, Value: value.Value})
+	}
+	err, files := store.projectRecordFileReferenceDisplaysGet(ctx, record.Schema.Project, attributeByID, inputs)
+	if err != nil {
+		return err, nil
+	}
+	result := make(map[string]*ProjectRecordFileReferenceDisplay, len(values))
+	for _, value := range values {
+		attribute := attributeByID[value.Attribute.Id]
+		if attribute.Type != projectRecordValueTypeFile {
+			continue
+		}
+		if fileID, ok := value.Value.(string); ok {
+			result[value.Ref.Id] = files[fileID]
+		}
+	}
+	return nil, result
+}
+
+func (store *Store) projectRecordFileReferenceDisplaysGet(ctx context.Context, project model.ProjectRef, attributes map[string]model.ProjectRecordAttribute, inputs []projectRecordReferenceInput) (error, map[string]*ProjectRecordFileReferenceDisplay) {
+	result := map[string]*ProjectRecordFileReferenceDisplay{}
+	for _, input := range inputs {
+		attribute, ok := attributes[input.Attribute]
+		if !ok || attribute.Type != projectRecordValueTypeFile {
+			continue
+		}
+		fileID, ok := input.Value.(string)
+		if !ok {
+			return fmt.Errorf("get project record file reference displays: file reference is invalid"), nil
+		}
+		result[fileID] = nil
+	}
+	if len(result) == 0 {
+		return nil, result
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	placeholders := make([]string, 0, len(result))
+	arguments := []any{project.Workspace.Id, project.Id}
+	for fileID := range result {
+		placeholders = append(placeholders, placeholder(len(arguments)+1))
+		arguments = append(arguments, fileID)
+	}
+	rows, err := store.QueryContext(ctx, `SELECT id, name FROM gatehouse_project_files WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND id IN (`+strings.Join(placeholders, ", ")+`) AND enabled = TRUE`, arguments...)
+	if err != nil {
+		return fmt.Errorf("get project record file reference displays: %w", err), nil
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return fmt.Errorf("scan project record file reference display: %w", err), nil
+		}
+		result[id] = &ProjectRecordFileReferenceDisplay{Name: name}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate project record file reference displays: %w", err), nil
 	}
 	return nil, result
 }
@@ -845,22 +942,22 @@ func (store *Store) projectRecordReferenceDisplaysGet(ctx context.Context, proje
 		referencePlaceholders = append(referencePlaceholders, placeholder(len(referenceArguments)+1))
 		referenceArguments = append(referenceArguments, id)
 	}
-	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type <> 'record' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, referenceArguments...)
+	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.value_reference_file, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type NOT IN ('record', 'file') ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, referenceArguments...)
 	if err != nil {
 		return fmt.Errorf("get project record reference primary values: %w", err), nil
 	}
 	for rows.Next() {
 		var recordID, typeName string
-		var text, reference sql.NullString
+		var text, reference, referenceFile sql.NullString
 		var number sql.NullFloat64
 		var boolean sql.NullBool
 		var datetime any
 		value := ProjectRecordReferenceDisplayValue{}
-		if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive); err != nil {
+		if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &referenceFile, &value.Sensitive); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan project record reference display value: %w", err), nil
 		}
-		stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
+		stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference, referenceFile)
 		if err != nil {
 			rows.Close()
 			return err, nil
@@ -941,22 +1038,22 @@ func (store *Store) ProjectRecordIncomingReferencesGet(ctx context.Context, targ
 			placeholders = append(placeholders, placeholder(len(arguments)+1))
 			arguments = append(arguments, id)
 		}
-		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type <> 'record' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
+		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.value_reference_file, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type NOT IN ('record', 'file') ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
 		if err != nil {
 			return fmt.Errorf("get project record incoming reference primary values: %w", err), nil
 		}
 		for rows.Next() {
 			var recordID, typeName string
-			var text, reference sql.NullString
+			var text, reference, referenceFile sql.NullString
 			var number sql.NullFloat64
 			var boolean sql.NullBool
 			var datetime any
 			primaryValue := ProjectRecordReferenceDisplayValue{}
-			if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &primaryValue.Sensitive); err != nil {
+			if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &referenceFile, &primaryValue.Sensitive); err != nil {
 				rows.Close()
 				return fmt.Errorf("scan project record incoming reference primary value: %w", err), nil
 			}
-			stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
+			stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference, referenceFile)
 			if err != nil {
 				rows.Close()
 				return err, nil
@@ -1137,7 +1234,7 @@ func (store *Store) projectRecordValuesCreate(ctx context.Context, transaction *
 			return nil, fmt.Errorf("create project record value: ID is invalid")
 		}
 		createdAtText := createdAt.Format("2006-01-02T15:04:05.000Z")
-		if _, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_project_record_values (workspace, project, schema, record, id, attribute, value_type, value_text, value_number, value_boolean, value_datetime, value_reference_schema, value_reference, value_key, attribute_cardinality, attribute_uniqueness, sensitive, author_principal, author_agent, created_at) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`, `+placeholder(12)+`, `+placeholder(13)+`, `+placeholder(14)+`, `+placeholder(15)+`, `+placeholder(16)+`, `+placeholder(17)+`, `+placeholder(18)+`, `+placeholder(19)+`, `+placeholder(20)+`)`, record.Schema.Project.Workspace.Id, record.Schema.Project.Id, record.Schema.Id, record.Id, create.ID, attribute.Ref.Id, value.typeName, value.text, value.number, value.boolean, value.datetime, value.referenceSchema, value.reference, value.key, attribute.Cardinality, attribute.Uniqueness, create.Sensitive, authorPrincipal, authorAgent, createdAtText); err != nil {
+		if _, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_project_record_values (workspace, project, schema, record, id, attribute, value_type, value_text, value_number, value_boolean, value_datetime, value_reference_schema, value_reference, value_reference_file, value_key, attribute_cardinality, attribute_uniqueness, sensitive, author_principal, author_agent, created_at) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`, `+placeholder(11)+`, `+placeholder(12)+`, `+placeholder(13)+`, `+placeholder(14)+`, `+placeholder(15)+`, `+placeholder(16)+`, `+placeholder(17)+`, `+placeholder(18)+`, `+placeholder(19)+`, `+placeholder(20)+`, `+placeholder(21)+`)`, record.Schema.Project.Workspace.Id, record.Schema.Project.Id, record.Schema.Id, record.Id, create.ID, attribute.Ref.Id, value.typeName, value.text, value.number, value.boolean, value.datetime, value.referenceSchema, value.reference, value.referenceFile, value.key, attribute.Cardinality, attribute.Uniqueness, create.Sensitive, authorPrincipal, authorAgent, createdAtText); err != nil {
 			return nil, fmt.Errorf("insert project record value: %w", err)
 		}
 		result = append(result, model.ProjectRecordValue{Ref: model.ProjectRecordValueRef{Record: record, Id: create.ID}, Attribute: attribute.Ref, Value: value.value, Sensitive: create.Sensitive, AuthorPrincipal: author.Principal, AuthorAgent: author.Agent, CreatedAt: createdAtText})
@@ -1161,7 +1258,7 @@ func (store *Store) ProjectRecordValuesGet(ctx context.Context, record model.Pro
 		return nil, []model.ProjectRecordValue{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	query := `SELECT id, attribute, value_type, value_text, value_number, value_boolean, value_datetime, value_reference, sensitive, author_principal, author_agent, created_at FROM gatehouse_project_record_values WHERE workspace = ` + placeholder(1) + ` AND project = ` + placeholder(2) + ` AND schema = ` + placeholder(3) + ` AND record = ` + placeholder(4)
+	query := `SELECT id, attribute, value_type, value_text, value_number, value_boolean, value_datetime, value_reference, value_reference_file, sensitive, author_principal, author_agent, created_at FROM gatehouse_project_record_values WHERE workspace = ` + placeholder(1) + ` AND project = ` + placeholder(2) + ` AND schema = ` + placeholder(3) + ` AND record = ` + placeholder(4)
 	arguments := []any{record.Schema.Project.Workspace.Id, record.Schema.Project.Id, record.Schema.Id, record.Id}
 	if cursor != "" {
 		query += ` AND id < ` + placeholder(5)
@@ -1191,18 +1288,18 @@ func (store *Store) ProjectRecordValuesGet(ctx context.Context, record model.Pro
 func scanProjectRecordValue(scanner interface{ Scan(...any) error }, record model.ProjectRecordRef) (model.ProjectRecordValue, error) {
 	value := model.ProjectRecordValue{Ref: model.ProjectRecordValueRef{Record: record}}
 	var typeName string
-	var text, reference, principalID, agentID sql.NullString
+	var text, reference, referenceFile, principalID, agentID sql.NullString
 	var number sql.NullFloat64
 	var boolean sql.NullBool
 	var datetime, createdAt any
-	if err := scanner.Scan(&value.Ref.Id, &value.Attribute.Id, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive, &principalID, &agentID, &createdAt); err != nil {
+	if err := scanner.Scan(&value.Ref.Id, &value.Attribute.Id, &typeName, &text, &number, &boolean, &datetime, &reference, &referenceFile, &value.Sensitive, &principalID, &agentID, &createdAt); err != nil {
 		if err == sql.ErrNoRows {
 			return value, err
 		}
 		return value, fmt.Errorf("scan project record value: %w", err)
 	}
 	value.Attribute.Schema = record.Schema
-	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
+	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference, referenceFile)
 	if err != nil {
 		return value, err
 	}
@@ -1215,14 +1312,14 @@ func scanProjectRecordValue(scanner interface{ Scan(...any) error }, record mode
 func scanProjectRecordCardValue(scanner interface{ Scan(...any) error }) (string, ProjectRecordCardValue, error) {
 	var recordID, typeName string
 	var value ProjectRecordCardValue
-	var text, reference sql.NullString
+	var text, reference, referenceFile sql.NullString
 	var number sql.NullFloat64
 	var boolean sql.NullBool
 	var datetime any
-	if err := scanner.Scan(&recordID, &value.Attribute, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive); err != nil {
+	if err := scanner.Scan(&recordID, &value.Attribute, &typeName, &text, &number, &boolean, &datetime, &reference, &referenceFile, &value.Sensitive); err != nil {
 		return "", value, fmt.Errorf("scan project record card value: %w", err)
 	}
-	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
+	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference, referenceFile)
 	if err != nil {
 		return "", value, err
 	}
@@ -1230,7 +1327,7 @@ func scanProjectRecordCardValue(scanner interface{ Scan(...any) error }) (string
 	return recordID, value, nil
 }
 
-func projectRecordValueFromStorage(typeName string, text sql.NullString, number sql.NullFloat64, boolean sql.NullBool, datetime any, reference sql.NullString) (any, error) {
+func projectRecordValueFromStorage(typeName string, text sql.NullString, number sql.NullFloat64, boolean sql.NullBool, datetime any, reference, referenceFile sql.NullString) (any, error) {
 	switch typeName {
 	case projectRecordValueTypeText:
 		return text.String, nil
@@ -1242,6 +1339,8 @@ func projectRecordValueFromStorage(typeName string, text sql.NullString, number 
 		return projectRecordTimestamp(datetime), nil
 	case projectRecordValueTypeRecord:
 		return reference.String, nil
+	case projectRecordValueTypeFile:
+		return referenceFile.String, nil
 	default:
 		return nil, fmt.Errorf("scan project record value: type is invalid")
 	}

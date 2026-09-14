@@ -614,11 +614,16 @@ type projectRecordReferenceDisplayResponse struct {
 	PrimaryValues []projectRecordReferenceDisplayValueResponse `json:"primary_values"`
 }
 
+type projectRecordFileReferenceDisplayResponse struct {
+	Name string `json:"name"`
+}
+
 type projectRecordCardValueResponse struct {
 	Attribute string                                 `json:"attribute"`
 	Value     any                                    `json:"value"`
 	Sensitive bool                                   `json:"sensitive"`
 	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+	File      *projectRecordFileReferenceDisplayResponse `json:"file,omitempty"`
 }
 
 type projectRecordValueResponse struct {
@@ -629,6 +634,7 @@ type projectRecordValueResponse struct {
 	Author    noteAuthorResponse                     `json:"author"`
 	CreatedAt string                                 `json:"created_at"`
 	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+	File      *projectRecordFileReferenceDisplayResponse `json:"file,omitempty"`
 }
 
 type projectRecordSearchResponse struct {
@@ -1274,12 +1280,17 @@ func workspaceProjectRecordValues(store *database.Store, tokens *auth.BearerToke
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		err, files := store.ProjectRecordValueFileReferenceDisplaysGet(request.Context(), record.Ref, claims.Principal.Ref, values)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		nextCursor, err := projectRecordValuesNextCursor(request.Context(), store, record.Ref, claims.Principal.Ref, values, limit)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(response, projectRecordValuesResponse{Values: projectRecordValueResponsesWithReferences(values, references), NextCursor: nextCursor})
+		writeJSON(response, projectRecordValuesResponse{Values: projectRecordValueResponsesWithReferences(values, references, files), NextCursor: nextCursor})
 	}
 }
 
@@ -3083,6 +3094,10 @@ func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http
 		}
 		err, removed := store.ProjectFileRemove(request.Context(), model.ProjectFileRef{Project: project, Id: fileID}, claims.Principal.Ref)
 		if err != nil {
+			if strings.Contains(err.Error(), "project file is referenced by a record value") {
+				http.Error(response, "project file is referenced by a record value", http.StatusConflict)
+				return
+			}
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -3702,9 +3717,17 @@ func projectRecordResponseFromCard(card database.ProjectRecordCard) projectRecor
 	for _, value := range card.Values {
 		item := projectRecordCardValueResponse{Attribute: value.Attribute, Value: value.Value, Sensitive: value.Sensitive}
 		item.Reference = projectRecordReferenceDisplayResponseFromModel(value.Reference)
+		item.File = projectRecordFileReferenceDisplayResponseFromModel(value.File)
 		result.Values = append(result.Values, item)
 	}
 	return result
+}
+
+func projectRecordFileReferenceDisplayResponseFromModel(file *database.ProjectRecordFileReferenceDisplay) *projectRecordFileReferenceDisplayResponse {
+	if file == nil {
+		return nil
+	}
+	return &projectRecordFileReferenceDisplayResponse{Name: file.Name}
 }
 
 func projectRecordReferenceDisplayResponseFromModel(reference *database.ProjectRecordReferenceDisplay) *projectRecordReferenceDisplayResponse {
@@ -3719,14 +3742,15 @@ func projectRecordReferenceDisplayResponseFromModel(reference *database.ProjectR
 }
 
 func projectRecordValueResponses(values []model.ProjectRecordValue) []projectRecordValueResponse {
-	return projectRecordValueResponsesWithReferences(values, nil)
+	return projectRecordValueResponsesWithReferences(values, nil, nil)
 }
 
-func projectRecordValueResponsesWithReferences(values []model.ProjectRecordValue, references map[string]*database.ProjectRecordReferenceDisplay) []projectRecordValueResponse {
+func projectRecordValueResponsesWithReferences(values []model.ProjectRecordValue, references map[string]*database.ProjectRecordReferenceDisplay, files map[string]*database.ProjectRecordFileReferenceDisplay) []projectRecordValueResponse {
 	result := make([]projectRecordValueResponse, 0, len(values))
 	for _, value := range values {
 		item := projectRecordValueResponse{ID: value.Ref.Id, Attribute: value.Attribute.Id, Value: value.Value, Sensitive: value.Sensitive, Author: projectRecordAuthorResponse(value.AuthorPrincipal, value.AuthorAgent), CreatedAt: value.CreatedAt}
 		item.Reference = projectRecordReferenceDisplayResponseFromModel(references[value.Ref.Id])
+		item.File = projectRecordFileReferenceDisplayResponseFromModel(files[value.Ref.Id])
 		result = append(result, item)
 	}
 	return result

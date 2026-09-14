@@ -597,6 +597,9 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	if projectInfo != nil {
 		projectInfo.Set = runtime.projectInfoSet(ctx, input.Request.Ref.Session, input.Principal)
 	}
+	if projectFiles != nil {
+		projectFiles.Create = runtime.projectFileCreate(ctx, input.Request.Ref.Session, input.Principal)
+	}
 	if projectNotes != nil {
 		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 		projectNotes.Update = runtime.projectNoteUpdate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
@@ -846,6 +849,47 @@ func (runtime *SessionEventReplyRuntime) sessionFileCreate(ctx dbos.Context, ses
 			}
 			return file.Ref.Id, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-session-file-create"))
+		return err, id
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectFileCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) ProjectFileCreate {
+	return func(name, mediaType string, source io.Reader) (error, string) {
+		id, err := dbos.RunAsStep(ctx, func(step context.Context) (string, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectFileCreate)
+			if err != nil {
+				return "", err
+			}
+			fileID, err := typed_id.New(typed_id.ProjectFile)
+			if err != nil {
+				return "", fmt.Errorf("generate project file ID: %w", err)
+			}
+			storageObjectID, err := typed_id.New(typed_id.StorageObject)
+			if err != nil {
+				return "", fmt.Errorf("generate storage object ID: %w", err)
+			}
+			mediaTypeValue := mediaType
+			err, file, objectID := runtime.store.ProjectFileCreate(step, model.ProjectFile{
+				Ref: model.ProjectFileRef{Project: *project, Id: fileID}, Name: name, MediaType: &mediaTypeValue, Enabled: true,
+			}, storageObjectID, principal)
+			if err != nil {
+				return "", err
+			}
+			if err := runtime.storage.Put(step, objectID, source, -1); err != nil {
+				return "", err
+			}
+			if err := runtime.storage.Finish(step, objectID); err != nil {
+				return "", err
+			}
+			err, finished, _ := runtime.store.ProjectFileFinish(step, file.Ref, principal)
+			if err != nil {
+				return "", err
+			}
+			if finished == nil {
+				return "", fmt.Errorf("finish project file: unavailable")
+			}
+			return finished.Ref.Id, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-file-create"))
 		return err, id
 	}
 }

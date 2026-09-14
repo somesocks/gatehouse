@@ -1001,6 +1001,53 @@ func TestSQLiteMigrationV046AddsProjectRecordAttributeDisplayOrder(t *testing.T)
 	}
 }
 
+func TestSQLiteMigrationV048PreservesProjectRecordAttributesAndValues(t *testing.T) {
+	ctx := context.Background()
+	err, opened := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer opened.Close()
+	store := opened.DB
+	registry := testSQLiteRegistry(t)
+	for index, migration := range registry.Versioned {
+		if migration.Index >= 48 {
+			registry.Versioned = registry.Versioned[:index]
+			break
+		}
+	}
+	registry.Repeatable = nil
+	if err := migrateSQLite(ctx, store, registry); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_workspaces (id, name, enabled) VALUES ('wsp_00000000000000000000000000', 'Workspace', TRUE);
+		INSERT INTO gatehouse_principals (id, alias, revision, enabled) VALUES ('prn_00000000000000000000000000', 'principal', 1, TRUE);
+		INSERT INTO gatehouse_projects (workspace, id, name, enabled, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'Project', TRUE, '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_schemas (workspace, project, id, name, label, description, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'documents', 'Documents', '', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, cardinality, uniqueness, display, display_order, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'pra_00000000000000000000000000', 'title', 'Title', '', 'text', 'one', 'none', 'primary', 0, 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_records (workspace, project, schema, id, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'prr_00000000000000000000000000', 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+		INSERT INTO gatehouse_project_record_values (workspace, project, schema, record, id, attribute, value_type, value_text, value_key, attribute_cardinality, attribute_uniqueness, sensitive, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'prr_00000000000000000000000000', 'prv_00000000000000000000000000', 'pra_00000000000000000000000000', 'text', 'Design', 'text:Design', 'one', 'none', FALSE, 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z');
+	`); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV048AddProjectRecordFileReferences().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := store.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	var attributeName, valueText string
+	if err := store.QueryRowContext(ctx, `SELECT name FROM gatehouse_project_record_attributes WHERE id = 'pra_00000000000000000000000000'`).Scan(&attributeName); err != nil || attributeName != "title" {
+		t.Fatalf("migrated attribute = (%q, %v)", attributeName, err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT value_text FROM gatehouse_project_record_values WHERE id = 'prv_00000000000000000000000000'`).Scan(&valueText); err != nil || valueText != "Design" {
+		t.Fatalf("migrated value = (%q, %v)", valueText, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_project_record_attributes (workspace, project, schema, id, name, label, description, type, cardinality, uniqueness, display, display_order, author_principal, created_at) VALUES ('wsp_00000000000000000000000000', 'prj_00000000000000000000000000', 'prs_00000000000000000000000000', 'pra_00000000000000000000000001', 'attachment', 'Attachment', '', 'file', 'one', 'none', 'secondary', 0, 'prn_00000000000000000000000000', '2026-01-01T00:00:00.000Z')`); err != nil {
+		t.Fatalf("insert file attribute after migration: %v", err)
+	}
+}
+
 func TestMigrateRejectsOutOfOrderVersionedMigration(t *testing.T) {
 	database := openMigrationTestDatabase(t)
 	registry := Registry{

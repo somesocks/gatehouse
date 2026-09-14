@@ -1127,13 +1127,36 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
 	}
+	fileID, err := typed_id.New(typed_id.ProjectFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectID, err := typed_id.New(typed_id.StorageObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := model.ProjectFile{Ref: model.ProjectFileRef{Project: model.ProjectRef{Workspace: engineering, Id: project.ID}, Id: fileID}, Name: "contact.pdf", Enabled: true}
+	if err, _, _ := store.ProjectFileCreate(context.Background(), file, objectID, principal); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StorageObjectStoreIntegrity(context.Background(), objectID, make([]byte, 32), 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StorageObjectMarkSuccess(context.Background(), objectID); err != nil {
+		t.Fatal(err)
+	}
 	relatedAttribute := request(http.MethodPost, attributesPath, `{"name":"related","label":"Related","type":"record","target_schema":"`+schema.ID+`","cardinality":"one","uniqueness":"none","display":"primary","display_order":2}`)
 	var related projectRecordAttributeResponse
 	if err := json.Unmarshal(relatedAttribute.Body.Bytes(), &related); err != nil || relatedAttribute.Code != http.StatusCreated || related.DisplayOrder != 2 {
 		t.Fatalf("POST related project record attribute = (%d, %#v, %v)", relatedAttribute.Code, related, err)
 	}
+	fileAttribute := request(http.MethodPost, attributesPath, `{"name":"attachment","label":"Attachment","type":"file","cardinality":"one","uniqueness":"none","display":"none"}`)
+	var attachment projectRecordAttributeResponse
+	if err := json.Unmarshal(fileAttribute.Body.Bytes(), &attachment); err != nil || fileAttribute.Code != http.StatusCreated || attachment.Type != "file" || attachment.TargetSchema != nil {
+		t.Fatalf("POST project file record attribute = (%d, %#v, %v)", fileAttribute.Code, attachment, err)
+	}
 	listedAttributes = request(http.MethodGet, attributesPath, "")
-	if err := json.Unmarshal(listedAttributes.Body.Bytes(), &attributes); err != nil || listedAttributes.Code != http.StatusOK || len(attributes) != 2 || attributes[0].ID != attribute.ID || attributes[0].DisplayOrder != 0 || attributes[1].ID != related.ID || attributes[1].DisplayOrder != 2 || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":0`)) || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":2`)) {
+	if err := json.Unmarshal(listedAttributes.Body.Bytes(), &attributes); err != nil || listedAttributes.Code != http.StatusOK || len(attributes) != 3 || attributes[0].ID != attachment.ID || attributes[0].DisplayOrder != 0 || attributes[1].ID != attribute.ID || attributes[1].DisplayOrder != 0 || attributes[2].ID != related.ID || attributes[2].DisplayOrder != 2 || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":0`)) || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":2`)) {
 		t.Fatalf("GET ordered project record attributes = (%d, %#v, %v)", listedAttributes.Code, attributes, err)
 	}
 	updatedAttribute := request(http.MethodPatch, attributesPath+"/"+attribute.ID, `{"display_order":3}`)
@@ -1141,7 +1164,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 		t.Fatalf("PATCH project record attribute display order = (%d, %#v, %v)", updatedAttribute.Code, attribute, err)
 	}
 	listedAttributes = request(http.MethodGet, attributesPath, "")
-	if err := json.Unmarshal(listedAttributes.Body.Bytes(), &attributes); err != nil || listedAttributes.Code != http.StatusOK || len(attributes) != 2 || attributes[0].ID != related.ID || attributes[0].DisplayOrder != 2 || attributes[1].ID != attribute.ID || attributes[1].DisplayOrder != 3 || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":3`)) {
+	if err := json.Unmarshal(listedAttributes.Body.Bytes(), &attributes); err != nil || listedAttributes.Code != http.StatusOK || len(attributes) != 3 || attributes[0].ID != attachment.ID || attributes[0].DisplayOrder != 0 || attributes[1].ID != related.ID || attributes[1].DisplayOrder != 2 || attributes[2].ID != attribute.ID || attributes[2].DisplayOrder != 3 || !bytes.Contains(listedAttributes.Body.Bytes(), []byte(`"display_order":3`)) {
 		t.Fatalf("GET reordered project record attributes = (%d, %#v, %v)", listedAttributes.Code, attributes, err)
 	}
 	if invalid := request(http.MethodPost, attributesPath, `{"name":"invalid","label":"Invalid","type":"text","cardinality":"one","uniqueness":"none","display":"secondary","display_order":-1}`); invalid.Code != http.StatusBadRequest {
@@ -1150,7 +1173,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	if invalid := request(http.MethodPatch, attributesPath+"/"+attribute.ID, `{"display_order":-1}`); invalid.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH project record attribute with negative display order = %d, want %d", invalid.Code, http.StatusBadRequest)
 	}
-	secondRecord := request(http.MethodPost, recordsPath, `{"values":[{"attribute":"related","value":"`+recordResult.Record.ID+`","sensitive":false}]}`)
+	secondRecord := request(http.MethodPost, recordsPath, `{"values":[{"attribute":"related","value":"`+recordResult.Record.ID+`","sensitive":false},{"attribute":"attachment","value":"`+fileID+`","sensitive":false}]}`)
 	if secondRecord.Code != http.StatusCreated {
 		t.Fatalf("POST second project record = %d", secondRecord.Code)
 	}
@@ -1167,8 +1190,24 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	}
 	secondValues := request(http.MethodGet, recordsPath+"/"+second.Record.ID+"/values", "")
 	var relatedValues projectRecordValuesResponse
-	if err := json.Unmarshal(secondValues.Body.Bytes(), &relatedValues); err != nil || secondValues.Code != http.StatusOK || len(relatedValues.Values) != 1 || relatedValues.Values[0].Reference == nil || relatedValues.Values[0].Reference.SchemaLabel != "Contacts" || len(relatedValues.Values[0].Reference.PrimaryValues) != 1 || relatedValues.Values[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+	if err := json.Unmarshal(secondValues.Body.Bytes(), &relatedValues); err != nil || secondValues.Code != http.StatusOK || len(relatedValues.Values) != 2 {
 		t.Fatalf("GET project record values with reference display = (%d, %#v, %v)", secondValues.Code, relatedValues, err)
+	}
+	var relatedValue, fileValue *projectRecordValueResponse
+	for index := range relatedValues.Values {
+		value := &relatedValues.Values[index]
+		if value.Attribute == related.ID {
+			relatedValue = value
+		}
+		if value.Attribute == attachment.ID {
+			fileValue = value
+		}
+	}
+	if relatedValue == nil || relatedValue.Reference == nil || relatedValue.Reference.SchemaLabel != "Contacts" || len(relatedValue.Reference.PrimaryValues) != 1 || relatedValue.Reference.PrimaryValues[0].Value != "ada@example.test" || fileValue == nil || fileValue.File == nil || fileValue.File.Name != "contact.pdf" {
+		t.Fatalf("GET project record values displays = (%#v, %#v)", relatedValue, fileValue)
+	}
+	if blocked := request(http.MethodDelete, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID+"/files/"+fileID, ""); blocked.Code != http.StatusConflict {
+		t.Fatalf("DELETE referenced project file = %d, want %d", blocked.Code, http.StatusConflict)
 	}
 	incomingReferences := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID+"/references", "")
 	var incoming projectRecordIncomingReferencesResponse
@@ -1201,6 +1240,9 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	}
 	if removed := request(http.MethodDelete, attributesPath+"/"+related.ID, ""); removed.Code != http.StatusNoContent {
 		t.Fatalf("DELETE related project record attribute = %d", removed.Code)
+	}
+	if removed := request(http.MethodDelete, attributesPath+"/"+attachment.ID, ""); removed.Code != http.StatusNoContent {
+		t.Fatalf("DELETE project file record attribute = %d", removed.Code)
 	}
 	if updated := request(http.MethodPatch, base+"/"+schema.ID, `{"label":"People"}`); updated.Code != http.StatusOK {
 		t.Fatalf("PATCH project record schema = %d", updated.Code)

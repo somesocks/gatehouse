@@ -17,7 +17,7 @@ export type ProjectRecordAttribute = {
   name: string
   label: string
   description: string
-  type: "text" | "number" | "boolean" | "datetime" | "record"
+  type: "text" | "number" | "boolean" | "datetime" | "record" | "file"
   target_schema?: string
   cardinality: "one" | "many"
   uniqueness: "none" | "record" | "global"
@@ -42,6 +42,7 @@ export type ProjectRecordValue = {
   author: RecordAuthor
   created_at: string
   reference?: ProjectRecordReferenceDisplay
+  file?: { name: string }
 }
 export type ProjectRecord = {
   id: string

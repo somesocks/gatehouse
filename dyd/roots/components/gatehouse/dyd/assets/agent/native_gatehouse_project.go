@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"io"
+
 	"gatehouse/lisp"
 	"gatehouse/typed_id"
 )
@@ -22,7 +24,11 @@ type ProjectInfoSet func(name, description string) (error, ProjectInfo)
 type ProjectFiles struct {
 	Files []File
 	Read  FileRead
+	Create ProjectFileCreate
 }
+
+// ProjectFileCreate creates a completed file in the linked project and returns its ID.
+type ProjectFileCreate func(name, mediaType string, source io.Reader) (error, string)
 
 // ProjectNotes contains the authorized notes in a linked project.
 type ProjectNotes struct {
@@ -69,6 +75,7 @@ var (
 	projectInfoGetDocumentation           = capabilityDocumentation{"(project/info/get) -> List | Null", "Returns the linked project's optional name, optional description, and creation time, or null when no authorized project is linked.", "(project/info/get)", "((name . \"Roadmap\") (description) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectInfoSetDocumentation           = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectFileReadDocumentation          = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful linked-project file with a pfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"pfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
+	projectFileCreateDocumentation        = capabilityDocumentation{"(project/files/create name media_type chunks) -> String", "Creates a completed file in the project linked to the current session from a finite sequence of Bytes chunks and returns its pfi_ ID. Name and media_type must be non-empty strings.", "(project/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"pfi_example-file-id\""}
 	projectSecretListDocumentation        = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectSecretReadDocumentation        = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	projectNoteListDocumentation          = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
@@ -124,11 +131,17 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 	}
 
 	filesList, filesInfo, fileRead := fileListFunction(nil, "project/files/list"), fileInfoFunction(nil, "project/files/info", typed_id.ProjectFile, "project"), unavailableRead("project/files/read")
+	fileCreate := func(_ *lisp.FunctionContext, _ []lisp.Expr) (error, lisp.Expr) {
+		return lisp.Errorf("project/files/create is unavailable"), nil
+	}
 	if files != nil {
 		filesList = fileListFunction(files.Files, "project/files/list")
 		filesInfo = fileInfoFunction(files.Files, "project/files/info", typed_id.ProjectFile, "project")
 		if files.Read != nil {
 			fileRead = fileReadFunction(files.Read, "project/files/read", typed_id.ProjectFile, "project")
+		}
+		if files.Create != nil {
+			fileCreate = sessionFileCreateFunction(files.Create, "project/files/create")
 		}
 	}
 	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
@@ -190,6 +203,7 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
 		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
+		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), projectFileCreateDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
 		{Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), projectNoteRevisionsListDocumentation)},
