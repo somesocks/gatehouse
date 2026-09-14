@@ -3,6 +3,7 @@ import {
   cancelChatReply,
   chatFileDownloadPath,
   fetchChatAgents,
+  fetchChatFiles,
   fetchChatEvents,
   fetchChatSession,
   finishChatFileUpload,
@@ -21,6 +22,7 @@ describe("chat transport", () => {
     const file = new File(["contents"], "report.txt", { type: "text/plain" })
     await fetchChatSession("wsp/test", "ses/test")
     await fetchChatEvents("wsp/test", "ses/test")
+    await fetchChatFiles("wsp/test", "ses/test")
     await fetchChatAgents("wsp/test")
     await sendChatMessage("wsp/test", "ses/test", {
       text: "Hello",
@@ -45,36 +47,41 @@ describe("chat transport", () => {
     )
     expect(fetch).toHaveBeenNthCalledWith(
       3,
-      "/api/v1/workspaces/wsp%2Ftest/agents",
+      "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files",
       { credentials: "same-origin" },
     )
     expect(fetch).toHaveBeenNthCalledWith(
       4,
+      "/api/v1/workspaces/wsp%2Ftest/agents",
+      { credentials: "same-origin" },
+    )
+    expect(fetch).toHaveBeenNthCalledWith(
+      5,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/messages",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      5,
+      6,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/messages/msg%2Ftest/cancel",
       { method: "POST", credentials: "same-origin" },
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      6,
+      7,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/approvals/apr%2Ftest",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      7,
+      8,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      8,
+      9,
       "https://uploads.example.test/file",
       expect.objectContaining({ method: "PUT", body: file }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      9,
+      10,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files/fil%2Ftest/finish",
       { method: "POST", credentials: "same-origin" },
     )

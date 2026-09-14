@@ -37,6 +37,7 @@ export type Route =
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "group-collection" } & WorkspaceRoute)
   | ({ kind: "session-chat" } & SessionRoute)
+  | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
   | ({ kind: "session-note-new" } & SessionRoute)
   | ({ kind: "session-note"; noteID: string } & SessionRoute)
@@ -283,6 +284,9 @@ export function parseRoute(url: URL): Route {
       return { kind: "session-chat", workspaceID, sessionID: resourceID }
     }
     const section = segments[5]
+    if (segments.length === 6 && section === "files") {
+      return { kind: "session-files", workspaceID, sessionID: resourceID }
+    }
     if (segments.length === 6 && section === "notes") {
       return { kind: "session-notes", workspaceID, sessionID: resourceID }
     }
@@ -535,6 +539,8 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/grp`
     case "session-chat":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
+    case "session-files":
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/files`
     case "session-notes":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes`
     case "session-note-new":

@@ -29,6 +29,7 @@
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
   import ProjectRecordsRoute from "./pages/project-records/ProjectRecordsRoute.svelte"
   import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
+  import SessionFilesRoute from "./pages/session-files/SessionFilesRoute.svelte"
   import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
   import SessionSecretsRoute from "./pages/session-secrets/SessionSecretsRoute.svelte"
   import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
@@ -63,6 +64,8 @@
   <ProjectRecordsRoute />
 {:else if owner === "session-chat"}
   <SessionChatRoute />
+{:else if owner === "session-files"}
+  <SessionFilesRoute />
 {:else if owner === "session-notes"}
   <SessionNotesRoute />
 {:else if owner === "session-secrets"}

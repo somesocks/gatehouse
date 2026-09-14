@@ -1775,7 +1775,7 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 
 func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPost {
+		if request.Method != http.MethodGet && request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -1797,6 +1797,15 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		if authorized == nil {
 			http.NotFound(response, request)
+			return
+		}
+		if request.Method == http.MethodGet {
+			err, files := store.SessionFilesGet(request.Context(), session)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(response, files)
 			return
 		}
 		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionFileCreate) {

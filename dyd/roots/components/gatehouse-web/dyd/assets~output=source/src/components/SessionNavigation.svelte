@@ -2,7 +2,7 @@
   import { useRuntime } from "../app/runtime.svelte"
   import RouterLink from "./RouterLink.svelte"
 
-  type SessionView = "chat" | "notes" | "tasks" | "secrets"
+  type SessionView = "chat" | "files" | "notes" | "tasks" | "secrets"
 
   let {
     workspaceID,
@@ -28,6 +28,10 @@
     href={pathFor("chat")}>Chat</RouterLink
   >
   <RouterLink
+    class={active === "files" ? "active" : undefined}
+    href={pathFor("files")}>Files</RouterLink
+  >
+  <RouterLink
     class={active === "notes" ? "active" : undefined}
     href={pathFor("notes")}>Notes</RouterLink
   >
@@ -47,6 +51,7 @@
   onchange={navigate}
 >
   <option value="chat">Chat</option>
+  <option value="files">Files</option>
   <option value="notes">Notes</option>
   <option value="tasks">Tasks</option>
   <option value="secrets">Secrets</option>

@@ -100,6 +100,13 @@ describe("route owner", () => {
     ).toBe("session-chat")
     expect(
       routeOwner({
+        kind: "session-files",
+        workspaceID: "wsp_a",
+        sessionID: "ses_a",
+      }),
+    ).toBe("session-files")
+    expect(
+      routeOwner({
         kind: "session-notes",
         workspaceID: "wsp_a",
         sessionID: "ses_a",

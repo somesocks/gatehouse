@@ -116,6 +116,14 @@ describe("routes", () => {
       route: { kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" },
     },
     {
+      path: "/app/wsp/wsp_a/ses/ses_a/files",
+      route: {
+        kind: "session-files",
+        workspaceID: "wsp_a",
+        sessionID: "ses_a",
+      },
+    },
+    {
       path: "/app/wsp/wsp_a/ses/ses_a/notes",
       route: {
         kind: "session-notes",

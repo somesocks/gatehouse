@@ -70,6 +70,17 @@ export async function fetchChatEvents(
   )
 }
 
+export async function fetchChatFiles(
+  workspaceID: string,
+  sessionID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, {
+    credentials: "same-origin",
+    ...(signal === undefined ? {} : { signal }),
+  })
+}
+
 export async function fetchChatAgents(
   workspaceID: string,
   signal?: AbortSignal,

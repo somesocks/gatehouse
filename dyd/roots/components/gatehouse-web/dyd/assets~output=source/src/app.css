@@ -650,10 +650,6 @@ body {
   color: #9ea494;
 }
 
-.project-note-row {
-  justify-content: flex-start;
-}
-
 .project-note-description {
   color: var(--brand-text-muted);
   font-size: 0.85rem;

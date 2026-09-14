@@ -626,6 +626,11 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if finished.Code != http.StatusOK {
 		t.Fatalf("POST finish = status %d body %q", finished.Code, finished.Body.String())
 	}
+	listed := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files", "")
+	var files []database.SessionFileSummary
+	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 1 || files[0].ID != uploaded.File.Ref.Id || files[0].Name != "report.txt" || files[0].MediaType == nil || *files[0].MediaType != "text/plain" || files[0].Size != int64(len("hello storage")) || files[0].Fingerprint == "" {
+		t.Fatalf("GET session files = (%d, %#v, %v)", listed.Code, files, err)
+	}
 	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"attachments":["`+uploaded.File.Ref.Id+`"]}`)
 	if message.Code != http.StatusAccepted {
 		t.Fatalf("POST attachment message = status %d body %q", message.Code, message.Body.String())
