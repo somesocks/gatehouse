@@ -71,9 +71,6 @@ type ProjectRecordReferenceDisplay struct {
 type ProjectRecordReferenceDisplayValue struct {
 	Value     any
 	Sensitive bool
-	Reference *ProjectRecordReferenceDisplay
-
-	referenceID string
 }
 
 // ProjectRecordIncomingReferenceGroup contains records that reference a record through one source attribute.
@@ -848,20 +845,35 @@ func (store *Store) projectRecordReferenceDisplaysGet(ctx context.Context, proje
 		referencePlaceholders = append(referencePlaceholders, placeholder(len(referenceArguments)+1))
 		referenceArguments = append(referenceArguments, id)
 	}
-	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, referenceArguments...)
+	rows, err = store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(referencePlaceholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type <> 'record' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, referenceArguments...)
 	if err != nil {
 		return fmt.Errorf("get project record reference primary values: %w", err), nil
 	}
-	defer rows.Close()
 	for rows.Next() {
-		recordID, value, err := scanProjectRecordReferenceDisplayValue(rows)
+		var recordID, typeName string
+		var text, reference sql.NullString
+		var number sql.NullFloat64
+		var boolean sql.NullBool
+		var datetime any
+		value := ProjectRecordReferenceDisplayValue{}
+		if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan project record reference display value: %w", err), nil
+		}
+		stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
 		if err != nil {
+			rows.Close()
 			return err, nil
 		}
+		value.Value = stored
 		references[recordID].PrimaryValues = append(references[recordID].PrimaryValues, value)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return fmt.Errorf("iterate project record reference primary values: %w", err), nil
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close project record reference primary values: %w", err), nil
 	}
 	return nil, references
 }
@@ -929,20 +941,18 @@ func (store *Store) ProjectRecordIncomingReferencesGet(ctx context.Context, targ
 			placeholders = append(placeholders, placeholder(len(arguments)+1))
 			arguments = append(arguments, id)
 		}
-		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.attribute, attributes.target_schema, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
+		rows, err := store.QueryContext(ctx, `SELECT record_values.record, record_values.value_type, record_values.value_text, record_values.value_number, record_values.value_boolean, record_values.value_datetime, record_values.value_reference, record_values.sensitive FROM gatehouse_project_record_values AS record_values JOIN gatehouse_project_record_attributes AS attributes ON attributes.workspace = record_values.workspace AND attributes.project = record_values.project AND attributes.schema = record_values.schema AND attributes.id = record_values.attribute WHERE record_values.workspace = `+placeholder(1)+` AND record_values.project = `+placeholder(2)+` AND record_values.record IN (`+strings.Join(placeholders, ", ")+`) AND attributes.display = 'primary' AND attributes.type <> 'record' ORDER BY record_values.record, attributes.display_order ASC, attributes.name ASC, record_values.id`, arguments...)
 		if err != nil {
 			return fmt.Errorf("get project record incoming reference primary values: %w", err), nil
 		}
-		referenceInputs := []projectRecordReferenceInput{}
-		referenceAttributes := map[string]model.ProjectRecordAttribute{}
 		for rows.Next() {
-			var recordID, attributeID, typeName string
-			var targetSchema, text, reference sql.NullString
+			var recordID, typeName string
+			var text, reference sql.NullString
 			var number sql.NullFloat64
 			var boolean sql.NullBool
 			var datetime any
 			primaryValue := ProjectRecordReferenceDisplayValue{}
-			if err := rows.Scan(&recordID, &attributeID, &targetSchema, &typeName, &text, &number, &boolean, &datetime, &reference, &primaryValue.Sensitive); err != nil {
+			if err := rows.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &primaryValue.Sensitive); err != nil {
 				rows.Close()
 				return fmt.Errorf("scan project record incoming reference primary value: %w", err), nil
 			}
@@ -952,17 +962,6 @@ func (store *Store) ProjectRecordIncomingReferencesGet(ctx context.Context, targ
 				return err, nil
 			}
 			primaryValue.Value = stored
-			if typeName == projectRecordValueTypeRecord && targetSchema.Valid {
-				referenceID, ok := stored.(string)
-				if !ok {
-					rows.Close()
-					return fmt.Errorf("get project record incoming reference primary values: record reference is invalid"), nil
-				}
-				targetSchemaRef := model.ProjectRecordSchemaRef{Project: target.Schema.Project, Id: targetSchema.String}
-				referenceAttributes[attributeID] = model.ProjectRecordAttribute{Ref: model.ProjectRecordAttributeRef{Schema: model.ProjectRecordSchemaRef{Project: target.Schema.Project}, Id: attributeID}, Type: projectRecordValueTypeRecord, TargetSchema: &targetSchemaRef}
-				referenceInputs = append(referenceInputs, projectRecordReferenceInput{Attribute: attributeID, Value: referenceID})
-				primaryValue.referenceID = referenceID
-			}
 			primaryValues[recordID] = append(primaryValues[recordID], primaryValue)
 		}
 		if err := rows.Err(); err != nil {
@@ -971,20 +970,6 @@ func (store *Store) ProjectRecordIncomingReferencesGet(ctx context.Context, targ
 		}
 		if err := rows.Close(); err != nil {
 			return fmt.Errorf("close project record incoming reference primary values: %w", err), nil
-		}
-		if len(referenceInputs) != 0 {
-			err, references := store.projectRecordReferenceDisplaysGet(ctx, target.Schema.Project, referenceAttributes, referenceInputs)
-			if err != nil {
-				return err, nil
-			}
-			for recordID := range primaryValues {
-				for index := range primaryValues[recordID] {
-					value := &primaryValues[recordID][index]
-					if value.referenceID != "" {
-						value.Reference = references[value.referenceID]
-					}
-				}
-			}
 		}
 	}
 	for groupIndex := range groups {
@@ -1236,24 +1221,6 @@ func scanProjectRecordCardValue(scanner interface{ Scan(...any) error }) (string
 	var datetime any
 	if err := scanner.Scan(&recordID, &value.Attribute, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive); err != nil {
 		return "", value, fmt.Errorf("scan project record card value: %w", err)
-	}
-	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
-	if err != nil {
-		return "", value, err
-	}
-	value.Value = stored
-	return recordID, value, nil
-}
-
-func scanProjectRecordReferenceDisplayValue(scanner interface{ Scan(...any) error }) (string, ProjectRecordReferenceDisplayValue, error) {
-	var recordID, typeName string
-	var value ProjectRecordReferenceDisplayValue
-	var text, reference sql.NullString
-	var number sql.NullFloat64
-	var boolean sql.NullBool
-	var datetime any
-	if err := scanner.Scan(&recordID, &typeName, &text, &number, &boolean, &datetime, &reference, &value.Sensitive); err != nil {
-		return "", value, fmt.Errorf("scan project record reference display value: %w", err)
 	}
 	stored, err := projectRecordValueFromStorage(typeName, text, number, boolean, datetime, reference)
 	if err != nil {

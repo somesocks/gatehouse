@@ -1172,7 +1172,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	}
 	incomingReferences := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID+"/references", "")
 	var incoming projectRecordIncomingReferencesResponse
-	if err := json.Unmarshal(incomingReferences.Body.Bytes(), &incoming); err != nil || incomingReferences.Code != http.StatusOK || len(incoming.Groups) != 1 || incoming.Groups[0].SourceSchema.ID != schema.ID || incoming.Groups[0].SourceAttribute.ID != related.ID || len(incoming.Groups[0].References) != 1 || incoming.Groups[0].References[0].ID != second.Record.ID || len(incoming.Groups[0].References[0].PrimaryValues) != 1 || incoming.Groups[0].References[0].PrimaryValues[0].Value != recordResult.Record.ID || incoming.Groups[0].References[0].PrimaryValues[0].Reference == nil || len(incoming.Groups[0].References[0].PrimaryValues[0].Reference.PrimaryValues) != 1 || incoming.Groups[0].References[0].PrimaryValues[0].Reference.PrimaryValues[0].Value != "ada@example.test" {
+	if err := json.Unmarshal(incomingReferences.Body.Bytes(), &incoming); err != nil || incomingReferences.Code != http.StatusOK || len(incoming.Groups) != 1 || incoming.Groups[0].SourceSchema.ID != schema.ID || incoming.Groups[0].SourceAttribute.ID != related.ID || len(incoming.Groups[0].References) != 1 || incoming.Groups[0].References[0].ID != second.Record.ID || len(incoming.Groups[0].References[0].PrimaryValues) != 0 {
 		t.Fatalf("GET project record incoming references = (%d, %#v, %v)", incomingReferences.Code, incoming, err)
 	}
 

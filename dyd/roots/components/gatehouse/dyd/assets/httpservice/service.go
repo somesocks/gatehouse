@@ -605,9 +605,8 @@ type projectRecordResponse struct {
 }
 
 type projectRecordReferenceDisplayValueResponse struct {
-	Value     any                                    `json:"value"`
-	Sensitive bool                                   `json:"sensitive"`
-	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+	Value     any  `json:"value"`
+	Sensitive bool `json:"sensitive"`
 }
 
 type projectRecordReferenceDisplayResponse struct {
@@ -3714,7 +3713,7 @@ func projectRecordReferenceDisplayResponseFromModel(reference *database.ProjectR
 	}
 	result := &projectRecordReferenceDisplayResponse{SchemaLabel: reference.SchemaLabel, PrimaryValues: make([]projectRecordReferenceDisplayValueResponse, 0, len(reference.PrimaryValues))}
 	for _, primary := range reference.PrimaryValues {
-		result.PrimaryValues = append(result.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive, Reference: projectRecordReferenceDisplayResponseFromModel(primary.Reference)})
+		result.PrimaryValues = append(result.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive})
 	}
 	return result
 }
@@ -3740,7 +3739,7 @@ func projectRecordIncomingReferenceGroupResponses(groups []database.ProjectRecor
 		for _, reference := range group.References {
 			value := projectRecordIncomingReferenceResponse{ID: reference.Record.Id, PrimaryValues: make([]projectRecordReferenceDisplayValueResponse, 0, len(reference.PrimaryValues))}
 			for _, primary := range reference.PrimaryValues {
-				value.PrimaryValues = append(value.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive, Reference: projectRecordReferenceDisplayResponseFromModel(primary.Reference)})
+				value.PrimaryValues = append(value.PrimaryValues, projectRecordReferenceDisplayValueResponse{Value: primary.Value, Sensitive: primary.Sensitive})
 			}
 			item.References = append(item.References, value)
 		}

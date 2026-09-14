@@ -545,8 +545,8 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 			relatedGroup = &incoming[index]
 		}
 	}
-	if relatedGroup == nil || len(relatedGroup.References) != 1 || len(relatedGroup.References[0].PrimaryValues) != 1 || relatedGroup.References[0].PrimaryValues[0].Value != record.Ref.Id || relatedGroup.References[0].PrimaryValues[0].Reference == nil || len(relatedGroup.References[0].PrimaryValues[0].Reference.PrimaryValues) != 3 || relatedGroup.References[0].PrimaryValues[0].Reference.PrimaryValues[0].Value != "Lovelace" {
-		t.Fatalf("ProjectRecordIncomingReferencesGet() record primary = %#v", relatedGroup)
+	if relatedGroup == nil || len(relatedGroup.References) != 1 || len(relatedGroup.References[0].PrimaryValues) != 0 {
+		t.Fatalf("ProjectRecordIncomingReferencesGet() excludes grouping attribute = %#v", relatedGroup)
 	}
 	if many == nil || many.SchemaLabel != "Contacts" || many.AttributeLabel != "Related many" || len(many.References) != 2 || many.References[0].Record.Id != referencingID || many.References[1].Record.Id != referencingID {
 		t.Fatalf("ProjectRecordIncomingReferencesGet() many group = %#v", many)

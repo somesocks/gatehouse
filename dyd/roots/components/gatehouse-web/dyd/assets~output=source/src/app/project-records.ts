@@ -33,7 +33,6 @@ export type ProjectRecordReferenceDisplay = {
 export type ProjectRecordReferenceDisplayValue = {
   value: unknown
   sensitive: boolean
-  reference?: ProjectRecordReferenceDisplay
 }
 export type ProjectRecordValue = {
   id: string

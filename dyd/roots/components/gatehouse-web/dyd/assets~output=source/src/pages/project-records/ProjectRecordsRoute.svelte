@@ -573,18 +573,12 @@
       value.reference !== undefined &&
       value.reference.primary_values.length !== 0
     )
-      return value.reference.primary_values.flatMap(referenceValueLines)
+      return value.reference.primary_values.map((primary) =>
+        valueLabel(primary.value),
+      )
     return [
-      `${value.reference?.schema_label ?? schemas.find((schema) => schema.id === attribute.target_schema)?.label ?? "Record"} · ${valueLabel(value.value)}`,
+      `Anonymous ${value.reference?.schema_label ?? schemas.find((schema) => schema.id === attribute.target_schema)?.label ?? "Record"}`,
     ]
-  }
-  function referenceValueLines(value: {
-    value: unknown
-    reference?: { primary_values: { value: unknown }[] }
-  }): string[] {
-    return value.reference?.primary_values.length
-      ? value.reference.primary_values.map((primary) => valueLabel(primary.value))
-      : [valueLabel(value.value)]
   }
   function referencePath(
     attribute: ProjectRecordAttribute,
@@ -605,19 +599,26 @@
     const attribute = attributes.find(
       (candidate) =>
         candidate.display === "primary" &&
+        candidate.type !== "record" &&
         recordValues.some((item) => item.attribute === candidate.id),
     )
-    if (attribute === undefined) return ["Untitled record"]
+    if (attribute === undefined)
+      return [`Anonymous ${schema?.label ?? "Record"}`]
     const value = recordValues.find((item) => item.attribute === attribute.id)
     return value === undefined
-      ? ["Untitled record"]
+      ? [`Anonymous ${schema?.label ?? "Record"}`]
       : valueLines(attribute, value)
   }
   function incomingReferenceLabel(
+    group: ProjectRecordIncomingReferenceGroup,
     reference: ProjectRecordIncomingReferenceGroup["references"][number],
   ): string {
-    const values = reference.primary_values.flatMap(referenceValueLines)
-    return values.length === 0 ? "Untitled record" : values.join(" · ")
+    const values = reference.primary_values.map((primary) =>
+      valueLabel(primary.value),
+    )
+    return values.length === 0
+      ? `Anonymous ${group.source_schema.label}`
+      : values.join(" · ")
   }
   function appendIncomingReferences(
     groups: ProjectRecordIncomingReferenceGroup[],
@@ -1177,7 +1178,7 @@
                             group.source_schema.id,
                             reference.id,
                           )}
-                          >{incomingReferenceLabel(reference)}</RouterLink
+                          >{incomingReferenceLabel(group, reference)}</RouterLink
                         >{/each}
                     </div>
                   </div>{/each}
