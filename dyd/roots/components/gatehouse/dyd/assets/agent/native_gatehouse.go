@@ -56,6 +56,25 @@ type SessionEventSearchResult struct {
 // SessionEventSearch searches authorized current-session event bodies.
 type SessionEventSearch func(expression, cursor string) (error, SessionEventSearchResult)
 
+// SessionFileSearchMatch identifies one matching byte range in a session file.
+type SessionFileSearchMatch struct {
+	Offset        int64
+	Length        int64
+	TermIndex     int
+	PreviewOffset int64
+	Preview       string
+}
+
+// SessionFileSearchResult is one bounded page of current-session file matches.
+type SessionFileSearchResult struct {
+	Terms      []string
+	Matches    []SessionFileSearchMatch
+	NextCursor string
+}
+
+// SessionFileSearch searches one authorized current-session file.
+type SessionFileSearch func(id, query, cursor string) (error, SessionFileSearchResult)
+
 // ProjectNoteCreate creates an authorized project note.
 type ProjectNoteCreate func(title, description, body string, sensitive bool) (error, ProjectNote)
 

@@ -634,6 +634,19 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		}
 		return runtime.storage.Read(ctx, file.StorageObject.Id, offset, length)
 	}
+	searchSessionFile := func(id, query, cursor string) (error, SessionFileSearchResult) {
+		err, file, object := runtime.store.SessionFileGet(ctx, model.SessionFileRef{Session: input.Request.Ref.Session, Id: id}, input.Principal)
+		if err != nil || file == nil || object == nil {
+			if err != nil {
+				return err, SessionFileSearchResult{}
+			}
+			return fmt.Errorf("search session file: unavailable"), SessionFileSearchResult{}
+		}
+		fingerprint := fmt.Sprintf("sha256:%x", object.SHA256)
+		return sessionFileSearch(func(offset int64) (error, io.ReadCloser) {
+			return runtime.storage.Get(ctx, file.StorageObject.Id, offset)
+		}, id, fingerprint, query, cursor)
+	}
 	sessionEventRead := func(id string, offset, length int64) (error, []byte) {
 		err, event := runtime.store.SessionEventGet(ctx, model.SessionEventRef{Session: input.Request.Ref.Session, Id: id})
 		if err != nil || event == nil {
@@ -704,7 +717,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	modules := []lisp.HostModule{
 		NewProjectModuleWithSecretsAndRecords(projectInfo, projectFiles, projectNotes, projectSecrets, projectRecords, projectTasks),
-		NewSessionModuleWithSecretsTasksAndEventSearch(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead, sessionEventSearch),
+		NewSessionModuleWithSecretsTasksAndEventSearch(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), searchSessionFile, sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead, sessionEventSearch),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}

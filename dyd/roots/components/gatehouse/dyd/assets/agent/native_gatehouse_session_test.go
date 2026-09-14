@@ -95,7 +95,7 @@ func TestGatehouseSessionEventSearch(t *testing.T) {
 	err, result := lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (session/events/search "(and \"Conroe\" \"ordinance\")"))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
 			called = true
 			if expression != `(and "Conroe" "ordinance")` || cursor != "" {
 				t.Fatalf("session event search = (%q, %q)", expression, cursor)
@@ -110,12 +110,40 @@ func TestGatehouseSessionEventSearch(t *testing.T) {
 	err, result = lisp.Evaluate(`(import
   (session @native:gatehouse/session/v1)
   (error/value (error/catch (session/events/search "(not \"Conroe\")"))))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, nil, func(expression, cursor string) (error, SessionEventSearchResult) {
 			return lisp.Errorf("unsupported expression"), SessionEventSearchResult{}
 		})},
 	})
 	if err != nil || result.String() != `"session/events/search failed"` {
 		t.Fatalf("Evaluate() invalid search = (%s, %v)", result, err)
+	}
+}
+
+func TestGatehouseSessionFileSearch(t *testing.T) {
+	fileID := "sfi_00000000000000000000000000"
+	called := false
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (session/files/search-file "sfi_00000000000000000000000000" "(or \"Conroe\" \"ordinance\")"))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, func(id, query, cursor string) (error, SessionFileSearchResult) {
+			called = true
+			if id != fileID || query != `(or "Conroe" "ordinance")` || cursor != "" {
+				t.Fatalf("session file search = (%q, %q, %q)", id, query, cursor)
+			}
+			return nil, SessionFileSearchResult{Terms: []string{"Conroe", "ordinance"}, Matches: []SessionFileSearchMatch{{Offset: 0, Length: 7, TermIndex: 0, PreviewOffset: 0, Preview: "Conroe ordinance"}}, NextCursor: "cursor"}
+		}, nil, nil, nil, nil, nil)},
+	})
+	if err != nil || !called || !strings.Contains(result.String(), `(term_index . 0)`) || !strings.Contains(result.String(), `(next_cursor . "cursor")`) {
+		t.Fatalf("Evaluate() = (%s, %v), called = %t", result, err, called)
+	}
+
+	err, result = lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (error/value (error/catch (session/files/search-file "sfi_00000000000000000000000000" "Conroe"))))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil)},
+	})
+	if err != nil || result.String() != `"session/files/search-file is unavailable"` {
+		t.Fatalf("Evaluate() unavailable search = (%s, %v)", result, err)
 	}
 }
 
