@@ -21,6 +21,32 @@ func expressionError(format string, args ...any) error {
 	return Error{Message: fmt.Sprintf(format, args...)}
 }
 
+// SourceLocation identifies a position in Lisp source. Offset is zero-based
+// bytes; line and column are one-based Unicode code points.
+type SourceLocation struct {
+	Offset int
+	Line   int
+	Column int
+}
+
+// ParseError is returned when source cannot be read into an expression.
+// Opening is set when an unclosed delimiter identifies where the construct
+// began. Parsed expressions intentionally do not retain source locations.
+type ParseError struct {
+	Code    string
+	Message string
+	At      SourceLocation
+	Opening *SourceLocation
+}
+
+func (err *ParseError) Error() string {
+	message := fmt.Sprintf("%s at line %d, column %d", err.Message, err.At.Line, err.At.Column)
+	if err.Opening == nil {
+		return message
+	}
+	return fmt.Sprintf("%s (opened at line %d, column %d)", message, err.Opening.Line, err.Opening.Column)
+}
+
 type raisedError struct {
 	value Expr
 }

@@ -136,6 +136,60 @@ func TestReadRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestReadReportsParseErrorLocations(t *testing.T) {
+	for _, test := range []struct {
+		source  string
+		code    string
+		at      SourceLocation
+		opening *SourceLocation
+		message string
+	}{
+		{
+			source: "(outer\r\n  (inner λ",
+			code:   "unterminated_list",
+			at:     SourceLocation{Offset: 19, Line: 2, Column: 11},
+			opening: &SourceLocation{Offset: 10, Line: 2, Column: 3},
+			message: "unterminated list at line 2, column 11 (opened at line 2, column 3)",
+		},
+		{
+			source:  `"unterminated`,
+			code:    "unterminated_string",
+			at:      SourceLocation{Offset: 13, Line: 1, Column: 14},
+			opening: &SourceLocation{Offset: 0, Line: 1, Column: 1},
+			message: "unterminated string at line 1, column 14 (opened at line 1, column 1)",
+		},
+		{
+			source: ")",
+			code:   "unexpected_closing_parenthesis",
+			at:     SourceLocation{Offset: 0, Line: 1, Column: 1},
+			message: "unexpected closing parenthesis at line 1, column 1",
+		},
+	} {
+		t.Run(test.code, func(t *testing.T) {
+			err, _ := Read(test.source)
+			parse, ok := err.(*ParseError)
+			if !ok {
+				t.Fatalf("Read(%q) error = %T %v, want *ParseError", test.source, err, err)
+			}
+			if parse.Code != test.code || parse.At != test.at {
+				t.Fatalf("Read(%q) parse error = %#v, want code %q at %#v", test.source, parse, test.code, test.at)
+			}
+			if err.Error() != test.message {
+				t.Fatalf("Read(%q) error = %q, want %q", test.source, err, test.message)
+			}
+			if test.opening == nil {
+				if parse.Opening != nil {
+					t.Fatalf("Read(%q) opening = %#v, want nil", test.source, parse.Opening)
+				}
+				return
+			}
+			if parse.Opening == nil || *parse.Opening != *test.opening {
+				t.Fatalf("Read(%q) opening = %#v, want %#v", test.source, parse.Opening, test.opening)
+			}
+		})
+	}
+}
+
 func TestReadAttachesCommentsAndWhitespace(t *testing.T) {
 	err, expression := Read(" \t;  leading comment  \n;\tcontinued comment\t\n(list ;  list function  \n 1 ;  one  \n\n ;  two  \n 2) ;  trailing comment  \n; continued trailing comment\n")
 	if err != nil {

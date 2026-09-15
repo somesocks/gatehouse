@@ -16,7 +16,7 @@ func Read(source string) (error, Expr) {
 		if len(comments) != 0 {
 			return reader.unattachedComment(comments[0])
 		}
-		return expressionError("expected an expression"), nil
+		return reader.parseError("expected_expression", reader.position, nil, "expected an expression"), nil
 	}
 	err, expr := reader.readExprWithLeadingComments(comments)
 	if err != nil {
@@ -33,7 +33,7 @@ func Read(source string) (error, Expr) {
 		expr = appendHelp(expr, comment.text)
 	}
 	if !reader.atEnd() {
-		return expressionError("expected end of input"), nil
+		return reader.parseError("expected_end_of_input", reader.position, nil, "expected end of input"), nil
 	}
 	return nil, expr
 }
@@ -44,21 +44,23 @@ type reader struct {
 }
 
 type commentBlock struct {
-	text    string
-	leading bool
+	text     string
+	leading  bool
+	position int
 }
 
 func (reader *reader) readExpr() (error, Expr) {
 	if reader.atEnd() {
-		return expressionError("expected an expression"), nil
+		return reader.parseError("expected_expression", reader.position, nil, "expected an expression"), nil
 	}
 
 	switch reader.source[reader.position] {
 	case '(':
 		return reader.readList()
 	case ')':
+		position := reader.position
 		reader.position++
-		return expressionError("unexpected closing parenthesis"), nil
+		return reader.parseError("unexpected_closing_parenthesis", position, nil, "unexpected closing parenthesis"), nil
 	case '\'':
 		reader.position++
 		err, comments := reader.readTrivia()
@@ -80,16 +82,22 @@ func (reader *reader) readExpr() (error, Expr) {
 }
 
 func (reader *reader) readModuleReference() (error, Expr) {
+	position := reader.position
 	reader.position++
 	start := reader.position
 	for !reader.atEnd() && !isDelimiter(reader.source[reader.position]) {
 		_, size := utf8.DecodeRuneInString(reader.source[reader.position:])
 		reader.position += size
 	}
-	return moduleReferenceValue(reader.source[start:reader.position])
+	err, reference := moduleReferenceValue(reader.source[start:reader.position])
+	if err != nil {
+		return reader.parseError("invalid_module_reference", position, nil, err.Error()), nil
+	}
+	return nil, reference
 }
 
 func (reader *reader) readList() (error, Expr) {
+	opening := reader.position
 	reader.position++
 	var values []Expr
 	for {
@@ -101,7 +109,7 @@ func (reader *reader) readList() (error, Expr) {
 			if len(comments) != 0 {
 				return reader.unattachedComment(comments[0])
 			}
-			return expressionError("unterminated list"), nil
+			return reader.parseError("unterminated_list", reader.position, &opening, "unterminated list"), nil
 		}
 		if reader.source[reader.position] == ')' {
 			for _, comment := range comments {
@@ -124,23 +132,24 @@ func (reader *reader) readList() (error, Expr) {
 			}
 			values[len(values)-1] = appendHelp(values[len(values)-1], comment.text)
 		}
+		position := reader.position
 		err, value := reader.readExprWithLeadingComments(leading)
 		if err != nil {
 			return err, nil
 		}
 		if isSymbol(value, ".") {
 			if len(values) == 0 {
-				return expressionError("dotted list requires a preceding value"), nil
+				return reader.parseError("dotted_list_requires_preceding_value", position, nil, "dotted list requires a preceding value"), nil
 			}
 			err, comments := reader.readTrivia()
 			if err != nil {
 				return err, nil
 			}
 			if reader.atEnd() {
-				return expressionError("dotted list requires a tail"), nil
+				return reader.parseError("dotted_list_requires_tail", reader.position, nil, "dotted list requires a tail"), nil
 			}
 			if reader.source[reader.position] == ')' {
-				return expressionError("dotted list requires a tail"), nil
+				return reader.parseError("dotted_list_requires_tail", reader.position, nil, "dotted list requires a tail"), nil
 			}
 			err, tail := reader.readExprWithLeadingComments(comments)
 			if err != nil {
@@ -151,7 +160,7 @@ func (reader *reader) readList() (error, Expr) {
 				return err, nil
 			}
 			if reader.atEnd() || reader.source[reader.position] != ')' {
-				return expressionError("dotted list tail must be followed by a closing parenthesis"), nil
+				return reader.parseError("dotted_list_tail_requires_closing_parenthesis", reader.position, nil, "dotted list tail must be followed by a closing parenthesis"), nil
 			}
 			for _, comment := range comments {
 				if comment.leading {
@@ -170,6 +179,7 @@ func (reader *reader) readList() (error, Expr) {
 }
 
 func (reader *reader) readString() (error, Expr) {
+	opening := reader.position
 	reader.position++
 	var value []rune
 	for !reader.atEnd() {
@@ -185,6 +195,7 @@ func (reader *reader) readString() (error, Expr) {
 		if reader.atEnd() {
 			break
 		}
+		escapePosition := reader.position
 		escaped, size := utf8.DecodeRuneInString(reader.source[reader.position:])
 		reader.position += size
 		switch escaped {
@@ -197,10 +208,10 @@ func (reader *reader) readString() (error, Expr) {
 		case 't':
 			value = append(value, '\t')
 		default:
-			return expressionError("unsupported escape sequence"), nil
+			return reader.parseError("unsupported_escape_sequence", escapePosition, nil, "unsupported escape sequence"), nil
 		}
 	}
-	return expressionError("unterminated string"), nil
+	return reader.parseError("unterminated_string", reader.position, &opening, "unterminated string"), nil
 }
 
 func (reader *reader) readAtom() (error, Expr) {
@@ -260,7 +271,7 @@ func (reader *reader) readTrivia() (error, []commentBlock) {
 		}
 		text := strings.TrimSpace(reader.source[textStart:reader.position])
 		if current == nil {
-			current = &commentBlock{text: text, leading: leading}
+			current = &commentBlock{text: text, leading: leading, position: textStart - 1}
 		} else {
 			current.text += "\n" + text
 		}
@@ -309,7 +320,46 @@ func (reader *reader) isLeadingComment(position int) bool {
 }
 
 func (reader *reader) unattachedComment(comment commentBlock) (error, Expr) {
-	return expressionError("comment has no target"), nil
+	return reader.parseError("comment_has_no_target", comment.position, nil, "comment has no target"), nil
+}
+
+func (reader *reader) parseError(code string, position int, opening *int, message string) error {
+	result := &ParseError{Code: code, Message: message, At: sourceLocation(reader.source, position)}
+	if opening != nil {
+		location := sourceLocation(reader.source, *opening)
+		result.Opening = &location
+	}
+	return result
+}
+
+func sourceLocation(source string, position int) SourceLocation {
+	if position < 0 {
+		position = 0
+	}
+	if position > len(source) {
+		position = len(source)
+	}
+	result := SourceLocation{Offset: position, Line: 1, Column: 1}
+	for index := 0; index < position; {
+		switch source[index] {
+		case '\n':
+			index++
+			result.Line++
+			result.Column = 1
+		case '\r':
+			index++
+			if index < position && source[index] == '\n' {
+				index++
+			}
+			result.Line++
+			result.Column = 1
+		default:
+			_, size := utf8.DecodeRuneInString(source[index:])
+			index += size
+			result.Column++
+		}
+	}
+	return result
 }
 
 func (reader *reader) atEnd() bool {
