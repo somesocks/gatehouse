@@ -585,6 +585,13 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	if err != nil {
 		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
+	sessionFileActions := SessionFileActions{}
+	if authz.SessionAllows(sessionRoles, authz.SessionFileUpdate) {
+		sessionFileActions.Update = runtime.sessionFileUpdate(ctx, input.Request.Ref.Session, input.Principal)
+	}
+	if authz.SessionAllows(sessionRoles, authz.SessionFileRemove) {
+		sessionFileActions.Remove = runtime.sessionFileRemove(ctx, input.Request.Ref.Session, input.Principal)
+	}
 	if authz.SessionAllows(sessionRoles, authz.SessionTaskCreate) {
 		sessionTasks.Create = runtime.sessionTaskCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
 	}
@@ -599,6 +606,8 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	if projectFiles != nil {
 		projectFiles.Create = runtime.projectFileCreate(ctx, input.Request.Ref.Session, input.Principal)
+		projectFiles.Update = runtime.projectFileUpdate(ctx, input.Request.Ref.Session, input.Principal)
+		projectFiles.Remove = runtime.projectFileRemove(ctx, input.Request.Ref.Session, input.Principal)
 	}
 	if projectNotes != nil {
 		projectNotes.Create = runtime.projectNoteCreate(ctx, input.Request.Ref.Session, input.Principal, input.Agent)
@@ -649,6 +658,26 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		return sessionFileSearch(func(offset int64) (error, io.ReadCloser) {
 			return runtime.storage.Get(ctx, file.StorageObject.Id, offset)
 		}, id, fingerprint, query, cursor)
+	}
+	searchProjectFile := func(id, query, cursor string) (error, SessionFileSearchResult) {
+		project, err := runtime.sessionProjectGet(ctx, input.Request.Ref.Session, input.Principal)
+		if err != nil {
+			return fmt.Errorf("search project file: %w", err), SessionFileSearchResult{}
+		}
+		err, file, object := runtime.store.ProjectFileGet(ctx, model.ProjectFileRef{Project: *project, Id: id}, input.Principal)
+		if err != nil || file == nil || object == nil {
+			if err != nil {
+				return err, SessionFileSearchResult{}
+			}
+			return fmt.Errorf("search project file: unavailable"), SessionFileSearchResult{}
+		}
+		fingerprint := fmt.Sprintf("sha256:%x", object.SHA256)
+		return sessionFileSearch(func(offset int64) (error, io.ReadCloser) {
+			return runtime.storage.Get(ctx, file.StorageObject.Id, offset)
+		}, id, fingerprint, query, cursor)
+	}
+	if projectFiles != nil {
+		projectFiles.Search = searchProjectFile
 	}
 	sessionEventRead := func(id string, offset, length int64) (error, []byte) {
 		err, event := runtime.store.SessionEventGet(ctx, model.SessionEventRef{Session: input.Request.Ref.Session, Id: id})
@@ -720,7 +749,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	}
 	modules := []lisp.HostModule{
 		NewProjectModuleWithSecretsAndRecords(projectInfo, projectFiles, projectNotes, projectSecrets, projectRecords, projectTasks),
-		NewSessionModuleWithSecretsTasksAndEventSearch(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), searchSessionFile, sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead, sessionEventSearch),
+		NewSessionModuleWithSecretsTasksAndEventSearch(files, sessionFileRead, runtime.sessionFileCreate(ctx, input.Request.Ref.Session, input.Principal), searchSessionFile, sessionNotes, sessionTasks, &SessionSecrets{Secrets: sessionSecrets, Read: sessionSecretRead}, sessionEventRead, sessionEventSearch, sessionFileActions),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
 		NewWebModule(),
 	}
@@ -891,6 +920,80 @@ func (runtime *SessionEventReplyRuntime) projectFileCreate(ctx dbos.Context, ses
 			return finished.Ref.Id, nil
 		}, dbos.WithStepName("gatehouse.session-tool-call-project-file-create"))
 		return err, id
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionFileUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) FileUpdate {
+	return func(id, name string) (error, File) {
+		file, err := dbos.RunAsStep(ctx, func(step context.Context) (File, error) {
+			err, roles := runtime.store.SessionRolesGet(step, session, principal)
+			if err != nil {
+				return File{}, err
+			}
+			if !authz.SessionAllows(roles, authz.SessionFileUpdate) {
+				return File{}, fmt.Errorf("update session file: permission denied")
+			}
+			err, updated, object := runtime.store.SessionFileUpdate(step, model.SessionFileRef{Session: session, Id: id}, database.FileUpdate{Name: name}, principal)
+			if err != nil || updated == nil || object == nil {
+				if err == nil {
+					err = fmt.Errorf("update session file: unavailable")
+				}
+				return File{}, err
+			}
+			return File{ID: updated.Ref.Id, Name: updated.Name, MediaType: updated.MediaType, Size: object.Size, Fingerprint: fmt.Sprintf("sha256:%x", object.SHA256)}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-file-update"))
+		return err, file
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) sessionFileRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) FileRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			err, roles := runtime.store.SessionRolesGet(step, session, principal)
+			if err != nil {
+				return false, err
+			}
+			if !authz.SessionAllows(roles, authz.SessionFileRemove) {
+				return false, fmt.Errorf("remove session file: permission denied")
+			}
+			err, removed := runtime.store.SessionFileRemove(step, model.SessionFileRef{Session: session, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-session-file-remove"))
+		return err, removed
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectFileUpdate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) FileUpdate {
+	return func(id, name string) (error, File) {
+		file, err := dbos.RunAsStep(ctx, func(step context.Context) (File, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectFileUpdate)
+			if err != nil {
+				return File{}, fmt.Errorf("update project file: %w", err)
+			}
+			err, updated, object := runtime.store.ProjectFileUpdate(step, model.ProjectFileRef{Project: *project, Id: id}, database.FileUpdate{Name: name}, principal)
+			if err != nil || updated == nil || object == nil {
+				if err == nil {
+					err = fmt.Errorf("update project file: unavailable")
+				}
+				return File{}, err
+			}
+			return File{ID: updated.Ref.Id, Name: updated.Name, MediaType: updated.MediaType, Size: object.Size, Fingerprint: fmt.Sprintf("sha256:%x", object.SHA256)}, nil
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-file-update"))
+		return err, file
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) projectFileRemove(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) FileRemove {
+	return func(id string) (error, bool) {
+		removed, err := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
+			project, err := runtime.sessionProjectActionGet(step, session, principal, authz.ProjectFileRemove)
+			if err != nil {
+				return false, fmt.Errorf("remove project file: %w", err)
+			}
+			err, removed := runtime.store.ProjectFileRemove(step, model.ProjectFileRef{Project: *project, Id: id}, principal)
+			return removed, err
+		}, dbos.WithStepName("gatehouse.session-tool-call-project-file-remove"))
+		return err, removed
 	}
 }
 

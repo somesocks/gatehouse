@@ -98,6 +98,9 @@ func sessionFileSearchMatches(open sessionFileSearchOpen, offset int64, skip int
 	if err != nil {
 		return nil, 0, 0, false, err
 	}
+	if source == nil {
+		return nil, 0, 0, false, fmt.Errorf("session file search source is unavailable")
+	}
 	defer source.Close()
 	reader := bufio.NewReaderSize(source, 64*1024)
 	patterns := make([][]rune, len(terms))
@@ -178,6 +181,9 @@ func sessionFileSearchPreview(open sessionFileSearchOpen, offset int64) (int64, 
 	err, source := open(start)
 	if err != nil {
 		return 0, "", err
+	}
+	if source == nil {
+		return 0, "", fmt.Errorf("session file search source is unavailable")
 	}
 	defer source.Close()
 	contents, err := io.ReadAll(io.LimitReader(source, sessionFileSearchPreviewBytes))

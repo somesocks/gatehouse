@@ -42,6 +42,44 @@ func TestGatehouseProjectFileCreate(t *testing.T) {
 	}
 }
 
+func TestGatehouseProjectFileMutationsAndSearch(t *testing.T) {
+	const fileID = "pfi_01m17ej89df8jnhnh7476ssnvg"
+	mediaType := "text/plain"
+	updated := false
+	removed := []string{}
+	searched := false
+	err, result := lisp.Evaluate(`(import
+  (project @native:gatehouse/project/v1)
+  (list
+    (project/files/update "pfi_01m17ej89df8jnhnh7476ssnvg" "final.txt")
+    (project/files/remove "pfi_01m17ej89df8jnhnh7476ssnvg")
+    (project/files/search-file "pfi_01m17ej89df8jnhnh7476ssnvg" "Conroe")))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewProjectModule(nil, &ProjectFiles{
+			Update: func(id, name string) (error, File) {
+				if id != fileID || name != "final.txt" {
+					t.Fatalf("project file update = (%q, %q)", id, name)
+				}
+				updated = true
+				return nil, File{ID: id, Name: name, MediaType: &mediaType, Size: 12, Fingerprint: "sha256:abc"}
+			},
+			Remove: func(id string) (error, bool) {
+				removed = append(removed, id)
+				return nil, true
+			},
+			Search: func(id, query, cursor string) (error, SessionFileSearchResult) {
+				if id != fileID || query != "Conroe" || cursor != "" {
+					t.Fatalf("project file search = (%q, %q, %q)", id, query, cursor)
+				}
+				searched = true
+				return nil, SessionFileSearchResult{Terms: []string{"Conroe"}, Matches: []SessionFileSearchMatch{{Offset: 0, Length: 7, TermIndex: 0, PreviewOffset: 0, Preview: "Conroe ordinance"}}}
+			},
+		}, nil)},
+	})
+	if err != nil || !updated || !searched || strings.Join(removed, ",") != fileID || !strings.Contains(result.String(), `(name . "final.txt")`) || !strings.Contains(result.String(), `(preview . "Conroe ordinance")`) {
+		t.Fatalf("Evaluate() = (%s, %v), updated = %t, searched = %t, removed = %#v", result, err, updated, searched, removed)
+	}
+}
+
 func TestGatehouseProjectModuleIsAvailableWithoutProject(t *testing.T) {
 	err, result := lisp.Evaluate(`(import
   (project @native:gatehouse/project/v1)

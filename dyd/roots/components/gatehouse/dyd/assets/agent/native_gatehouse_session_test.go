@@ -147,6 +147,36 @@ func TestGatehouseSessionFileSearch(t *testing.T) {
 	}
 }
 
+func TestGatehouseSessionFileMutations(t *testing.T) {
+	const fileID = "sfi_01m17ej89df8jnhnh7476ssnvg"
+	mediaType := "text/plain"
+	updated := false
+	removed := []string{}
+	err, result := lisp.Evaluate(`(import
+  (session @native:gatehouse/session/v1)
+  (list
+    (session/files/update "sfi_01m17ej89df8jnhnh7476ssnvg" "final.txt")
+    (session/files/remove "sfi_01m17ej89df8jnhnh7476ssnvg")
+    (session/files/remove "sfi_01m17ej89df8jnhnh7476ssnvh")))`, lisp.EvalOptions{
+		HostModules: []lisp.HostModule{NewSessionModuleWithSecretsTasksAndEventSearch(nil, nil, nil, nil, nil, nil, nil, nil, nil, SessionFileActions{
+			Update: func(id, name string) (error, File) {
+				if id != fileID || name != "final.txt" {
+					t.Fatalf("session file update = (%q, %q)", id, name)
+				}
+				updated = true
+				return nil, File{ID: id, Name: name, MediaType: &mediaType, Size: 12, Fingerprint: "sha256:abc"}
+			},
+			Remove: func(id string) (error, bool) {
+				removed = append(removed, id)
+				return nil, id == fileID
+			},
+		})},
+	})
+	if err != nil || !updated || strings.Join(removed, ",") != fileID+",sfi_01m17ej89df8jnhnh7476ssnvh" || !strings.Contains(result.String(), `(name . "final.txt")`) || !strings.HasSuffix(result.String(), `#t #f)`) {
+		t.Fatalf("Evaluate() = (%s, %v), updated = %t, removed = %#v", result, err, updated, removed)
+	}
+}
+
 func TestGatehouseSessionEventRead(t *testing.T) {
 	reads := []struct {
 		id     string

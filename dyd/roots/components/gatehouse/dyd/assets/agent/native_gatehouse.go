@@ -2,6 +2,7 @@ package agent
 
 import (
 	"io"
+	"strings"
 
 	"gatehouse/lisp"
 	"gatehouse/sessionsearch"
@@ -43,6 +44,12 @@ type SessionSecretRead func(id string) (error, []byte)
 
 // SessionFileCreate creates a file in the current session and returns its ID.
 type SessionFileCreate func(name, mediaType string, source io.Reader) (error, string)
+
+// FileUpdate renames an authorized immutable file.
+type FileUpdate func(id, name string) (error, File)
+
+// FileRemove removes an authorized file and reports whether it was available.
+type FileRemove func(id string) (error, bool)
 
 // SessionEventRead reads an authorized byte range from a current-session event.
 type SessionEventRead func(id string, offset, length int64) (error, []byte)
@@ -214,6 +221,59 @@ func fileValue(file File, name string) (error, lisp.Expr) {
 		lisp.Pair("size", lisp.Integer(file.Size)),
 		lisp.Pair("fingerprint", lisp.String(file.Fingerprint)),
 	)
+}
+
+func fileUpdateFunction(update FileUpdate, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 2 {
+			return lisp.Errorf("%s requires id and name", name), nil
+		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone || lisp.TaintOf(arguments[1]) != lisp.TaintNone {
+			return lisp.Errorf("%s id and name must not be sensitive", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if !typed_id.Valid(kind, id) {
+			return lisp.Errorf("not a %s file", label), nil
+		}
+		err, fileName := lisp.RequireString(arguments[1])
+		if err != nil {
+			return err, nil
+		}
+		if strings.TrimSpace(fileName) == "" {
+			return lisp.Errorf("%s requires a non-empty name", name), nil
+		}
+		err, file := update(id, fileName)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		return fileValue(file, name)
+	}
+}
+
+func fileRemoveFunction(remove FileRemove, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {
+	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 1 {
+			return lisp.Errorf("%s requires id", name), nil
+		}
+		if lisp.TaintOf(arguments[0]) != lisp.TaintNone {
+			return lisp.Errorf("%s id must not be sensitive", name), nil
+		}
+		err, id := lisp.RequireString(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if !typed_id.Valid(kind, id) {
+			return lisp.Errorf("not a %s file", label), nil
+		}
+		err, removed := remove(id)
+		if err != nil {
+			return lisp.Errorf("%s failed", name), nil
+		}
+		return nil, lisp.Boolean(removed)
+	}
 }
 
 func noteListFunction(notes []ProjectNote, name string) func([]lisp.Expr) (error, lisp.Expr) {

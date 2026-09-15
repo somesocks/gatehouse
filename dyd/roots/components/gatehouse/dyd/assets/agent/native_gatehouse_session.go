@@ -36,11 +36,19 @@ type SessionTasks struct {
 	Remove TaskRemove
 }
 
+// SessionFileActions contains mutation callbacks for current-session files.
+type SessionFileActions struct {
+	Update FileUpdate
+	Remove FileRemove
+}
+
 var (
 	fileListDocumentation                 = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with sfi_ IDs, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	fileInfoDocumentation                 = capabilityDocumentation{"(session/files/info id) -> List | Null", "Returns successful current-session file metadata for an sfi_ ID, or null when the file is unavailable.", "(session/files/info \"sfi_example-file-id\")", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	fileReadDocumentation                 = capabilityDocumentation{"(session/files/read id offset length) -> Bytes", "Reads bytes from a successful current-session file with an sfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (session/files/read \"sfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
 	fileCreateDocumentation               = capabilityDocumentation{"(session/files/create name media_type chunks) -> String", "Creates a file from a finite sequence of Bytes chunks and returns its ID. Name and media_type must be non-empty strings.", "(session/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"example-file-id\""}
+	fileUpdateDocumentation               = capabilityDocumentation{"(session/files/update id name) -> List", "Renames a successful current-session file. File contents and other metadata are immutable.", "(session/files/update \"sfi_example-file-id\" \"final-report.txt\")", "((id . \"sfi_example-file-id\") (name . \"final-report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	fileRemoveDocumentation               = capabilityDocumentation{"(session/files/remove id) -> Boolean", "Removes a current-session file. Returns true when the file was removed and false when it is unavailable.", "(session/files/remove \"sfi_example-file-id\")", "#t"}
 	fileSearchDocumentation               = capabilityDocumentation{"(session/files/search-file id query [cursor]) -> List", "Streams one current-session UTF-8 file for all case-insensitive literal matches. Query may be a literal or a nested or expression source. Returns byte ranges, contextual previews, and an optional cursor.", "(session/files/search-file \"sfi_example-file-id\" \"(or \\\"Conroe\\\" \\\"ordinance\\\")\")", "((terms . (\"Conroe\" \"ordinance\")) (matches . (((offset . 0) (length . 7) (term_index . 0) (preview_offset . 0) (preview . \"Conroe ordinance\")))) (next_cursor))"}
 	sessionEventReadDocumentation         = capabilityDocumentation{"(session/events/read id offset length) -> Bytes", "Reads UTF-8 bytes from current-session message text, tool request code and reason, tool results, or approval descriptions. Length must be from 1 through 4096 bytes.", "(bytes/utf8/decode (session/events/read \"example-event-id\" 0 64))", "\"event output\""}
 	sessionEventSearchDocumentation       = capabilityDocumentation{"(session/events/search expression [cursor]) -> List", "Searches current-session message text, tool request code and reason, tool results, and approval descriptions using a constrained Lisp source expression with strings and non-empty and/or forms. Returns newest-first matches, byte ranges for session/events/read, and an optional next_cursor.", "(session/events/search \"(and \\\"Conroe\\\" \\\"ordinance\\\")\")", "((events . (((id . \"sev_...\") (kind . \"tool.success\") (size . 12) (preview . \"...\") (matches . (((offset . 0) (length . 7))))))) (next_cursor))"}
@@ -62,24 +70,29 @@ var (
 
 // NewSessionModule constructs the session capability module for one agent evaluation.
 func NewSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, notes, nil, nil, firstSessionEventRead(eventReads), nil)
+	return newSessionModule(files, read, create, nil, nil, nil, notes, nil, nil, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, notes, nil, secrets, firstSessionEventRead(eventReads), nil)
+	return newSessionModule(files, read, create, nil, nil, nil, notes, nil, secrets, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, notes, tasks, nil, firstSessionEventRead(eventReads), nil)
+	return newSessionModule(files, read, create, nil, nil, nil, notes, tasks, nil, firstSessionEventRead(eventReads), nil)
 }
 
 func NewSessionModuleWithSecretsAndTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, notes, tasks, secrets, firstSessionEventRead(eventReads), nil)
+	return newSessionModule(files, read, create, nil, nil, nil, notes, tasks, secrets, firstSessionEventRead(eventReads), nil)
 }
 
 // NewSessionModuleWithSecretsTasksAndEventSearch adds current-session event search.
-func NewSessionModuleWithSecretsTasksAndEventSearch(files []File, read FileRead, create SessionFileCreate, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
-	return newSessionModule(files, read, create, fileSearch, notes, tasks, secrets, eventRead, eventSearch)
+func NewSessionModuleWithSecretsTasksAndEventSearch(files []File, read FileRead, create SessionFileCreate, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch, actions ...SessionFileActions) lisp.HostModule {
+	var update FileUpdate
+	var remove FileRemove
+	if len(actions) > 0 {
+		update, remove = actions[0].Update, actions[0].Remove
+	}
+	return newSessionModule(files, read, create, update, remove, fileSearch, notes, tasks, secrets, eventRead, eventSearch)
 }
 
 func firstSessionEventRead(reads []SessionEventRead) SessionEventRead {
@@ -89,7 +102,7 @@ func firstSessionEventRead(reads []SessionEventRead) SessionEventRead {
 	return reads[0]
 }
 
-func newSessionModule(files []File, read FileRead, create SessionFileCreate, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
+func newSessionModule(files []File, read FileRead, create SessionFileCreate, update FileUpdate, remove FileRemove, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
 	fileRead := unavailableRead("session/files/read")
 	if read != nil {
 		fileRead = fileReadFunction(read, "session/files/read", typed_id.SessionFile, "session")
@@ -100,9 +113,17 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, fil
 	if create != nil {
 		fileCreate = sessionFileCreateFunction(create, "session/files/create")
 	}
+	fileUpdate := unavailableCreate("session/files/update")
+	if update != nil {
+		fileUpdate = fileUpdateFunction(update, "session/files/update", typed_id.SessionFile, "session")
+	}
+	fileRemove := unavailableRemove("session/files/remove")
+	if remove != nil {
+		fileRemove = fileRemoveFunction(remove, "session/files/remove", typed_id.SessionFile, "session")
+	}
 	fileSearchFunction := unavailableSessionFileSearch("session/files/search-file")
 	if fileSearch != nil {
-		fileSearchFunction = sessionFileSearchFunction(fileSearch, "session/files/search-file")
+		fileSearchFunction = sessionFileSearchFunction(fileSearch, "session/files/search-file", typed_id.SessionFile, "session")
 	}
 	eventReadFunction := unavailableRead("session/events/read")
 	if eventRead != nil {
@@ -171,6 +192,8 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, fil
 		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
 		{Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearchFunction), fileSearchDocumentation)},
+		{Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), fileUpdateDocumentation)},
+		{Name: "files/remove", Value: document(lisp.Function(fileRemove), fileRemoveDocumentation)},
 		{Name: "events/read", Value: document(lisp.Function(eventReadFunction), sessionEventReadDocumentation)},
 		{Name: "events/search", Value: document(lisp.FunctionNonLeaky(eventSearchFunction), sessionEventSearchDocumentation)},
 		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), sessionSecretListDocumentation)},
@@ -202,7 +225,7 @@ func unavailableSessionFileSearch(name string) func([]lisp.Expr) (error, lisp.Ex
 	}
 }
 
-func sessionFileSearchFunction(search SessionFileSearch, name string) func([]lisp.Expr) (error, lisp.Expr) {
+func sessionFileSearchFunction(search SessionFileSearch, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) < 2 || len(arguments) > 3 {
 			return lisp.Errorf("%s requires id, query, and optional cursor", name), nil
@@ -214,8 +237,8 @@ func sessionFileSearchFunction(search SessionFileSearch, name string) func([]lis
 		if err != nil {
 			return err, nil
 		}
-		if !typed_id.Valid(typed_id.SessionFile, id) {
-			return lisp.Errorf("not a session file"), nil
+		if !typed_id.Valid(kind, id) {
+			return lisp.Errorf("not a %s file", label), nil
 		}
 		err, query := lisp.RequireString(arguments[1])
 		if err != nil {

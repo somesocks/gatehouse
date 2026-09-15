@@ -22,13 +22,19 @@ type ProjectInfoSet func(name, description string) (error, ProjectInfo)
 
 // ProjectFiles contains the authorized files in a linked project.
 type ProjectFiles struct {
-	Files []File
-	Read  FileRead
+	Files  []File
+	Read   FileRead
 	Create ProjectFileCreate
+	Update FileUpdate
+	Remove FileRemove
+	Search ProjectFileSearch
 }
 
 // ProjectFileCreate creates a completed file in the linked project and returns its ID.
 type ProjectFileCreate func(name, mediaType string, source io.Reader) (error, string)
+
+// ProjectFileSearch searches one authorized linked-project file.
+type ProjectFileSearch = SessionFileSearch
 
 // ProjectNotes contains the authorized notes in a linked project.
 type ProjectNotes struct {
@@ -76,6 +82,9 @@ var (
 	projectInfoSetDocumentation           = capabilityDocumentation{"(project/info/set name description) -> List", "Replaces the linked project's name and description and returns its metadata. Empty strings clear the corresponding value.", "(project/info/set \"Roadmap\" \"Current priorities and plans\")", "((name . \"Roadmap\") (description . \"Current priorities and plans\") (created_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectFileReadDocumentation          = capabilityDocumentation{"(project/files/read id offset length) -> Bytes", "Reads bytes from a successful linked-project file with a pfi_ ID. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/files/read \"pfi_example-file-id\" 0 64))", "\"first bytes of the file\""}
 	projectFileCreateDocumentation        = capabilityDocumentation{"(project/files/create name media_type chunks) -> String", "Creates a completed file in the project linked to the current session from a finite sequence of Bytes chunks and returns its pfi_ ID. Name and media_type must be non-empty strings.", "(project/files/create \"report.txt\" \"text/plain\" (seq/from (bytes/utf8/encode \"Generated report\")))", "\"pfi_example-file-id\""}
+	projectFileUpdateDocumentation        = capabilityDocumentation{"(project/files/update id name) -> List", "Renames a successful linked-project file. File contents and other metadata are immutable.", "(project/files/update \"pfi_example-file-id\" \"final-report.txt\")", "((id . \"pfi_example-file-id\") (name . \"final-report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
+	projectFileRemoveDocumentation        = capabilityDocumentation{"(project/files/remove id) -> Boolean", "Removes a linked-project file. Returns true when the file was removed and false when it is unavailable.", "(project/files/remove \"pfi_example-file-id\")", "#t"}
+	projectFileSearchDocumentation        = capabilityDocumentation{"(project/files/search-file id query [cursor]) -> List", "Streams one linked-project UTF-8 file for all case-insensitive literal matches. Query may be a literal or a nested or expression source. Returns byte ranges, contextual previews, and an optional cursor.", "(project/files/search-file \"pfi_example-file-id\" \"(or \\\"Conroe\\\" \\\"ordinance\\\")\")", "((terms . (\"Conroe\" \"ordinance\")) (matches . (((offset . 0) (length . 7) (term_index . 0) (preview_offset . 0) (preview . \"Conroe ordinance\")))) (next_cursor))"}
 	projectSecretListDocumentation        = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectSecretReadDocumentation        = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	projectNoteListDocumentation          = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
@@ -134,6 +143,9 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 	fileCreate := func(_ *lisp.FunctionContext, _ []lisp.Expr) (error, lisp.Expr) {
 		return lisp.Errorf("project/files/create is unavailable"), nil
 	}
+	fileUpdate := unavailableCreate("project/files/update")
+	fileRemove := unavailableRemove("project/files/remove")
+	fileSearch := unavailableSessionFileSearch("project/files/search-file")
 	if files != nil {
 		filesList = fileListFunction(files.Files, "project/files/list")
 		filesInfo = fileInfoFunction(files.Files, "project/files/info", typed_id.ProjectFile, "project")
@@ -142,6 +154,15 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 		}
 		if files.Create != nil {
 			fileCreate = sessionFileCreateFunction(files.Create, "project/files/create")
+		}
+		if files.Update != nil {
+			fileUpdate = fileUpdateFunction(files.Update, "project/files/update", typed_id.ProjectFile, "project")
+		}
+		if files.Remove != nil {
+			fileRemove = fileRemoveFunction(files.Remove, "project/files/remove", typed_id.ProjectFile, "project")
+		}
+		if files.Search != nil {
+			fileSearch = sessionFileSearchFunction(files.Search, "project/files/search-file", typed_id.ProjectFile, "project")
 		}
 	}
 	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
@@ -204,6 +225,9 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)},
 		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
 		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), projectFileCreateDocumentation)},
+		{Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), projectFileUpdateDocumentation)},
+		{Name: "files/remove", Value: document(lisp.Function(fileRemove), projectFileRemoveDocumentation)},
+		{Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearch), projectFileSearchDocumentation)},
 		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
 		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
 		{Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), projectNoteRevisionsListDocumentation)},
