@@ -4,7 +4,6 @@
 
   import {
     fetchProjectFiles,
-    projectFileDownloadPath,
     type ProjectFile,
   } from "../../app/project-files"
   import {
@@ -117,6 +116,12 @@
   )
   const projectPath = (workspaceID: string, projectID: string) =>
     `/app/wsp/${encodeURIComponent(workspaceID)}/prj/${encodeURIComponent(projectID)}`
+  const projectFilePath = (
+    workspaceID: string,
+    projectID: string,
+    fileID: string,
+  ) =>
+    `${projectPath(workspaceID, projectID)}/files/${encodeURIComponent(fileID)}`
   const recordsPath = (workspaceID: string, projectID: string) =>
     `${projectPath(workspaceID, projectID)}/records`
   const schemaPath = (
@@ -552,7 +557,7 @@
     value: ProjectRecordValue,
   ): string | undefined {
     if (attribute.type === "file" && typeof value.value === "string")
-      return projectFileDownloadPath(
+      return projectFilePath(
         workspace.id,
         currentRoute.projectID,
         value.value,
@@ -1100,10 +1105,7 @@
                                 item,
                               )}{#if href}<RouterLink
                                 class="is-block"
-                                {href}
-                                download={attribute.type === "file"
-                                  ? item.file?.name ?? true
-                                  : undefined}>{#each valueLines(attribute, item) as line}<span
+                                {href}>{#each valueLines(attribute, item) as line}<span
                                     class="is-block"
                                     >{line}</span
                                   >{/each}</RouterLink
