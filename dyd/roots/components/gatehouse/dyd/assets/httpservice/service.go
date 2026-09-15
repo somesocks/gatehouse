@@ -403,6 +403,10 @@ type sessionFileCreateResponse struct {
 	UploadURL string            `json:"upload_url"`
 }
 
+type fileUpdateRequest struct {
+	Name *string `json:"name"`
+}
+
 type projectFileResponse struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -619,21 +623,21 @@ type projectRecordFileReferenceDisplayResponse struct {
 }
 
 type projectRecordCardValueResponse struct {
-	Attribute string                                 `json:"attribute"`
-	Value     any                                    `json:"value"`
-	Sensitive bool                                   `json:"sensitive"`
-	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+	Attribute string                                     `json:"attribute"`
+	Value     any                                        `json:"value"`
+	Sensitive bool                                       `json:"sensitive"`
+	Reference *projectRecordReferenceDisplayResponse     `json:"reference,omitempty"`
 	File      *projectRecordFileReferenceDisplayResponse `json:"file,omitempty"`
 }
 
 type projectRecordValueResponse struct {
-	ID        string                                 `json:"id"`
-	Attribute string                                 `json:"attribute"`
-	Value     any                                    `json:"value"`
-	Sensitive bool                                   `json:"sensitive"`
-	Author    noteAuthorResponse                     `json:"author"`
-	CreatedAt string                                 `json:"created_at"`
-	Reference *projectRecordReferenceDisplayResponse `json:"reference,omitempty"`
+	ID        string                                     `json:"id"`
+	Attribute string                                     `json:"attribute"`
+	Value     any                                        `json:"value"`
+	Sensitive bool                                       `json:"sensitive"`
+	Author    noteAuthorResponse                         `json:"author"`
+	CreatedAt string                                     `json:"created_at"`
+	Reference *projectRecordReferenceDisplayResponse     `json:"reference,omitempty"`
 	File      *projectRecordFileReferenceDisplayResponse `json:"file,omitempty"`
 }
 
@@ -1922,7 +1926,7 @@ func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerToke
 
 func workspaceSessionFile(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodDelete {
+		if request.Method != http.MethodPatch && request.Method != http.MethodDelete {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -1934,20 +1938,44 @@ func workspaceSessionFile(store *database.Store, tokens *auth.BearerTokens) http
 		if !ok || file == nil {
 			return
 		}
-		if !sessionActionAllowed(response, request, store, claims, file.Ref.Session, authz.SessionFileRemove) {
-			return
+		switch request.Method {
+		case http.MethodPatch:
+			if !sessionActionAllowed(response, request, store, claims, file.Ref.Session, authz.SessionFileUpdate) {
+				return
+			}
+			var input fileUpdateRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || input.Name == nil || strings.TrimSpace(*input.Name) == "" {
+				http.Error(response, "invalid session file update", http.StatusBadRequest)
+				return
+			}
+			err, updated, _ := store.SessionFileUpdate(request.Context(), file.Ref, database.FileUpdate{Name: *input.Name}, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if updated == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, updated)
+		case http.MethodDelete:
+			if !sessionActionAllowed(response, request, store, claims, file.Ref.Session, authz.SessionFileRemove) {
+				return
+			}
+			err, removed := store.SessionFileRemove(request.Context(), file.Ref, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
 		}
-		err, removed := store.SessionFileRemove(request.Context(), file.Ref, claims.Principal.Ref)
-		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if !removed {
-			http.NotFound(response, request)
-			return
-		}
-		noStore(response)
-		response.WriteHeader(http.StatusNoContent)
 	}
 }
 
@@ -3068,7 +3096,7 @@ func workspaceProjectFileDownload(store *database.Store, tokens *auth.BearerToke
 
 func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodDelete {
+		if request.Method != http.MethodPatch && request.Method != http.MethodDelete {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -3076,37 +3104,52 @@ func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http
 		if !ok {
 			return
 		}
-		project, fileID, ok := projectFileRef(response, request)
-		if !ok {
+		file, object, ok := authorizedProjectFile(response, request, store, claims, request.PathValue("file"))
+		if !ok || file == nil || object == nil {
 			return
 		}
-		err, available := store.ProjectGet(request.Context(), project, claims.Principal.Ref)
-		if err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if available == nil {
-			http.NotFound(response, request)
-			return
-		}
-		if !projectActionAllowed(response, request, store, claims, project, authz.ProjectFileRemove) {
-			return
-		}
-		err, removed := store.ProjectFileRemove(request.Context(), model.ProjectFileRef{Project: project, Id: fileID}, claims.Principal.Ref)
-		if err != nil {
-			if strings.Contains(err.Error(), "project file is referenced by a record value") {
-				http.Error(response, "project file is referenced by a record value", http.StatusConflict)
+		switch request.Method {
+		case http.MethodPatch:
+			if !projectActionAllowed(response, request, store, claims, file.Ref.Project, authz.ProjectFileUpdate) {
 				return
 			}
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
+			var input fileUpdateRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || input.Name == nil || strings.TrimSpace(*input.Name) == "" {
+				http.Error(response, "invalid project file update", http.StatusBadRequest)
+				return
+			}
+			err, updated, object := store.ProjectFileUpdate(request.Context(), file.Ref, database.FileUpdate{Name: *input.Name}, claims.Principal.Ref)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if updated == nil || object == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, projectFileResponseFromModel(*updated, object))
+		case http.MethodDelete:
+			if !projectActionAllowed(response, request, store, claims, file.Ref.Project, authz.ProjectFileRemove) {
+				return
+			}
+			err, removed := store.ProjectFileRemove(request.Context(), file.Ref, claims.Principal.Ref)
+			if err != nil {
+				if strings.Contains(err.Error(), "project file is referenced by a record value") {
+					http.Error(response, "project file is referenced by a record value", http.StatusConflict)
+					return
+				}
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if !removed {
+				http.NotFound(response, request)
+				return
+			}
+			noStore(response)
+			response.WriteHeader(http.StatusNoContent)
 		}
-		if !removed {
-			http.NotFound(response, request)
-			return
-		}
-		noStore(response)
-		response.WriteHeader(http.StatusNoContent)
 	}
 }
 

@@ -690,9 +690,26 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if finished.Code != http.StatusOK {
 		t.Fatalf("POST finish = status %d body %q", finished.Code, finished.Body.String())
 	}
+	updatedFile := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, `{"name":"  final-report.txt  "}`)
+	var updated model.SessionFile
+	if err := json.Unmarshal(updatedFile.Body.Bytes(), &updated); err != nil || updatedFile.Code != http.StatusOK || updated.Ref != uploaded.File.Ref || updated.Name != "final-report.txt" || updated.StorageObject != uploaded.File.StorageObject || updated.MediaType == nil || *updated.MediaType != "text/plain" {
+		t.Fatalf("PATCH session file = (%d, %#v, %v)", updatedFile.Code, updated, err)
+	}
+	if invalid := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, `{"media_type":"text/plain"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH session file unknown field = %d", invalid.Code)
+	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'member' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if denied := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, `{"name":"denied.txt"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("PATCH session file as member = %d", denied.Code)
+	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'manager' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
+		t.Fatal(err)
+	}
 	listed := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files", "")
 	var files []database.SessionFileSummary
-	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 1 || files[0].ID != uploaded.File.Ref.Id || files[0].Name != "report.txt" || files[0].MediaType == nil || *files[0].MediaType != "text/plain" || files[0].Size != int64(len("hello storage")) || files[0].Fingerprint == "" {
+	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 1 || files[0].ID != uploaded.File.Ref.Id || files[0].Name != "final-report.txt" || files[0].MediaType == nil || *files[0].MediaType != "text/plain" || files[0].Size != int64(len("hello storage")) || files[0].Fingerprint == "" {
 		t.Fatalf("GET session files = (%d, %#v, %v)", listed.Code, files, err)
 	}
 	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages", `{"attachments":["`+uploaded.File.Ref.Id+`"]}`)
@@ -708,7 +725,7 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 		t.Fatalf("attachment message attachments = %#v", attachmentMessage.Payload["attachments"])
 	}
 	reference, ok := attachments[0].(map[string]interface{})
-	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
+	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "final-report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
 		t.Fatalf("attachment message reference = %#v", attachments[0])
 	}
 	err, persisted := store.SessionEventGet(context.Background(), attachmentMessage.Ref)
@@ -732,7 +749,7 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 		t.Fatalf("loaded attachments = %#v", trees[0].Event.Payload["attachments"])
 	}
 	reference, ok = attachments[0].(map[string]interface{})
-	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
+	if !ok || reference["id"] != uploaded.File.Ref.Id || reference["name"] != "final-report.txt" || reference["media_type"] != "text/plain" || reference["size"] != float64(len("hello storage")) || reference["fingerprint"] == "" {
 		t.Fatalf("loaded attachment = %#v", attachments[0])
 	}
 	download := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id+"/download", "")
@@ -821,13 +838,29 @@ func TestProjectFileUploadFinishListDownloadAndRemove(t *testing.T) {
 	if err := json.Unmarshal(finished.Body.Bytes(), &completed); err != nil || finished.Code != http.StatusOK || completed.ID != upload.File.ID || completed.Size == nil || *completed.Size != int64(len("project storage")) || completed.Fingerprint == nil || *completed.Fingerprint == "" {
 		t.Fatalf("POST project file finish = (%d, %#v, %v)", finished.Code, completed, err)
 	}
+	updatedFile := request(http.MethodPatch, base+"/"+upload.File.ID, `{"name":"  final-design.html  "}`)
+	if err := json.Unmarshal(updatedFile.Body.Bytes(), &completed); err != nil || updatedFile.Code != http.StatusOK || completed.ID != upload.File.ID || completed.Name != "final-design.html" || completed.MediaType == nil || *completed.MediaType != "text/html" || completed.Size == nil || *completed.Size != int64(len("project storage")) || completed.Fingerprint == nil || *completed.Fingerprint == "" {
+		t.Fatalf("PATCH project file = (%d, %#v, %v)", updatedFile.Code, completed, err)
+	}
+	if invalid := request(http.MethodPatch, base+"/"+upload.File.ID, `{"name":""}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH project file blank name = %d", invalid.Code)
+	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'member' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
+		t.Fatal(err)
+	}
+	if denied := request(http.MethodPatch, base+"/"+upload.File.ID, `{"name":"denied.html"}`); denied.Code != http.StatusForbidden {
+		t.Fatalf("PATCH project file as member = %d", denied.Code)
+	}
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
+		t.Fatal(err)
+	}
 	listed := request(http.MethodGet, base, "")
 	var files []projectFileResponse
 	if err := json.Unmarshal(listed.Body.Bytes(), &files); err != nil || listed.Code != http.StatusOK || len(files) != 1 || files[0].ID != completed.ID || files[0].Name != completed.Name || files[0].MediaType == nil || completed.MediaType == nil || *files[0].MediaType != *completed.MediaType || files[0].Size == nil || completed.Size == nil || *files[0].Size != *completed.Size || files[0].Fingerprint == nil || completed.Fingerprint == nil || *files[0].Fingerprint != *completed.Fingerprint || files[0].CreatedAt != completed.CreatedAt {
 		t.Fatalf("GET project files = (%d, %#v, %v)", listed.Code, files, err)
 	}
 	download := request(http.MethodGet, base+"/"+upload.File.ID+"/download", "")
-	if download.Code != http.StatusOK || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Content-Disposition") != "attachment; filename=design.html" || download.Header().Get("Content-Type") != "application/octet-stream" || download.Header().Get("X-Content-Type-Options") != "nosniff" || download.Body.String() != "project storage" {
+	if download.Code != http.StatusOK || download.Header().Get("Cache-Control") != "no-store" || download.Header().Get("Content-Disposition") != "attachment; filename=final-design.html" || download.Header().Get("Content-Type") != "application/octet-stream" || download.Header().Get("X-Content-Type-Options") != "nosniff" || download.Body.String() != "project storage" {
 		t.Fatalf("GET project file download = status %d cache %q disposition %q content type %q nosniff %q body %q", download.Code, download.Header().Get("Cache-Control"), download.Header().Get("Content-Disposition"), download.Header().Get("Content-Type"), download.Header().Get("X-Content-Type-Options"), download.Body.String())
 	}
 	removed := request(http.MethodDelete, base+"/"+upload.File.ID, "")
