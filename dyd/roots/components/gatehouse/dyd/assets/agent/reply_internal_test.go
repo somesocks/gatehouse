@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gatehouse/database"
+	"gatehouse/lisp"
 	"gatehouse/model"
 )
 
@@ -127,5 +128,30 @@ func TestSessionApprovalWorkflowIDUsesApprovalRequestID(t *testing.T) {
 	request := model.SessionEventRef{Id: "sev_00000000000000000000000000"}
 	if got, want := sessionApprovalWorkflowID(request), "session-approval:sev_00000000000000000000000000"; got != want {
 		t.Fatalf("sessionApprovalWorkflowID() = %q, want %q", got, want)
+	}
+}
+
+func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
+	runtime := &SessionEventReplyRuntime{}
+	session := model.SessionRef{}
+	principal := model.PrincipalRef{}
+	modules := []lisp.HostModule{
+		runtime.projectInfoModule(nil, session, principal),
+		runtime.projectFilesModule(nil, session, principal),
+		runtime.projectNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),
+		runtime.projectTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
+		runtime.projectSecretsModule(nil, session, principal),
+		runtime.projectRecordsModule(nil, session, principal, model.WorkspaceAgentRef{}),
+		runtime.sessionFilesModule(nil, session, principal),
+		runtime.sessionNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),
+		runtime.sessionTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
+		runtime.sessionSecretsModule(nil, session, principal),
+		runtime.sessionEventsModule(nil, session, principal),
+		NewPolicyModule(nil),
+		NewWebModule(),
+	}
+	err, result := lisp.Evaluate(`null`, lisp.EvalOptions{Prelude: agentPrelude, HostModules: modules})
+	if err != nil || result == nil {
+		t.Fatalf("Evaluate() = (%v, %v)", result, err)
 	}
 }

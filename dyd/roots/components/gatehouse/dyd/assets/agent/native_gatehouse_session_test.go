@@ -404,7 +404,7 @@ func TestGatehouseSessionNoteRemove(t *testing.T) {
 func TestGatehouseSessionFileCreate(t *testing.T) {
 	err, result := lisp.Evaluate(`(session/files/create "report.txt" "text/plain" (seq/from (bytes/utf8/encode "Generated ") (bytes/utf8/encode "report")))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
-		HostModules: []lisp.HostModule{
+		HostModules: agentResourceModules([]lisp.HostModule{
 			NewSessionModule(nil, nil, func(name, mediaType string, source io.Reader) (error, string) {
 				contents, err := io.ReadAll(source)
 				if err != nil || name != "report.txt" || mediaType != "text/plain" || string(contents) != "Generated report" {
@@ -415,7 +415,7 @@ func TestGatehouseSessionFileCreate(t *testing.T) {
 			NewProjectModule(nil, nil, nil),
 			NewPolicyModule(nil),
 			NewWebModule(),
-		},
+		}),
 	})
 	if err != nil || result.String() != `"file"` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
@@ -423,7 +423,7 @@ func TestGatehouseSessionFileCreate(t *testing.T) {
 
 	err, _ = lisp.Evaluate(`(session/files/create "" "text/plain" (seq/from (bytes/utf8/encode "Generated report")))`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, func(string, string, io.Reader) (error, string) { return nil, "file" }, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil), NewWebModule()},
+		HostModules: agentResourceModules([]lisp.HostModule{NewSessionModule(nil, nil, func(string, string, io.Reader) (error, string) { return nil, "file" }, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil), NewWebModule()}),
 	})
 	if err == nil || !strings.Contains(err.Error(), "requires non-empty name and media_type") {
 		t.Fatalf("Evaluate() invalid session file create error = %v", err)
@@ -431,7 +431,7 @@ func TestGatehouseSessionFileCreate(t *testing.T) {
 
 	err, result = lisp.Evaluate(`(error/value (error/catch (session/files/create "report.txt" "text/plain" (seq/from (bytes/utf8/encode "Generated report")))))`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
-		HostModules: []lisp.HostModule{NewSessionModule(nil, nil, nil, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil), NewWebModule()},
+		HostModules: agentResourceModules([]lisp.HostModule{NewSessionModule(nil, nil, nil, nil), NewProjectModule(nil, nil, nil), NewPolicyModule(nil), NewWebModule()}),
 	})
 	if err != nil || result.String() != `"session/files/create is unavailable"` {
 		t.Fatalf("Evaluate() unavailable session file create = (%s, %v)", result, err)

@@ -4,10 +4,7 @@ import (
 	"io"
 
 	"gatehouse/lisp"
-	"gatehouse/typed_id"
 )
-
-const gatehouseProjectModuleID = "native:gatehouse/project/v1"
 
 // ProjectInfo describes the project linked to an agent session.
 type ProjectInfo struct {
@@ -20,50 +17,8 @@ type ProjectInfo struct {
 // ProjectInfoSet replaces the name and description of an authorized project.
 type ProjectInfoSet func(name, description string) (error, ProjectInfo)
 
-// ProjectFiles contains the authorized files in a linked project.
-type ProjectFiles struct {
-	Files  []File
-	Read   FileRead
-	Create ProjectFileCreate
-	Update FileUpdate
-	Remove FileRemove
-	Search ProjectFileSearch
-}
-
 // ProjectFileCreate creates a completed file in the linked project and returns its ID.
 type ProjectFileCreate func(name, mediaType string, source io.Reader) (error, string)
-
-// ProjectFileSearch searches one authorized linked-project file.
-type ProjectFileSearch = SessionFileSearch
-
-// ProjectNotes contains the authorized notes in a linked project.
-type ProjectNotes struct {
-	Notes        []ProjectNote
-	Read         ProjectNoteRead
-	Revisions    ProjectNoteRevisionsGet
-	RevisionRead ProjectNoteRevisionRead
-	Create       ProjectNoteCreate
-	Update       ProjectNoteUpdate
-	Remove       NoteRemove
-}
-
-// ProjectTasks contains the authorized flat tasks in a linked project.
-type ProjectTasks struct {
-	Tasks  []Task
-	Read   TaskRead
-	Create TaskCreate
-	Update TaskUpdate
-	Remove TaskRemove
-}
-
-// ProjectSecretRead reads an authorized project secret value.
-type ProjectSecretRead func(id string) (error, []byte)
-
-// ProjectSecrets contains authorized secrets in a linked project.
-type ProjectSecrets struct {
-	Secrets []ProjectSecret
-	Read    ProjectSecretRead
-}
 
 // ProjectSecret describes authorized public project secret metadata.
 type ProjectSecret struct {
@@ -100,152 +55,6 @@ var (
 	projectTaskUpdateDocumentation        = capabilityDocumentation{"(project/tasks/update id title description status) -> List", "Replaces a flat project task. ID, title, and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(project/tasks/update \"ptk_example-task-id\" \"Review design\" \"# Review\" \"done\")", "((id . \"ptk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"done\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	projectTaskRemoveDocumentation        = capabilityDocumentation{"(project/tasks/remove id) -> Boolean", "Removes a flat task from the linked project. Returns true when the task was removed and false when it is unavailable.", "(project/tasks/remove \"ptk_example-task-id\")", "#t"}
 )
-
-// NewProjectModule constructs the project capability module for one agent evaluation.
-// It always exposes every project export so an unavailable project can be handled in Lisp.
-func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModule(info, files, notes, projectTasksArgument(tasks), nil)
-}
-
-func NewProjectModuleWithSecrets(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModule(info, files, notes, projectTasksArgument(tasks), secrets)
-}
-
-// NewProjectModuleWithRecords constructs the project module with record capabilities.
-func NewProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), nil, records)
-}
-
-// NewProjectModuleWithSecretsAndRecords constructs the project module with secret and record capabilities.
-func NewProjectModuleWithSecretsAndRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), secrets, records)
-}
-
-func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
-	if len(tasks) == 0 {
-		return nil
-	}
-	return tasks[0]
-}
-
-func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, tasks, secrets, nil)
-}
-
-func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets, records *ProjectRecords) lisp.HostModule {
-	infoGet := projectInfoGetFunction(info)
-	infoSet := unavailableCreate("project/info/set")
-	if info != nil && info.Set != nil {
-		infoSet = projectInfoSetFunction(info.Set)
-	}
-
-	filesList, filesInfo, fileRead := fileListFunction(nil, "project/files/list"), fileInfoFunction(nil, "project/files/info", typed_id.ProjectFile, "project"), unavailableRead("project/files/read")
-	fileCreate := func(_ *lisp.FunctionContext, _ []lisp.Expr) (error, lisp.Expr) {
-		return lisp.Errorf("project/files/create is unavailable"), nil
-	}
-	fileUpdate := unavailableCreate("project/files/update")
-	fileRemove := unavailableRemove("project/files/remove")
-	fileSearch := unavailableSessionFileSearch("project/files/search-file")
-	if files != nil {
-		filesList = fileListFunction(files.Files, "project/files/list")
-		filesInfo = fileInfoFunction(files.Files, "project/files/info", typed_id.ProjectFile, "project")
-		if files.Read != nil {
-			fileRead = fileReadFunction(files.Read, "project/files/read", typed_id.ProjectFile, "project")
-		}
-		if files.Create != nil {
-			fileCreate = sessionFileCreateFunction(files.Create, "project/files/create")
-		}
-		if files.Update != nil {
-			fileUpdate = fileUpdateFunction(files.Update, "project/files/update", typed_id.ProjectFile, "project")
-		}
-		if files.Remove != nil {
-			fileRemove = fileRemoveFunction(files.Remove, "project/files/remove", typed_id.ProjectFile, "project")
-		}
-		if files.Search != nil {
-			fileSearch = sessionFileSearchFunction(files.Search, "project/files/search-file", typed_id.ProjectFile, "project")
-		}
-	}
-	notesList, noteRead := noteListFunction(nil, "project/notes/list"), unavailableRead("project/notes/read")
-	noteRevisionsList, noteRevisionRead := unavailableNoteRevisionList("project/notes/revisions/list"), unavailableRead("project/notes/revisions/read")
-	noteCreate := unavailableCreate("project/notes/create")
-	noteUpdate := unavailableCreate("project/notes/update")
-	noteRemove := unavailableRemove("project/notes/remove")
-	if notes != nil {
-		notesList = noteListFunction(notes.Notes, "project/notes/list")
-		if notes.Read != nil {
-			noteRead = noteReadFunction(notes.Read, "project/notes/read")
-		}
-		if notes.Revisions != nil {
-			noteRevisionsList = noteRevisionListFunction(notes.Revisions, "project/notes/revisions/list")
-		}
-		if notes.RevisionRead != nil {
-			noteRevisionRead = noteRevisionReadFunction(notes.RevisionRead, "project/notes/revisions/read")
-		}
-		if notes.Create != nil {
-			noteCreate = projectNoteCreateFunction(notes.Create, "project/notes/create")
-		}
-		if notes.Update != nil {
-			noteUpdate = projectNoteUpdateFunction(notes.Update, "project/notes/update")
-		}
-		if notes.Remove != nil {
-			noteRemove = noteRemoveFunction(notes.Remove, "project/notes/remove")
-		}
-	}
-	tasksList, taskRead := unavailableTaskList("project/tasks/list"), unavailableRead("project/tasks/read")
-	taskCreate := unavailableCreate("project/tasks/create")
-	taskUpdate := unavailableCreate("project/tasks/update")
-	taskRemove := unavailableRemove("project/tasks/remove")
-	if tasks != nil {
-		tasksList = taskListFunction(tasks.Tasks, "project/tasks/list")
-		if tasks.Read != nil {
-			taskRead = taskReadFunction(tasks.Read, "project/tasks/read")
-		}
-		if tasks.Create != nil {
-			taskCreate = taskCreateFunction(tasks.Create, "project/tasks/create")
-		}
-		if tasks.Update != nil {
-			taskUpdate = taskUpdateFunction(tasks.Update, "project/tasks/update")
-		}
-		if tasks.Remove != nil {
-			taskRemove = taskRemoveFunction(tasks.Remove, "project/tasks/remove")
-		}
-	}
-	secretsList, secretRead := projectSecretListFunction(nil, "project/secrets/list"), unavailableSecretRead("project/secrets/read")
-	if secrets != nil {
-		secretsList = projectSecretListFunction(secrets.Secrets, "project/secrets/list")
-	}
-	if secrets != nil && secrets.Read != nil {
-		secretRead = projectSecretReadFunction(secrets.Read, "project/secrets/read")
-	}
-
-	exports := []lisp.HostExport{
-		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)},
-		{Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)},
-		{Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)},
-		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)},
-		{Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)},
-		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), projectFileCreateDocumentation)},
-		{Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), projectFileUpdateDocumentation)},
-		{Name: "files/remove", Value: document(lisp.Function(fileRemove), projectFileRemoveDocumentation)},
-		{Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearch), projectFileSearchDocumentation)},
-		{Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)},
-		{Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)},
-		{Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), projectNoteRevisionsListDocumentation)},
-		{Name: "notes/revisions/read", Value: document(lisp.Function(noteRevisionRead), projectNoteRevisionReadDocumentation)},
-		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), projectNoteCreateDocumentation)},
-		{Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), projectNoteUpdateDocumentation)},
-		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), projectNoteRemoveDocumentation)},
-		{Name: "tasks/list", Value: document(lisp.Function(tasksList), projectTaskListDocumentation)},
-		{Name: "tasks/read", Value: document(lisp.Function(taskRead), projectTaskReadDocumentation)},
-		{Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), projectTaskCreateDocumentation)},
-		{Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), projectTaskUpdateDocumentation)},
-		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), projectTaskRemoveDocumentation)},
-		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), projectSecretListDocumentation)},
-		{Name: "secrets/read", Value: document(lisp.Function(secretRead), projectSecretReadDocumentation)},
-	}
-	exports = append(exports, projectRecordsExports(records)...)
-	return lisp.HostModule{ID: gatehouseProjectModuleID, Exports: exports}
-}
 
 func projectNoteUpdateFunction(update ProjectNoteUpdate, name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
@@ -317,7 +126,7 @@ func projectSecretValue(secret ProjectSecret, name string) (error, lisp.Expr) {
 	)
 }
 
-func projectSecretReadFunction(read ProjectSecretRead, name string) func([]lisp.Expr) (error, lisp.Expr) {
+func projectSecretReadFunction(read func(id string) (error, []byte), name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 1 {
 			return lisp.Errorf("%s requires an id", name), nil

@@ -141,12 +141,12 @@ func TestGatehouseProjectRecordAttributeErrorsAndHelp(t *testing.T) {
 
 	err, result = lisp.Evaluate(`(help 'project/records/attributes/create)`, lisp.EvalOptions{
 		Prelude: agentPrelude,
-		HostModules: []lisp.HostModule{
+		HostModules: agentResourceModules([]lisp.HostModule{
 			NewProjectModuleWithRecords(nil, nil, nil, &ProjectRecords{}),
 			NewSessionModule(nil, nil, nil, nil),
 			NewPolicyModule(nil),
 			NewWebModule(),
-		},
+		}),
 	})
 	if err != nil || !strings.Contains(result.String(), "file") || !strings.Contains(result.String(), "target-schema") {
 		t.Fatalf("Evaluate() record attribute help = (%s, %v)", result, err)

@@ -63,12 +63,12 @@ func TestAgentPreludeDoesNotRequireApprovalForWebCapabilities(t *testing.T) {
 	defer server.Close()
 	err, result := lisp.Evaluate(`(list (web/search "query") (web/fetch "https://example.test/page"))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
-		HostModules: []lisp.HostModule{
+		HostModules: agentResourceModules([]lisp.HostModule{
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, nil, nil, nil),
 			NewPolicyModule(nil),
 			newWebModuleWithFetch(server.URL, server.Client(), func(string) (string, error) { return "<h1>Raw HTML</h1>", nil }),
-		},
+		}),
 	})
 	if err != nil || result.String() != `("result" "<h1>Raw HTML</h1>")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)

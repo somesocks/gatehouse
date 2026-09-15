@@ -19,9 +19,18 @@ const agentPrelude = `(let
         (crypto/cipher/ctr @native:crypto/cipher/ctr/v1)
         (crypto/padding/pkcs7 @native:crypto/padding/pkcs7/v1)
 
-        ; Workspace capability modules.
-        (project @native:gatehouse/project/v1)
-        (session @native:gatehouse/session/v1)
+        ; Workspace resource modules.
+        (project/info @native:gatehouse/project/info/v1)
+        (project/files @native:gatehouse/project/files/v1)
+        (project/notes @native:gatehouse/project/notes/v1)
+        (project/tasks @native:gatehouse/project/tasks/v1)
+        (project/secrets @native:gatehouse/project/secrets/v1)
+        (project/records @native:gatehouse/project/records/v1)
+        (session/files @native:gatehouse/session/files/v1)
+        (session/notes @native:gatehouse/session/notes/v1)
+        (session/tasks @native:gatehouse/session/tasks/v1)
+        (session/secrets @native:gatehouse/session/secrets/v1)
+        (session/events @native:gatehouse/session/events/v1)
         (policy @native:gatehouse/policy/v1)
         (web @native:gatehouse/web/v1)
 

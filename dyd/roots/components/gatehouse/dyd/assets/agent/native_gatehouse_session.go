@@ -9,38 +9,10 @@ import (
 	"gatehouse/typed_id"
 )
 
-const gatehouseSessionModuleID = "native:gatehouse/session/v1"
-
 const (
 	sessionEventSearchResultMaximumBytes  = 3 << 10
 	sessionEventSearchResultMaximumRanges = 8
 )
-
-// SessionNotes contains the authorized notes in the current session.
-type SessionNotes struct {
-	Notes        []SessionNote
-	Read         SessionNoteRead
-	Revisions    SessionNoteRevisionsGet
-	RevisionRead SessionNoteRevisionRead
-	Create       SessionNoteCreate
-	Update       SessionNoteUpdate
-	Remove       NoteRemove
-}
-
-// SessionTasks contains the authorized flat tasks in the current session.
-type SessionTasks struct {
-	Tasks  []Task
-	Read   TaskRead
-	Create TaskCreate
-	Update TaskUpdate
-	Remove TaskRemove
-}
-
-// SessionFileActions contains mutation callbacks for current-session files.
-type SessionFileActions struct {
-	Update FileUpdate
-	Remove FileRemove
-}
 
 var (
 	fileListDocumentation                 = capabilityDocumentation{"(session/files/list) -> List", "Returns successful files in the current session with sfi_ IDs, name, optional media_type, size, and fingerprint.", "(session/files/list)", "((id . \"sfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
@@ -67,151 +39,6 @@ var (
 	sessionTaskUpdateDocumentation        = capabilityDocumentation{"(session/tasks/update id title description status) -> List", "Replaces a flat session task. ID, title, and status must not be sensitive. The Markdown description may be sensitive but must never be secret.", "(session/tasks/update \"stk_example-task-id\" \"Review design\" \"# Review\" \"done\")", "((id . \"stk_example-task-id\") (title . \"Review design\") (sensitive . #f) (status . \"done\") (creator_id . \"example-agent-id\") (updater_id . \"example-agent-id\") (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
 	sessionTaskRemoveDocumentation        = capabilityDocumentation{"(session/tasks/remove id) -> Boolean", "Removes a flat task from the current session. Returns true when the task was removed and false when it is unavailable.", "(session/tasks/remove \"stk_example-task-id\")", "#t"}
 )
-
-// NewSessionModule constructs the session capability module for one agent evaluation.
-func NewSessionModule(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, nil, nil, notes, nil, nil, firstSessionEventRead(eventReads), nil)
-}
-
-func NewSessionModuleWithSecrets(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, nil, nil, notes, nil, secrets, firstSessionEventRead(eventReads), nil)
-}
-
-func NewSessionModuleWithTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, nil, nil, notes, tasks, nil, firstSessionEventRead(eventReads), nil)
-}
-
-func NewSessionModuleWithSecretsAndTasks(files []File, read FileRead, create SessionFileCreate, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventReads ...SessionEventRead) lisp.HostModule {
-	return newSessionModule(files, read, create, nil, nil, nil, notes, tasks, secrets, firstSessionEventRead(eventReads), nil)
-}
-
-// NewSessionModuleWithSecretsTasksAndEventSearch adds current-session event search.
-func NewSessionModuleWithSecretsTasksAndEventSearch(files []File, read FileRead, create SessionFileCreate, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch, actions ...SessionFileActions) lisp.HostModule {
-	var update FileUpdate
-	var remove FileRemove
-	if len(actions) > 0 {
-		update, remove = actions[0].Update, actions[0].Remove
-	}
-	return newSessionModule(files, read, create, update, remove, fileSearch, notes, tasks, secrets, eventRead, eventSearch)
-}
-
-func firstSessionEventRead(reads []SessionEventRead) SessionEventRead {
-	if len(reads) == 0 {
-		return nil
-	}
-	return reads[0]
-}
-
-func newSessionModule(files []File, read FileRead, create SessionFileCreate, update FileUpdate, remove FileRemove, fileSearch SessionFileSearch, notes *SessionNotes, tasks *SessionTasks, secrets *SessionSecrets, eventRead SessionEventRead, eventSearch SessionEventSearch) lisp.HostModule {
-	fileRead := unavailableRead("session/files/read")
-	if read != nil {
-		fileRead = fileReadFunction(read, "session/files/read", typed_id.SessionFile, "session")
-	}
-	fileCreate := func(_ *lisp.FunctionContext, _ []lisp.Expr) (error, lisp.Expr) {
-		return lisp.Errorf("session/files/create is unavailable"), nil
-	}
-	if create != nil {
-		fileCreate = sessionFileCreateFunction(create, "session/files/create")
-	}
-	fileUpdate := unavailableCreate("session/files/update")
-	if update != nil {
-		fileUpdate = fileUpdateFunction(update, "session/files/update", typed_id.SessionFile, "session")
-	}
-	fileRemove := unavailableRemove("session/files/remove")
-	if remove != nil {
-		fileRemove = fileRemoveFunction(remove, "session/files/remove", typed_id.SessionFile, "session")
-	}
-	fileSearchFunction := unavailableSessionFileSearch("session/files/search-file")
-	if fileSearch != nil {
-		fileSearchFunction = sessionFileSearchFunction(fileSearch, "session/files/search-file", typed_id.SessionFile, "session")
-	}
-	eventReadFunction := unavailableRead("session/events/read")
-	if eventRead != nil {
-		eventReadFunction = sessionEventReadFunction(eventRead, "session/events/read")
-	}
-	eventSearchFunction := unavailableSessionEventSearch("session/events/search")
-	if eventSearch != nil {
-		eventSearchFunction = sessionEventSearchFunction(eventSearch, "session/events/search")
-	}
-	notesList, noteRead := sessionNoteListFunction(nil, "session/notes/list"), unavailableRead("session/notes/read")
-	noteRevisionsList, noteRevisionRead := unavailableNoteRevisionList("session/notes/revisions/list"), unavailableRead("session/notes/revisions/read")
-	noteCreate := unavailableCreate("session/notes/create")
-	noteUpdate := unavailableCreate("session/notes/update")
-	noteRemove := unavailableRemove("session/notes/remove")
-	if notes != nil {
-		notesList = sessionNoteListFunction(notes.Notes, "session/notes/list")
-		if notes.Read != nil {
-			noteRead = noteReadFunction(notes.Read, "session/notes/read")
-		}
-		if notes.Revisions != nil {
-			noteRevisionsList = noteRevisionListFunction(notes.Revisions, "session/notes/revisions/list")
-		}
-		if notes.RevisionRead != nil {
-			noteRevisionRead = noteRevisionReadFunction(notes.RevisionRead, "session/notes/revisions/read")
-		}
-		if notes.Create != nil {
-			noteCreate = sessionNoteCreateFunction(notes.Create, "session/notes/create")
-		}
-		if notes.Update != nil {
-			noteUpdate = sessionNoteUpdateFunction(notes.Update, "session/notes/update")
-		}
-		if notes.Remove != nil {
-			noteRemove = noteRemoveFunction(notes.Remove, "session/notes/remove")
-		}
-	}
-	tasksList, taskRead := unavailableTaskList("session/tasks/list"), unavailableRead("session/tasks/read")
-	taskCreate := unavailableCreate("session/tasks/create")
-	taskUpdate := unavailableCreate("session/tasks/update")
-	taskRemove := unavailableRemove("session/tasks/remove")
-	if tasks != nil {
-		tasksList = taskListFunction(tasks.Tasks, "session/tasks/list")
-		if tasks.Read != nil {
-			taskRead = taskReadFunction(tasks.Read, "session/tasks/read")
-		}
-		if tasks.Create != nil {
-			taskCreate = taskCreateFunction(tasks.Create, "session/tasks/create")
-		}
-		if tasks.Update != nil {
-			taskUpdate = taskUpdateFunction(tasks.Update, "session/tasks/update")
-		}
-		if tasks.Remove != nil {
-			taskRemove = taskRemoveFunction(tasks.Remove, "session/tasks/remove")
-		}
-	}
-	secretsList, secretRead := sessionSecretListFunction(nil, "session/secrets/list"), unavailableSecretRead("session/secrets/read")
-	if secrets != nil {
-		secretsList = sessionSecretListFunction(secrets.Secrets, "session/secrets/list")
-	}
-	if secrets != nil && secrets.Read != nil {
-		secretRead = sessionSecretReadFunction(secrets.Read, "session/secrets/read")
-	}
-
-	return lisp.HostModule{ID: gatehouseSessionModuleID, Exports: []lisp.HostExport{
-		{Name: "files/list", Value: document(lisp.Function(fileListFunction(files, "session/files/list")), fileListDocumentation)},
-		{Name: "files/info", Value: document(lisp.FunctionNonLeaky(fileInfoFunction(files, "session/files/info", typed_id.SessionFile, "session")), fileInfoDocumentation)},
-		{Name: "files/read", Value: document(lisp.Function(fileRead), fileReadDocumentation)},
-		{Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), fileCreateDocumentation)},
-		{Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearchFunction), fileSearchDocumentation)},
-		{Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), fileUpdateDocumentation)},
-		{Name: "files/remove", Value: document(lisp.Function(fileRemove), fileRemoveDocumentation)},
-		{Name: "events/read", Value: document(lisp.Function(eventReadFunction), sessionEventReadDocumentation)},
-		{Name: "events/search", Value: document(lisp.FunctionNonLeaky(eventSearchFunction), sessionEventSearchDocumentation)},
-		{Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), sessionSecretListDocumentation)},
-		{Name: "secrets/read", Value: document(lisp.Function(secretRead), sessionSecretReadDocumentation)},
-		{Name: "notes/list", Value: document(lisp.Function(notesList), sessionNoteListDocumentation)},
-		{Name: "notes/read", Value: document(lisp.Function(noteRead), sessionNoteReadDocumentation)},
-		{Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), sessionNoteRevisionsListDocumentation)},
-		{Name: "notes/revisions/read", Value: document(lisp.Function(noteRevisionRead), sessionNoteRevisionReadDocumentation)},
-		{Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), sessionNoteCreateDocumentation)},
-		{Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), sessionNoteUpdateDocumentation)},
-		{Name: "notes/remove", Value: document(lisp.Function(noteRemove), sessionNoteRemoveDocumentation)},
-		{Name: "tasks/list", Value: document(lisp.Function(tasksList), sessionTaskListDocumentation)},
-		{Name: "tasks/read", Value: document(lisp.Function(taskRead), sessionTaskReadDocumentation)},
-		{Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), sessionTaskCreateDocumentation)},
-		{Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), sessionTaskUpdateDocumentation)},
-		{Name: "tasks/remove", Value: document(lisp.Function(taskRemove), sessionTaskRemoveDocumentation)},
-	}}
-}
 
 func unavailableSessionEventSearch(name string) func([]lisp.Expr) (error, lisp.Expr) {
 	return func([]lisp.Expr) (error, lisp.Expr) {
@@ -468,7 +295,6 @@ func sessionFileCreateFunction(create func(name, mediaType string, source io.Rea
 		return nil, lisp.String(id)
 	}
 }
-
 
 type fileSequenceReader struct {
 	name           string

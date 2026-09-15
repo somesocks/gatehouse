@@ -11,7 +11,7 @@ import (
 func TestGatehouseProjectFileCreate(t *testing.T) {
 	err, result := lisp.Evaluate(`(project/files/create "report.txt" "text/plain" (seq/from (bytes/utf8/encode "Generated ") (bytes/utf8/encode "report")))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
-		HostModules: []lisp.HostModule{NewProjectModule(nil, &ProjectFiles{Create: func(name, mediaType string, source io.Reader) (error, string) {
+		HostModules: agentResourceModules([]lisp.HostModule{NewProjectModule(nil, &ProjectFiles{Create: func(name, mediaType string, source io.Reader) (error, string) {
 			contents, err := io.ReadAll(source)
 			if err != nil {
 				return err, ""
@@ -20,7 +20,7 @@ func TestGatehouseProjectFileCreate(t *testing.T) {
 				t.Fatalf("project file create = (%q, %q, %q)", name, mediaType, contents)
 			}
 			return nil, "pfi_01m17ej89df8jnhnh7476ssnvg"
-		}}, nil), NewSessionModule(nil, nil, nil, nil), NewPolicyModule(nil), NewWebModule()},
+		}}, nil), NewSessionModule(nil, nil, nil, nil), NewPolicyModule(nil), NewWebModule()}),
 	})
 	if err != nil || result.String() != `"pfi_01m17ej89df8jnhnh7476ssnvg"` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
@@ -29,13 +29,13 @@ func TestGatehouseProjectFileCreate(t *testing.T) {
 	err, _ = lisp.Evaluate(`(project/files/create "report.txt" "text/plain" chunks)`, lisp.EvalOptions{
 		Prelude:     agentPrelude,
 		Bindings:    []lisp.Binding{{Name: "chunks", Value: lisp.List(lisp.MarkSensitive(lisp.Bytes([]byte("secret"))))}},
-		HostModules: []lisp.HostModule{NewProjectModule(nil, &ProjectFiles{Create: func(_ string, _ string, source io.Reader) (error, string) {
+		HostModules: agentResourceModules([]lisp.HostModule{NewProjectModule(nil, &ProjectFiles{Create: func(_ string, _ string, source io.Reader) (error, string) {
 			_, err := io.ReadAll(source)
 			if err == nil {
 				t.Fatalf("project file create sensitive contents error = %v", err)
 			}
 			return err, ""
-		}}, nil), NewSessionModule(nil, nil, nil, nil), NewPolicyModule(nil), NewWebModule()},
+		}}, nil), NewSessionModule(nil, nil, nil, nil), NewPolicyModule(nil), NewWebModule()}),
 	})
 	if err == nil {
 		t.Fatalf("Evaluate() sensitive file contents error = %v", err)
