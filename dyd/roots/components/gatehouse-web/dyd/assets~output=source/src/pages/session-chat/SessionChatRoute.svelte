@@ -721,7 +721,7 @@
                         aria-label="Attached files"
                       >
                         {#each reply.event.payload.attachments as file (file.id)}<a
-                            class="message-file"
+                            class="message-file message-file--primary"
                             href={chatFileDownloadPath(
                               workspace.id,
                               session.id,

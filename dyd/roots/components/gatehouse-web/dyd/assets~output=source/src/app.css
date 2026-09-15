@@ -1782,6 +1782,19 @@ a.message-file:focus-visible {
   text-decoration: underline;
 }
 
+.message-file.message-file--primary {
+  background: #c5ef72;
+  border-color: #c5ef72;
+  color: #18210c;
+}
+
+.message-file.message-file--primary:hover,
+.message-file.message-file--primary:focus-visible {
+  background: #edffc8;
+  border-color: #edffc8;
+  color: #18210c;
+}
+
 .message-file small,
 .composer-file small {
   font-size: 0.68rem;
@@ -3096,6 +3109,17 @@ a.message-file:focus-visible {
 .brand-workspace-frame .message-file small,
 .brand-workspace-frame .composer-file small {
   color: inherit;
+}
+.brand-workspace-frame .message-file.message-file--primary {
+  background: var(--brand-primary);
+  border-color: var(--brand-primary);
+  color: var(--brand-on-primary);
+}
+.brand-workspace-frame .message-file.message-file--primary:hover,
+.brand-workspace-frame .message-file.message-file--primary:focus-visible {
+  background: var(--brand-accent);
+  border-color: var(--brand-accent);
+  color: var(--brand-on-primary);
 }
 
 .brand-workspace-frame .agent-activity {
