@@ -2,6 +2,7 @@ import type { Route } from "./route"
 
 export type RouteOwner =
   | "project-dashboard"
+  | "project-files"
   | "project-notes"
   | "project-tasks"
   | "project-secrets"
@@ -43,6 +44,9 @@ export function routeOwner(route: Route): RouteOwner {
   switch (route.kind) {
     case "project":
       return "project-dashboard"
+    case "project-files":
+    case "project-file":
+      return "project-files"
     case "project-notes":
     case "project-note-new":
     case "project-note":

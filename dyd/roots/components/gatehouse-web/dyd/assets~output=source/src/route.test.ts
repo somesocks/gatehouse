@@ -300,6 +300,23 @@ describe("routes", () => {
       },
     },
     {
+      path: "/app/wsp/wsp_a/prj/prj_a/files",
+      route: {
+        kind: "project-files",
+        workspaceID: "wsp_a",
+        projectID: "prj_a",
+      },
+    },
+    {
+      path: "/app/wsp/wsp_a/prj/prj_a/files/pfl_a",
+      route: {
+        kind: "project-file",
+        workspaceID: "wsp_a",
+        projectID: "prj_a",
+        fileID: "pfl_a",
+      },
+    },
+    {
       path: "/app/wsp/wsp_a/prj/prj_a/secrets",
       route: {
         kind: "project-secrets",

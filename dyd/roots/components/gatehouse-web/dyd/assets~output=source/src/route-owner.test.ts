@@ -8,6 +8,24 @@ describe("route owner", () => {
     ).toBe("project-dashboard")
   })
 
+  it("assigns the Project Files URL to its route owner", () => {
+    expect(
+      routeOwner({
+        kind: "project-files",
+        workspaceID: "wsp_a",
+        projectID: "prj_a",
+      }),
+    ).toBe("project-files")
+    expect(
+      routeOwner({
+        kind: "project-file",
+        workspaceID: "wsp_a",
+        projectID: "prj_a",
+        fileID: "pfl_a",
+      }),
+    ).toBe("project-files")
+  })
+
   it("assigns every Project Notes URL to its route owner", () => {
     expect(
       routeOwner({

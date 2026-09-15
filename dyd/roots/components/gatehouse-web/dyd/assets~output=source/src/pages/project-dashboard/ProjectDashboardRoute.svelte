@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button, Dialog, DropdownMenu } from "bits-ui"
-  import { Menu, Paperclip, X } from "@lucide/svelte"
+  import { Menu, X } from "@lucide/svelte"
   import {
     createProjectChat,
     fetchProjectChats,
@@ -10,8 +10,6 @@
   import {
     fetchProjectFiles,
     finishProjectFileUpload,
-    projectFileDownloadPath,
-    removeProjectFile as deleteProjectFile,
     startProjectFileUpload,
     type ProjectFile,
   } from "../../app/project-files"
@@ -51,7 +49,6 @@
   let filesStatus = $state<Status>("checking")
   let filesError = $state("")
   let uploadingFiles = $state(0)
-  let removingFileIDs = $state<Set<string>>(new Set())
   let fileInput = $state<HTMLInputElement | undefined>()
   let notes = $state<ProjectNote[]>([])
   let notesStatus = $state<Status>("checking")
@@ -171,7 +168,6 @@
     filesStatus = "checking"
     filesError = ""
     uploadingFiles = 0
-    removingFileIDs = new Set()
     notes = []
     notesStatus = "checking"
     tasks = []
@@ -646,38 +642,6 @@
     if (!finished.ok) throw new Error("file finish failed")
   }
 
-  async function removeFile(file: ProjectFile): Promise<void> {
-    if (removingFileIDs.has(file.id) || !window.confirm(`Remove ${file.name}?`))
-      return
-    const route = currentRoute
-    const value = generation
-    removingFileIDs = new Set(removingFileIDs).add(file.id)
-    filesError = ""
-    try {
-      const response = await deleteProjectFile(
-        route.workspaceID,
-        route.projectID,
-        file.id,
-        abortController?.signal,
-      )
-      if (!isCurrent(value, route.workspaceID, route.projectID)) return
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return
-      }
-      if (!response.ok) throw new Error("file remove failed")
-      files = files.filter((candidate) => candidate.id !== file.id)
-    } catch {
-      if (isCurrent(value, route.workspaceID, route.projectID))
-        filesError = "The file could not be removed. Try again."
-    } finally {
-      if (isCurrent(value, route.workspaceID, route.projectID)) {
-        const next = new Set(removingFileIDs)
-        next.delete(file.id)
-        removingFileIDs = next
-      }
-    }
-  }
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -889,23 +853,10 @@
                         currentRoute.projectID,
                         abortController!.signal,
                       )}>Try again</Button.Root
-                  >{:else}{#each files as file (file.id)}<div
-                      class="brand-file-row"
-                    >
-                      <a
-                        class="brand-file-link"
-                        href={projectFileDownloadPath(
-                          workspace.id,
-                          project.id,
-                          file.id,
-                        )}
-                        download={file.name}
-                        title={file.fingerprint}
-                        ><Paperclip
-                          size={16}
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        /><span class="brand-file-content"
+                  >{:else}{#each files.slice(0, 5) as file (file.id)}<RouterLink
+                      class="brand-dashboard-row"
+                      href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}`}
+                      ><span class="brand-file-content"
                           ><span>{file.name}</span><span class="brand-file-meta"
                             ><time datetime={file.created_at}
                               >{dateLabel(file.created_at)}</time
@@ -914,19 +865,14 @@
                                 >{file.media_type}</span
                               >{/if}</span
                           ></span
-                        ></a
-                      ><Button.Root
-                        class="brand-button brand-button--compact brand-button--danger"
-                        type="button"
-                        disabled={removingFileIDs.has(file.id)}
-                        onclick={() => void removeFile(file)}
-                        >{removingFileIDs.has(file.id)
-                          ? "Removing..."
-                          : "Remove"}</Button.Root
-                      >
-                    </div>{:else}<p class="brand-empty">
+                        ></RouterLink
+                    >{:else}<p class="brand-empty">
                       No files yet.
-                    </p>{/each}{/if}{#if filesError !== ""}<p
+                    </p>{/each}{/if}<RouterLink
+                    class="brand-view-all"
+                    href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files`}
+                    >View all files</RouterLink
+                  >{#if filesError !== ""}<p
                     class="brand-error"
                     aria-live="polite"
                   >

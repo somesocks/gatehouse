@@ -102,6 +102,7 @@ a:active {
   margin-bottom: 0.4rem;
 }
 .control {
+  margin: 0;
   position: relative;
 }
 .field.is-grouped,
@@ -1100,7 +1101,7 @@ body {
 }
 
 .brand-card-title {
-  font-size: 1.75rem;
+  font-size: 1.25rem;
   line-height: 1.2;
 }
 .brand-dashboard-card > .brand-button {
@@ -1123,12 +1124,12 @@ body {
   transition: background 120ms ease;
 }
 
-.brand-dashboard-row:hover,
-.brand-dashboard-row:focus-visible,
+.brand-dashboard-row:is(a):hover,
+.brand-dashboard-row:is(a):focus-visible,
 .brand-file-row:hover {
   background: var(--brand-canvas-3);
 }
-.brand-dashboard-row:focus-visible,
+.brand-dashboard-row:is(a):focus-visible,
 .brand-file-link:focus-visible,
 .brand-view-all:focus-visible {
   outline: 2px solid var(--brand-focus);
