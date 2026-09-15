@@ -93,7 +93,7 @@ Working with evaluation and control:
 - `let ; (let ((name value) ...) body...) -> Value. Recursive lexical bindings, equivalent to scheme letrec*. Evaluates one or more body expressions in order and returns the final value.`
 - `if ; (if condition then else) -> Value. Evaluates then for #t and else for #f.`
 - `begin ; (begin expression... final) -> Value. Evaluates expressions in order and returns the final value.`
-- `fn ; (fn parameters body) -> Function. Lexical closure with exactly one body expression. Parameters are one symbol, a fixed proper list, or a dotted list with a rest parameter.`
+- `fn ; (fn parameters body...) -> Function. Lexical closure that evaluates one or more body expressions in order and returns the final value. Parameters are one symbol, a fixed proper list, or a dotted list with a rest parameter.`
 - `quote ; (quote expression) -> Value. Returns an expression without evaluating it.` `'value` is shorthand.
 - `fn/apply ; (fn/apply callable arguments) -> Value. Calls a function with values from a proper argument list.`
 - `fn/bind ; (fn/bind callable value...) -> Function. Returns a function with leading values bound.`

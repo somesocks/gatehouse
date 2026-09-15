@@ -47,7 +47,7 @@
   ; Evaluator forms are discoverable and documented without bindings.
   (assert
     (and
-       (string/contains? (help 'fn) "(fn parameters body) -> Function")
+       (string/contains? (help 'fn) "(fn parameters body...) -> Function")
        (string/contains? (help 'let) "(let ((name value) ...) body...) -> Value")
       (list? (help/search "recursive lexical bindings"))))
 

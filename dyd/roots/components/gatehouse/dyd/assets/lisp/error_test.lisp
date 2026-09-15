@@ -179,11 +179,11 @@
       (error/value (error/catch (fn (x . x) x)))
       "duplicated"))
 
-  ; Functions require one body expression.
+  ; Functions require at least one body expression.
   (assert
     (string/contains?
-      (error/value (error/catch (fn (x) x x)))
-      "fn requires parameters and one body expression"))
+      (error/value (error/catch (fn (x))))
+      "fn requires parameters and at least one body expression"))
 
   ; Begin requires at least one expression.
   (assert

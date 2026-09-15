@@ -46,7 +46,7 @@ type pair struct {
 type closure struct {
 	parameters    []string
 	restParameter *string
-	body          Expr
+	body          []Expr
 	env           *environment
 }
 

@@ -102,7 +102,13 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 				if err != nil {
 					return err, nil
 				}
-				expression, env = closure.body, callEnv
+				for _, form := range closure.body[:len(closure.body)-1] {
+					err, _ = evaluator.eval(form, callEnv)
+					if err != nil {
+						return err, nil
+					}
+				}
+				expression, env = closure.body[len(closure.body)-1], callEnv
 				continue
 			}
 			return expressionError("%s is not callable", callee.String()), nil
@@ -123,7 +129,13 @@ func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr
 		if err != nil {
 			return err, nil
 		}
-		return evaluator.eval(callee.body, env)
+		for _, form := range callee.body[:len(callee.body)-1] {
+			err, _ = evaluator.eval(form, env)
+			if err != nil {
+				return err, nil
+			}
+		}
+		return evaluator.eval(callee.body[len(callee.body)-1], env)
 	case *builtin:
 		err, outcome, leaky := evaluator.callBuiltin(callee, env, arguments)
 		if err != nil {
@@ -288,14 +300,14 @@ func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, 
 	return nil, forms[len(forms)-1], nextEnv
 }
 func (evaluator *evaluator) evaluateFunction(forms []Expr, env *environment) (error, Expr) {
-	if len(forms) != 2 {
-		return expressionError("fn requires parameters and one body expression"), nil
+	if len(forms) < 2 {
+		return expressionError("fn requires parameters and at least one body expression"), nil
 	}
 	err, names, rest := functionParameters(forms[0])
 	if err != nil {
 		return err, nil
 	}
-	return nil, &closure{parameters: names, restParameter: rest, body: forms[1], env: env}
+	return nil, &closure{parameters: names, restParameter: rest, body: forms[1:], env: env}
 }
 
 func functionParameters(expression Expr) (error, []string, *string) {

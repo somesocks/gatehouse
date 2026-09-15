@@ -24,6 +24,7 @@ func TestEvalLisp(t *testing.T) {
 
 func TestLetTailRecursion(t *testing.T) {
 	err, result := Run(`(let ((count-down (fn (value)
+  null
   (if (= value 0)
     0
     (let ((next (- value 1)))
@@ -51,5 +52,30 @@ func TestLetEvaluatesMultipleBodies(t *testing.T) {
 	err, _ = Run(`(let () (error/throw "first body") 42)`)
 	if err == nil {
 		t.Fatal("let evaluated its final body after an earlier body failed")
+	}
+}
+
+func TestFunctionEvaluatesMultipleBodies(t *testing.T) {
+	err, result := Run(`((fn (value)
+  (assert (= value 41))
+  (+ value 1)) 41)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "42" {
+		t.Fatalf("function result = %s, want 42", got)
+	}
+
+	err, result = Run(`(list/map (fn (value) (assert (> value 0)) (+ value 1)) (list 1 2))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "(2 3)" {
+		t.Fatalf("function map result = %s, want (2 3)", got)
+	}
+
+	err, _ = Run(`((fn () (error/throw "first body") 42))`)
+	if err == nil {
+		t.Fatal("function evaluated its final body after an earlier body failed")
 	}
 }
