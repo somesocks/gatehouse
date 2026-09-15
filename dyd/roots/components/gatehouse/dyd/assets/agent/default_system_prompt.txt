@@ -90,7 +90,7 @@ Working with pairs and lists:
 - `list/fold ; (list/fold function initial list) -> Value. Left fold; function receives accumulator then value.`
 
 Working with evaluation and control:
-- `let ; (let ((name value) ...) body) -> Value. Recursive lexical bindings. Exactly one body expression; use begin for multiple expressions.`
+- `let ; (let ((name value) ...) body...) -> Value. Recursive lexical bindings, equivalent to scheme letrec*. Evaluates one or more body expressions in order and returns the final value.`
 - `if ; (if condition then else) -> Value. Evaluates then for #t and else for #f.`
 - `begin ; (begin expression... final) -> Value. Evaluates expressions in order and returns the final value.`
 - `fn ; (fn parameters body) -> Function. Lexical closure with exactly one body expression. Parameters are one symbol, a fixed proper list, or a dotted list with a rest parameter.`

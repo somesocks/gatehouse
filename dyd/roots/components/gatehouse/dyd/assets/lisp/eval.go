@@ -239,8 +239,8 @@ func (evaluator *evaluator) evaluateOr(forms []Expr, env *environment) (error, E
 }
 
 func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, Expr, *environment) {
-	if len(forms) != 2 {
-		return expressionError("let requires bindings and one body expression"), nil, nil
+	if len(forms) < 2 {
+		return expressionError("let requires bindings and at least one body expression"), nil, nil
 	}
 	err, bindings := expressions(forms[0])
 	if err != nil {
@@ -279,7 +279,13 @@ func (evaluator *evaluator) evaluateLet(forms []Expr, env *environment) (error, 
 		bound := value
 		nextEnv.values[binding.name] = &bound
 	}
-	return nil, forms[1], nextEnv
+	for _, form := range forms[1 : len(forms)-1] {
+		err, _ = evaluator.eval(form, nextEnv)
+		if err != nil {
+			return err, nil, nil
+		}
+	}
+	return nil, forms[len(forms)-1], nextEnv
 }
 func (evaluator *evaluator) evaluateFunction(forms []Expr, env *environment) (error, Expr) {
 	if len(forms) != 2 {

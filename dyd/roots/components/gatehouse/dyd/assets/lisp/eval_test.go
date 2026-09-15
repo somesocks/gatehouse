@@ -36,3 +36,20 @@ func TestLetTailRecursion(t *testing.T) {
 		t.Fatalf("tail recursion = %s, want 0", got)
 	}
 }
+
+func TestLetEvaluatesMultipleBodies(t *testing.T) {
+	err, result := Run(`(let ((value 41))
+  (assert (= value 41))
+  (+ value 1))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "42" {
+		t.Fatalf("let result = %s, want 42", got)
+	}
+
+	err, _ = Run(`(let () (error/throw "first body") 42)`)
+	if err == nil {
+		t.Fatal("let evaluated its final body after an earlier body failed")
+	}
+}

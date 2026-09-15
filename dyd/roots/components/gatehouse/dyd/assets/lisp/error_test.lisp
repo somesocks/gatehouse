@@ -157,11 +157,11 @@
       (error/value (error/catch (let ((x 1) (x 2)) x)))
       "duplicated"))
 
-  ; Let requires one body expression.
+  ; Let requires at least one body expression.
   (assert
     (string/contains?
-      (error/value (error/catch (let () 1 2)))
-      "let requires bindings and one body expression"))
+      (error/value (error/catch (let ())))
+      "let requires bindings and at least one body expression"))
 
   ; Functions require symbol parameters.
   (assert
