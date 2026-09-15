@@ -9,6 +9,7 @@ import (
 	"io"
 	"strings"
 
+	"gatehouse/authz"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -53,6 +54,10 @@ type ProjectFileSummary struct {
 	MediaType   *string `json:"media_type,omitempty"`
 	Size        int64   `json:"size"`
 	Fingerprint string  `json:"fingerprint"`
+}
+
+type FileUpdate struct {
+	Name string
 }
 
 func (store *Store) SessionFileReferencesGet(ctx context.Context, session model.SessionRef, ids []string) (error, []SessionFileSummary) {
@@ -236,9 +241,9 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 		return fmt.Errorf("insert session file: %w", err), model.SessionFile{}, ""
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_file.create",
-		ResourceKind: ActivityResourceKindSessionFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_file.create",
+		ResourceKind:        ActivityResourceKindSessionFile,
 		ResourceSessionFile: &file.Ref.Id,
 	}, []string{ActivityTopicSessionFile(file.Ref)}); err != nil {
 		return fmt.Errorf("append session file creation activity: %w", err), model.SessionFile{}, ""
@@ -315,9 +320,9 @@ func (store *Store) ProjectFileCreate(ctx context.Context, file model.ProjectFil
 		return fmt.Errorf("insert project file: %w", err), model.ProjectFile{}, ""
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_file.create",
-		ResourceKind: ActivityResourceKindProjectFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_file.create",
+		ResourceKind:        ActivityResourceKindProjectFile,
 		ResourceProjectFile: &file.Ref.Id,
 	}, []string{ActivityTopicProjectFile(file.Ref)}); err != nil {
 		return fmt.Errorf("append project file creation activity: %w", err), model.ProjectFile{}, ""
@@ -364,9 +369,9 @@ func (store *Store) ProjectFileFinish(ctx context.Context, file model.ProjectFil
 		return nil, nil, nil
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_file.update",
-		ResourceKind: ActivityResourceKindProjectFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_file.update",
+		ResourceKind:        ActivityResourceKindProjectFile,
 		ResourceProjectFile: &file.Id,
 	}, []string{ActivityTopicProjectFile(file)}); err != nil {
 		return fmt.Errorf("append project file update activity: %w", err), nil, nil
@@ -547,6 +552,60 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 	return nil, &stored, object
 }
 
+func (store *Store) SessionFileUpdate(ctx context.Context, file model.SessionFileRef, update FileUpdate, principal model.PrincipalRef) (error, *model.SessionFile, *StorageObject) {
+	if !typed_id.Valid(typed_id.SessionFile, file.Id) {
+		return fmt.Errorf("update session file: ID is invalid"), nil, nil
+	}
+	update.Name = strings.TrimSpace(update.Name)
+	if update.Name == "" {
+		return fmt.Errorf("update session file: name is invalid"), nil, nil
+	}
+	err, roles := store.SessionRolesGet(ctx, file.Session, principal)
+	if err != nil {
+		return fmt.Errorf("update session file: %w", err), nil, nil
+	}
+	if !authz.SessionAllows(roles, authz.SessionFileUpdate) {
+		return fmt.Errorf("update session file: permission denied"), nil, nil
+	}
+	err, stored, object := store.SessionFileGet(ctx, file, principal)
+	if err != nil || stored == nil || object == nil || stored.Name == update.Name {
+		return err, stored, object
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session file update: %w", err), nil, nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_session_files SET name = `+placeholder(1)+`
+		WHERE workspace = `+placeholder(2)+` AND session = `+placeholder(3)+` AND id = `+placeholder(4)+` AND enabled = TRUE
+	`, update.Name, file.Session.Workspace.Id, file.Session.Id, file.Id)
+	if err != nil {
+		return fmt.Errorf("update session file: %w", err), nil, nil
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update session file: %w", err), nil, nil
+	}
+	if changed != 1 {
+		return nil, nil, nil
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_file.update",
+		ResourceKind:        ActivityResourceKindSessionFile,
+		ResourceSessionFile: &file.Id,
+	}, []string{ActivityTopicSessionFile(file)}); err != nil {
+		return fmt.Errorf("append session file update activity: %w", err), nil, nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session file update: %w", err), nil, nil
+	}
+	stored.Name = update.Name
+	return nil, stored, object
+}
+
 func (store *Store) SessionFileRemove(ctx context.Context, file model.SessionFileRef, principal model.PrincipalRef) (error, bool) {
 	if !typed_id.Valid(typed_id.SessionFile, file.Id) {
 		return fmt.Errorf("remove session file: ID is invalid"), false
@@ -583,9 +642,9 @@ func (store *Store) SessionFileRemove(ctx context.Context, file model.SessionFil
 		return fmt.Errorf("revoke pending session file upload: %w", err), false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_file.remove",
-		ResourceKind: ActivityResourceKindSessionFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_file.remove",
+		ResourceKind:        ActivityResourceKindSessionFile,
 		ResourceSessionFile: &file.Id,
 	}, []string{ActivityTopicSessionFile(file)}); err != nil {
 		return fmt.Errorf("append session file removal activity: %w", err), false
@@ -631,9 +690,9 @@ func (store *Store) SessionFileFinish(ctx context.Context, file model.SessionFil
 		return nil, nil, nil
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_file.update",
-		ResourceKind: ActivityResourceKindSessionFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_file.update",
+		ResourceKind:        ActivityResourceKindSessionFile,
 		ResourceSessionFile: &file.Id,
 	}, []string{ActivityTopicSessionFile(file)}); err != nil {
 		return fmt.Errorf("append session file update activity: %w", err), nil, nil
@@ -682,6 +741,60 @@ func (store *Store) ProjectFileGet(ctx context.Context, file model.ProjectFileRe
 	return nil, &stored, object
 }
 
+func (store *Store) ProjectFileUpdate(ctx context.Context, file model.ProjectFileRef, update FileUpdate, principal model.PrincipalRef) (error, *model.ProjectFile, *StorageObject) {
+	if !typed_id.Valid(typed_id.ProjectFile, file.Id) {
+		return fmt.Errorf("update project file: ID is invalid"), nil, nil
+	}
+	update.Name = strings.TrimSpace(update.Name)
+	if update.Name == "" {
+		return fmt.Errorf("update project file: name is invalid"), nil, nil
+	}
+	err, roles := store.ProjectRolesGet(ctx, file.Project, principal)
+	if err != nil {
+		return fmt.Errorf("update project file: %w", err), nil, nil
+	}
+	if !authz.ProjectAllows(roles, authz.ProjectFileUpdate) {
+		return fmt.Errorf("update project file: permission denied"), nil, nil
+	}
+	err, stored, object := store.ProjectFileGet(ctx, file, principal)
+	if err != nil || stored == nil || object == nil || stored.Name == update.Name {
+		return err, stored, object
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project file update: %w", err), nil, nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	result, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_project_files SET name = `+placeholder(1)+`
+		WHERE workspace = `+placeholder(2)+` AND project = `+placeholder(3)+` AND id = `+placeholder(4)+` AND enabled = TRUE
+	`, update.Name, file.Project.Workspace.Id, file.Project.Id, file.Id)
+	if err != nil {
+		return fmt.Errorf("update project file: %w", err), nil, nil
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update project file: %w", err), nil, nil
+	}
+	if changed != 1 {
+		return nil, nil, nil
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_file.update",
+		ResourceKind:        ActivityResourceKindProjectFile,
+		ResourceProjectFile: &file.Id,
+	}, []string{ActivityTopicProjectFile(file)}); err != nil {
+		return fmt.Errorf("append project file update activity: %w", err), nil, nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit project file update: %w", err), nil, nil
+	}
+	stored.Name = update.Name
+	return nil, stored, object
+}
+
 func (store *Store) ProjectFileRemove(ctx context.Context, file model.ProjectFileRef, principal model.PrincipalRef) (error, bool) {
 	if !typed_id.Valid(typed_id.ProjectFile, file.Id) {
 		return fmt.Errorf("remove project file: ID is invalid"), false
@@ -716,9 +829,9 @@ func (store *Store) ProjectFileRemove(ctx context.Context, file model.ProjectFil
 		return fmt.Errorf("revoke pending project file upload: %w", err), false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_file.remove",
-		ResourceKind: ActivityResourceKindProjectFile,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_file.remove",
+		ResourceKind:        ActivityResourceKindProjectFile,
 		ResourceProjectFile: &file.Id,
 	}, []string{ActivityTopicProjectFile(file)}); err != nil {
 		return fmt.Errorf("append project file removal activity: %w", err), false

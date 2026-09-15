@@ -2,6 +2,7 @@ package database_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +20,101 @@ import (
 
 	"github.com/oklog/ulid/v2"
 )
+
+func TestSessionFileUpdateChangesOnlyName(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:                []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:                []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
+		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
+		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	alice := principalRef(t, ctx, store, "alice")
+	bob := principalRef(t, ctx, store, "bob")
+	sessionID, err := typed_id.New(typed_id.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := model.SessionRef{Workspace: workspace, Id: sessionID}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	memberGrantID, err := typed_id.New(typed_id.SessionGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
+		VALUES (?, ?, ?, ?, ?, NULL, TRUE)
+	`, memberGrantID, workspace.Id, session.Id, authz.Member, bob.Id); err != nil {
+		t.Fatal(err)
+	}
+	fileID, err := typed_id.New(typed_id.SessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	objectID, err := typed_id.New(typed_id.StorageObject)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file := model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: "draft.txt", Enabled: true}
+	if err, _, _ := store.SessionFileCreate(ctx, file, objectID, alice); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("immutable bytes"))
+	if err := store.StorageObjectStoreIntegrity(ctx, objectID, digest[:], int64(len("immutable bytes"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.StorageObjectMarkSuccess(ctx, objectID); err != nil {
+		t.Fatal(err)
+	}
+	if err, _, _ := store.SessionFileFinish(ctx, file.Ref, alice); err != nil {
+		t.Fatal(err)
+	}
+	err, updated, object := store.SessionFileUpdate(ctx, file.Ref, database.FileUpdate{Name: "  final.txt  "}, alice)
+	if err != nil || updated == nil || object == nil || updated.Ref != file.Ref || updated.Name != "final.txt" || updated.StorageObject.Id != objectID || object.ID != objectID || object.Size != int64(len("immutable bytes")) || object.State != "success" {
+		t.Fatalf("SessionFileUpdate() = (%#v, %#v, %v)", updated, object, err)
+	}
+	err, files := store.SessionFilesGet(ctx, session)
+	if err != nil || len(files) != 1 || files[0].ID != fileID || files[0].Name != "final.txt" || files[0].Fingerprint != "sha256:59d8792018a51a408d2738f31eedebd6fe9926cc4260fa168a38710bc51d7e30" {
+		t.Fatalf("SessionFilesGet() after update = (%#v, %v)", files, err)
+	}
+	var updates int
+	if err := store.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM gatehouse_activity_events
+		WHERE event = 'session_file.update' AND resource_session_file = ?
+	`, fileID).Scan(&updates); err != nil || updates != 2 {
+		t.Fatalf("session file update activity = (%d, %v), want 2", updates, err)
+	}
+	if err, visible, object := store.SessionFileGet(ctx, file.Ref, bob); err != nil || visible == nil || object == nil {
+		t.Fatalf("SessionFileGet() for member = (%#v, %#v, %v)", visible, object, err)
+	}
+	if err, updated, object := store.SessionFileUpdate(ctx, file.Ref, database.FileUpdate{Name: "private.txt"}, bob); err == nil || updated != nil || object != nil {
+		t.Fatalf("SessionFileUpdate() for member = (%#v, %#v, %v)", updated, object, err)
+	}
+	if err, _, _ := store.SessionFileUpdate(ctx, file.Ref, database.FileUpdate{Name: "  "}, alice); err == nil {
+		t.Fatal("SessionFileUpdate() accepted a blank name")
+	}
+	if err, updated, object := store.SessionFileUpdate(ctx, file.Ref, database.FileUpdate{Name: "final.txt"}, alice); err != nil || updated == nil || object == nil {
+		t.Fatalf("SessionFileUpdate() no-op = (%#v, %#v, %v)", updated, object, err)
+	}
+	if err, removed := store.SessionFileRemove(ctx, file.Ref, alice); err != nil || !removed {
+		t.Fatalf("SessionFileRemove() = (%t, %v)", removed, err)
+	}
+	if err, updated, object := store.SessionFileUpdate(ctx, file.Ref, database.FileUpdate{Name: "restored.txt"}, alice); err != nil || updated != nil || object != nil {
+		t.Fatalf("SessionFileUpdate() after removal = (%#v, %#v, %v)", updated, object, err)
+	}
+}
 
 func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	ctx := context.Background()

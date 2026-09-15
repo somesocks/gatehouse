@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
@@ -140,11 +141,46 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 	}
 
 	older, _ := create(time.Date(2026, 1, 2, 3, 4, 5, 678_000_000, time.UTC), "requirements.txt")
-	newer, _ := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "design.pdf")
+	newer, newerObjectID := create(time.Date(2026, 1, 2, 3, 4, 6, 678_000_000, time.UTC), "design.pdf")
 	err, files := store.ProjectFilesGet(ctx, project, alice)
 	if err != nil || len(files) != 3 || files[0].ID != newer.Id || files[0].Name != "design.pdf" || files[0].MediaType == nil || *files[0].MediaType != "application/octet-stream" || files[0].Size != int64(len("design.pdf")) || files[0].Fingerprint != "sha256:2699a8a0c49f286591802474c202cf177fb2b9de754315de6051485c5d30f10f" || files[1].ID != older.Id || files[2].ID != pending.Ref.Id {
 		t.Fatalf("ProjectFilesGet() = (%#v, %v)", files, err)
 	}
+	err, updated, object := store.ProjectFileUpdate(ctx, newer, database.FileUpdate{Name: "  design-final.pdf  "}, alice)
+	if err != nil || updated == nil || object == nil || updated.Ref != newer || updated.Name != "design-final.pdf" || updated.StorageObject.Id != newerObjectID || object.ID != newerObjectID || object.Size != int64(len("design.pdf")) || object.State != "success" {
+		t.Fatalf("ProjectFileUpdate() = (%#v, %#v, %v)", updated, object, err)
+	}
+	activity("project_file.update", 2)
+	err, files = store.ProjectFilesGet(ctx, project, alice)
+	if err != nil || len(files) != 3 || files[0].ID != newer.Id || files[0].Name != "design-final.pdf" || files[0].Fingerprint != "sha256:2699a8a0c49f286591802474c202cf177fb2b9de754315de6051485c5d30f10f" {
+		t.Fatalf("ProjectFilesGet() after update = (%#v, %v)", files, err)
+	}
+	memberGrantID, err := typed_id.New(typed_id.ProjectGrant)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ExecContext(ctx, `
+		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
+		VALUES (?, ?, ?, ?, ?, NULL, TRUE)
+	`, memberGrantID, workspace.Id, project.Id, authz.Member, bob.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err, visible, object := store.ProjectFileGet(ctx, newer, bob); err != nil || visible == nil || object == nil {
+		t.Fatalf("ProjectFileGet() for member = (%#v, %#v, %v)", visible, object, err)
+	}
+	if err, updated, object := store.ProjectFileUpdate(ctx, newer, database.FileUpdate{Name: "private.pdf"}, bob); err == nil || updated != nil || object != nil {
+		t.Fatalf("ProjectFileUpdate() for member = (%#v, %#v, %v)", updated, object, err)
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_project_grants SET enabled = FALSE WHERE id = ?`, memberGrantID); err != nil {
+		t.Fatal(err)
+	}
+	if err, _, _ := store.ProjectFileUpdate(ctx, newer, database.FileUpdate{Name: "  "}, alice); err == nil {
+		t.Fatal("ProjectFileUpdate() accepted a blank name")
+	}
+	if err, updated, object := store.ProjectFileUpdate(ctx, newer, database.FileUpdate{Name: "design-final.pdf"}, alice); err != nil || updated == nil || object == nil {
+		t.Fatalf("ProjectFileUpdate() no-op = (%#v, %#v, %v)", updated, object, err)
+	}
+	activity("project_file.update", 2)
 	err, denied := store.ProjectFilesGet(ctx, project, bob)
 	if err != nil || len(denied) != 0 {
 		t.Fatalf("ProjectFilesGet() for ungranted principal = (%#v, %v)", denied, err)
@@ -160,6 +196,9 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 	err, removed = store.ProjectFileRemove(ctx, newer, alice)
 	if err != nil || !removed {
 		t.Fatalf("ProjectFileRemove() = (%t, %v)", removed, err)
+	}
+	if err, updated, object := store.ProjectFileUpdate(ctx, newer, database.FileUpdate{Name: "restored.pdf"}, alice); err != nil || updated != nil || object != nil {
+		t.Fatalf("ProjectFileUpdate() after removal = (%#v, %#v, %v)", updated, object, err)
 	}
 	err, hidden, object = store.ProjectFileGet(ctx, newer, alice)
 	if err != nil || hidden != nil || object != nil {
