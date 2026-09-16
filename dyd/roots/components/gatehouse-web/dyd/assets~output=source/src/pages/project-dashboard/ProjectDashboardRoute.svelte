@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Button, Dialog, DropdownMenu } from "bits-ui"
-  import { Menu, X } from "@lucide/svelte"
+  import { Menu, PanelLeftOpen, X } from "@lucide/svelte"
   import {
     createProjectChat,
     fetchProjectChats,
@@ -710,7 +710,11 @@
             class="mobile-menu-trigger"
             type="button"
             aria-label="Open navigation menu"
-            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+            ><PanelLeftOpen
+              size={20}
+              strokeWidth={2}
+              aria-hidden="true"
+            /></button
           ></SidebarPage.Toggle
         >
         <h1 class="brand-workspace-breadcrumb">

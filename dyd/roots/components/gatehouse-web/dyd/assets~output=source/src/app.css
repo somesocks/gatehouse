@@ -830,10 +830,6 @@ body {
   color: #eff2e8;
 }
 
-.session-tabs-select {
-  display: none;
-}
-
 .mobile-menu-trigger,
 .mobile-menu-backdrop {
   display: none;
@@ -2229,29 +2225,6 @@ a.message-file:focus-visible {
     padding: 0.35rem 0.5rem;
   }
 
-  .session-tabs {
-    display: none;
-  }
-
-  .session-tabs-select {
-    border: 1px solid #596051;
-    border-radius: 0.55rem;
-    background: #30352a;
-    color: #eff2e8;
-    display: block;
-    flex: 0 0 auto;
-    font: inherit;
-    font-size: 0.85rem;
-    font-weight: 700;
-    padding: 0.4rem 1.8rem 0.4rem 0.55rem;
-  }
-
-  .session-tabs-select:focus-visible {
-    border-color: #b9db6f;
-    box-shadow: 0 0 0 0.125em rgb(185 219 111 / 20%);
-    outline: 0;
-  }
-
   .sidebar-nav {
     gap: 1.25rem;
   }
@@ -2511,6 +2484,29 @@ a.message-file:focus-visible {
   display: flex;
   gap: 0.75rem;
   padding: 0.5rem 0;
+}
+.sidebar-page-header-actions {
+  align-items: center;
+  display: flex;
+  margin-left: auto;
+}
+.sidebar-page-header-actions-primary,
+.sidebar-page-header-actions-compact {
+  align-items: center;
+}
+.sidebar-page-header-actions-primary {
+  display: flex;
+}
+.sidebar-page-header-actions-compact {
+  display: none;
+}
+@media (max-width: 1280px) {
+  .sidebar-page-header-actions-primary {
+    display: none;
+  }
+  .sidebar-page-header-actions-compact {
+    display: inline-flex;
+  }
 }
 .sidebar-page-footer {
   display: block;
@@ -3385,15 +3381,6 @@ a.message-file:focus-visible {
   }
   .brand-workspace-frame .level-right {
     margin-left: 0;
-  }
-  .brand-workspace-frame .session-tabs-select {
-    background: var(--brand-surface-raised);
-    border-color: var(--brand-border);
-    color: var(--brand-text);
-  }
-  .brand-workspace-frame .session-tabs-select:focus-visible {
-    border-color: var(--brand-focus);
-    box-shadow: 0 0 0 0.125em var(--brand-focus);
   }
 }
 

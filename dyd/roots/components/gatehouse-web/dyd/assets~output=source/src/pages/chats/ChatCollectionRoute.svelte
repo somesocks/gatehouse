@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu } from "@lucide/svelte"
+  import { PanelLeftOpen } from "@lucide/svelte"
   import { createChat, type Chat } from "../../app/chats"
   import { useRuntime } from "../../app/runtime.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
@@ -163,7 +163,11 @@
             class="mobile-menu-trigger"
             type="button"
             aria-label="Open navigation menu"
-            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+            ><PanelLeftOpen
+              size={20}
+              strokeWidth={2}
+              aria-hidden="true"
+            /></button
           ></SidebarPage.Toggle
         >
         <h1 class="brand-workspace-breadcrumb">

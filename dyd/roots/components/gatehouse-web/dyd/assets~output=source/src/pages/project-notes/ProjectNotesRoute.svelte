@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu, X } from "@lucide/svelte"
+  import { PanelLeftOpen, X } from "@lucide/svelte"
   import { useRuntime } from "../../app/runtime.svelte"
   import ModalDialog from "../../components/ModalDialog.svelte"
   import PageBody from "../../components/PageBody.svelte"
@@ -587,7 +587,11 @@
             class="mobile-menu-trigger"
             type="button"
             aria-label="Open navigation menu"
-            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+            ><PanelLeftOpen
+              size={20}
+              strokeWidth={2}
+              aria-hidden="true"
+            /></button
           ></SidebarPage.Toggle
         >
         <h1 class="brand-workspace-breadcrumb">

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Menu } from "@lucide/svelte"
+  import { PanelLeftOpen } from "@lucide/svelte"
   import { fetchProject, type Project } from "../../app/projects"
 
   import { fetchProjectFiles, type ProjectFile } from "../../app/project-files"
@@ -971,7 +971,7 @@
             class="mobile-menu-trigger"
             type="button"
             aria-label="Open navigation menu"
-            ><Menu size={20} aria-hidden="true" /></button
+            ><PanelLeftOpen size={20} aria-hidden="true" /></button
           ></SidebarPage.Toggle
         >
         <h1 class="brand-workspace-breadcrumb">

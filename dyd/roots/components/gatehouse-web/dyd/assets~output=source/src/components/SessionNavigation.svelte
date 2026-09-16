@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Button, Dialog } from "bits-ui"
-  import { X } from "@lucide/svelte"
+  import { Button, Dialog, DropdownMenu } from "bits-ui"
+  import { Menu, X } from "@lucide/svelte"
   import { updateChatSession } from "../app/chat"
   import { useRuntime } from "../app/runtime.svelte"
   import RouterLink from "./RouterLink.svelte"
@@ -31,10 +31,7 @@
   const pathFor = (view: SessionView) =>
     view === "chat" ? sessionPath() : `${sessionPath()}/${view}`
 
-  function navigate(event: Event): void {
-    if (!(event.currentTarget instanceof HTMLSelectElement)) return
-    runtime.navigate(pathFor(event.currentTarget.value as SessionView))
-  }
+  const navigate = (view: SessionView) => runtime.navigate(pathFor(view))
   function openEdit(): void {
     editName = name ?? ""
     editError = ""
@@ -66,41 +63,71 @@
   }
 </script>
 
-<nav class="session-tabs" aria-label="Session navigation">
-  <button type="button" onclick={openEdit}>Edit</button>
-  <RouterLink
-    class={active === "chat" ? "active" : undefined}
-    href={pathFor("chat")}>Chat</RouterLink
-  >
-  <RouterLink
-    class={active === "files" ? "active" : undefined}
-    href={pathFor("files")}>Files</RouterLink
-  >
-  <RouterLink
-    class={active === "notes" ? "active" : undefined}
-    href={pathFor("notes")}>Notes</RouterLink
-  >
-  <RouterLink
-    class={active === "tasks" ? "active" : undefined}
-    href={pathFor("tasks")}>Tasks</RouterLink
-  >
-  <RouterLink
-    class={active === "secrets" ? "active" : undefined}
-    href={pathFor("secrets")}>Secrets</RouterLink
-  >
-</nav>
-<select
-  class="session-tabs-select"
-  aria-label="Session view"
-  value={active}
-  onchange={navigate}
->
-  <option value="chat">Chat</option>
-  <option value="files">Files</option>
-  <option value="notes">Notes</option>
-  <option value="tasks">Tasks</option>
-  <option value="secrets">Secrets</option>
-</select>
+<div class="sidebar-page-header-actions">
+  <div class="sidebar-page-header-actions-primary">
+    <nav class="session-tabs" aria-label="Session navigation">
+      <button type="button" onclick={openEdit}>Edit</button>
+      <RouterLink
+        class={active === "chat" ? "active" : undefined}
+        href={pathFor("chat")}>Chat</RouterLink
+      >
+      <RouterLink
+        class={active === "files" ? "active" : undefined}
+        href={pathFor("files")}>Files</RouterLink
+      >
+      <RouterLink
+        class={active === "notes" ? "active" : undefined}
+        href={pathFor("notes")}>Notes</RouterLink
+      >
+      <RouterLink
+        class={active === "tasks" ? "active" : undefined}
+        href={pathFor("tasks")}>Tasks</RouterLink
+      >
+      <RouterLink
+        class={active === "secrets" ? "active" : undefined}
+        href={pathFor("secrets")}>Secrets</RouterLink
+      >
+    </nav>
+  </div>
+  <div class="sidebar-page-header-actions-compact">
+    <DropdownMenu.Root
+      ><DropdownMenu.Trigger
+        class="brand-icon-button"
+        aria-label="Session navigation"
+        title="Session navigation"
+        ><Menu
+          size={20}
+          strokeWidth={2}
+          aria-hidden="true"
+        /></DropdownMenu.Trigger
+      ><DropdownMenu.Portal
+        ><DropdownMenu.Content
+          class="brand-menu-content"
+          sideOffset={6}
+          align="end"
+          ><DropdownMenu.Item class="brand-menu-item" onSelect={openEdit}
+            >Edit</DropdownMenu.Item
+          ><DropdownMenu.Item
+            class="brand-menu-item"
+            onSelect={() => navigate("chat")}>Chat</DropdownMenu.Item
+          ><DropdownMenu.Item
+            class="brand-menu-item"
+            onSelect={() => navigate("files")}>Files</DropdownMenu.Item
+          ><DropdownMenu.Item
+            class="brand-menu-item"
+            onSelect={() => navigate("notes")}>Notes</DropdownMenu.Item
+          ><DropdownMenu.Item
+            class="brand-menu-item"
+            onSelect={() => navigate("tasks")}>Tasks</DropdownMenu.Item
+          ><DropdownMenu.Item
+            class="brand-menu-item"
+            onSelect={() => navigate("secrets")}>Secrets</DropdownMenu.Item
+          ></DropdownMenu.Content
+        ></DropdownMenu.Portal
+      ></DropdownMenu.Root
+    >
+  </div>
+</div>
 <Dialog.Root bind:open={editOpen}
   ><Dialog.Portal
     ><Dialog.Overlay class="brand-dialog-overlay" /><Dialog.Content
