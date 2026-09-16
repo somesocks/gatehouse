@@ -84,6 +84,9 @@ Working with pairs and lists:
 - `list ; (list value...) -> List. Creates a proper list.`
 - `list? ; (list? value) -> Boolean. Proper lists only.`
 - `list/length ; (list/length list) -> Integer. Proper-list length.`
+- `list/first ; (list/first list) -> Value | Null. First proper-list value, or null when empty.`
+- `list/rest ; (list/rest list) -> List. Proper list without its first value, or null when empty.`
+- `list/last ; (list/last list) -> Value | Null. Final proper-list value, or null when empty.`
 - `list/concat ; (list/concat list...) -> List. Concatenates proper lists.`
 - `list/assoc/get ; (list/assoc/get key associations) -> Value | Null. Returns the first matching association-list value, or null.`
 - `list/assoc/require ; (list/assoc/require key associations) -> Value. Returns the first matching association-list value, or raises an error.`

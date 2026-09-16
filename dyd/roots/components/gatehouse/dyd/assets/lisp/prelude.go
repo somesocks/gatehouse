@@ -65,6 +65,9 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "null?", documentation: doc("(null? value) -> Boolean", "Returns whether value is the empty list.", "(null? null)", "#t"), call: pure(isNull)},
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
 	{name: "list/length", documentation: doc("(list/length list) -> Integer", "Returns the number of values in a proper list.", "(list/length (list 1 2 3))", "3"), call: pure(listLength)},
+	{name: "list/first", documentation: doc("(list/first list) -> Value | Null", "Returns the first value in a proper list, or null when the list is empty.", "(list/first (list 1 2 3))", "1"), leaky: true, call: pure(firstListValue)},
+	{name: "list/rest", documentation: doc("(list/rest list) -> List", "Returns a proper list without its first value, or null when the list is empty.", "(list/rest (list 1 2 3))", "(2 3)"), leaky: true, call: pure(restListValue)},
+	{name: "list/last", documentation: doc("(list/last list) -> Value | Null", "Returns the final value in a proper list, or null when the list is empty.", "(list/last (list 1 2 3))", "3"), leaky: true, call: pure(lastListValue)},
 	{name: "list/concat", documentation: doc("(list/concat list...) -> List", "Concatenates proper lists.", "(list/concat (list 1 2) (list 3))", "(1 2 3)"), leaky: true, call: pure(concatLists)},
 	{name: "list/assoc/get", documentation: doc("(list/assoc/get key associations) -> Value | Null", "Returns the value from the first matching (key . value) pair in a proper association list, or null when no key matches.", "(list/assoc/get 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationGet)},
 	{name: "list/assoc/require", documentation: doc("(list/assoc/require key associations) -> Value", "Returns the value from the first matching (key . value) pair in a proper association list. Raises an error when no key matches.", "(list/assoc/require 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationRequire)},
@@ -511,6 +514,46 @@ func listLength(_ *evaluator, arguments []Expr) (error, Expr) {
 		return err, nil
 	}
 	return nil, integer(int64(len(values)))
+}
+
+func firstListValue(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, values := listValues(arguments, "list/first")
+	if err != nil {
+		return err, nil
+	}
+	if len(values) == 0 {
+		return nil, null()
+	}
+	return nil, values[0]
+}
+
+func restListValue(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, values := listValues(arguments, "list/rest")
+	if err != nil {
+		return err, nil
+	}
+	if len(values) == 0 {
+		return nil, null()
+	}
+	return nil, list(values[1:])
+}
+
+func lastListValue(_ *evaluator, arguments []Expr) (error, Expr) {
+	err, values := listValues(arguments, "list/last")
+	if err != nil {
+		return err, nil
+	}
+	if len(values) == 0 {
+		return nil, null()
+	}
+	return nil, values[len(values)-1]
+}
+
+func listValues(arguments []Expr, name string) (error, []Expr) {
+	if len(arguments) != 1 {
+		return expressionError("%s requires one argument", name), nil
+	}
+	return expressions(arguments[0])
 }
 
 func concatLists(_ *evaluator, arguments []Expr) (error, Expr) {

@@ -153,3 +153,39 @@ func TestAssociationListLookup(t *testing.T) {
 		}
 	}
 }
+
+func TestListFirstAndLast(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+	}{
+		{source: "(list/first (list 1 2 3))", want: "1"},
+		{source: "(list/rest (list 1 2 3))", want: "(2 3)"},
+		{source: "(list/last (list 1 2 3))", want: "3"},
+		{source: "(list/first null)", want: "null"},
+		{source: "(list/rest null)", want: "null"},
+		{source: "(list/last null)", want: "null"},
+		{source: "(taint/secret? (list/first (taint/secret/mark (list 1))))", want: "#t"},
+		{source: "(taint/secret? (list/rest (taint/secret/mark (list 1))))", want: "#t"},
+		{source: "(taint/secret? (list/last (taint/secret/mark (list 1))))", want: "#t"},
+	} {
+		err, result := Run(test.source)
+		if err != nil {
+			t.Fatalf("Run(%s): %v", test.source, err)
+		}
+		if got := result.String(); got != test.want {
+			t.Fatalf("Run(%s) = %s, want %s", test.source, got, test.want)
+		}
+	}
+
+	for _, source := range []string{
+		"(list/first (pair 1 2))",
+		"(list/rest (pair 1 2))",
+		"(list/last (pair 1 2))",
+	} {
+		err, _ := Run(source)
+		if err == nil {
+			t.Fatalf("Run(%s) succeeded, want an error", source)
+		}
+	}
+}
