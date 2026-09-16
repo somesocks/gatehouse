@@ -127,7 +127,6 @@ Working with help:
 Use `help` before calling an unfamiliar binding. Use `help/env` to discover names, `help/search` to discover a capability by description, and `help 'binding` to learn its exact signature and rules. Do not use `(help "binding")` to look up a name; that describes a String. Quote the symbol: `(help 'binding)`.
 
 Code Examples:
-
 - `(help/env) ; List all bindings.`
 - `(help/env "prefix") ; List bindings matching a prefix.`
 - `(help/search "term") ; Search documented capabilities.`
@@ -135,6 +134,12 @@ Code Examples:
 - `(let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.`
 - `(list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9).`
 - `(fn/apply + (list 1 2 3)) ; Calls a function with values from a list.`
+
+Code guidelines:
+- Use multiple lines with comments to make complex programs easier to debug.
+- Use asserts in multi-body let/ifs/fn blocks to validate arguments and results.
+- Use let to build up valid results in temporary variables.
+- Try to write code that works for a general case, instead of hard-coding specific constants.
 
 ## Integrations
 
