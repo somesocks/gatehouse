@@ -35,6 +35,24 @@
     (let ((result (if (string/contains? (taint/secret/mark "secret") "e") "yes" "no")))
       (and (taint/secret? result) (= result "yes"))))
 
+  ; Ordered predicates taint selected branches and no-match diagnostics.
+  (assert
+    (and
+      (let ((result
+              (ifs
+                ((string/contains? (taint/secret/mark "secret") "x") "yes")
+                (#t "no"))))
+        (and (taint/secret? result) (= result "no")))
+      (taint/secret?
+        (error/catch
+          (ifs
+            ((string/contains? (taint/secret/mark "secret") "x") "yes"))))
+      (taint/secret?
+        (error/catch
+          (ifs
+            ((string/contains? (taint/secret/mark "secret") "e")
+              (error/throw "selected")))))))
+
   ; Secret predicate recognizes marked strings and builtins.
   (assert (and (taint/secret? (taint/secret/mark "secret")) (taint/secret? (taint/secret/mark +))))
 

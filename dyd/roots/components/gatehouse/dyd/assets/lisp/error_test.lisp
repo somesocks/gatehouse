@@ -163,6 +163,25 @@
       (error/value (error/catch (let ())))
       "let requires bindings and at least one body expression"))
 
+  ; Ifs requires proper, non-empty condition/body clauses.
+  (assert
+    (and
+      (string/contains?
+        (error/value (error/catch (ifs)))
+        "ifs requires at least one condition/body clause")
+      (string/contains?
+        (error/value (error/catch (ifs (#t))))
+        "ifs clauses require a condition and at least one body expression")
+      (string/contains?
+        (error/value (error/catch (ifs #t)))
+        "ifs clauses must be proper lists")
+      (string/contains?
+        (error/value (error/catch (ifs (1 2))))
+        "expected a Boolean")
+      (string/contains?
+        (error/value (error/catch (ifs ((= 1 2) 3))))
+        "ifs has no matching branch")))
+
   ; Functions require symbol parameters.
   (assert
     (string/contains?

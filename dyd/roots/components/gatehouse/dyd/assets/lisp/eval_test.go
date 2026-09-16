@@ -79,3 +79,47 @@ func TestFunctionEvaluatesMultipleBodies(t *testing.T) {
 		t.Fatal("function evaluated its final body after an earlier body failed")
 	}
 }
+
+func TestIfsEvaluatesMatchingClause(t *testing.T) {
+	err, result := Run(`(ifs
+  ((= 1 2) missing)
+  ((= 2 2) (assert #t) 7))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "7" {
+		t.Fatalf("ifs result = %s, want 7", got)
+	}
+
+	err, result = Run(`(ifs ((= 1 2) missing) (#t 9))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "9" {
+		t.Fatalf("ifs fallback result = %s, want 9", got)
+	}
+
+	err, _ = Run(`(ifs ((= 1 2) 7))`)
+	if err == nil {
+		t.Fatal("ifs returned without a matching clause")
+	}
+
+	err, _ = Run(`(ifs (1 2))`)
+	if err == nil {
+		t.Fatal("ifs accepted a non-Boolean condition")
+	}
+}
+
+func TestIfsTailRecursion(t *testing.T) {
+	err, result := Run(`(let ((count-down (fn (value)
+  (ifs
+    ((= value 0) 0)
+    (#t (count-down (- value 1)))))))
+  (count-down 100000))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.String(); got != "0" {
+		t.Fatalf("ifs tail recursion = %s, want 0", got)
+	}
+}

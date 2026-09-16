@@ -29,10 +29,12 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 	_, inputAnnotations := unwrap(expression)
 	tailTaint := TaintNone
 	defer func() {
-		if err == nil {
-			result = withTaint(result, joinTaint(inputAnnotations.taint, tailTaint))
+		if err != nil {
+			err = taintError(err, joinTaint(inputAnnotations.taint, tailTaint))
+			return
 		}
-		if err == nil && inputAnnotations.help != "" {
+		result = withTaint(result, joinTaint(inputAnnotations.taint, tailTaint))
+		if inputAnnotations.help != "" {
 			result = withHelp(result, inputAnnotations.help)
 		}
 	}()
@@ -188,7 +190,7 @@ func (evaluator *evaluator) resolveCallOutcome(outcome callOutcome, env *environ
 		}
 		err, result := evaluator.eval(outcome.expression, outcome.environment)
 		if err != nil {
-			return err, nil
+			return taintError(err, outcome.taint), nil
 		}
 		return nil, withTaint(result, outcome.taint)
 	default:
@@ -213,6 +215,43 @@ func (evaluator *evaluator) evaluateIf(forms []Expr, env *environment) (error, E
 	}
 	return nil, forms[2], TaintOf(condition)
 }
+
+func (evaluator *evaluator) evaluateIfs(forms []Expr, env *environment) (error, Expr, Taint) {
+	if len(forms) == 0 {
+		return expressionError("ifs requires at least one condition/body clause"), nil, TaintNone
+	}
+	taint := TaintNone
+	for _, form := range forms {
+		err, clause := expressions(form)
+		if err != nil {
+			return taintError(expressionError("ifs clauses must be proper lists"), taint), nil, TaintNone
+		}
+		if len(clause) < 2 {
+			return taintError(expressionError("ifs clauses require a condition and at least one body expression"), taint), nil, TaintNone
+		}
+		err, condition := evaluator.eval(clause[0], env)
+		if err != nil {
+			return taintError(err, taint), nil, TaintNone
+		}
+		taint = joinTaint(taint, TaintOf(condition))
+		err, truth := requireBoolean(condition)
+		if err != nil {
+			return taintError(err, taint), nil, TaintNone
+		}
+		if !truth {
+			continue
+		}
+		for _, body := range clause[1 : len(clause)-1] {
+			err, _ = evaluator.eval(body, env)
+			if err != nil {
+				return taintError(err, taint), nil, TaintNone
+			}
+		}
+		return nil, clause[len(clause)-1], taint
+	}
+	return taintError(expressionError("ifs has no matching branch"), taint), nil, TaintNone
+}
+
 func (evaluator *evaluator) evaluateAnd(forms []Expr, env *environment) (error, Expr) {
 	taint := TaintNone
 	for _, form := range forms {

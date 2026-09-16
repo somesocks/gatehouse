@@ -55,6 +55,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list", documentation: doc("(list value...) -> List", "Creates a proper list from its arguments.", "(list 1 2 3)", "(1 2 3)"), leaky: true, call: pure(makeList)},
 	{name: "let", documentation: doc("(let ((name value) ...) body...) -> Value", "Evaluates one or more body expressions in order with recursive lexical bindings, returning the final value.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
 	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1"), special: true, call: ifValues},
+	{name: "ifs", documentation: doc("(ifs (condition body...)...) -> Value", "Evaluates conditions in order, then evaluates the first matching clause body in order and returns its final value. Raises an error when no condition matches.", "(ifs ((= 1 2) \"no\") (#t \"yes\"))", "\"yes\""), special: true, call: ifsValues},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2"), special: true, call: beginValues},
 	{name: "fn", documentation: doc("(fn parameters body...) -> Function", "Creates a closure over its lexical environment. Each invocation evaluates one or more body expressions in order and returns the final value. Parameters can be a symbol, a proper list of fixed parameters, or a dotted list ending in a rest parameter.", "((fn (x . rest) (list x rest)) 1 2 3)", "(1 (2 3))"), special: true, call: functionValues},
 	{name: "and", documentation: doc("(and condition...) -> Boolean", "Returns false at the first false condition and otherwise true.", "(and #t #f)", "#f"), special: true, call: andValues},
@@ -626,6 +627,14 @@ func letValues(evaluator *evaluator, env *environment, arguments []Expr) (error,
 
 func ifValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
 	err, expression, taint := evaluator.evaluateIf(arguments, env)
+	if err != nil {
+		return err, nil
+	}
+	return nil, callTailState{expression: expression, taint: taint}
+}
+
+func ifsValues(evaluator *evaluator, env *environment, arguments []Expr) (error, callOutcome) {
+	err, expression, taint := evaluator.evaluateIfs(arguments, env)
 	if err != nil {
 		return err, nil
 	}

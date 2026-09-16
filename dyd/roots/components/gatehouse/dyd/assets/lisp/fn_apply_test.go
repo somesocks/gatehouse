@@ -20,6 +20,7 @@ func TestFnApply(t *testing.T) {
 		{source: "(fn/apply or (list #t '(error/throw \"unused\")))", want: "#t"},
 		{source: "(fn/apply quote (list '(+ 1 2)))", want: "(+ 1 2)"},
 		{source: "(taint/secret? (fn/apply list (taint/secret/mark (list 1))))", want: "#t"},
+		{source: "(taint/secret? (error/catch (fn/apply ifs (list (list (taint/secret/mark #t) '(error/throw \"selected\"))))))", want: "#t"},
 	} {
 		err, result := Run(test.source)
 		if err != nil {

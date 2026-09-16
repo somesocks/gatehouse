@@ -49,7 +49,8 @@
     (and
        (string/contains? (help 'fn) "(fn parameters body...) -> Function")
        (string/contains? (help 'let) "(let ((name value) ...) body...) -> Value")
-      (list? (help/search "recursive lexical bindings"))))
+       (string/contains? (help 'ifs) "(ifs (condition body...)...) -> Value")
+       (list? (help/search "recursive lexical bindings"))))
 
   ; Help follows lexical bindings and shadowing.
   (assert
