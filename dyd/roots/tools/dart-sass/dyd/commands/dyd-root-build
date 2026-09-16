@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+
+case "$OS-$ARCH" in
+  darwin-amd64) ARCHIVE_NAME="dart-sass-$VERSION-macos-x64" ;;
+  darwin-arm64) ARCHIVE_NAME="dart-sass-$VERSION-macos-arm64" ;;
+  linux-amd64) ARCHIVE_NAME="dart-sass-$VERSION-linux-x64" ;;
+  linux-arm64) ARCHIVE_NAME="dart-sass-$VERSION-linux-arm64" ;;
+  *)
+    printf '%s\n' "unsupported Dart Sass platform: $OS-$ARCH" >&2
+    exit 1
+    ;;
+esac
+
+SOURCE="$SRC_DIR/dyd/dependencies/dart-sass-bin/dyd/assets/$ARCHIVE_NAME/dart-sass"
+
+if [ ! -x "$SOURCE/sass" ]; then
+  printf '%s\n' "missing Dart Sass binary for $OS-$ARCH version $VERSION" >&2
+  exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp -R "$SOURCE" "$DEST_DIR/dyd/assets/dart-sass"
+ln -s ../assets/dart-sass/sass "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' dart-sass > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"
