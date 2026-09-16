@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+set -eu
+
+exec "$DYD_STEM/dyd/dependencies/node/dyd/assets/node/bin/node" "$DYD_STEM/dyd/assets/node_modules/stylelint/bin/stylelint.mjs" --config "$DYD_STEM/dyd/assets/stylelint.config.mjs" "$@"

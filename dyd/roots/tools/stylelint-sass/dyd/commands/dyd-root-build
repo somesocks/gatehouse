@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+WORK_DIR=$DYD_BUILD/npm-work
+
+mkdir -p "$DYD_BUILD/dyd/assets" "$DYD_BUILD/dyd/commands" "$DYD_BUILD/dyd/dependencies" "$WORK_DIR"
+cp "$SRC_DIR/dyd/assets/package.json" "$WORK_DIR/"
+cp "$SRC_DIR/dyd/assets/package-lock.json" "$WORK_DIR/"
+
+cd "$WORK_DIR"
+node--npm ci --cache "$WORK_DIR/cache"
+cp -R node_modules "$DYD_BUILD/dyd/assets/node_modules"
+cp "$SRC_DIR/dyd/assets/stylelint.config.mjs" "$DYD_BUILD/dyd/assets/"
+cp "$SRC_DIR/dyd/assets/main" "$DYD_BUILD/dyd/commands/dyd-stem-run"
+ln -s "$SRC_DIR/dyd/dependencies/node" "$DYD_BUILD/dyd/dependencies/node"
+rm -rf "$WORK_DIR"
