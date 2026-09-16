@@ -85,6 +85,8 @@ Working with pairs and lists:
 - `list? ; (list? value) -> Boolean. Proper lists only.`
 - `list/length ; (list/length list) -> Integer. Proper-list length.`
 - `list/concat ; (list/concat list...) -> List. Concatenates proper lists.`
+- `list/assoc/get ; (list/assoc/get key associations) -> Value | Null. Returns the first matching association-list value, or null.`
+- `list/assoc/require ; (list/assoc/require key associations) -> Value. Returns the first matching association-list value, or raises an error.`
 - `list/map ; (list/map function list) -> List. Applies a one-argument function to every value.`
 - `list/filter ; (list/filter predicate list) -> List. Keeps values whose predicate returns a Boolean true value.`
 - `list/fold ; (list/fold function initial list) -> Value. Left fold; function receives accumulator then value.`

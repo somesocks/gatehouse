@@ -66,6 +66,8 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list?", documentation: doc("(list? value) -> Boolean", "Returns whether value is a proper list.", "(list? (list 1 2))", "#t"), call: pure(isList)},
 	{name: "list/length", documentation: doc("(list/length list) -> Integer", "Returns the number of values in a proper list.", "(list/length (list 1 2 3))", "3"), call: pure(listLength)},
 	{name: "list/concat", documentation: doc("(list/concat list...) -> List", "Concatenates proper lists.", "(list/concat (list 1 2) (list 3))", "(1 2 3)"), leaky: true, call: pure(concatLists)},
+	{name: "list/assoc/get", documentation: doc("(list/assoc/get key associations) -> Value | Null", "Returns the value from the first matching (key . value) pair in a proper association list, or null when no key matches.", "(list/assoc/get 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationGet)},
+	{name: "list/assoc/require", documentation: doc("(list/assoc/require key associations) -> Value", "Returns the value from the first matching (key . value) pair in a proper association list. Raises an error when no key matches.", "(list/assoc/require 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationRequire)},
 	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: valueCall(mapValues)},
 	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: valueCall(filterValues)},
 	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: valueCall(foldValues)},
@@ -521,6 +523,38 @@ func concatLists(_ *evaluator, arguments []Expr) (error, Expr) {
 		result = append(result, values...)
 	}
 	return nil, list(result)
+}
+
+func associationGet(_ *evaluator, arguments []Expr) (error, Expr) {
+	return associationValue("list/assoc/get", arguments, false)
+}
+
+func associationRequire(_ *evaluator, arguments []Expr) (error, Expr) {
+	return associationValue("list/assoc/require", arguments, true)
+}
+
+func associationValue(name string, arguments []Expr, required bool) (error, Expr) {
+	if len(arguments) != 2 {
+		return expressionError("%s requires a key and association list", name), nil
+	}
+	err, associations := expressions(arguments[1])
+	if err != nil {
+		return expressionError("%s requires a proper association list", name), nil
+	}
+	for _, association := range associations {
+		base, _ := unwrap(association)
+		pair, ok := base.(*pair)
+		if !ok {
+			return expressionError("%s requires association-list pairs", name), nil
+		}
+		if equal(arguments[0], pair.first) {
+			return nil, pair.rest
+		}
+	}
+	if required {
+		return expressionError("%s requires a matching association", name), nil
+	}
+	return nil, null()
 }
 
 func mapValues(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {

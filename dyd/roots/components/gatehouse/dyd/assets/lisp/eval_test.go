@@ -123,3 +123,33 @@ func TestIfsTailRecursion(t *testing.T) {
 		t.Fatalf("ifs tail recursion = %s, want 0", got)
 	}
 }
+
+func TestAssociationListLookup(t *testing.T) {
+	for _, test := range []struct {
+		source string
+		want   string
+	}{
+		{source: "(list/assoc/get 'name (list (pair 'id 7) (pair 'name \"report.txt\")))", want: "\"report.txt\""},
+		{source: "(list/assoc/get 'missing (list (pair 'id 7)))", want: "null"},
+		{source: "(list/assoc/require 'name (list (pair 'name \"report.txt\")))", want: "\"report.txt\""},
+		{source: "(taint/secret? (list/assoc/get 'name (taint/secret/mark (list (pair 'name \"report.txt\")))))", want: "#t"},
+	} {
+		err, result := Run(test.source)
+		if err != nil {
+			t.Fatalf("Run(%s): %v", test.source, err)
+		}
+		if got := result.String(); got != test.want {
+			t.Fatalf("Run(%s) = %s, want %s", test.source, got, test.want)
+		}
+	}
+
+	for _, source := range []string{
+		"(list/assoc/get 'name (list 1))",
+		"(list/assoc/require 'name null)",
+	} {
+		err, _ := Run(source)
+		if err == nil {
+			t.Fatalf("Run(%s) succeeded, want an error", source)
+		}
+	}
+}

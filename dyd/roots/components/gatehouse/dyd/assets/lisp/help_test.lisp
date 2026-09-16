@@ -50,6 +50,8 @@
        (string/contains? (help 'fn) "(fn parameters body...) -> Function")
        (string/contains? (help 'let) "(let ((name value) ...) body...) -> Value")
        (string/contains? (help 'ifs) "(ifs (condition body...)...) -> Value")
+       (string/contains? (help 'list/assoc/get) "(list/assoc/get key associations) -> Value | Null")
+       (string/contains? (help 'list/assoc/require) "(list/assoc/require key associations) -> Value")
        (list? (help/search "recursive lexical bindings"))))
 
   ; Help follows lexical bindings and shadowing.
