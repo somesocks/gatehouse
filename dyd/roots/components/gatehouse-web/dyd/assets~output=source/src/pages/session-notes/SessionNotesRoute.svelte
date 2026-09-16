@@ -80,6 +80,9 @@
   )
   const workspacePath = (workspaceID: string) =>
     `/app/wsp/${encodeURIComponent(workspaceID)}`
+  function updateSessionName(name: string): void {
+    if (session !== null) session = { ...session, name }
+  }
   const sessionsPath = (workspaceID: string) =>
     `${workspacePath(workspaceID)}/ses`
   const sessionPath = (workspaceID: string, sessionID: string) =>
@@ -628,7 +631,6 @@
     historyGeneration += 1
     historyError = ""
   }
-
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -686,284 +688,311 @@
   </main>
 {:else}
   <SidebarPage.Root>
-    <SidebarPage.Sidebar><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar>
+    <SidebarPage.Sidebar
+      ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
+    >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu"><Menu size={20} strokeWidth={2} aria-hidden="true" /></button></SidebarPage.Toggle>
+        <SidebarPage.Toggle
+          ><button
+            class="mobile-menu-trigger"
+            type="button"
+            aria-label="Open navigation menu"
+            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+          ></SidebarPage.Toggle
+        >
         <h1 class="brand-workspace-breadcrumb">
-        <RouterLink
-          class="brand-workspace-breadcrumb-segment"
-          href={workspacePath(workspace.id)}
-          ><span>{workspace.name ?? workspace.id}</span></RouterLink
-        >{#if session !== null}{#if session.project !== undefined}<span
+          <RouterLink
+            class="brand-workspace-breadcrumb-segment"
+            href={workspacePath(workspace.id)}
+            ><span>{workspace.name ?? workspace.id}</span></RouterLink
+          >{#if session !== null}{#if session.project !== undefined}<span
+                class="brand-workspace-breadcrumb-separator"
+                aria-hidden="true">/</span
+              ><RouterLink
+                class="brand-workspace-breadcrumb-segment"
+                href={projectPath(workspace.id, session.project.id)}
+                ><span>{session.project.name ?? "New Project"}</span
+                ></RouterLink
+              >{/if}<span
               class="brand-workspace-breadcrumb-separator"
               aria-hidden="true">/</span
             ><RouterLink
               class="brand-workspace-breadcrumb-segment"
-              href={projectPath(workspace.id, session.project.id)}
-              ><span>{session.project.name ?? "New Project"}</span></RouterLink
-            >{/if}<span
-            class="brand-workspace-breadcrumb-separator"
-            aria-hidden="true">/</span
-          ><RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={sessionPath(workspace.id, session.id)}
-            ><span>{session.name ?? "New Chat"}</span></RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          >{#if currentRoute.kind === "session-notes"}<span>Notes</span
-            >{:else}<RouterLink href={listPath(workspace.id, session.id)}
-              >Notes</RouterLink
-            ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-              >/</span
-            ><span class="brand-workspace-breadcrumb-segment"
-              >{currentRoute.kind === "session-note-new"
-                ? "New Note"
-                : selectedRevision === null
-                  ? (active?.title ?? "Note")
-                  : `Revision ${selectedRevision.revision}`}</span
-            >{/if}{/if}
+              href={sessionPath(workspace.id, session.id)}
+              ><span>{session.name ?? "New Chat"}</span></RouterLink
+            ><span
+              class="brand-workspace-breadcrumb-separator"
+              aria-hidden="true">/</span
+            >{#if currentRoute.kind === "session-notes"}<span>Notes</span
+              >{:else}<RouterLink href={listPath(workspace.id, session.id)}
+                >Notes</RouterLink
+              ><span
+                class="brand-workspace-breadcrumb-separator"
+                aria-hidden="true">/</span
+              ><span class="brand-workspace-breadcrumb-segment"
+                >{currentRoute.kind === "session-note-new"
+                  ? "New Note"
+                  : selectedRevision === null
+                    ? (active?.title ?? "Note")
+                    : `Revision ${selectedRevision.revision}`}</span
+              >{/if}{/if}
         </h1>
-      {#if session !== null}<SessionNavigation
-          workspaceID={workspace.id}
-          sessionID={session.id}
-          active="notes"
-        />{/if}</SidebarPage.Header>
-      <SidebarPage.Body><PageBody>
-      {#if sessionStatus === "checking"}<p
-          class="dashboard-empty"
-          aria-busy="true"
-          aria-live="polite"
-        >
-          Loading chat...
-        </p>
-      {:else if sessionStatus === "unavailable"}<p class="dashboard-empty">
-          This chat could not be loaded.
-        </p>
-        <button
-          class="button is-primary"
-          type="button"
-          onclick={() => {
-            const signal = abortController?.signal
-            if (signal !== undefined)
-              void loadRoute(currentRoute, generation, signal)
-          }}>Try again</button
-        >
-      {:else if editing}<form
-          class="project-note-editor"
-          onsubmit={(event) => {
-            event.preventDefault()
-            void save()
-          }}
-        >
-          <PageHeading>
-            <p class="eyebrow">Session Note</p>
-            <h2>{creating ? "New Note" : "Edit Note"}</h2>
-          </PageHeading>
-          <div class="field">
-            <label class="label" for="session-note-title">Title</label>
-            <div class="control">
-              <input
-                class="input"
-                id="session-note-title"
-                autocomplete="off"
-                maxlength="256"
-                required
-                bind:value={title}
-              />
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" for="session-note-description"
-              >Description (optional)</label
-            >
-            <div class="control">
-              <textarea
-                class="textarea"
-                id="session-note-description"
-                autocomplete="off"
-                rows="3"
-                maxlength="4096"
-                bind:value={description}></textarea>
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" for="session-note-body"
-              >Content (optional)</label
-            >
-            <div class="control">
-              <textarea
-                class="textarea project-note-body-input"
-                id="session-note-body"
-                autocomplete="off"
-                rows="18"
-                maxlength="1048576"
-                bind:value={body}></textarea>
-            </div>
-          </div>
-          <div class="field">
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                autocomplete="off"
-                bind:checked={sensitive}
-              /> Sensitive: content is marked sensitive when agents read it.</label
-            >
-          </div>
-          {#if error !== ""}<p class="help is-danger" aria-live="polite">
-              {error}
-            </p>{/if}
-          <div class="project-note-actions">
-            <button
-              class="button"
-              type="button"
-              disabled={saving}
-              onclick={cancelEdit}>Cancel</button
-            ><button class="button is-primary" type="submit" disabled={saving}
-              >{saving ? "Saving..." : "Save note"}</button
-            >
-          </div>
-        </form>
-      {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "checking"}<p
-          class="dashboard-empty"
-        >
-          Loading note...
-        </p>
-      {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "unavailable"}<p
-          class="dashboard-empty"
-        >
-          Note unavailable.
-        </p>
-        <button
-          class="button is-primary"
-          type="button"
-          onclick={() => {
-            const signal = abortController?.signal
-            if (signal !== undefined)
-              void loadContent(currentRoute, generation, signal)
-          }}>Try again</button
-        >
-      {:else if active !== null}{@const displayed = selectedRevision ?? active}
-        <article class="project-note-view">
-          {#snippet noteActions()}{#if selectedRevision === null}<button
-                class="button is-small"
-                type="button"
-                onclick={() =>
-                  active !== null &&
-                  runtime.navigate(
-                    editPath(
-                      currentRoute.workspaceID,
-                      currentRoute.sessionID,
-                      active.id,
-                    ),
-                  )}>Edit</button
-              >{:else}<button
-                class="button is-small"
-                type="button"
-                onclick={() =>
-                  active !== null &&
-                  runtime.navigate(
-                    detailPath(
-                      currentRoute.workspaceID,
-                      currentRoute.sessionID,
-                      active.id,
-                    ),
-                  )}>Current revision</button
-              >{/if}<button
-              class="button is-small"
-              type="button"
-              onclick={() => void openHistory()}>History</button
-            >{#if selectedRevision === null}<button
-                class="button is-small is-danger is-light"
-                type="button"
-                disabled={deleting}
-                onclick={() => void remove()}
-                >{deleting ? "Removing..." : "Remove"}</button
-              >{/if}{/snippet}
-          <PageHeading as="header" actions={noteActions}>
-            <p class="eyebrow">
-              {selectedRevision === null
-                ? "Session Note"
-                : `Session Note Revision ${selectedRevision.revision}`}
-            </p>
-            <h2>
-              <span class="project-note-title"
-                >{displayed.title}{#if displayed.sensitive}<span
-                    class="sensitive-note-badge">Sensitive</span
-                  >{/if}</span
-              >
-            </h2>
-            {#if displayed.description !== ""}<p>
-                {displayed.description}
-              </p>{/if}<small
-              >By {authorLabel(displayed.author)} on {dateLabel(
-                displayed.created_at,
-              )}</small
-            >
-          </PageHeading>
-          {#if displayed.body !== undefined && displayed.body !== ""}<div
-              class="markdown-content project-note-markdown"
-            >
-              {@html renderMarkdown(displayed.body)}
-            </div>{/if}{#if error !== ""}<p
-              class="help is-danger"
+        {#if session !== null}<SessionNavigation
+            workspaceID={workspace.id}
+            sessionID={session.id}
+            active="notes"
+            name={session.name}
+            onRenamed={updateSessionName}
+          />{/if}</SidebarPage.Header
+      >
+      <SidebarPage.Body
+        ><PageBody>
+          {#if sessionStatus === "checking"}<p
+              class="dashboard-empty"
+              aria-busy="true"
               aria-live="polite"
             >
-              {error}
-            </p>{/if}
-        </article>
-      {:else}{#snippet collectionActions()}<button
-            class="button is-primary is-small"
-            type="button"
-            onclick={() =>
-              runtime.navigate(
-                `${listPath(workspace.id, currentRoute.sessionID)}/new`,
-              )}>New note</button
-          >{/snippet}
-        <PageHeading actions={collectionActions}>
-          <h2>Session Notes</h2>
-        </PageHeading>
-        <div class="collection-list">
-          {#if notesStatus === "checking"}<p class="dashboard-empty">
-              Loading notes...
-            </p>{:else if notesStatus === "unavailable"}<p
-              class="dashboard-empty"
-            >
-              Notes could not be loaded.
+              Loading chat...
+            </p>
+          {:else if sessionStatus === "unavailable"}<p class="dashboard-empty">
+              This chat could not be loaded.
             </p>
             <button
-              class="button is-primary is-small"
+              class="button is-primary"
               type="button"
               onclick={() => {
                 const signal = abortController?.signal
                 if (signal !== undefined)
-                  void loadNotes(
-                    generation,
-                    currentRoute.workspaceID,
-                    currentRoute.sessionID,
-                    signal,
-                  )
+                  void loadRoute(currentRoute, generation, signal)
               }}>Try again</button
-            >{:else}{#each notes as note (note.id)}<RouterLink
-                class="dashboard-row project-note-row"
-                href={detailPath(workspace.id, currentRoute.sessionID, note.id)}
-                ><span class="dashboard-row-content"
-                  ><span class="project-note-title"
-                    >{note.title}{#if note.sensitive}<span
+            >
+          {:else if editing}<form
+              class="project-note-editor"
+              onsubmit={(event) => {
+                event.preventDefault()
+                void save()
+              }}
+            >
+              <PageHeading>
+                <p class="eyebrow">Session Note</p>
+                <h2>{creating ? "New Note" : "Edit Note"}</h2>
+              </PageHeading>
+              <div class="field">
+                <label class="label" for="session-note-title">Title</label>
+                <div class="control">
+                  <input
+                    class="input"
+                    id="session-note-title"
+                    autocomplete="off"
+                    maxlength="256"
+                    required
+                    bind:value={title}
+                  />
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="session-note-description"
+                  >Description (optional)</label
+                >
+                <div class="control">
+                  <textarea
+                    class="textarea"
+                    id="session-note-description"
+                    autocomplete="off"
+                    rows="3"
+                    maxlength="4096"
+                    bind:value={description}></textarea>
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="session-note-body"
+                  >Content (optional)</label
+                >
+                <div class="control">
+                  <textarea
+                    class="textarea project-note-body-input"
+                    id="session-note-body"
+                    autocomplete="off"
+                    rows="18"
+                    maxlength="1048576"
+                    bind:value={body}></textarea>
+                </div>
+              </div>
+              <div class="field">
+                <label class="checkbox"
+                  ><input
+                    type="checkbox"
+                    autocomplete="off"
+                    bind:checked={sensitive}
+                  /> Sensitive: content is marked sensitive when agents read it.</label
+                >
+              </div>
+              {#if error !== ""}<p class="help is-danger" aria-live="polite">
+                  {error}
+                </p>{/if}
+              <div class="project-note-actions">
+                <button
+                  class="button"
+                  type="button"
+                  disabled={saving}
+                  onclick={cancelEdit}>Cancel</button
+                ><button
+                  class="button is-primary"
+                  type="submit"
+                  disabled={saving}>{saving ? "Saving..." : "Save note"}</button
+                >
+              </div>
+            </form>
+          {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "checking"}<p
+              class="dashboard-empty"
+            >
+              Loading note...
+            </p>
+          {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "unavailable"}<p
+              class="dashboard-empty"
+            >
+              Note unavailable.
+            </p>
+            <button
+              class="button is-primary"
+              type="button"
+              onclick={() => {
+                const signal = abortController?.signal
+                if (signal !== undefined)
+                  void loadContent(currentRoute, generation, signal)
+              }}>Try again</button
+            >
+          {:else if active !== null}{@const displayed =
+              selectedRevision ?? active}
+            <article class="project-note-view">
+              {#snippet noteActions()}{#if selectedRevision === null}<button
+                    class="button is-small"
+                    type="button"
+                    onclick={() =>
+                      active !== null &&
+                      runtime.navigate(
+                        editPath(
+                          currentRoute.workspaceID,
+                          currentRoute.sessionID,
+                          active.id,
+                        ),
+                      )}>Edit</button
+                  >{:else}<button
+                    class="button is-small"
+                    type="button"
+                    onclick={() =>
+                      active !== null &&
+                      runtime.navigate(
+                        detailPath(
+                          currentRoute.workspaceID,
+                          currentRoute.sessionID,
+                          active.id,
+                        ),
+                      )}>Current revision</button
+                  >{/if}<button
+                  class="button is-small"
+                  type="button"
+                  onclick={() => void openHistory()}>History</button
+                >{#if selectedRevision === null}<button
+                    class="button is-small is-danger is-light"
+                    type="button"
+                    disabled={deleting}
+                    onclick={() => void remove()}
+                    >{deleting ? "Removing..." : "Remove"}</button
+                  >{/if}{/snippet}
+              <PageHeading as="header" actions={noteActions}>
+                <p class="eyebrow">
+                  {selectedRevision === null
+                    ? "Session Note"
+                    : `Session Note Revision ${selectedRevision.revision}`}
+                </p>
+                <h2>
+                  <span class="project-note-title"
+                    >{displayed.title}{#if displayed.sensitive}<span
                         class="sensitive-note-badge">Sensitive</span
                       >{/if}</span
-                  >{#if note.description !== ""}<span
-                      class="project-note-description">{note.description}</span
-                    >{/if}<span class="dashboard-row-meta"
-                    ><span>{authorLabel(note.author)}</span><time
-                      datetime={note.created_at}
-                      >{dateLabel(note.created_at)}</time
-                    ></span
-                  ></span
-                ></RouterLink
-              >{:else}<p class="dashboard-empty">No notes yet.</p>{/each}{/if}
-        </div>{/if}
-      </PageBody></SidebarPage.Body>
+                  >
+                </h2>
+                {#if displayed.description !== ""}<p>
+                    {displayed.description}
+                  </p>{/if}<small
+                  >By {authorLabel(displayed.author)} on {dateLabel(
+                    displayed.created_at,
+                  )}</small
+                >
+              </PageHeading>
+              {#if displayed.body !== undefined && displayed.body !== ""}<div
+                  class="markdown-content project-note-markdown"
+                >
+                  {@html renderMarkdown(displayed.body)}
+                </div>{/if}{#if error !== ""}<p
+                  class="help is-danger"
+                  aria-live="polite"
+                >
+                  {error}
+                </p>{/if}
+            </article>
+          {:else}{#snippet collectionActions()}<button
+                class="button is-primary is-small"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(
+                    `${listPath(workspace.id, currentRoute.sessionID)}/new`,
+                  )}>New note</button
+              >{/snippet}
+            <PageHeading actions={collectionActions}>
+              <h2>Session Notes</h2>
+            </PageHeading>
+            <div class="collection-list">
+              {#if notesStatus === "checking"}<p class="dashboard-empty">
+                  Loading notes...
+                </p>{:else if notesStatus === "unavailable"}<p
+                  class="dashboard-empty"
+                >
+                  Notes could not be loaded.
+                </p>
+                <button
+                  class="button is-primary is-small"
+                  type="button"
+                  onclick={() => {
+                    const signal = abortController?.signal
+                    if (signal !== undefined)
+                      void loadNotes(
+                        generation,
+                        currentRoute.workspaceID,
+                        currentRoute.sessionID,
+                        signal,
+                      )
+                  }}>Try again</button
+                >{:else}{#each notes as note (note.id)}<RouterLink
+                    class="dashboard-row project-note-row"
+                    href={detailPath(
+                      workspace.id,
+                      currentRoute.sessionID,
+                      note.id,
+                    )}
+                    ><span class="dashboard-row-content"
+                      ><span class="project-note-title"
+                        >{note.title}{#if note.sensitive}<span
+                            class="sensitive-note-badge">Sensitive</span
+                          >{/if}</span
+                      >{#if note.description !== ""}<span
+                          class="project-note-description"
+                          >{note.description}</span
+                        >{/if}<span class="dashboard-row-meta"
+                        ><span>{authorLabel(note.author)}</span><time
+                          datetime={note.created_at}
+                          >{dateLabel(note.created_at)}</time
+                        ></span
+                      ></span
+                    ></RouterLink
+                  >{:else}<p class="dashboard-empty">
+                    No notes yet.
+                  </p>{/each}{/if}
+            </div>{/if}
+        </PageBody></SidebarPage.Body
+      >
     </SidebarPage.Page>
   </SidebarPage.Root>
   <ModalDialog

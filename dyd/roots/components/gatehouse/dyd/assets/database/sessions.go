@@ -1333,6 +1333,51 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 	return nil, true
 }
 
+func (store *Store) SessionNameUpdate(ctx context.Context, session model.SessionRef, principal model.PrincipalRef, name string) (error, *model.Session) {
+	name = strings.Join(strings.Fields(name), " ")
+	if name == "" {
+		return fmt.Errorf("update session name: name must not be blank"), nil
+	}
+	if len(name) > 256 {
+		return fmt.Errorf("update session name: name is too long"), nil
+	}
+	err, stored := store.SessionGet(ctx, session, principal)
+	if err != nil || stored == nil {
+		return err, stored
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin session name update: %w", err), nil
+	}
+	defer transaction.Rollback()
+
+	placeholder := keychainPlaceholder(store.kind)
+	if _, err := transaction.ExecContext(ctx, `
+		UPDATE gatehouse_sessions
+		SET name = `+placeholder(1)+`
+		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+`
+	`, name, session.Workspace.Id, session.Id); err != nil {
+		return fmt.Errorf("update session name: %w", err), nil
+	}
+	topics := []string{ActivityTopicSession(session)}
+	if stored.Project != nil {
+		topics = append(topics, ActivityTopicProject(*stored.Project))
+	}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Ref:             model.ActivityEventRef{},
+		Event:           "session.update",
+		ResourceKind:    ActivityResourceKindSession,
+		ResourceSession: &session.Id,
+	}, topics); err != nil {
+		return fmt.Errorf("append session name update activity: %w", err), nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session name update: %w", err), nil
+	}
+	stored.Name = &name
+	return nil, stored
+}
+
 type WorkspaceAgentModel struct {
 	Ref             model.WorkspaceAgentRef
 	AgentModel      model.AgentModelRef

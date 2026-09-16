@@ -323,12 +323,25 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":null}`); response.Code != http.StatusForbidden {
 		t.Fatalf("PATCH session project as contributor = %d, want %d", response.Code, http.StatusForbidden)
 	}
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, `{"name":"Denied"}`); response.Code != http.StatusForbidden {
+		t.Fatalf("PATCH session name as contributor = %d, want %d", response.Code, http.StatusForbidden)
+	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_session_grants
 		SET role = 'manager'
 		WHERE workspace = ? AND session = ? AND principal = ?
 	`, engineering.Id, session.ID, principal.Id); err != nil {
 		t.Fatal(err)
+	}
+	renamed := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, `{"name":"  Incident  review  "}`)
+	var renamedSession sessionResponse
+	if err := json.Unmarshal(renamed.Body.Bytes(), &renamedSession); err != nil || renamed.Code != http.StatusOK || renamedSession.Name == nil || *renamedSession.Name != "Incident review" {
+		t.Fatalf("PATCH session name = (%d, %#v, %v)", renamed.Code, renamedSession, err)
+	}
+	for _, body := range []string{`{}`, `{"name":"  "}`, `{"name":"Valid","unknown":true}`} {
+		if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, body); response.Code != http.StatusBadRequest {
+			t.Fatalf("PATCH invalid session name %s = %d, want %d", body, response.Code, http.StatusBadRequest)
+		}
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_project_grants

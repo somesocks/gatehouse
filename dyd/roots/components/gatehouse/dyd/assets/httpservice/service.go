@@ -360,6 +360,10 @@ type sessionCreateRequest struct {
 	Project *string `json:"project"`
 }
 
+type sessionUpdateRequest struct {
+	Name *string `json:"name"`
+}
+
 type sessionProjectRequest struct {
 	Project *string `json:"project"`
 }
@@ -1409,7 +1413,7 @@ func workspaceSessions(store *database.Store, tokens *auth.BearerTokens) http.Ha
 
 func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodGet {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -1423,7 +1427,8 @@ func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.Han
 			http.NotFound(response, request)
 			return
 		}
-		err, session := store.SessionGet(request.Context(), model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}, claims.Principal.Ref)
+		sessionRef := model.SessionRef{Workspace: model.WorkspaceRef{Id: workspaceID}, Id: sessionID}
+		err, session := store.SessionGet(request.Context(), sessionRef, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -1431,6 +1436,23 @@ func workspaceSession(store *database.Store, tokens *auth.BearerTokens) http.Han
 		if session == nil {
 			http.NotFound(response, request)
 			return
+		}
+		if request.Method == http.MethodPatch {
+			var input sessionUpdateRequest
+			decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&input); err != nil || input.Name == nil {
+				http.Error(response, "invalid session", http.StatusBadRequest)
+				return
+			}
+			if !sessionActionAllowed(response, request, store, claims, sessionRef, authz.SessionEdit) {
+				return
+			}
+			err, session = store.SessionNameUpdate(request.Context(), sessionRef, claims.Principal.Ref, *input.Name)
+			if err != nil {
+				http.Error(response, "session could not be updated", http.StatusBadRequest)
+				return
+			}
 		}
 		err, entries := sessionResponses(request.Context(), store, model.WorkspaceRef{Id: workspaceID}, claims.Principal.Ref, []model.Session{*session})
 		if err != nil {

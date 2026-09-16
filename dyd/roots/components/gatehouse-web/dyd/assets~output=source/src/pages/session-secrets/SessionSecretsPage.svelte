@@ -142,16 +142,16 @@
   {:else if controller.state.active !== null}
     <article class="project-note-view">
       {#snippet secretActions()}<button
-            class="button is-small"
-            type="button"
-            onclick={() => controller.startEdit()}>Edit</button
-          ><button
-            class="button is-small is-danger is-light"
-            type="button"
-            disabled={controller.state.deleting}
-            onclick={() => void controller.remove()}
-            >{controller.state.deleting ? "Removing..." : "Remove"}</button
-          >{/snippet}
+          class="button is-small"
+          type="button"
+          onclick={() => controller.startEdit()}>Edit</button
+        ><button
+          class="button is-small is-danger is-light"
+          type="button"
+          disabled={controller.state.deleting}
+          onclick={() => void controller.remove()}
+          >{controller.state.deleting ? "Removing..." : "Remove"}</button
+        >{/snippet}
       <PageHeading as="header" actions={secretActions}>
         <p class="eyebrow">Session Secret</p>
         <h2>{controller.state.active.description}</h2>

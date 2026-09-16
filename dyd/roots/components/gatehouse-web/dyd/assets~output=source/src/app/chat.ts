@@ -59,6 +59,21 @@ export async function fetchChatSession(
   })
 }
 
+export async function updateChatSession(
+  workspaceID: string,
+  sessionID: string,
+  input: { name: string },
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(chatAPIPath(workspaceID, sessionID), {
+    method: "PATCH",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+    ...(signal === undefined ? {} : { signal }),
+  })
+}
+
 export async function fetchChatEvents(
   workspaceID: string,
   sessionID: string,

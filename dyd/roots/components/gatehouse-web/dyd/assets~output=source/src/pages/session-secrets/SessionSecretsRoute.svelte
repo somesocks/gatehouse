@@ -39,6 +39,9 @@
   )
   const workspacePath = (workspaceID: string) =>
     `/app/wsp/${encodeURIComponent(workspaceID)}`
+  function updateSessionName(name: string): void {
+    if (session !== null) session = { ...session, name }
+  }
   const sessionsPath = (workspaceID: string) =>
     `${workspacePath(workspaceID)}/ses`
   const sessionPath = (workspaceID: string, sessionID: string) =>
@@ -184,7 +187,6 @@
     )
     void activity.poll()
   }
-
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -242,77 +244,93 @@
   </main>
 {:else}
   <SidebarPage.Root>
-    <SidebarPage.Sidebar><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar>
+    <SidebarPage.Sidebar
+      ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
+    >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu"><Menu size={20} strokeWidth={2} aria-hidden="true" /></button></SidebarPage.Toggle>
+        <SidebarPage.Toggle
+          ><button
+            class="mobile-menu-trigger"
+            type="button"
+            aria-label="Open navigation menu"
+            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+          ></SidebarPage.Toggle
+        >
         <h1 class="brand-workspace-breadcrumb">
-        <RouterLink
-          class="brand-workspace-breadcrumb-segment"
-          href={workspacePath(workspace.id)}
-          ><span>{workspace.name ?? workspace.id}</span></RouterLink
-        >{#if session !== null}{#if session.project !== undefined}<span
+          <RouterLink
+            class="brand-workspace-breadcrumb-segment"
+            href={workspacePath(workspace.id)}
+            ><span>{workspace.name ?? workspace.id}</span></RouterLink
+          >{#if session !== null}{#if session.project !== undefined}<span
+                class="brand-workspace-breadcrumb-separator"
+                aria-hidden="true">/</span
+              ><RouterLink
+                class="brand-workspace-breadcrumb-segment"
+                href={projectPath(workspace.id, session.project.id)}
+                ><span>{session.project.name ?? "New Project"}</span
+                ></RouterLink
+              >{/if}<span
               class="brand-workspace-breadcrumb-separator"
               aria-hidden="true">/</span
             ><RouterLink
-                class="brand-workspace-breadcrumb-segment"
-              href={projectPath(workspace.id, session.project.id)}
-              ><span>{session.project.name ?? "New Project"}</span></RouterLink
-            >{/if}<span
-            class="brand-workspace-breadcrumb-separator"
-            aria-hidden="true">/</span
-          ><RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={sessionPath(workspace.id, session.id)}
-            ><span>{session.name ?? "New Chat"}</span></RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          >{#if currentRoute.kind === "session-secrets"}<span>Secrets</span
-            >{:else}<RouterLink
-              href={sessionSecretsPath(workspace.id, session.id)}
-              >Secrets</RouterLink
-            >{#if secretBreadcrumb !== null}<span
-                class="brand-workspace-breadcrumb-separator"
-                aria-hidden="true">/</span
-              ><span class="brand-workspace-breadcrumb-segment"
-                >{secretBreadcrumb}</span
-              >{/if}{/if}{/if}
+              class="brand-workspace-breadcrumb-segment"
+              href={sessionPath(workspace.id, session.id)}
+              ><span>{session.name ?? "New Chat"}</span></RouterLink
+            ><span
+              class="brand-workspace-breadcrumb-separator"
+              aria-hidden="true">/</span
+            >{#if currentRoute.kind === "session-secrets"}<span>Secrets</span
+              >{:else}<RouterLink
+                href={sessionSecretsPath(workspace.id, session.id)}
+                >Secrets</RouterLink
+              >{#if secretBreadcrumb !== null}<span
+                  class="brand-workspace-breadcrumb-separator"
+                  aria-hidden="true">/</span
+                ><span class="brand-workspace-breadcrumb-segment"
+                  >{secretBreadcrumb}</span
+                >{/if}{/if}{/if}
         </h1>
-      {#if session !== null}<SessionNavigation
-          workspaceID={workspace.id}
-          sessionID={session.id}
-          active="secrets"
-        />{/if}</SidebarPage.Header>
-      <SidebarPage.Body>{#if sessionStatus === "checking"}<p
-        class="dashboard-empty"
-        aria-busy="true"
-        aria-live="polite"
+        {#if session !== null}<SessionNavigation
+            workspaceID={workspace.id}
+            sessionID={session.id}
+            active="secrets"
+            name={session.name}
+            onRenamed={updateSessionName}
+          />{/if}</SidebarPage.Header
       >
-        Loading chat...
-      </p>
-    {:else if sessionStatus === "unavailable"}<p class="dashboard-empty">
-        This chat could not be loaded.
-      </p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => {
-          const signal = abortController?.signal
-          if (signal !== undefined)
-            void loadRoute(currentRoute, generation, signal)
-        }}>Try again</button
+      <SidebarPage.Body
+        >{#if sessionStatus === "checking"}<p
+            class="dashboard-empty"
+            aria-busy="true"
+            aria-live="polite"
+          >
+            Loading chat...
+          </p>
+        {:else if sessionStatus === "unavailable"}<p class="dashboard-empty">
+            This chat could not be loaded.
+          </p>
+          <button
+            class="button is-primary"
+            type="button"
+            onclick={() => {
+              const signal = abortController?.signal
+              if (signal !== undefined)
+                void loadRoute(currentRoute, generation, signal)
+            }}>Try again</button
+          >
+        {:else if session !== null && routeSignal !== null}<SessionSecretsPage
+            workspaceID={workspace.id}
+            sessionID={session.id}
+            route={currentRoute}
+            signal={routeSignal}
+            {activity}
+            onAuthenticationLost={() => runtime.requireLogin()}
+            onNavigate={(path, replace) => runtime.navigate(path, replace)}
+            onBreadcrumbChange={(title) => (secretBreadcrumb = title)}
+          />
+        {/if}</SidebarPage.Body
       >
-    {:else if session !== null && routeSignal !== null}<SessionSecretsPage
-        workspaceID={workspace.id}
-        sessionID={session.id}
-        route={currentRoute}
-        signal={routeSignal}
-        {activity}
-        onAuthenticationLost={() => runtime.requireLogin()}
-        onNavigate={(path, replace) => runtime.navigate(path, replace)}
-        onBreadcrumbChange={(title) => (secretBreadcrumb = title)}
-      />
-      {/if}</SidebarPage.Body>
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}

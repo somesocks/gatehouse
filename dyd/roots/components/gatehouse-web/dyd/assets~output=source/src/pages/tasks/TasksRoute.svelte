@@ -90,6 +90,10 @@
   )
   const isProjectRoute = (route: TaskRoute): route is ProjectTaskRoute =>
     route.kind.startsWith("project-")
+  function updateSessionName(name: string): void {
+    if (!isProjectRoute(currentRoute) && owner !== null)
+      owner = { ...owner, name }
+  }
   const resourceID = (route: TaskRoute) =>
     isProjectRoute(route) ? route.projectID : route.sessionID
   const workspacePath = (workspaceID: string) =>
@@ -459,7 +463,6 @@
       if (isCurrent(value, route, signal)) deleting = false
     }
   }
-
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -505,266 +508,298 @@
   </main>
 {:else}
   <SidebarPage.Root>
-    <SidebarPage.Sidebar><WorkspaceNavigation {workspace} active={isProjectRoute(currentRoute) ? "projects" : "chats"} /></SidebarPage.Sidebar>
+    <SidebarPage.Sidebar
+      ><WorkspaceNavigation
+        {workspace}
+        active={isProjectRoute(currentRoute) ? "projects" : "chats"}
+      /></SidebarPage.Sidebar
+    >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle><button class="mobile-menu-trigger" type="button" aria-label="Open navigation menu"><Menu size={20} strokeWidth={2} aria-hidden="true" /></button></SidebarPage.Toggle>
-        <h1 class="brand-workspace-breadcrumb">
-        <RouterLink
-          class="brand-workspace-breadcrumb-segment"
-          href={workspacePath(workspace.id)}
-          ><span>{workspace.name ?? workspace.id}</span></RouterLink
-        ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true">/</span
-        >{#if isProjectRoute(currentRoute)}<RouterLink
-            href={`${workspacePath(workspace.id)}/prj`}>Projects</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          ><RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={ownerPath(currentRoute)}
-            ><span>{owner?.name ?? "New Project"}</span></RouterLink
-          >{:else}{#if owner?.project !== undefined}<RouterLink
-              class="brand-workspace-breadcrumb-segment"
-              href={`${workspacePath(workspace.id)}/prj/${encodeURIComponent(owner.project.id)}`}
-              ><span>{owner.project.name ?? "New Project"}</span></RouterLink
-            ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-              >/</span
-            >{/if}<RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={ownerPath(currentRoute)}
-            ><span>{owner?.name ?? "New Chat"}</span></RouterLink
-          >{/if}<span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-          >/</span
-        >{#if currentRoute.kind.endsWith("tasks")}<span>Tasks</span
-          >{:else}<RouterLink href={listPath(currentRoute)}>Tasks</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          ><span class="brand-workspace-breadcrumb-segment"
-            >{currentRoute.kind.endsWith("new")
-              ? "New Task"
-              : (active?.title ?? "Task")}</span
-          >{/if}
-        </h1>
-      {#if !isProjectRoute(currentRoute) && owner !== null}<SessionNavigation
-          workspaceID={workspace.id}
-          sessionID={currentRoute.sessionID}
-          active="tasks"
-        />{/if}</SidebarPage.Header>
-      <SidebarPage.Body><PageBody>
-      {#if ownerStatus === "checking"}<p class="dashboard-empty">
-          Loading {isProjectRoute(currentRoute) ? "project" : "chat"}...
-        </p>
-      {:else if ownerStatus === "unavailable"}<p class="dashboard-empty">
-          This {isProjectRoute(currentRoute) ? "project" : "chat"} could not be loaded.
-        </p>
-        <button
-          class="button is-primary"
-          type="button"
-          onclick={() => {
-            const signal = abortController?.signal
-            if (signal !== undefined)
-              void loadRoute(currentRoute, generation, signal)
-          }}>Try again</button
-        >
-      {:else if editing}<form
-          class="task-editor"
-          onsubmit={(event) => {
-            event.preventDefault()
-            void save()
-          }}
-        >
-          <PageHeading>
-            <p class="eyebrow">
-              {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-            </p>
-            <h2>
-              {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
-            </h2>
-          </PageHeading>
-          <div class="field">
-            <label class="label" for="task-title">Title</label>
-            <div class="control">
-              <input
-                class="input"
-                id="task-title"
-                autocomplete="off"
-                maxlength="256"
-                required
-                bind:value={title}
-              />
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" for="task-status">Status</label>
-            <div class="control select">
-              <select id="task-status" bind:value={status}
-                >{#each statuses as option}<option value={option.value}
-                    >{option.label}</option
-                  >{/each}</select
-              >
-            </div>
-          </div>
-          <div class="field">
-            <label class="label" for="task-description"
-              >Description (optional Markdown)</label
-            >
-            <div class="control">
-              <textarea
-                class="textarea task-description-input"
-                id="task-description"
-                autocomplete="off"
-                rows="12"
-                maxlength="4096"
-                bind:value={description}></textarea>
-            </div>
-          </div>
-          <div class="field">
-            <label class="checkbox"
-              ><input
-                type="checkbox"
-                autocomplete="off"
-                bind:checked={sensitive}
-              /> Sensitive: the description is marked sensitive when agents read
-              it.</label
-            >
-          </div>
-          {#if error !== ""}<p class="help is-danger" aria-live="polite">
-              {error}
-            </p>{/if}
-          <div class="project-note-actions">
-            <button
-              class="button"
-              type="button"
-              disabled={saving}
-              onclick={cancelEdit}>Cancel</button
-            ><button class="button is-primary" type="submit" disabled={saving}
-              >{saving ? "Saving..." : "Save task"}</button
-            >
-          </div>
-        </form>
-      {:else if currentRoute.kind.endsWith("-task") && detailStatus === "checking"}<p
-          class="dashboard-empty"
-        >
-          Loading task...
-        </p>
-      {:else if currentRoute.kind.endsWith("-task") && detailStatus === "unavailable"}<p
-          class="dashboard-empty"
-        >
-          Task unavailable.
-        </p>
-        <button
-          class="button is-primary"
-          type="button"
-          onclick={() => {
-            const signal = abortController?.signal
-            if (signal !== undefined && currentRoute.kind.endsWith("-task"))
-              void loadDetail(
-                currentRoute.taskID,
-                currentRoute,
-                generation,
-                signal,
-              )
-          }}>Try again</button
-        >
-      {:else if active !== null}<article class="task-view">
-          {#snippet taskActions()}<button class="button is-small" type="button" onclick={startEdit}
-                >Edit</button
-              ><button
-                class="button is-small is-danger is-light"
-                type="button"
-                disabled={deleting}
-                onclick={() => void remove()}
-                >{deleting ? "Removing..." : "Remove"}</button
-              >{/snippet}
-          <PageHeading as="header" actions={taskActions}>
-            <p class="eyebrow">
-              {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-            </p>
-            <h2>
-              {active.title}
-              <span class="task-status task-status-{active.status}"
-                >{statusLabel(active.status)}</span
-              >{#if active.sensitive}<span class="sensitive-note-badge"
-                  >Sensitive</span
-                >{/if}
-            </h2>
-            {#if isProjectRoute(currentRoute)}<small
-                >{dateLabel(active.created_at)}</small
-              >{:else}<small
-                >Created {dateLabel(active.created_at)} by {authorLabel(
-                  active.creator,
-                )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
-                  active.updater,
-                )}.</small
-              >{/if}
-          </PageHeading>
-          {#if active.description !== undefined && active.description !== ""}<div
-              class="markdown-content task-markdown"
-            >
-              {@html renderMarkdown(active.description)}
-            </div>{:else}<p class="dashboard-empty">
-              No description.
-            </p>{/if}{#if error !== ""}<p
-              class="help is-danger"
-              aria-live="polite"
-            >
-              {error}
-            </p>{/if}
-        </article>
-      {:else}{#snippet collectionActions()}<button
-            class="button is-primary is-small"
+        <SidebarPage.Toggle
+          ><button
+            class="mobile-menu-trigger"
             type="button"
-            onclick={() => runtime.navigate(`${listPath(currentRoute)}/new`)}
-            >New task</button
-          >{/snippet}
-        <PageHeading actions={collectionActions}>
-          <h2>{isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks</h2>
-        </PageHeading>
-        <div class="collection-list">
-          {#if tasksStatus === "checking"}<p class="dashboard-empty">
-              Loading tasks...
-            </p>{:else if tasksStatus === "unavailable"}<p
-              class="dashboard-empty"
-            >
-              Tasks could not be loaded.
+            aria-label="Open navigation menu"
+            ><Menu size={20} strokeWidth={2} aria-hidden="true" /></button
+          ></SidebarPage.Toggle
+        >
+        <h1 class="brand-workspace-breadcrumb">
+          <RouterLink
+            class="brand-workspace-breadcrumb-segment"
+            href={workspacePath(workspace.id)}
+            ><span>{workspace.name ?? workspace.id}</span></RouterLink
+          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
+            >/</span
+          >{#if isProjectRoute(currentRoute)}<RouterLink
+              href={`${workspacePath(workspace.id)}/prj`}>Projects</RouterLink
+            ><span
+              class="brand-workspace-breadcrumb-separator"
+              aria-hidden="true">/</span
+            ><RouterLink
+              class="brand-workspace-breadcrumb-segment"
+              href={ownerPath(currentRoute)}
+              ><span>{owner?.name ?? "New Project"}</span></RouterLink
+            >{:else}{#if owner?.project !== undefined}<RouterLink
+                class="brand-workspace-breadcrumb-segment"
+                href={`${workspacePath(workspace.id)}/prj/${encodeURIComponent(owner.project.id)}`}
+                ><span>{owner.project.name ?? "New Project"}</span></RouterLink
+              ><span
+                class="brand-workspace-breadcrumb-separator"
+                aria-hidden="true">/</span
+              >{/if}<RouterLink
+              class="brand-workspace-breadcrumb-segment"
+              href={ownerPath(currentRoute)}
+              ><span>{owner?.name ?? "New Chat"}</span></RouterLink
+            >{/if}<span
+            class="brand-workspace-breadcrumb-separator"
+            aria-hidden="true">/</span
+          >{#if currentRoute.kind.endsWith("tasks")}<span>Tasks</span
+            >{:else}<RouterLink href={listPath(currentRoute)}>Tasks</RouterLink
+            ><span
+              class="brand-workspace-breadcrumb-separator"
+              aria-hidden="true">/</span
+            ><span class="brand-workspace-breadcrumb-segment"
+              >{currentRoute.kind.endsWith("new")
+                ? "New Task"
+                : (active?.title ?? "Task")}</span
+            >{/if}
+        </h1>
+        {#if !isProjectRoute(currentRoute) && owner !== null}<SessionNavigation
+            workspaceID={workspace.id}
+            sessionID={currentRoute.sessionID}
+            active="tasks"
+            name={owner.name}
+            onRenamed={updateSessionName}
+          />{/if}</SidebarPage.Header
+      >
+      <SidebarPage.Body
+        ><PageBody>
+          {#if ownerStatus === "checking"}<p class="dashboard-empty">
+              Loading {isProjectRoute(currentRoute) ? "project" : "chat"}...
+            </p>
+          {:else if ownerStatus === "unavailable"}<p class="dashboard-empty">
+              This {isProjectRoute(currentRoute) ? "project" : "chat"} could not
+              be loaded.
             </p>
             <button
-              class="button is-primary is-small"
+              class="button is-primary"
               type="button"
               onclick={() => {
                 const signal = abortController?.signal
                 if (signal !== undefined)
-                  void loadTasks(currentRoute, generation, signal)
+                  void loadRoute(currentRoute, generation, signal)
               }}>Try again</button
-            >{:else}{#each tasks as task (task.id)}<RouterLink
-                class="dashboard-row task-row"
-                href={detailPath(currentRoute, task.id)}
-                ><span class="dashboard-row-content"
-                  ><span
-                    ><strong>{task.title}</strong>
-                    <span class="task-status task-status-{task.status}"
-                      >{statusLabel(task.status)}</span
-                    >{#if task.sensitive}<span class="sensitive-note-badge"
-                        >Sensitive</span
-                      >{/if}</span
-                  ><span class="dashboard-row-meta"
-                    >{#if isProjectRoute(currentRoute)}<time
-                        datetime={task.created_at}
-                        >{dateLabel(task.created_at)}</time
-                      >{:else}<span
-                        >Created {dateLabel(task.created_at)} by {authorLabel(
-                          task.creator,
-                        )}</span
+            >
+          {:else if editing}<form
+              class="task-editor"
+              onsubmit={(event) => {
+                event.preventDefault()
+                void save()
+              }}
+            >
+              <PageHeading>
+                <p class="eyebrow">
+                  {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
+                </p>
+                <h2>
+                  {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
+                </h2>
+              </PageHeading>
+              <div class="field">
+                <label class="label" for="task-title">Title</label>
+                <div class="control">
+                  <input
+                    class="input"
+                    id="task-title"
+                    autocomplete="off"
+                    maxlength="256"
+                    required
+                    bind:value={title}
+                  />
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="task-status">Status</label>
+                <div class="control select">
+                  <select id="task-status" bind:value={status}
+                    >{#each statuses as option}<option value={option.value}
+                        >{option.label}</option
+                      >{/each}</select
+                  >
+                </div>
+              </div>
+              <div class="field">
+                <label class="label" for="task-description"
+                  >Description (optional Markdown)</label
+                >
+                <div class="control">
+                  <textarea
+                    class="textarea task-description-input"
+                    id="task-description"
+                    autocomplete="off"
+                    rows="12"
+                    maxlength="4096"
+                    bind:value={description}></textarea>
+                </div>
+              </div>
+              <div class="field">
+                <label class="checkbox"
+                  ><input
+                    type="checkbox"
+                    autocomplete="off"
+                    bind:checked={sensitive}
+                  /> Sensitive: the description is marked sensitive when agents read
+                  it.</label
+                >
+              </div>
+              {#if error !== ""}<p class="help is-danger" aria-live="polite">
+                  {error}
+                </p>{/if}
+              <div class="project-note-actions">
+                <button
+                  class="button"
+                  type="button"
+                  disabled={saving}
+                  onclick={cancelEdit}>Cancel</button
+                ><button
+                  class="button is-primary"
+                  type="submit"
+                  disabled={saving}>{saving ? "Saving..." : "Save task"}</button
+                >
+              </div>
+            </form>
+          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "checking"}<p
+              class="dashboard-empty"
+            >
+              Loading task...
+            </p>
+          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "unavailable"}<p
+              class="dashboard-empty"
+            >
+              Task unavailable.
+            </p>
+            <button
+              class="button is-primary"
+              type="button"
+              onclick={() => {
+                const signal = abortController?.signal
+                if (signal !== undefined && currentRoute.kind.endsWith("-task"))
+                  void loadDetail(
+                    currentRoute.taskID,
+                    currentRoute,
+                    generation,
+                    signal,
+                  )
+              }}>Try again</button
+            >
+          {:else if active !== null}<article class="task-view">
+              {#snippet taskActions()}<button
+                  class="button is-small"
+                  type="button"
+                  onclick={startEdit}>Edit</button
+                ><button
+                  class="button is-small is-danger is-light"
+                  type="button"
+                  disabled={deleting}
+                  onclick={() => void remove()}
+                  >{deleting ? "Removing..." : "Remove"}</button
+                >{/snippet}
+              <PageHeading as="header" actions={taskActions}>
+                <p class="eyebrow">
+                  {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
+                </p>
+                <h2>
+                  {active.title}
+                  <span class="task-status task-status-{active.status}"
+                    >{statusLabel(active.status)}</span
+                  >{#if active.sensitive}<span class="sensitive-note-badge"
+                      >Sensitive</span
+                    >{/if}
+                </h2>
+                {#if isProjectRoute(currentRoute)}<small
+                    >{dateLabel(active.created_at)}</small
+                  >{:else}<small
+                    >Created {dateLabel(active.created_at)} by {authorLabel(
+                      active.creator,
+                    )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
+                      active.updater,
+                    )}.</small
+                  >{/if}
+              </PageHeading>
+              {#if active.description !== undefined && active.description !== ""}<div
+                  class="markdown-content task-markdown"
+                >
+                  {@html renderMarkdown(active.description)}
+                </div>{:else}<p class="dashboard-empty">
+                  No description.
+                </p>{/if}{#if error !== ""}<p
+                  class="help is-danger"
+                  aria-live="polite"
+                >
+                  {error}
+                </p>{/if}
+            </article>
+          {:else}{#snippet collectionActions()}<button
+                class="button is-primary is-small"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(`${listPath(currentRoute)}/new`)}
+                >New task</button
+              >{/snippet}
+            <PageHeading actions={collectionActions}>
+              <h2>
+                {isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks
+              </h2>
+            </PageHeading>
+            <div class="collection-list">
+              {#if tasksStatus === "checking"}<p class="dashboard-empty">
+                  Loading tasks...
+                </p>{:else if tasksStatus === "unavailable"}<p
+                  class="dashboard-empty"
+                >
+                  Tasks could not be loaded.
+                </p>
+                <button
+                  class="button is-primary is-small"
+                  type="button"
+                  onclick={() => {
+                    const signal = abortController?.signal
+                    if (signal !== undefined)
+                      void loadTasks(currentRoute, generation, signal)
+                  }}>Try again</button
+                >{:else}{#each tasks as task (task.id)}<RouterLink
+                    class="dashboard-row task-row"
+                    href={detailPath(currentRoute, task.id)}
+                    ><span class="dashboard-row-content"
                       ><span
-                        >Updated {dateLabel(task.updated_at)} by {authorLabel(
-                          task.updater,
-                        )}</span
-                      >{/if}</span
-                  ></span
-                ></RouterLink
-              >{:else}<p class="dashboard-empty">No tasks yet.</p>{/each}{/if}
-        </div>{/if}
-      </PageBody></SidebarPage.Body>
+                        ><strong>{task.title}</strong>
+                        <span class="task-status task-status-{task.status}"
+                          >{statusLabel(task.status)}</span
+                        >{#if task.sensitive}<span class="sensitive-note-badge"
+                            >Sensitive</span
+                          >{/if}</span
+                      ><span class="dashboard-row-meta"
+                        >{#if isProjectRoute(currentRoute)}<time
+                            datetime={task.created_at}
+                            >{dateLabel(task.created_at)}</time
+                          >{:else}<span
+                            >Created {dateLabel(task.created_at)} by {authorLabel(
+                              task.creator,
+                            )}</span
+                          ><span
+                            >Updated {dateLabel(task.updated_at)} by {authorLabel(
+                              task.updater,
+                            )}</span
+                          >{/if}</span
+                      ></span
+                    ></RouterLink
+                  >{:else}<p class="dashboard-empty">
+                    No tasks yet.
+                  </p>{/each}{/if}
+            </div>{/if}
+        </PageBody></SidebarPage.Body
+      >
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}

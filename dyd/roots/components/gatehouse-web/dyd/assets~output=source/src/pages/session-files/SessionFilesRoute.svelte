@@ -58,6 +58,9 @@
     !signal.aborted &&
     currentRoute.workspaceID === workspaceID &&
     currentRoute.sessionID === sessionID
+  function updateSessionName(name: string): void {
+    if (session !== null) session = { ...session, name }
+  }
 
   $effect(() => {
     const route = currentRoute
@@ -293,6 +296,8 @@
             workspaceID={workspace.id}
             sessionID={session.id}
             active="files"
+            name={session.name}
+            onRenamed={updateSessionName}
           />{/if}
       </SidebarPage.Header>
       <SidebarPage.Body>

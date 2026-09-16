@@ -804,10 +804,13 @@ body {
   margin-left: auto;
 }
 
-.session-tabs a {
+.session-tabs a,
+.session-tabs button {
   border: 1px solid transparent;
   border-radius: 0.55rem;
+  background: transparent;
   color: #aeb3a3;
+  cursor: pointer;
   font-size: 0.9rem;
   font-weight: 700;
   padding: 0.5rem 0.7rem;
@@ -815,7 +818,9 @@ body {
 }
 
 .session-tabs a:hover,
-.session-tabs a:focus-visible {
+.session-tabs a:focus-visible,
+.session-tabs button:hover,
+.session-tabs button:focus-visible {
   color: #dfff9b;
 }
 
@@ -2256,7 +2261,6 @@ a.message-file:focus-visible {
     margin-left: 0;
     min-height: 0;
   }
-
 }
 
 .brand-workspace-frame {
@@ -2973,12 +2977,17 @@ a.message-file:focus-visible {
 .brand-workspace-frame .project-note-title {
   color: var(--brand-text);
 }
-.brand-workspace-frame .session-tabs a {
+.brand-workspace-frame .session-tabs a,
+.brand-workspace-frame .session-tabs button {
+  background: transparent;
+  border-color: transparent;
   color: var(--brand-text-muted);
   font-weight: var(--brand-font-weight);
 }
 .brand-workspace-frame .session-tabs a:hover,
-.brand-workspace-frame .session-tabs a:focus-visible {
+.brand-workspace-frame .session-tabs a:focus-visible,
+.brand-workspace-frame .session-tabs button:hover,
+.brand-workspace-frame .session-tabs button:focus-visible {
   color: var(--brand-text);
 }
 .brand-workspace-frame .session-tabs a.active {

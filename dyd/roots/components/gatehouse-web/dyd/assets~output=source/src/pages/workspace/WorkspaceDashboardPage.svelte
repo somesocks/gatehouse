@@ -68,10 +68,12 @@
           class="brand-dashboard-row"
           href={`${sessionsPath()}/${encodeURIComponent(session.id)}`}
           ><span class="brand-row-content"
-            ><span>{session.name ?? "New Chat"}</span><span class="brand-row-meta"
+            ><span>{session.name ?? "New Chat"}</span><span
+              class="brand-row-meta"
               ><time datetime={session.created_at}
                 >{createdAtLabel(session.created_at)}</time
-              >{#if session.project !== undefined}<span aria-hidden="true">/</span
+              >{#if session.project !== undefined}<span aria-hidden="true"
+                  >/</span
                 ><span>{session.project.name ?? "New Project"}</span>{/if}</span
             ></span
           ></RouterLink
