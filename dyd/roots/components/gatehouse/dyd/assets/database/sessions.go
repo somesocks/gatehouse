@@ -1393,6 +1393,7 @@ type WorkspaceAgentModel struct {
 	MaxTurns        int
 	MaxOutputTokens int
 	SystemPrompt    *string
+	Prelude         *string
 }
 
 type WorkspaceAgent struct {
@@ -1412,7 +1413,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-		ORDER BY bindings.priority DESC, bindings.id
+		ORDER BY bindings.alias, bindings.id
 	`, workspace.Id)
 	if err != nil {
 		return fmt.Errorf("get workspace agents: %w", err), nil
@@ -1439,7 +1440,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT bindings.id, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt
+		SELECT bindings.id, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1447,14 +1448,15 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-		ORDER BY CASE WHEN `+placeholder(2)+` <> '' AND bindings.id = `+placeholder(3)+` THEN 0 ELSE 1 END, bindings.priority DESC, RANDOM()
+			AND (bindings.id = `+placeholder(2)+` OR bindings."default" = TRUE)
+		ORDER BY CASE WHEN bindings.id = `+placeholder(3)+` THEN 0 ELSE 1 END
 		LIMIT 1
 	`, workspace.Id, preferred, preferred)
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	var providerAlias, baseURL, keychainID, apiKey, systemPrompt sql.NullString
+	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Id, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt); err != nil {
+	if err := row.Scan(&selected.Ref.Id, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1473,6 +1475,9 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 	}
 	if systemPrompt.Valid {
 		selected.SystemPrompt = &systemPrompt.String
+	}
+	if prelude.Valid {
+		selected.Prelude = &prelude.String
 	}
 	return nil, &selected
 }

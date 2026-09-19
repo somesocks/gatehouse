@@ -37,16 +37,29 @@ type InitMigration struct {
 	Builder MigrationBuilder
 }
 
+type MigrationOptions struct {
+	SQLite   SQLiteMigrationOptions
+	Postgres PostgresMigrationOptions
+}
+
+type SQLiteMigrationOptions struct {
+	DisableForeignKeys bool
+}
+
+type PostgresMigrationOptions struct{}
+
 type VersionedMigration struct {
 	Index       int64
 	Description string
 	Builder     MigrationBuilder
+	Options     MigrationOptions
 }
 
 type RepeatableMigration struct {
 	Index       int64
 	Description string
 	Builder     MigrationBuilder
+	Options     MigrationOptions
 }
 
 const (
@@ -78,6 +91,7 @@ type resolvedMigration struct {
 	index         int64
 	description   string
 	source        string
+	options       MigrationOptions
 }
 
 type migrationCursor struct {
@@ -202,7 +216,7 @@ func nextMigration(ctx context.Context, session *MigrationSession, history []app
 			continue
 		}
 		cursor.versioned = index + 1
-		return nil, resolvedMigration{migrationType: migrationTypeVersioned, index: migration.Index, description: migration.Description, source: source}, cursor, true
+		return nil, resolvedMigration{migrationType: migrationTypeVersioned, index: migration.Index, description: migration.Description, source: source, options: migration.Options}, cursor, true
 	}
 
 	repeatable := sortedRepeatable(registry.Repeatable)
@@ -215,7 +229,7 @@ func nextMigration(ctx context.Context, session *MigrationSession, history []app
 		checksum := sha256.Sum256([]byte(source))
 		if latest, ok := latestMigration(history, migrationTypeRepeatable, migration.Index); !ok || latest.checksum != checksum {
 			cursor.repeatable = index + 1
-			return nil, resolvedMigration{migrationType: migrationTypeRepeatable, index: migration.Index, description: migration.Description, source: source}, cursor, true
+			return nil, resolvedMigration{migrationType: migrationTypeRepeatable, index: migration.Index, description: migration.Description, source: source, options: migration.Options}, cursor, true
 		}
 		cursor.repeatable = index + 1
 	}

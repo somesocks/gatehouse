@@ -383,8 +383,8 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		VALUES ('apr_01arz3ndektsv4rrffq69g5fav', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('amd_01arz3ndektsv4rrffq69g5fav', 1, 'apr_01arz3ndektsv4rrffq69g5fav', 'example', '{}', TRUE);
-		INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, enabled)
-		VALUES ('wag_01arz3ndektsv4rrffq69g5fav', ?, 'assistant', 'amd_01arz3ndektsv4rrffq69g5fav', 1, 1, TRUE)
+		INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, "default", enabled)
+		VALUES ('wag_01arz3ndektsv4rrffq69g5fav', ?, 'assistant', 'amd_01arz3ndektsv4rrffq69g5fav', 1, TRUE, TRUE)
 	`, workspace.Id); err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Default: true, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -941,7 +941,7 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -984,11 +984,12 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
+func TestWorkspaceAgentModelSelectUsesConfiguredDefault(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	firstPrompt := "First prompt."
 	emptyPrompt := ""
+	prelude := `(let ((profile "first")))`
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
 		t.Fatal(err)
@@ -1003,42 +1004,31 @@ func TestWorkspaceAgentModelSelectUsesOnlyHighestPriorityTier(t *testing.T) {
 			{Alias: "lower", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Lower"}`, MaxTurns: 2, MaxOutputTokens: 2000, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Alias: "first", ModelAlias: "first", Revision: 1, Priority: 2, SystemPrompt: &firstPrompt, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "second", ModelAlias: "second", Revision: 1, Priority: 2, SystemPrompt: &emptyPrompt, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "lower", ModelAlias: "lower", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "first", ModelAlias: "first", Revision: 1, SystemPrompt: &firstPrompt, Prelude: &prelude, Default: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "second", ModelAlias: "second", Revision: 1, SystemPrompt: &emptyPrompt, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "lower", ModelAlias: "lower", Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	var firstID, secondID string
+	var firstID string
 	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'first'`).Scan(&firstID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'second'`).Scan(&secondID); err != nil {
-		t.Fatal(err)
+	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "")
+	if err != nil || selected == nil || selected.AgentModel.Id != firstID {
+		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want configured default", selected, err)
 	}
-	for range 5 {
-		err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "")
-		if err != nil || selected == nil {
-			t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v)", selected, err)
-		}
-		if selected.AgentModel.Id != firstID && selected.AgentModel.Id != secondID {
-			t.Fatalf("WorkspaceAgentModelSelect() selected %#v outside the highest priority tier", selected)
-		}
-		if selected.MaxTurns != 3 {
-			t.Fatalf("WorkspaceAgentModelSelect() max turns = %d, want 3", selected.MaxTurns)
-		}
-		if selected.MaxOutputTokens != 2000 {
-			t.Fatalf("WorkspaceAgentModelSelect() max output tokens = %d, want 2000", selected.MaxOutputTokens)
-		}
-		if selected.AgentModel.Id == firstID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt.") {
-			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
-		}
-		if selected.AgentModel.Id == secondID && (selected.SystemPrompt == nil || *selected.SystemPrompt != "") {
-			t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want empty prompt", selected.SystemPrompt)
-		}
+	if selected.MaxTurns != 3 || selected.MaxOutputTokens != 2000 {
+		t.Fatalf("WorkspaceAgentModelSelect() limits = (%d, %d)", selected.MaxTurns, selected.MaxOutputTokens)
+	}
+	if selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt." {
+		t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
+	}
+	if selected.Prelude == nil || *selected.Prelude != prelude {
+		t.Fatalf("WorkspaceAgentModelSelect() prelude = %#v", selected.Prelude)
 	}
 }
 
@@ -1058,8 +1048,8 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Requested"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Default: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -1080,6 +1070,15 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "missing")
 	if err != nil || selected == nil || selected.Ref.Id != automaticID {
 		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
+	}
+	state.WorkspaceAgents[0].Default = false
+	state.WorkspaceAgents[0].Revision = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "")
+	if err != nil || selected != nil {
+		t.Fatalf("WorkspaceAgentModelSelect() with no default = (%#v, %v)", selected, err)
 	}
 }
 
@@ -1347,7 +1346,7 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)

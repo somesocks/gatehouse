@@ -1019,7 +1019,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello."}`, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1045,7 +1045,7 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 	}
 
 	state.WorkspaceAgents[0].Revision = 2
-	state.WorkspaceAgents[0].Priority = 2
+	state.WorkspaceAgents[0].Default = true
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -1061,23 +1061,24 @@ func TestMigrateSQLiteEmitsWorkspaceAgentActivity(t *testing.T) {
 	if count != 1 {
 		t.Fatalf("workspace_agent.update activity count = %d, want 1", count)
 	}
-	var priority, revision int
-	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&priority, &revision); err != nil {
+	var isDefault bool
+	var revision int
+	if err := store.QueryRowContext(ctx, `SELECT "default", revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&isDefault, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if priority != 2 || revision != 2 {
-		t.Fatalf("updated workspace agent = (%d, %d)", priority, revision)
+	if !isDefault || revision != 2 {
+		t.Fatalf("updated workspace agent = (%t, %d)", isDefault, revision)
 	}
 
-	state.WorkspaceAgents[0].Priority = 3
+	state.WorkspaceAgents[0].Default = false
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueryRowContext(ctx, `SELECT priority, revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&priority, &revision); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT "default", revision FROM gatehouse_workspace_agents WHERE workspace_id = ? AND model_id = ?`, workspace.Id, modelID).Scan(&isDefault, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if priority != 2 || revision != 2 {
-		t.Fatalf("stale workspace agent = (%d, %d)", priority, revision)
+	if !isDefault || revision != 2 {
+		t.Fatalf("stale workspace agent = (%t, %d)", isDefault, revision)
 	}
 }
 

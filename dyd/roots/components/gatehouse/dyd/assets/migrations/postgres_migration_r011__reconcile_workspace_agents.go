@@ -24,9 +24,10 @@ type postgresMigrationR011WorkspaceAgentAliasKey struct {
 
 type postgresMigrationR011StoredWorkspaceAgent struct {
 	Revision     int
-	Priority     int
 	Label        sql.NullString
 	SystemPrompt sql.NullString
+	Prelude      sql.NullString
+	Default      bool
 	Enabled      bool
 }
 
@@ -90,9 +91,11 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range .Agents }}
-			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled)
-				VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Alias }}, (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Revision }}, {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET model_id = excluded.model_id, revision = excluded.revision, priority = excluded.priority, label = excluded.label, system_prompt = excluded.system_prompt, enabled = excluded.enabled
+			UPDATE gatehouse_workspace_agents SET "default" = FALSE
+			WHERE "default" = TRUE AND workspace_id = (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}) AND {{ sqlBool .Default }};
+			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled)
+				VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Alias }}, (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlBool .Default }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, alias) DO UPDATE SET model_id = excluded.model_id, revision = excluded.revision, label = excluded.label, system_prompt = excluded.system_prompt, prelude = excluded.prelude, "default" = excluded."default", enabled = excluded.enabled
 			WHERE gatehouse_workspace_agents.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}
@@ -118,7 +121,7 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 
 func postgresMigrationR011WorkspaceAgentsByAlias(ctx context.Context, session *MigrationSession) (map[postgresMigrationR011WorkspaceAgentAliasKey]postgresMigrationR011StoredWorkspaceAgent, error) {
 	rows, err := session.QueryContext(ctx, `
-			SELECT workspaces.alias, agents.alias, agents.revision, agents.priority, agents.label, agents.system_prompt, agents.enabled
+		SELECT workspaces.alias, agents.alias, agents.revision, agents.label, agents.system_prompt, agents.prelude, agents."default", agents.enabled
 		FROM gatehouse_workspace_agents AS agents
 		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = agents.workspace_id
 		WHERE workspaces.alias IS NOT NULL
@@ -132,7 +135,7 @@ func postgresMigrationR011WorkspaceAgentsByAlias(ctx context.Context, session *M
 	for rows.Next() {
 		var key postgresMigrationR011WorkspaceAgentAliasKey
 		var agent postgresMigrationR011StoredWorkspaceAgent
-		if err := rows.Scan(&key.Workspace, &key.Alias, &agent.Revision, &agent.Priority, &agent.Label, &agent.SystemPrompt, &agent.Enabled); err != nil {
+		if err := rows.Scan(&key.Workspace, &key.Alias, &agent.Revision, &agent.Label, &agent.SystemPrompt, &agent.Prelude, &agent.Default, &agent.Enabled); err != nil {
 			return nil, fmt.Errorf("scan workspace agent: %w", err)
 		}
 		agents[key] = agent

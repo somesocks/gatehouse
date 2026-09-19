@@ -54,6 +54,7 @@ type SessionToolCallInput struct {
 	CallID    string
 	Code      string
 	Reason    string
+	Prelude   string
 }
 
 type SessionApprovalInput struct {
@@ -226,7 +227,7 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 				return sessionNamePreparation{}, err
 			}
 			if selected == nil {
-				return sessionNamePreparation{}, fmt.Errorf("name session %q: no enabled workspace agent", input.Session.Id)
+				return sessionNamePreparation{}, nil
 			}
 			return sessionNamePreparation{Selected: selected, Text: text}, nil
 		}
@@ -338,7 +339,7 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	selected := preparation.Selected
 	if selected == nil {
-		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: no enabled workspace agent", input.Event.Id)
+		return model.SessionEvent{}, nil
 	}
 	message := preparation.Message
 	if message == nil {
@@ -478,7 +479,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
-		_, err = runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, reply.ToolCalls)
+		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, reply.ToolCalls)
 		if err != nil {
 			return err, agentFinalReply{}
 		}
@@ -597,7 +598,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	stopCancellationWatch := runtime.watchToolCallCancellation(input.Request.Parent, cancelEvaluation)
 	defer stopCancellationWatch()
 	defer cancelEvaluation()
-	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPrelude, HostModules: modules})
+	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Context: evaluationContext, Prelude: input.Prelude, HostModules: modules})
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
 	if errors.Is(evalErr, lisp.ErrInterrupted) {
@@ -1549,7 +1550,9 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 	}, dbos.WithStepName("gatehouse.session-approval-response"))
 }
 
-func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]string, error) {
+func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]string, error) {
+	agent := selected.Ref
+	prelude := agentPreludeFor(selected)
 	inputs := make([]SessionToolCallInput, len(calls))
 	seen := make(map[string]bool, len(calls))
 	for index, call := range calls {
@@ -1572,7 +1575,7 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent m
 		if err != nil {
 			return nil, err
 		}
-		inputs[index] = SessionToolCallInput{Request: stored, Agent: agent, Principal: principal, CallID: call.ID, Code: code, Reason: reason}
+		inputs[index] = SessionToolCallInput{Request: stored, Agent: agent, Principal: principal, CallID: call.ID, Code: code, Reason: reason, Prelude: prelude}
 	}
 	handles := make([]dbos.WorkflowHandle[string], len(inputs))
 	for index, input := range inputs {
@@ -1653,10 +1656,17 @@ func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.Session
 var openAISystemPrompt string
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
-	if selected.SystemPrompt != nil {
-		return *selected.SystemPrompt
+	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
+		return openAISystemPrompt
 	}
-	return openAISystemPrompt
+	return openAISystemPrompt + "\n\n" + *selected.SystemPrompt
+}
+
+func agentPreludeFor(selected *database.WorkspaceAgentModel) string {
+	if selected.Prelude != nil {
+		return *selected.Prelude
+	}
+	return agentPrelude
 }
 
 func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage) []openAICompatibleMessage {
@@ -1739,7 +1749,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, 
 			err := fmt.Errorf("OpenAI Responses requested a tool batch that exceeds the MCMTR tool high-tier buffer")
 			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 		}
-		_, err = runtime.runLispCalls(ctx, parent, selected.Ref, principal, round, callCount, calls)
+		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, calls)
 		if err != nil {
 			return err, agentFinalReply{}
 		}

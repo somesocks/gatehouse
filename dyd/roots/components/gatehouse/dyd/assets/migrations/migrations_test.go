@@ -78,6 +78,42 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 	}
 }
 
+func TestSQLiteMigrationOptionsRestoreForeignKeys(t *testing.T) {
+	ctx := context.Background()
+	opened := openMigrationTestDatabase(t)
+	registry := Registry{
+		Init: testSQLiteRegistry(t).Init,
+		Versioned: []VersionedMigration{
+			{Index: 1, Description: "foreign_key_option_success", Builder: staticMigrationBuilder(`SELECT 1;`)},
+			{Index: 2, Description: "foreign_key_option_failure", Builder: staticMigrationBuilder(`SELECT missing_column;`)},
+		},
+	}
+	if err := migrateSQLite(ctx, opened, Registry{Init: registry.Init}); err != nil {
+		t.Fatal(err)
+	}
+	connection, err := opened.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer connection.Close()
+	for _, migration := range []struct {
+		migration resolvedMigration
+		wantErr   bool
+	}{
+		{migration: resolvedMigration{migrationType: migrationTypeVersioned, index: 1, description: "foreign_key_option_success", source: "SELECT 1;", options: MigrationOptions{SQLite: SQLiteMigrationOptions{DisableForeignKeys: true}}}},
+		{migration: resolvedMigration{migrationType: migrationTypeVersioned, index: 2, description: "foreign_key_option_failure", source: "SELECT missing_column;", options: MigrationOptions{SQLite: SQLiteMigrationOptions{DisableForeignKeys: true}}}, wantErr: true},
+	} {
+		err, _ := migrateSQLiteOne(ctx, connection, registry, migration.migration)
+		if migration.wantErr != (err != nil) {
+			t.Fatalf("migrateSQLiteOne() error = %v, want error %t", err, migration.wantErr)
+		}
+		var foreignKeys int
+		if err := connection.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreignKeys); err != nil || foreignKeys != 1 {
+			t.Fatalf("foreign keys after migration = (%d, %v), want enabled", foreignKeys, err)
+		}
+	}
+}
+
 func TestMigratePreparesKeychainsFirstWithoutReplacement(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(context.Background(), configuration)
@@ -838,6 +874,37 @@ func TestSQLiteMigrationV041UpgradesWorkspaceAgentBindings(t *testing.T) {
 	var oldActivityColumn int
 	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM pragma_table_info('gatehouse_activity_events') WHERE name = 'resource_workspace_agent_workspace'`).Scan(&oldActivityColumn); err != nil || oldActivityColumn != 1 {
 		t.Fatalf("activity workspace-agent workspace columns = (%d, %v), want 1", oldActivityColumn, err)
+	}
+	connection, err := store.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+		t.Fatal(err)
+	}
+	if err, source := sqliteMigrationV049WorkspaceAgentDefaults().Builder(ctx, nil); err != nil {
+		t.Fatal(err)
+	} else if _, err := connection.ExecContext(ctx, source); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := connection.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var isDefault bool
+	if err := store.QueryRowContext(ctx, `SELECT "default" FROM gatehouse_workspace_agents WHERE id = ?`, bindingID).Scan(&isDefault); err != nil || !isDefault {
+		t.Fatalf("migrated binding default = (%t, %v), want true", isDefault, err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT author_agent FROM gatehouse_sessions WHERE id = 'ses_00000000000000000000000000'`).Scan(&bindingID); err != nil || !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) {
+		t.Fatalf("session binding reference after migration = (%q, %v)", bindingID, err)
+	}
+	if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, "default", enabled) VALUES ('wag_00000000000000000000000002', 'wsp_00000000000000000000000000', '-luna/_low/9', 'amd_00000000000000000000000000', 1, FALSE, TRUE)`); err != nil {
+		t.Fatalf("workspace bindings rejected a safe alias: %v", err)
+	}
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET "default" = TRUE WHERE id = 'wag_00000000000000000000000002'`); err == nil {
+		t.Fatal("workspace bindings accepted multiple defaults")
 	}
 }
 

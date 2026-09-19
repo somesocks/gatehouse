@@ -269,11 +269,13 @@ let WorkspaceAgent =
 		       { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
 		       , alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local binding alias" }
 		        , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "current agent model identity" }
-                , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
+		        , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this agent receives automatic replies" }
                , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
                }
         , optional = toMap
-              { label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
+               { label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
+			   , system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "custom instructions appended to the standard system prompt" }
+			   , prelude = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Lisp prelude that replaces the standard agent prelude" }
               }
         }
         s.record.meta::{ name = Some "WorkspaceAgent", description = Some "A model assigned to a workspace." }

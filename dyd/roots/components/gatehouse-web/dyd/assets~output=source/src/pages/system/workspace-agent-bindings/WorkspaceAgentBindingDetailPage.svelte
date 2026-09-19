@@ -47,17 +47,21 @@
       </div>
       <dl>
         <div class="field">
-          <dt>Priority</dt>
-          <dd>{controller.state.binding.priority}</dd>
+          <dt>Automatic replies</dt>
+          <dd>{controller.state.binding.default ? "Default agent" : "Not default"}</dd>
         </div>
         <div class="field">
           <dt>Label</dt>
           <dd>{controller.state.binding.label ?? "Not configured"}</dd>
         </div>
         <div class="field">
-          <dt>System prompt</dt>
-          <dd>{controller.state.binding.system_prompt ?? "Not configured"}</dd>
-        </div>
+          <dt>Custom system prompt</dt>
+			<dd>{controller.state.binding.system_prompt ?? "Not configured"}</dd>
+		</div>
+		<div class="field">
+			<dt>Lisp prelude</dt>
+			<dd>{controller.state.binding.prelude ?? "Standard prelude"}</dd>
+		</div>
         <div class="field">
           <dt>Status</dt>
           <dd>{controller.state.binding.enabled ? "Enabled" : "Disabled"}</dd>
@@ -108,16 +112,6 @@
           </div>
         </div>
         <div class="field">
-          <label for="agent-binding-priority">Priority</label>
-          <div>
-            <input
-              id="agent-binding-priority"
-              type="number"
-              bind:value={controller.state.form.priority}
-            />
-          </div>
-        </div>
-        <div class="field">
           <label for="agent-binding-label">Label</label>
           <div>
             <input
@@ -128,7 +122,7 @@
         </div>
         <div class="field">
           <label for="agent-binding-system-prompt"
-            >System prompt</label
+            >Custom system prompt</label
           >
           <div>
             <textarea
@@ -137,6 +131,23 @@
               bind:value={controller.state.form.systemPrompt}></textarea>
           </div>
         </div>
+        <div class="field">
+          <label for="agent-binding-prelude">Lisp prelude</label>
+          <div>
+            <textarea
+              id="agent-binding-prelude"
+              rows="4"
+              bind:value={controller.state.form.prelude}></textarea>
+          </div>
+        </div>
+		<div class="field">
+			<label class="choice"
+				><input
+					type="checkbox"
+					bind:checked={controller.state.form.default}
+				/> Default automatic-reply agent</label
+			>
+		</div>
         <div class="field">
           <label class="choice"
             ><input

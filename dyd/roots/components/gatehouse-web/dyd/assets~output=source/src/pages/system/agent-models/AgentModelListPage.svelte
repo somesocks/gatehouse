@@ -37,7 +37,7 @@
         <p class="eyebrow">System</p>
         <h2>Agent models</h2>
         <p>
-          Models with the same workspace priority are selected randomly.
+			Workspace bindings designate the model used for automatic replies.
         </p>
       </div>
       <RouterLink class="primary" href="/app/system/agent-models/new"

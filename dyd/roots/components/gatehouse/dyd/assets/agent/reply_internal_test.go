@@ -48,11 +48,11 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 			if name == "default" && got != openAISystemPrompt {
 				t.Fatalf("system prompt = %q, want default prompt", got)
 			}
-			if name == "custom" && got != "Custom instructions." {
-				t.Fatalf("system prompt = %q, want custom prompt", got)
+			if name == "custom" && got != openAISystemPrompt+"\n\nCustom instructions." {
+				t.Fatalf("system prompt = %q, want default prompt plus custom instructions", got)
 			}
-			if name == "empty" && got != "" {
-				t.Fatalf("system prompt = %q, want empty prompt", got)
+			if name == "empty" && got != openAISystemPrompt {
+				t.Fatalf("system prompt = %q, want default prompt", got)
 			}
 		})
 	}
@@ -96,16 +96,26 @@ func TestOpenAIResponsesFinalReply(t *testing.T) {
 	}
 }
 
-func TestOpenAIRequestMessagesOmitsEmptySystemPrompt(t *testing.T) {
+func TestOpenAIRequestMessagesIncludesDefaultSystemPrompt(t *testing.T) {
 	emptyPrompt := ""
 	messages := []openAICompatibleMessage{{Role: "user", Content: "hello"}}
-	withoutPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{SystemPrompt: &emptyPrompt}, messages)
-	if len(withoutPrompt) != 1 || withoutPrompt[0].Role != "user" || withoutPrompt[0].Content != "hello" {
-		t.Fatalf("messages without prompt = %#v, want user message only", withoutPrompt)
+	withEmptyPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{SystemPrompt: &emptyPrompt}, messages)
+	if len(withEmptyPrompt) != 2 || withEmptyPrompt[0].Role != "system" || withEmptyPrompt[0].Content != openAISystemPrompt || withEmptyPrompt[1].Role != "user" || withEmptyPrompt[1].Content != "hello" {
+		t.Fatalf("messages with empty prompt = %#v", withEmptyPrompt)
 	}
 	withDefaultPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{}, messages)
 	if len(withDefaultPrompt) != 2 || withDefaultPrompt[0].Role != "system" || withDefaultPrompt[0].Content != openAISystemPrompt || withDefaultPrompt[1].Role != "user" || withDefaultPrompt[1].Content != "hello" {
 		t.Fatalf("messages with default prompt = %#v", withDefaultPrompt)
+	}
+}
+
+func TestAgentPreludeFor(t *testing.T) {
+	custom := `(let ((custom #t)))`
+	if got := agentPreludeFor(&database.WorkspaceAgentModel{}); got != agentPrelude {
+		t.Fatalf("default prelude = %q", got)
+	}
+	if got := agentPreludeFor(&database.WorkspaceAgentModel{Prelude: &custom}); got != custom {
+		t.Fatalf("custom prelude = %q", got)
 	}
 }
 

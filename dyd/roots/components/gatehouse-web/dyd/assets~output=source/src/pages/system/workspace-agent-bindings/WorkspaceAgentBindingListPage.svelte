@@ -38,7 +38,7 @@
           href={`/app/system/workspace-agent-bindings/${encodeURIComponent(b.workspace)}/${encodeURIComponent(b.id)}`}
           ><div class="stack">
             <strong>{b.workspace} / {b.alias}</strong><small
-              >{b.id} / priority {b.priority} / revision {b.revision}</small
+              >{b.id} / {b.default ? "default" : "manual"} / revision {b.revision}</small
             >
           </div>
           <span>{b.enabled ? "Enabled" : "Disabled"}</span></RouterLink

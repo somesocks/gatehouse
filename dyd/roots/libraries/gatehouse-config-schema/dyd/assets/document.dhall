@@ -158,12 +158,13 @@ let WorkspaceAgent =
             { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local binding reconciliation alias" }
             , model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model reconciliation alias" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic workspace agent binding configuration revision" }
-            , priority = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "agent selection priority" }
             }
         , optional = toMap
               { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the agent is enabled" }
               , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
-              , system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete system prompt for the agent" }
+				, system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "custom instructions appended to the standard system prompt" }
+			   , prelude = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Lisp prelude that replaces the standard agent prelude" }
+			   , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this agent receives automatic replies" }
              }
         }
         s.record.meta::{ name = Some "WorkspaceAgent" }

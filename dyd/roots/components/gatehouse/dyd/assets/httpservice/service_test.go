@@ -1509,7 +1509,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 2, Label: &label, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 2, Label: &label, Default: true, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {
@@ -1844,15 +1844,15 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(model.Body.Bytes(), &agentModel); err != nil || model.Code != http.StatusOK || agentModel.ID == "" {
 		t.Fatalf("POST system agent model = (%d, %#v, %v)", model.Code, agentModel, err)
 	}
-	binding := request(http.MethodPost, "/api/v1/system/workspace-agents/"+refs["engineering"].Id, `{"alias":"admin-assistant","model":"`+agentModel.ID+`","priority":1,"enabled":true}`)
+	binding := request(http.MethodPost, "/api/v1/system/workspace-agents/"+refs["engineering"].Id, `{"alias":"admin-assistant","model":"`+agentModel.ID+`","default":true,"enabled":true}`)
 	var agent database.SystemWorkspaceAgent
 	if err := json.Unmarshal(binding.Body.Bytes(), &agent); err != nil || binding.Code != http.StatusOK || agent.Alias != "admin-assistant" {
 		t.Fatalf("POST system workspace agent = (%d, %#v, %v)", binding.Code, agent, err)
 	}
-	if renamed := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"alias":"renamed","model":"`+agentModel.ID+`","priority":2,"enabled":false,"expected_revision":1}`); renamed.Code != http.StatusBadRequest {
+	if renamed := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"alias":"renamed","model":"`+agentModel.ID+`","default":false,"enabled":false,"expected_revision":1}`); renamed.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH system workspace agent alias = %d", renamed.Code)
 	}
-	if patched := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"model":"`+agentModel.ID+`","priority":2,"enabled":false,"expected_revision":1}`); patched.Code != http.StatusOK {
+	if patched := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"model":"`+agentModel.ID+`","default":false,"enabled":false,"expected_revision":1}`); patched.Code != http.StatusOK {
 		t.Fatalf("PATCH system workspace agent = %d", patched.Code)
 	}
 	if unauthenticated := httptest.NewRecorder(); func() bool {
@@ -1915,7 +1915,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		SystemGrants:     []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}},
 		AgentProviders:   []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:      []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents:  []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents:  []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
 			{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true},

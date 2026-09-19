@@ -25,15 +25,16 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				alias TEXT NOT NULL,
 				model_alias TEXT NOT NULL,
 				revision INTEGER NOT NULL,
-				priority INTEGER NOT NULL,
 				label TEXT,
 				system_prompt TEXT,
+				prelude TEXT,
+				"default" INTEGER NOT NULL,
 				enabled INTEGER NOT NULL,
 				PRIMARY KEY (workspace_alias, alias)
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, alias, model_alias, revision, priority, label, system_prompt, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Priority }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, alias, model_alias, revision, label, system_prompt, prelude, "default", enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlBool .Default }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_workspace_agents_state AS
@@ -47,12 +48,14 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				COALESCE(agents.id, gh_id_new('wag')) AS binding_id,
 				desired.revision,
 				agents.revision AS existing_revision,
-				desired.priority,
-				agents.priority AS existing_priority,
 				desired.label,
 				agents.label AS existing_label,
 				desired.system_prompt,
 				agents.system_prompt AS existing_system_prompt,
+				desired.prelude,
+				agents.prelude AS existing_prelude,
+				desired."default",
+				agents."default" AS existing_default,
 				desired.enabled,
 				agents.enabled AS existing_enabled
 			FROM gatehouse_migration_workspace_agents_desired AS desired
@@ -75,16 +78,19 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 			FROM gatehouse_migration_workspace_agents_state
 			WHERE existing_id IS NULL OR existing_revision < revision;
 
-			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled)
-			SELECT binding_id, workspace_id, alias, model_id, revision, priority, label, system_prompt, enabled
+			UPDATE gatehouse_workspace_agents SET "default" = FALSE
+			WHERE "default" = TRUE AND workspace_id IN (SELECT workspace_id FROM gatehouse_migration_workspace_agents_state WHERE "default" = TRUE AND (existing_id IS NULL OR existing_revision < revision));
+			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled)
+			SELECT binding_id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled
 			FROM gatehouse_migration_workspace_agents_state
 			WHERE TRUE
 			ON CONFLICT (workspace_id, alias) DO UPDATE SET
 				model_id = excluded.model_id,
 				revision = excluded.revision,
-				priority = excluded.priority,
 				label = excluded.label,
 				system_prompt = excluded.system_prompt,
+				prelude = excluded.prelude,
+				"default" = excluded."default",
 				enabled = excluded.enabled
 			WHERE gatehouse_workspace_agents.revision < excluded.revision;
 

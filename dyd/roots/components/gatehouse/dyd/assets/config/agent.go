@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -52,11 +53,14 @@ type WorkspaceAgent struct {
 	Alias        string
 	ModelAlias   string
 	Revision     int
-	Priority     int
 	Label        *string
 	SystemPrompt *string
+	Prelude      *string
+	Default      bool
 	Enabled      bool
 }
+
+var workspaceAgentAlias = regexp.MustCompile(`^[a-z0-9_-]+(/[a-z0-9_-]+)*$`)
 
 const (
 	DefaultAgentModelMaxTurns        = 127
@@ -271,23 +275,34 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			continue
 		}
 		seen := make(map[string]struct{}, len(*workspace.Agents))
+		defaults := 0
 		for agentIndex, configured := range *workspace.Agents {
-			if !keychainID.MatchString(configured.Alias) {
+			if !workspaceAgentAlias.MatchString(configured.Alias) {
 				return fmt.Errorf("workspaces[%d].agents[%d].alias is invalid", workspaceIndex, agentIndex), nil
 			}
 			if _, exists := seen[configured.Alias]; exists {
 				return fmt.Errorf("workspaces[%d].agents[%d].alias %q is duplicated", workspaceIndex, agentIndex, configured.Alias), nil
 			}
 			modelIsEnabled, exists := modelEnabled[configured.Model]
-			if !exists || configured.Revision <= 0 || configured.Priority <= 0 {
+			if !exists || configured.Revision <= 0 {
 				return fmt.Errorf("workspaces[%d].agents[%d] is invalid", workspaceIndex, agentIndex), nil
 			}
 			enabled := configured.Enabled == nil || *configured.Enabled
 			if enabled && !modelIsEnabled {
 				return fmt.Errorf("workspaces[%d].agents[%d].model %q is disabled", workspaceIndex, agentIndex, configured.Model), nil
 			}
+			isDefault := configured.Default != nil && *configured.Default
+			if isDefault && !enabled {
+				return fmt.Errorf("workspaces[%d].agents[%d] default agent is disabled", workspaceIndex, agentIndex), nil
+			}
+			if enabled && isDefault {
+				defaults++
+			}
 			seen[configured.Alias] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Priority: configured.Priority, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Prelude: configured.Prelude, Default: isDefault, Enabled: enabled})
+		}
+		if defaults > 1 {
+			return fmt.Errorf("workspaces[%d].agents configures multiple defaults", workspaceIndex), nil
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

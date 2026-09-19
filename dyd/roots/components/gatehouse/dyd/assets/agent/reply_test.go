@@ -40,8 +40,8 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			{Alias: "requested", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Requested reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true},
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Priority: 2, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Priority: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Default: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Enabled: true},
 		},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
@@ -165,7 +165,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		AgentModels: []config.AgentModel{{
 			Alias: "fallback", Revision: 1, ProviderAlias: "builtin", Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Fallback reply."}`, Compaction: defaultAgentModelCompaction, MaxTurns: config.DefaultAgentModelMaxTurns, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true,
 		}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "fallback", ModelAlias: "fallback", Revision: 1, Priority: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "fallback", ModelAlias: "fallback", Revision: 1, Default: true, Enabled: true}},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())
 	if keyringErr != nil {

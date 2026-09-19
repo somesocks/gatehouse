@@ -56,10 +56,11 @@ export type SystemWorkspaceAgent = {
   alias: string
   model: string
   revision: number
-  priority: number
-  label?: string
-  system_prompt?: string
-  enabled: boolean
+	label?: string
+	system_prompt?: string
+	prelude?: string
+	default: boolean
+	enabled: boolean
 }
 export type SystemWorkspaceStorageProvider = {
   workspace: string

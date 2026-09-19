@@ -137,6 +137,12 @@ func migrateSQLiteOne(ctx context.Context, connection *sql.Conn, registry Regist
 	if _, err := connection.ExecContext(ctx, fmt.Sprintf("PRAGMA busy_timeout = %d", sqliteBusyTimeout)); err != nil {
 		return fmt.Errorf("set SQLite migration busy timeout: %w", err), false
 	}
+	if migration.options.SQLite.DisableForeignKeys {
+		if _, err := connection.ExecContext(ctx, "PRAGMA foreign_keys = OFF"); err != nil {
+			return fmt.Errorf("disable SQLite foreign keys for migration: %w", err), false
+		}
+		defer connection.ExecContext(context.Background(), "PRAGMA foreign_keys = ON")
+	}
 	if _, err := connection.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin immediate migration transaction: %w", err), false
 	}

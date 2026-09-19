@@ -70,16 +70,6 @@
         </div>
       </div>
       <div class="field">
-        <label for="agent-binding-priority">Priority</label>
-        <div>
-          <input
-            id="agent-binding-priority"
-            type="number"
-            bind:value={controller.state.form.priority}
-          />
-        </div>
-      </div>
-      <div class="field">
         <label for="agent-binding-label">Label</label>
         <div>
           <input
@@ -90,7 +80,7 @@
       </div>
       <div class="field">
         <label for="agent-binding-system-prompt"
-          >System prompt</label
+          >Custom system prompt</label
         >
         <div>
           <textarea
@@ -98,6 +88,23 @@
             rows="4"
             bind:value={controller.state.form.systemPrompt}></textarea>
         </div>
+      </div>
+      <div class="field">
+        <label for="agent-binding-prelude">Lisp prelude</label>
+        <div>
+          <textarea
+            id="agent-binding-prelude"
+            rows="4"
+            bind:value={controller.state.form.prelude}></textarea>
+        </div>
+      </div>
+      <div class="field">
+        <label class="choice"
+          ><input
+            type="checkbox"
+            bind:checked={controller.state.form.default}
+          /> Default automatic-reply agent</label
+        >
       </div>
       <div class="cluster">
         <div>

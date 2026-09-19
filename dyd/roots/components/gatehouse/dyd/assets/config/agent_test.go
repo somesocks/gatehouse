@@ -274,7 +274,6 @@ workspaces:
       - alias: fallback
         model: fallback
         revision: 1
-        priority: 1
 `,
 		"custom": `
 api_version: v1
@@ -295,7 +294,6 @@ workspaces:
       - alias: fallback
         model: fallback
         revision: 1
-        priority: 1
         system_prompt: Custom instructions.
 `,
 		"empty": `
@@ -317,7 +315,6 @@ workspaces:
       - alias: fallback
         model: fallback
         revision: 1
-        priority: 1
         system_prompt: ""
 `,
 	} {
@@ -375,7 +372,6 @@ workspaces:
         model: fallback
         revision: 1
         label: Fallback assistant
-        priority: 1
 `
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatal(err)
@@ -386,6 +382,43 @@ workspaces:
 	}
 	err, state := ResolveState(document)
 	if err != nil || len(state.WorkspaceAgents) != 1 || state.WorkspaceAgents[0].Label == nil || *state.WorkspaceAgents[0].Label != "Fallback assistant" {
+		t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
+	}
+}
+
+func TestResolveWorkspaceAgentsDefaultPreludeAndSlashAlias(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	contents := `
+api_version: v1
+agent_providers:
+  - alias: builtin
+    revision: 1
+    protocol: builtin
+agent_models:
+  - alias: fallback
+    revision: 1
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters:
+      text: Fallback reply.
+workspaces:
+  - alias: engineering
+    agents:
+      - alias: "-luna/_low/9"
+        model: fallback
+        revision: 1
+        default: true
+        prelude: (let ((tier "low")) tier)
+`
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err, document := ValidateFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, state := ResolveState(document)
+	if err != nil || len(state.WorkspaceAgents) != 1 || state.WorkspaceAgents[0].Alias != "-luna/_low/9" || !state.WorkspaceAgents[0].Default || state.WorkspaceAgents[0].Prelude == nil || *state.WorkspaceAgents[0].Prelude != `(let ((tier "low")) tier)` {
 		t.Fatalf("ResolveState() = (%#v, %v)", state.WorkspaceAgents, err)
 	}
 }
@@ -478,7 +511,6 @@ workspaces:
       - alias: fallback
         model: fallback
         revision: 1
-        priority: 1
         ` + limit + `
 `
 			if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {

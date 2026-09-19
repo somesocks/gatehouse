@@ -59,22 +59,25 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 		t.Fatalf("stale SystemAgentModelUpdate() error = %v", err)
 	}
 
-	err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: agentModel.ID, Priority: 2, Enabled: true})
-	if err != nil || binding == nil || binding.Revision != 1 || binding.Alias != "assistant" {
+	err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: agentModel.ID, Default: true, Enabled: true})
+	if err != nil || binding == nil || binding.Revision != 1 || binding.Alias != "assistant" || !binding.Default {
 		t.Fatalf("SystemWorkspaceAgentCreate() = (%#v, %v)", binding, err)
 	}
-	if err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "Invalid Alias", ModelID: agentModel.ID, Priority: 2, Enabled: true}); err != nil || binding != nil {
+	if err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "Invalid Alias", ModelID: agentModel.ID, Enabled: true}); err != nil || binding != nil {
 		t.Fatalf("SystemWorkspaceAgentCreate() accepted an invalid alias = (%#v, %v)", binding, err)
 	}
-	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{Alias: "renamed", ModelID: agentModel.ID, Priority: 3, Enabled: false}); err == nil {
+	if err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "-assistant/_low/9", ModelID: agentModel.ID, Enabled: true}); err != nil || binding == nil || binding.Alias != "-assistant/_low/9" {
+		t.Fatalf("SystemWorkspaceAgentCreate() safe alias = (%#v, %v)", binding, err)
+	}
+	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{Alias: "renamed", ModelID: agentModel.ID, Enabled: false}); err == nil {
 		t.Fatal("SystemWorkspaceAgentUpdate() accepted an alias rename")
 	}
 	label := "Assistant"
-	err, binding = store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Priority: 3, Label: &label, Enabled: false})
-	if err != nil || binding == nil || binding.Revision != 2 || binding.Label == nil || *binding.Label != label || binding.Enabled {
+	err, binding = store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Label: &label, Enabled: false})
+	if err != nil || binding == nil || binding.Revision != 2 || binding.Label == nil || *binding.Label != label || binding.Enabled || binding.Default {
 		t.Fatalf("SystemWorkspaceAgentUpdate() = (%#v, %v)", binding, err)
 	}
-	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Priority: 1, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
+	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{ModelID: agentModel.ID, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale SystemWorkspaceAgentUpdate() error = %v", err)
 	}
 
@@ -107,7 +110,7 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	}
 
 	var activities int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`).Scan(&activities); err != nil || activities != 10 {
-		t.Fatalf("administration activity count = (%d, %v), want 10", activities, err)
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`).Scan(&activities); err != nil || activities != 11 {
+		t.Fatalf("administration activity count = (%d, %v), want 11", activities, err)
 	}
 }

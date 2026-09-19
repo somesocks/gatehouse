@@ -20,12 +20,13 @@ export function createWorkspaceAgentBindingsController({
     error: "",
     saving: false,
     form: {
-      workspace: "",
-      alias: "",
-      model: "",
-      priority: 0,
-      label: "",
-      systemPrompt: "",
+		workspace: "",
+		alias: "",
+		model: "",
+		label: "",
+		systemPrompt: "",
+		prelude: "",
+		default: false,
     },
   })
   let unsubscribe: (() => void) | undefined
@@ -101,9 +102,10 @@ export function createWorkspaceAgentBindingsController({
         {
           alias: form.alias,
           model: form.model,
-          priority: form.priority,
-          label: optional(form.label),
-          system_prompt: optional(form.systemPrompt),
+			label: optional(form.label),
+			system_prompt: optional(form.systemPrompt),
+			prelude: optional(form.prelude),
+			default: form.default,
           enabled: true,
         },
       ))
@@ -113,9 +115,10 @@ export function createWorkspaceAgentBindingsController({
       workspace: "",
       alias: "",
       model: "",
-      priority: 0,
-      label: "",
-      systemPrompt: "",
+		label: "",
+		systemPrompt: "",
+		prelude: "",
+		default: false,
     }
   }
 
@@ -128,9 +131,10 @@ export function createWorkspaceAgentBindingsController({
       "PATCH",
       {
         model: binding.model,
-        priority: binding.priority,
-        label: binding.label,
-        system_prompt: binding.system_prompt,
+		label: binding.label,
+		system_prompt: binding.system_prompt,
+		prelude: binding.prelude,
+		default: enabled && binding.default,
         enabled,
         expected_revision: binding.revision,
       },
