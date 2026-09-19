@@ -11,4 +11,13 @@ case "$(uname -m)" in
     ;;
 esac
 
-exec dryad roots build --scope="$DYD_SCOPE" --include="dyd/roots/deployments/local-dev~arch=$host_arch" "$@"
+case "$(uname -s)" in
+  Darwin) host_os=darwin ;;
+  Linux) host_os=linux ;;
+  *)
+    printf 'unsupported host operating system: %s\n' "$(uname -s)" >&2
+    exit 1
+    ;;
+esac
+
+exec dryad roots build --scope="$DYD_SCOPE" --include="dyd/roots/deployments/local-dev~arch=$host_arch+os=$host_os" "$@"

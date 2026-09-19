@@ -2,4 +2,4 @@
 
 set -eu
 
-exec dryad sprout run --scope="$DYD_SCOPE" --variant=arch=host --command=/bin/sh dyd/sprouts/deployments/local-dev -- -c 'exec "$DYD_STEM/dyd/commands/down"'
+exec dryad sprout run --scope="$DYD_SCOPE" --variant=arch=host+os=host --command=/bin/sh dyd/sprouts/deployments/local-dev -- -c 'exec "$DYD_STEM/dyd/commands/down"'

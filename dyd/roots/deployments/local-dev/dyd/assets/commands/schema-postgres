@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -eu
+
+ASSETS_DIR="$DYD_STEM/dyd/assets"
+DATABASE=${LOCAL_DEV_DATABASE:-sqlite}
+export GATEHOUSE_IMAGE=${GATEHOUSE_IMAGE:-gatehouse}
+export POSTGRES_IMAGE=${POSTGRES_IMAGE:-postgres}
+
+if [ "$DATABASE" != postgres ]; then
+  printf '%s\n' 'schema-postgres requires LOCAL_DEV_DATABASE=postgres' >&2
+  exit 2
+fi
+
+exec docker compose --project-directory "$ASSETS_DIR" \
+  --file "$ASSETS_DIR/docker-compose.yml" \
+  --file "$ASSETS_DIR/docker-compose.postgres.yml" \
+  exec -T -e PGPASSWORD=local-development-postgres postgres \
+  pg_dump --host=127.0.0.1 --username=gatehouse --dbname=gatehouse \
+  --schema=public --exclude-table=public.gatehouse_schema_migrations \
+  --schema-only --no-owner --no-privileges

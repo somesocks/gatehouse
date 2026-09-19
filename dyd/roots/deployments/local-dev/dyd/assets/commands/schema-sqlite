@@ -1,0 +1,27 @@
+#!/usr/bin/env sh
+
+set -eu
+
+ASSETS_DIR="$DYD_STEM/dyd/assets"
+DATABASE=${LOCAL_DEV_DATABASE:-sqlite}
+export GATEHOUSE_IMAGE=${GATEHOUSE_IMAGE:-gatehouse}
+
+if [ "$DATABASE" != sqlite ]; then
+  printf '%s\n' 'schema-sqlite requires LOCAL_DEV_DATABASE=sqlite' >&2
+  exit 2
+fi
+if ! command -v sqlite >/dev/null 2>&1; then
+  printf '%s\n' 'SQLite schema extraction is unavailable for this local-dev variant' >&2
+  exit 2
+fi
+
+CONTAINER=$(docker compose --project-directory "$ASSETS_DIR" --file "$ASSETS_DIR/docker-compose.yml" ps -q gatehouse)
+if [ -z "$CONTAINER" ]; then
+  printf '%s\n' 'Gatehouse local-dev container is not running' >&2
+  exit 2
+fi
+
+DATABASE_COPY=$(mktemp)
+trap 'rm -f "$DATABASE_COPY"' EXIT
+docker cp "$CONTAINER:/var/lib/gatehouse/gatehouse.db" "$DATABASE_COPY"
+exec sqlite "$DATABASE_COPY" '.schema gatehouse_*'

@@ -10,11 +10,19 @@ SECRETS_DIR="$DYD_STEM/dyd/secrets"
 
 image-local-load "$(cat "$IMAGE_DIR/image-name")" "$(cat "$IMAGE_DIR/image-tag")" "$IMAGE_DIR/oci"
 export GATEHOUSE_IMAGE="localhost/$(cat "$IMAGE_DIR/image")"
+local_dev_database_set=false
+if [ "${LOCAL_DEV_DATABASE+x}" = x ]; then
+	local_dev_database_set=true
+	local_dev_database=$LOCAL_DEV_DATABASE
+fi
 if [ -f "$SECRETS_DIR/local-dev.env" ]; then
-  # The optional file is packaged as a Dryad secret, not read from the worktree.
-  set -a
-  . "$SECRETS_DIR/local-dev.env"
-  set +a
+	# The optional file is packaged as a Dryad secret, not read from the worktree.
+	set -a
+	. "$SECRETS_DIR/local-dev.env"
+	set +a
+fi
+if [ "$local_dev_database_set" = true ]; then
+	export LOCAL_DEV_DATABASE=$local_dev_database
 fi
 
 case "${LOCAL_DEV_DIAGNOSTICS_PROFILE:-none}" in
