@@ -1,0 +1,34 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+case "$OS-$ARCH" in
+  darwin-amd64) ARCHIVE="sqlite-tools-osx-x64-3530400" ;;
+  darwin-arm64) ARCHIVE="sqlite-tools-osx-arm64-3530400" ;;
+  linux-amd64) ARCHIVE="sqlite-tools-linux-x64-3530400" ;;
+  *)
+    printf '%s\n' "unsupported SQLite shell platform: $OS-$ARCH" >&2
+    exit 1
+    ;;
+esac
+
+SOURCE="$SRC_DIR/dyd/dependencies/sqlite-tools/dyd/assets/$ARCHIVE/sqlite3"
+
+if [ ! -f "$SOURCE" ]; then
+  printf '%s\n' "missing SQLite shell for $OS-$ARCH version $VERSION" >&2
+  exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp "$SOURCE" "$DEST_DIR/dyd/commands/dyd-stem-run"
+chmod +x "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' sqlite > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"
