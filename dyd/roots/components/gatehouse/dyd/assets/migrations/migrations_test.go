@@ -78,6 +78,226 @@ func TestMigrateAppliesVersionedMigrationsOnceInIndexOrder(t *testing.T) {
 	}
 }
 
+func TestMigrateAppliesLatestBaselineBeforeLaterVersionedMigrations(t *testing.T) {
+	database := openMigrationTestDatabase(t)
+	registry := Registry{
+		Init: testSQLiteRegistry(t).Init,
+		Baseline: []BaselineMigration{
+			{Index: 1, Description: "legacy_schema", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_test_legacy_events (entry TEXT NOT NULL) STRICT;`)},
+			{Index: 3, Description: "schema_at_v003", Builder: staticMigrationBuilder(`
+				CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;
+				INSERT INTO gatehouse_test_events (entry) VALUES ('baseline-3');
+			`)},
+		},
+		Versioned: []VersionedMigration{
+			{Index: 1, Description: "legacy_event", Builder: staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-1');`)},
+			{Index: 3, Description: "baseline_version", Builder: staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-3');`)},
+			{Index: 4, Description: "later_event", Builder: staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-4');`)},
+		},
+	}
+
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := eventEntries(t, database), []string{"baseline-3", "versioned-4"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("event entries = %#v, want %#v", got, want)
+	}
+	if got, want := historyIndexes(t, database, migrationTypeBaseline), []int64{3}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("baseline migration indexes = %#v, want %#v", got, want)
+	}
+	if got, want := historyIndexes(t, database, migrationTypeVersioned), []int64{4}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("versioned migration indexes = %#v, want %#v", got, want)
+	}
+}
+
+func TestMigrateIgnoresBaselinesForExistingVersionedHistory(t *testing.T) {
+	database := openMigrationTestDatabase(t)
+	registry := Registry{
+		Init: testSQLiteRegistry(t).Init,
+		Versioned: []VersionedMigration{{
+			Index:       1,
+			Description: "create_events",
+			Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
+		}},
+	}
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
+		t.Fatal(err)
+	}
+
+	registry.Baseline = []BaselineMigration{{
+		Index:       1,
+		Description: "schema_at_v001",
+		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
+	}}
+	registry.Versioned = append(registry.Versioned, VersionedMigration{
+		Index:       2,
+		Description: "record_event",
+		Builder:     staticMigrationBuilder(`INSERT INTO gatehouse_test_events (entry) VALUES ('versioned-2');`),
+	})
+	if err := migrateSQLite(context.Background(), database, registry); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := historyIndexes(t, database, migrationTypeBaseline); len(got) != 0 {
+		t.Fatalf("baseline migration indexes = %#v, want none", got)
+	}
+	if got, want := eventEntries(t, database), []string{"versioned-2"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("event entries = %#v, want %#v", got, want)
+	}
+}
+
+func TestMigrateSkipsBaselineWhenVersionedHistoryAppearsBeforeLock(t *testing.T) {
+	ctx := context.Background()
+	database := openMigrationTestDatabase(t)
+	init := testSQLiteRegistry(t).Init
+	if err := migrateSQLite(ctx, database, Registry{Init: init}); err != nil {
+		t.Fatal(err)
+	}
+	versioned := VersionedMigration{
+		Index:       1,
+		Description: "create_events",
+		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_events (entry TEXT NOT NULL) STRICT;`),
+	}
+	registry := Registry{
+		Init:      init,
+		Baseline:  []BaselineMigration{{Index: 1, Description: "schema_at_v001", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_test_baseline (entry TEXT NOT NULL) STRICT;`)}},
+		Versioned: []VersionedMigration{versioned},
+	}
+	if _, err := database.Exec(versionedMigrationSource(t, versioned)); err != nil {
+		t.Fatal(err)
+	}
+	checksum := sha256.Sum256([]byte(versionedMigrationSource(t, versioned)))
+	if _, err := database.Exec(`
+		INSERT INTO gatehouse_schema_migrations (
+			migration_type, migration_index, description, checksum, applied_at
+		) VALUES (?, ?, ?, ?, ?)
+	`, migrationTypeVersioned, versioned.Index, versioned.Description, checksum[:], "2026-01-01T00:00:00.000Z"); err != nil {
+		t.Fatal(err)
+	}
+
+	connection, err := database.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, applied := migrateSQLiteOne(ctx, connection, registry, resolvedMigration{
+		migrationType: migrationTypeBaseline,
+		index:         1,
+		description:   "schema_at_v001",
+		source:        `CREATE TABLE gatehouse_test_baseline (entry TEXT NOT NULL) STRICT;`,
+	})
+	if err != nil {
+		_ = connection.Close()
+		t.Fatal(err)
+	}
+	if err := connection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if applied {
+		t.Fatal("stale baseline was applied after versioned history")
+	}
+	var baselineTable int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gatehouse_test_baseline'`).Scan(&baselineTable); err != nil {
+		t.Fatal(err)
+	}
+	if baselineTable != 0 {
+		t.Fatal("stale baseline created a table")
+	}
+}
+
+func TestMigrateRejectsBaselineAfterRepeatableHistory(t *testing.T) {
+	ctx := context.Background()
+	database := openMigrationTestDatabase(t)
+	init := testSQLiteRegistry(t).Init
+	if err := migrateSQLite(ctx, database, Registry{Init: init}); err != nil {
+		t.Fatal(err)
+	}
+	baseline := BaselineMigration{
+		Index:       1,
+		Description: "schema_at_v001",
+		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_test_baseline (entry TEXT NOT NULL) STRICT;`),
+	}
+	repeatable := RepeatableMigration{
+		Index:       1,
+		Description: "record_event",
+		Builder:     staticMigrationBuilder(`SELECT 1;`),
+	}
+	for _, migration := range []struct {
+		kind        string
+		index       int64
+		description string
+		source      string
+	}{
+		{migrationTypeRepeatable, repeatable.Index, repeatable.Description, migrationSource(t, repeatable)},
+		{migrationTypeBaseline, baseline.Index, baseline.Description, `CREATE TABLE gatehouse_test_baseline (entry TEXT NOT NULL) STRICT;`},
+	} {
+		checksum := sha256.Sum256([]byte(migration.source))
+		if _, err := database.Exec(`
+			INSERT INTO gatehouse_schema_migrations (
+				migration_type, migration_index, description, checksum, applied_at
+			) VALUES (?, ?, ?, ?, ?)
+		`, migration.kind, migration.index, migration.description, checksum[:], "2026-01-01T00:00:00.000Z"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	err := migrateSQLite(ctx, database, Registry{
+		Init:       init,
+		Baseline:   []BaselineMigration{baseline},
+		Repeatable: []RepeatableMigration{repeatable},
+	})
+	if err == nil || !strings.Contains(err.Error(), "was not the first migration") {
+		t.Fatalf("migrate() error = %v, want baseline order error", err)
+	}
+}
+
+func TestSQLiteBaselineMatchesVersionedSchema(t *testing.T) {
+	ctx := context.Background()
+	legacy := openConfiguredMigrationTestDatabase(t)
+	baseline := openConfiguredMigrationTestDatabase(t)
+	legacyRegistry := testSQLiteRegistry(t)
+	baselineRegistry := testSQLiteBaselineRegistry(t)
+	legacyRegistry.Repeatable = nil
+	baselineRegistry.Repeatable = nil
+	versioned := VersionedMigration{
+		Index:       50,
+		Description: "baseline_follow_up",
+		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_baseline_follow_up (id TEXT PRIMARY KEY) STRICT;`),
+	}
+	legacyRegistry.Versioned = append(legacyRegistry.Versioned, versioned)
+	baselineRegistry.Versioned = append(baselineRegistry.Versioned, versioned)
+
+	if err := migrateSQLite(ctx, legacy, legacyRegistry); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateSQLite(ctx, baseline, baselineRegistry); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := sqliteSchemaDefinitions(t, baseline), sqliteSchemaDefinitions(t, legacy); !reflect.DeepEqual(got, want) {
+		t.Fatalf("baseline schema differs from versioned schema\nbaseline: %#v\nversioned: %#v", got, want)
+	}
+	for _, database := range []*sql.DB{legacy, baseline} {
+		rows, err := database.Query(`PRAGMA foreign_key_check`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		if rows.Next() {
+			t.Fatal("foreign key check returned violations")
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got := historyIndexes(t, baseline, migrationTypeBaseline); !reflect.DeepEqual(got, []int64{49}) {
+		t.Fatalf("baseline migration indexes = %#v, want [49]", got)
+	}
+	if got := historyIndexes(t, baseline, migrationTypeVersioned); !reflect.DeepEqual(got, []int64{50}) {
+		t.Fatalf("baseline versioned migration indexes = %#v, want [50]", got)
+	}
+}
+
 func TestSQLiteMigrationOptionsRestoreForeignKeys(t *testing.T) {
 	ctx := context.Background()
 	opened := openMigrationTestDatabase(t)
@@ -1348,6 +1568,21 @@ func testSQLiteRegistry(t *testing.T) Registry {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry.Baseline = nil
+	return registry
+}
+
+func testSQLiteBaselineRegistry(t *testing.T) Registry {
+	t.Helper()
+	err, keyring := keychain.NewKeyring(nil, nil, keychain.NewPassphraseSourceResolver())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer keyring.Close()
+	err, registry := sqliteMigrations(config.State{}, keyring)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return registry
 }
 
@@ -1440,6 +1675,20 @@ func openMigrationTestDatabase(t *testing.T) *sql.DB {
 	return database
 }
 
+func openConfiguredMigrationTestDatabase(t *testing.T) *sql.DB {
+	t.Helper()
+	err, store := database.Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return store.DB
+}
+
 func openMigrationTestFileDatabase(t *testing.T, path string) *sql.DB {
 	t.Helper()
 	database, err := sql.Open("sqlite", path)
@@ -1476,6 +1725,33 @@ func eventEntries(t *testing.T, database queryer) []string {
 		t.Fatal(err)
 	}
 	return entries
+}
+
+func sqliteSchemaDefinitions(t *testing.T, database *sql.DB) []string {
+	t.Helper()
+	rows, err := database.Query(`
+		SELECT type, name, tbl_name, sql
+		FROM sqlite_master
+		WHERE name GLOB 'gatehouse_*'
+		ORDER BY type, name
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+
+	var definitions []string
+	for rows.Next() {
+		var kind, name, table, source string
+		if err := rows.Scan(&kind, &name, &table, &source); err != nil {
+			t.Fatal(err)
+		}
+		definitions = append(definitions, strings.Join(strings.Fields(source), " "))
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return definitions
 }
 
 func historyChecksum(t *testing.T, database queryer, migrationType string, index int64) [sha256.Size]byte {

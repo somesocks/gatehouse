@@ -7,7 +7,8 @@ import (
 
 func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Registry) {
 	return nil, Registry{
-		Init: sqliteMigrationInit(),
+		Init:     sqliteMigrationInit(),
+		Baseline: []BaselineMigration{sqliteMigrationB049Schema()},
 		Versioned: []VersionedMigration{
 			sqliteMigrationV001CreateWorkspaces(),
 			sqliteMigrationV002CreatePrincipalsAndIdentities(),

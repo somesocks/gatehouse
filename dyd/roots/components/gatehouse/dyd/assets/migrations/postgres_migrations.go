@@ -7,7 +7,8 @@ import (
 
 func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, Registry) {
 	return nil, Registry{
-		Init: postgresMigrationInit(),
+		Init:     postgresMigrationInit(),
+		Baseline: []BaselineMigration{postgresMigrationB049Schema()},
 		Versioned: []VersionedMigration{
 			postgresMigrationV001CreateWorkspaces(),
 			postgresMigrationV002CreatePrincipalsAndIdentities(),
