@@ -9,6 +9,7 @@
     rel,
     download,
     class: className,
+    "aria-current": ariaCurrent,
     children,
   }: {
     href: string
@@ -16,6 +17,7 @@
     rel?: string
     download?: string | boolean
     class?: string
+    "aria-current"?: "page" | "step" | "location" | "date" | "time" | "true" | "false"
     children: Snippet
   } = $props()
   const runtime = useRuntime()
@@ -36,6 +38,6 @@
   }
 </script>
 
-<a {href} {target} {rel} {download} class={className} onclick={navigate}
+<a {href} {target} {rel} {download} aria-current={ariaCurrent} class={className} onclick={navigate}
   >{@render children()}</a
 >

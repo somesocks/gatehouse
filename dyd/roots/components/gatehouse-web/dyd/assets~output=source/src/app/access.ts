@@ -1,6 +1,7 @@
 export type Workspace = {
   id: string
   name?: string
+  description?: string
 }
 
 export async function fetchWorkspaces(): Promise<Response> {

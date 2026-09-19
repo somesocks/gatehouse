@@ -1,9 +1,7 @@
 import { getContext } from "svelte"
 
 export type SidebarPageState = {
-  drawerOpen: boolean
-  floatingHeaderHeight: number
-  floatingFooterHeight: number
+  drawer: HTMLDialogElement | undefined
 }
 
 export const sidebarPageContext = Symbol("sidebar-page")

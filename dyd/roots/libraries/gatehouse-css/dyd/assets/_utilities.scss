@@ -1,0 +1,203 @@
+@use "sass:map";
+
+$breakpoints: (
+  sm: 40rem,
+  md: 48rem,
+  lg: 64rem,
+  xl: 80rem,
+  2xl: 96rem,
+);
+$layer-max-depth: 4 !default;
+$light-layer-colors: (
+  -2: var(--secondary-50),
+  -1: var(--secondary-100),
+  0: var(--secondary-200),
+  1: var(--secondary-300),
+  2: var(--secondary-400),
+  3: var(--secondary-500),
+  4: var(--secondary-600),
+);
+$dark-layer-colors: (
+  -2: var(--secondary-950),
+  -1: var(--secondary-900),
+  0: var(--secondary-800),
+  1: var(--secondary-700),
+  2: var(--secondary-600),
+  3: var(--secondary-500),
+  4: var(--secondary-400),
+);
+
+@function layer-color($colors, $level) {
+  $clamped-level: $level;
+
+  @if $clamped-level < -2 {
+    $clamped-level: -2;
+  }
+
+  @if $clamped-level > $layer-max-depth {
+    $clamped-level: $layer-max-depth;
+  }
+
+  @return map.get($colors, $clamped-level);
+}
+
+@mixin generate-layer-states($selector, $colors, $level: 0, $remaining-depth: $layer-max-depth, $inset: false) {
+  #{$selector} {
+    background-color: layer-color($colors, $level);
+    border-radius: var(--radius);
+
+    @if $inset {
+      box-shadow: inset var(--surface-shadow);
+    } @else {
+      box-shadow: var(--surface-shadow);
+    }
+  }
+
+  @if $remaining-depth > 0 {
+    @include generate-layer-states(
+      "#{$selector} .surface.up",
+      $colors,
+      $level + 1,
+      $remaining-depth - 1,
+      false
+    );
+    @include generate-layer-states(
+      "#{$selector} .surface.down",
+      $colors,
+      $level - 1,
+      $remaining-depth - 1,
+      true
+    );
+  }
+}
+
+@include generate-layer-states(":root .surface", $light-layer-colors);
+@include generate-layer-states("[data-theme=light] .surface", $light-layer-colors);
+
+@media (prefers-color-scheme: dark) {
+  @include generate-layer-states(":root:not([data-theme]) .surface", $dark-layer-colors);
+}
+
+@include generate-layer-states("[data-theme=dark] .surface", $dark-layer-colors);
+
+@mixin from($breakpoint) {
+  @if not map.has-key($breakpoints, $breakpoint) {
+    @error "Unknown breakpoint: #{$breakpoint}";
+  }
+
+  @media (width >= map.get($breakpoints, $breakpoint)) {
+    @content;
+  }
+}
+
+@mixin until($breakpoint) {
+  @if not map.has-key($breakpoints, $breakpoint) {
+    @error "Unknown breakpoint: #{$breakpoint}";
+  }
+
+  @media (width < map.get($breakpoints, $breakpoint)) {
+    @content;
+  }
+}
+
+$display-values: none, inline, inline-block, block, flex, inline-flex, grid;
+
+@mixin display($value) {
+  display: $value;
+}
+
+@mixin display-from($breakpoint, $value) {
+  @include from($breakpoint) {
+    @include display($value);
+  }
+}
+
+@each $display in $display-values {
+  .d-#{$display} {
+    @include display($display);
+  }
+}
+
+@each $breakpoint, $_ in $breakpoints {
+  @include from($breakpoint) {
+    @each $display in $display-values {
+      .d-#{$breakpoint}-#{$display} {
+        @include display($display);
+      }
+    }
+  }
+}
+
+%stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+%cluster {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space);
+}
+
+.split {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space);
+  justify-content: space-between;
+}
+
+.split > * {
+  min-inline-size: 0;
+}
+
+.split > :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+}
+
+@media (width < 40rem) {
+  .split {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+%surface {
+  background-color: var(--surface);
+  border-radius: var(--radius);
+  box-shadow: var(--surface-shadow);
+}
+
+.surface.down {
+  box-shadow: inset var(--surface-shadow);
+}
+
+%control {
+  background-color: var(--surface);
+  border: 0;
+  border-radius: var(--radius);
+  color: var(--foreground);
+  font: inherit;
+}
+
+.visually-hidden {
+  block-size: 1px;
+  clip-path: inset(50%);
+  inline-size: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.muted {
+  color: var(--foreground-muted);
+}
+
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

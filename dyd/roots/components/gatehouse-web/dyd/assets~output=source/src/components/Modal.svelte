@@ -2,18 +2,16 @@
   import type { Snippet } from "svelte"
 
   let {
-    dialog = $bindable(),
+    modal = $bindable(),
     labelledBy,
     onClose,
-    brandTheme = false,
     header,
     children,
-    class: className = "note-history-dialog",
+    class: className,
   }: {
-    dialog?: HTMLDialogElement
+    modal?: HTMLDialogElement
     labelledBy?: string
     onClose: () => void
-    brandTheme?: boolean
     header: Snippet
     children: Snippet
     class?: string
@@ -21,11 +19,15 @@
 </script>
 
 <dialog
-  class={`${className}${brandTheme ? " brand-modal-dialog" : ""}`}
+  class={`modal${className === undefined ? "" : ` ${className}`}`}
   aria-labelledby={labelledBy}
-  bind:this={dialog}
+  bind:this={modal}
   onclose={onClose}
 >
-  {@render header()}
-  {@render children()}
+  <div class="modal-body stack">
+    <div class="modal-header">
+      {@render header()}
+    </div>
+    {@render children()}
+  </div>
 </dialog>

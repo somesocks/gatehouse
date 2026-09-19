@@ -1,0 +1,21 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+DART_SASS_DIR="$SRC_DIR/dyd/dependencies/dart-sass"
+IBM_PLEX_FONTS_DIR="$SRC_DIR/dyd/dependencies/ibm-plex-fonts/dyd/assets/fonts"
+STYLELINT_DIR="$SRC_DIR/dyd/dependencies/stylelint-sass"
+
+mkdir -p "$DEST_DIR/dyd/assets/fonts" "$DEST_DIR/dyd/dependencies"
+ln -s "$DART_SASS_DIR" "$DEST_DIR/dyd/dependencies/dart-sass"
+ln -s "$STYLELINT_DIR" "$DEST_DIR/dyd/dependencies/stylelint-sass"
+
+DYD_STEM="$STYLELINT_DIR" "$STYLELINT_DIR/dyd/commands/dyd-stem-run" "$SRC_DIR/dyd/assets"/*.scss
+"$DART_SASS_DIR/dyd/commands/dyd-stem-run" --no-source-map "$SRC_DIR/dyd/assets/base.scss" "$DEST_DIR/dyd/assets/base.raw.css"
+printf '%s\n' '@import "./fonts/ibm-plex.css";' > "$DEST_DIR/dyd/assets/base.css"
+cat "$DEST_DIR/dyd/assets/base.raw.css" >> "$DEST_DIR/dyd/assets/base.css"
+rm "$DEST_DIR/dyd/assets/base.raw.css"
+cp "$IBM_PLEX_FONTS_DIR/ibm-plex.css" "$DEST_DIR/dyd/assets/fonts/ibm-plex.css"
+cp "$SRC_DIR/dyd/assets/demo.html" "$DEST_DIR/dyd/assets/demo.html"

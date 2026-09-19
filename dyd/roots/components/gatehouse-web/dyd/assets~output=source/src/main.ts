@@ -1,7 +1,5 @@
 import "katex/dist/katex.min.css"
-import "@fontsource/ibm-plex-sans/500.css"
-import "@fontsource/ibm-plex-sans-condensed/500.css"
-import "@fontsource/ibm-plex-sans-condensed/600.css"
+import "./gatehouse.css"
 import "./app.css"
 import { mount } from "svelte"
 

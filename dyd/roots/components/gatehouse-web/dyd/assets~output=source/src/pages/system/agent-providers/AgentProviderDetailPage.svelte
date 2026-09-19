@@ -19,88 +19,88 @@
 </script>
 
 <SystemFrame active="agent-providers" title="Agent provider">
-  <section class="system-page">
+  <section class="stack">
     {#if controller.state.loading}
-      <p class="dashboard-empty">Loading agent provider...</p>
+      <p class="muted">Loading agent provider...</p>
     {:else if controller.state.provider === null}
-      <p class="help is-danger" aria-live="polite">
+      <p class="field-help" role="alert" aria-live="polite">
         {controller.state.error === ""
           ? "Agent provider was not found."
           : controller.state.error}
       </p>
-      <RouterLink class="button" href="/app/system/agent-providers"
+      <RouterLink class="secondary" href="/app/system/agent-providers"
         >Back to providers</RouterLink
       >
     {:else if !controller.state.editing}
-      <div class="system-page-heading mb-5">
+      <div class="split">
         <div>
           <p class="eyebrow">Agent provider</p>
-          <h2 class="title is-3">{controller.state.provider.alias}</h2>
-          <p class="subtitle is-6">{controller.state.provider.id}</p>
+          <h2>{controller.state.provider.alias}</h2>
+          <p>{controller.state.provider.id}</p>
         </div>
         <button
-          class="button is-primary"
+          class="secondary"
           type="button"
           onclick={() => void controller.beginEdit()}>Edit</button
         >
       </div>
       <dl>
         <div class="field">
-          <dt class="label">Protocol</dt>
-          <dd class="control">{controller.state.provider.protocol}</dd>
+          <dt>Protocol</dt>
+          <dd>{controller.state.provider.protocol}</dd>
         </div>
         <div class="field">
-          <dt class="label">Base URL</dt>
-          <dd class="control">
+          <dt>Base URL</dt>
+          <dd>
             {controller.state.provider.base_url ?? "Not configured"}
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Keychain</dt>
-          <dd class="control">
+          <dt>Keychain</dt>
+          <dd>
             {controller.state.provider.keychain === undefined
               ? "Not configured"
               : `${controller.state.provider.keychain.id} / version ${controller.state.provider.keychain.version}`}
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Credential</dt>
-          <dd class="control">
+          <dt>Credential</dt>
+          <dd>
             {controller.state.provider.credential_configured
               ? "Configured"
               : "Not configured"}
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Status</dt>
-          <dd class="control">
+          <dt>Status</dt>
+          <dd>
             {controller.state.provider.enabled ? "Enabled" : "Disabled"}
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Revision</dt>
-          <dd class="control">{controller.state.provider.revision}</dd>
+          <dt>Revision</dt>
+          <dd>{controller.state.provider.revision}</dd>
         </div>
       </dl>
     {:else}
-      <div class="system-page-heading mb-5">
+      <div class="stack">
         <div>
           <p class="eyebrow">Agent provider</p>
-          <h2 class="title is-3">Edit {controller.state.provider.alias}</h2>
-          <p class="subtitle is-6">Update provider settings.</p>
+          <h2>Edit {controller.state.provider.alias}</h2>
+          <p>Update provider settings.</p>
         </div>
       </div>
       <form
+        class="stack"
         onsubmit={(event) => {
           event.preventDefault()
           void controller.update()
         }}
       >
         <div class="field">
-          <label class="label" for="agent-provider-alias">Alias</label>
-          <div class="control">
+          <label for="agent-provider-alias">Alias</label>
+          <div>
             <input
-              class="input"
               id="agent-provider-alias"
               disabled
               value={controller.state.form.alias}
@@ -108,9 +108,9 @@
           </div>
         </div>
         <div class="field">
-          <label class="label" for="agent-provider-protocol">Protocol</label>
-          <div class="control">
-            <div class="select is-fullwidth">
+          <label for="agent-provider-protocol">Protocol</label>
+          <div>
+            <div>
               <select
                 id="agent-provider-protocol"
                 bind:value={controller.state.form.protocol}
@@ -124,10 +124,9 @@
           </div>
         </div>
         <div class="field">
-          <label class="label" for="agent-provider-base-url">Base URL</label>
-          <div class="control">
+          <label for="agent-provider-base-url">Base URL</label>
+          <div>
             <input
-              class="input"
               id="agent-provider-base-url"
               bind:value={controller.state.form.baseURL}
             />
@@ -135,9 +134,9 @@
         </div>
         {#if controller.state.form.protocol !== "builtin"}
           <div class="field">
-            <label class="label" for="agent-provider-keychain">Keychain</label>
-            <div class="control">
-              <div class="select is-fullwidth">
+            <label for="agent-provider-keychain">Keychain</label>
+            <div>
+              <div>
                 <select
                   id="agent-provider-keychain"
                   required
@@ -152,53 +151,53 @@
             </div>
           </div>
           <div class="field">
-            <label class="label" for="agent-provider-api-key"
+            <label for="agent-provider-api-key"
               >Replacement API key</label
             >
-            <div class="control">
+            <div>
               <input
-                class="input"
                 id="agent-provider-api-key"
                 type="password"
                 autocomplete="new-password"
                 bind:value={controller.state.form.apiKey}
               />
             </div>
-            <p class="help">
+            <p class="field-help">
               Leave blank to preserve the current API key. Required when
               changing protocol or keychain.
             </p>
           </div>
         {/if}
         <div class="field">
-          <label class="checkbox"
+          <label class="choice"
             ><input
               type="checkbox"
               bind:checked={controller.state.form.enabled}
             /> Enabled</label
           >
         </div>
-        <div class="field is-grouped">
-          <p class="control">
+        <div class="cluster">
+          <div>
             <button
-              class="button is-primary"
+              class="primary"
               type="submit"
               disabled={controller.state.saving}
               >{controller.state.saving ? "Saving..." : "Save changes"}</button
             >
-          </p>
-          <p class="control">
+          </div>
+          <div>
             <button
-              class="button"
+              class="secondary"
               type="button"
               disabled={controller.state.saving}
               onclick={() => (controller.state.editing = false)}>Cancel</button
             >
-          </p>
+          </div>
         </div>
       </form>
       {#if controller.state.error !== ""}<p
-          class="help is-danger"
+          class="field-help"
+          role="alert"
           aria-live="polite"
         >
           {controller.state.error}

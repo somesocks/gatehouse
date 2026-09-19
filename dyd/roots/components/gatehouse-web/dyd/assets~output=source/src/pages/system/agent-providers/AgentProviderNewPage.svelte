@@ -25,45 +25,41 @@
 </script>
 
 <SystemFrame active="agent-providers" title="New agent provider">
-  <section class="system-page">
-    <div class="system-page-heading">
+  <section class="stack">
+    <div class="stack">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">New agent provider</h2>
-        <p class="subtitle is-6">
+        <h2>New agent provider</h2>
+        <p>
           Credentials are write-only and cannot be viewed after saving.
         </p>
       </div>
     </div>
     <form
-      class="system-provider-form"
+      class="stack"
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
       <label class="field"
-        ><span class="label">Alias</span><input
-          class="input"
+        ><span>Alias</span><input
           required
           bind:value={controller.state.form.alias}
         /></label
       ><label class="field"
-        ><span class="label">Protocol</span><select
-          class="select"
+        ><span>Protocol</span><select
           bind:value={controller.state.form.protocol}
           ><option value="builtin">Built-in</option><option
             value="openai-chat-completions">OpenAI chat completions</option
           ><option value="openai-responses">OpenAI responses</option></select
         ></label
       ><label class="field"
-        ><span class="label">Base URL</span><input
-          class="input"
+        ><span>Base URL</span><input
           bind:value={controller.state.form.baseURL}
         /></label
       >{#if controller.state.form.protocol !== "builtin"}<label class="field"
-          ><span class="label">Keychain</span><select
-            class="select"
+          ><span>Keychain</span><select
             required
             bind:value={controller.state.form.keychain}
             ><option value="">Select keychain</option
@@ -73,24 +69,24 @@
               >{/each}</select
           ></label
         ><label class="field"
-          ><span class="label">API key</span><input
-            class="input"
+          ><span>API key</span><input
             type="password"
             autocomplete="new-password"
             required
             bind:value={controller.state.form.apiKey}
           /></label
         >{/if}<button
-        class="button is-primary"
+        class="primary"
         type="submit"
         disabled={controller.state.saving}
         >{controller.state.saving ? "Saving..." : "Add provider"}</button
-      ><RouterLink class="button" href="/app/system/agent-providers"
+      ><RouterLink class="secondary" href="/app/system/agent-providers"
         >Cancel</RouterLink
       >
     </form>
     {#if controller.state.error !== ""}<p
-        class="help is-danger"
+        class="field-help"
+        role="alert"
         aria-live="polite"
       >
         {controller.state.error}

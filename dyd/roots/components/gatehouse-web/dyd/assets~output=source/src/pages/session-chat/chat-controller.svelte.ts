@@ -16,14 +16,12 @@ import {
 type ChatControllerOptions = {
   isNearBottom: () => boolean
   followLatest: (behavior?: ScrollBehavior) => Promise<void>
-  resizeComposer: () => void
   focusComposer: () => void
 }
 
 export function createChatController({
   isNearBottom,
   followLatest,
-  resizeComposer,
   focusComposer,
 }: ChatControllerOptions) {
   const state = $state({
@@ -50,6 +48,7 @@ export function createChatController({
     signal: AbortSignal
   } | null = null
   let generation = 0
+  let followingLatest = false
   const current = (value: number) => value === generation
   const validContext = (
     value: number,
@@ -158,6 +157,7 @@ export function createChatController({
     state.showJumpToLatest = false
     state.activityTimestamp = Date.now()
     state.authenticationRequired = false
+    followingLatest = false
     void Promise.all([refreshEvents(value, true), refreshAgents(value)])
   }
 
@@ -177,6 +177,7 @@ export function createChatController({
     state.approvalErrors = new Map()
     state.expandedActivity = new Set()
     state.showJumpToLatest = false
+    followingLatest = false
   }
 
   async function sendMessage(): Promise<void> {
@@ -220,7 +221,6 @@ export function createChatController({
       state.messageText = ""
       state.composerFiles = []
       await tick()
-      resizeComposer()
       state.events = [...state.events, { event, children: [] }]
       void followLatest()
       state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
@@ -423,10 +423,17 @@ export function createChatController({
     state.expandedActivity = expanded
   }
   function trackScroll(): void {
-    if (isNearBottom()) state.showJumpToLatest = false
+    if (followingLatest) {
+      if (isNearBottom()) followingLatest = false
+      else return
+    }
+    state.showJumpToLatest = !isNearBottom()
   }
   async function jumpToLatest(): Promise<void> {
+    followingLatest = true
+    state.showJumpToLatest = false
     await followLatest()
+    if (isNearBottom()) followingLatest = false
   }
   function updateActivityTimestamp(): void {
     state.activityTimestamp = Date.now()

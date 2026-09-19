@@ -20,60 +20,59 @@
 </script>
 
 <SystemFrame active="grants" title="System grants">
-  <section class="system-page">
-    <div class="system-page-heading">
+  <section class="stack">
+    <div class="stack">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">System grants</h2>
-        <p class="subtitle is-6">
+        <h2>System grants</h2>
+        <p>
           System managers can modify global Gatehouse state.
         </p>
       </div>
     </div>
     <form
-      class="system-grant-form"
+      class="cluster"
       onsubmit={(event) => {
         event.preventDefault()
         void controller.create()
       }}
     >
       <label class="field"
-        ><span class="label">Principal ID</span><input
-          class="input"
+        ><span>Principal ID</span><input
           autocomplete="off"
           placeholder="prn_..."
           bind:value={controller.state.principal}
         /></label
       ><button
-        class="button is-primary"
+        class="primary"
         type="submit"
         disabled={controller.state.creating}
         >{controller.state.creating ? "Granting..." : "Add manager"}</button
       >
     </form>
     {#if controller.state.error !== ""}<p
-        class="help is-danger"
+        class="field-help"
+        role="alert"
         aria-live="polite"
       >
         {controller.state.error}
       </p>{/if}
-    <div class="system-grant-list">
+    <div class="list">
       {#each controller.state.grants as grant (grant.ref.id)}<article
-          class:system-grant-disabled={!grant.enabled}
-          class="system-grant-row"
+          class="list-item surface split"
+          data-disabled={!grant.enabled || undefined}
         >
-          <div>
+          <div class="stack">
             <strong>{grant.principal.id}</strong><small
               >{grant.ref.id} / revision {grant.revision}</small
             >
           </div>
-          <div class="system-grant-actions">
+          <div class="cluster">
             <span
-              class:has-text-success={grant.enabled}
-              class:has-text-grey={!grant.enabled}
+              class:muted={!grant.enabled}
               >{grant.enabled ? "Enabled" : "Disabled"}</span
             ><button
-              class="button is-small"
+              class="small"
               type="button"
               disabled={controller.state.updatingIDs.has(grant.ref.id)}
               onclick={() => void controller.setEnabled(grant, !grant.enabled)}
@@ -84,7 +83,7 @@
                   : "Enable"}</button
             >
           </div>
-        </article>{:else}<p class="dashboard-empty">
+        </article>{:else}<p class="muted">
           No system grants are configured.
         </p>{/each}
     </div>

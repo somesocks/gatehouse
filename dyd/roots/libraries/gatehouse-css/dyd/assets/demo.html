@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Gatehouse CSS Demo</title>
+    <link rel="stylesheet" href="./base.css">
+    <style>
+      .demo {
+        padding: 0;
+      }
+
+      .muted {
+        color: var(--foreground-muted);
+      }
+
+      .type-scale {
+        display: grid;
+        gap: 0.35rem;
+      }
+
+      .type-scale > * {
+        margin-block: 0;
+      }
+
+      [data-demo-section][hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body class="demo">
+    <div class="sidebar-page">
+      <aside class="sidebar-page-sidebar stack">
+        <header class="stack">
+          <p class="muted">Gatehouse CSS</p>
+          <h2>Library</h2>
+          <div><button aria-pressed="false" id="theme-toggle" type="button">Switch to dark mode</button></div>
+        </header>
+        <nav aria-label="Library navigation">
+          <ul>
+            <li><a aria-current="page" data-demo-link data-section="typography" href="?section=typography">Typography</a></li>
+            <li><a data-demo-link data-section="surfaces" href="?section=surfaces">Surfaces</a></li>
+            <li><a data-demo-link data-section="buttons" href="?section=buttons">Buttons</a></li>
+            <li><a data-demo-link data-section="forms" href="?section=forms">Forms</a></li>
+            <li><a data-demo-link data-section="grid" href="?section=grid">Grid</a></li>
+            <li><a data-demo-link data-section="display" href="?section=display">Display</a></li>
+            <li><a data-demo-link data-section="list" href="?section=list">List</a></li>
+            <li><a data-demo-link data-section="conversation" href="?section=conversation">Conversation</a></li>
+            <li><a data-demo-link data-section="centered-page" href="?section=centered-page">Centered page</a></li>
+            <li><a data-demo-link data-section="disclosure" href="?section=disclosure">Disclosure</a></li>
+            <li><a data-demo-link data-section="dropdown" href="?section=dropdown">Dropdown</a></li>
+            <li><a data-demo-link data-section="table" href="?section=table">Table</a></li>
+            <li><a data-demo-link data-section="modal" href="?section=modal">Modal</a></li>
+            <li><a data-demo-link data-section="pagination" href="?section=pagination">Pagination</a></li>
+            <li><a data-demo-link data-section="tabs" href="?section=tabs">Tabs</a></li>
+            <li><a data-demo-link data-section="progress" href="?section=progress">Progress</a></li>
+            <li><a data-demo-link data-section="notices" href="?section=notices">Notices</a></li>
+            <li><a data-demo-link data-section="badges" href="?section=badges">Badges</a></li>
+            <li><a data-demo-link data-section="spinner" href="?section=spinner">Spinner</a></li>
+            <li><a data-demo-link data-section="toast" href="?section=toast">Toast</a></li>
+          </ul>
+        </nav>
+      </aside>
+      <main class="sidebar-page-main page">
+        <header class="page-header" data-position="floating">
+          <button aria-label="Open navigation" class="sidebar-page-trigger sidebar-page-trigger-icon" id="sidebar-page-open" type="button"></button>
+          <nav aria-label="Breadcrumb">
+            <ol>
+              <li><a href="?section=typography">Components</a></li>
+              <li aria-current="page" id="breadcrumb-current">Typography</li>
+            </ol>
+          </nav>
+        </header>
+
+        <section class="page-body">
+          <div class="container stack">
+      <section class="stack">
+        <section class="stack" data-demo-section id="surfaces">
+          <h3>Surface</h3>
+          <article class="card surface stack">
+            <h4>Base surface</h4>
+            <article class="card surface up stack">
+              <h5>Nested surface</h5>
+              <p class="muted">This layer is one level up.</p>
+              <article class="card surface up stack">
+                <h6>Third surface</h6>
+                <p class="muted">This third layer is two levels up.</p>
+                <section class="card surface down stack">
+                  <p class="muted">This up up down layer returns to the first elevated tone.</p>
+                </section>
+              </article>
+            </article>
+          </article>
+            <section class="stack">
+              <h4>Layer operations</h4>
+              <div class="grid">
+                <article class="card surface stack">
+                  <section class="card surface up stack">
+                    <h5><code>.up</code></h5>
+                    <p class="muted">One elevated level with an outer shadow.</p>
+                  </section>
+                </article>
+                <article class="card surface stack">
+                  <section class="card surface down stack">
+                    <h5><code>.down</code></h5>
+                    <p class="muted">Returns to the base tone with an inset shadow.</p>
+                  </section>
+                </article>
+                <article class="card surface stack">
+                  <section class="card surface up stack">
+                    <h5><code>.up .down</code></h5>
+                    <section class="card surface down stack">
+                      <p class="muted">Returns to the base tone as an inset.</p>
+                    </section>
+                  </section>
+                </article>
+                <article class="card surface stack">
+                  <section class="card surface down stack">
+                    <h5><code>.down .up</code></h5>
+                    <section class="card surface up stack">
+                      <p class="muted">Returns to the base tone as an elevation.</p>
+                    </section>
+                  </section>
+                </article>
+              </div>
+            </section>
+        </section>
+
+        <article class="stack" data-demo-section id="buttons">
+          <h3>Buttons</h3>
+          <p>Buttons combine primary or secondary color, raised or inline style, and small, default, or large size. Add <code>icon</code> for an icon-only control.</p>
+          <div class="stack">
+            <section class="stack">
+              <h4>Text buttons</h4>
+              <div class="stack">
+                <h5>Small</h5>
+                <div class="cluster">
+                  <button class="secondary small" type="button">Secondary</button>
+                  <button class="primary small" type="button">Primary</button>
+                  <button class="secondary inline small" type="button">Secondary</button>
+                  <button class="primary inline small" type="button">Primary</button>
+                </div>
+                <h5>Default</h5>
+                <div class="cluster">
+                  <button class="secondary" type="button">Secondary</button>
+                  <button class="primary" type="button">Primary</button>
+                  <button class="secondary inline" type="button">Secondary</button>
+                  <button class="primary inline" type="button">Primary</button>
+                </div>
+                <h5>Large</h5>
+                <div class="cluster">
+                  <button class="secondary large" type="button">Secondary</button>
+                  <button class="primary large" type="button">Primary</button>
+                  <button class="secondary inline large" type="button">Secondary</button>
+                  <button class="primary inline large" type="button">Primary</button>
+                </div>
+              </div>
+            </section>
+            <section class="stack">
+              <h4>Icon buttons</h4>
+              <div class="stack">
+                <h5>Small</h5>
+                <div class="cluster">
+                  <button aria-label="Secondary action" class="icon secondary small" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary small" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Secondary action" class="icon secondary inline small" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary inline small" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                </div>
+                <h5>Default</h5>
+                <div class="cluster">
+                  <button aria-label="Secondary action" class="icon secondary" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Secondary action" class="icon secondary inline" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary inline" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                </div>
+                <h5>Large</h5>
+                <div class="cluster">
+                  <button aria-label="Secondary action" class="icon secondary large" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary large" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Secondary action" class="icon secondary inline large" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                  <button aria-label="Primary action" class="icon primary inline large" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                </div>
+              </div>
+            </section>
+            <section class="stack">
+              <h4>Disabled</h4>
+              <div class="cluster">
+                <button class="secondary" disabled type="button">Secondary</button>
+                <button class="primary" disabled type="button">Primary</button>
+                <button aria-label="Disabled secondary action" class="icon secondary" disabled type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+                <button aria-label="Disabled primary action" class="icon primary" disabled type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <form class="stack" data-demo-section id="forms">
+          <h3>Form controls</h3>
+          <fieldset class="field-group">
+            <legend>Account</legend>
+            <div class="field">
+              <label for="email">Email address</label>
+              <input aria-describedby="email-help" id="email" name="email" placeholder="you@example.com" required type="email">
+              <p class="field-help" id="email-help">Used only for account notifications.</p>
+            </div>
+            <div class="field">
+              <label for="workspace">Workspace name</label>
+              <input disabled id="workspace" name="workspace" type="text" value="Gatehouse">
+            </div>
+          </fieldset>
+          <fieldset class="field-group">
+            <legend>Notifications</legend>
+            <label class="choice"><input checked name="notifications" type="checkbox"> Email updates</label>
+            <label class="choice"><input name="notifications" type="checkbox"> Product announcements</label>
+          </fieldset>
+          <fieldset class="field-group">
+            <legend>Digest frequency</legend>
+            <label class="choice"><input checked name="digest" type="radio"> Weekly</label>
+            <label class="choice"><input name="digest" type="radio"> Monthly</label>
+          </fieldset>
+          <div class="cluster">
+            <button class="primary" type="button">Save preferences</button>
+            <button type="button">Cancel</button>
+          </div>
+        </form>
+
+        <article class="stack" data-demo-section id="grid">
+          <h3>Grid</h3>
+          <p>Responsive content tracks wrap automatically. Set <code>--grid-min</code> when a different minimum width is appropriate.</p>
+          <div class="grid">
+            <article class="card stack"><h4>First track</h4><p>Tracks share the available space.</p></article>
+            <article class="card stack"><h4>Second track</h4><p>They collapse as the container narrows.</p></article>
+            <article class="card stack"><h4>Third track</h4><p>The utility remains content neutral.</p></article>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="display">
+          <h3>Responsive display</h3>
+          <p>Display utilities are mobile-first. Unprefixed classes apply at every width; breakpoint classes apply from that width upward.</p>
+          <section class="stack">
+            <h4>Visibility</h4>
+            <p class="notice d-inline-flex d-lg-none">Visible below <code>lg</code> with <code>d-inline-flex d-lg-none</code>.</p>
+            <p class="notice d-none d-lg-block">Visible at <code>lg</code> and above with <code>d-none d-lg-block</code>.</p>
+          </section>
+          <section class="stack">
+            <h4>Display switching</h4>
+            <div class="d-flex d-md-grid" style="gap: var(--space)">
+              <span class="badge">One</span>
+              <span class="badge">Two</span>
+              <span class="badge">Three</span>
+            </div>
+            <p><code>d-flex d-md-grid</code> switches from flex to grid at <code>md</code>.</p>
+          </section>
+        </article>
+
+        <article class="stack" data-demo-section id="list">
+          <h3>List</h3>
+          <p>Interactive items retain a shared surface, spacing, hover, and keyboard focus treatment.</p>
+          <div class="list">
+            <a class="list-item" href="#list">First item</a>
+            <a class="list-item" href="#list">Second item</a>
+            <span class="list-item" data-disabled>Unavailable item</span>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="conversation">
+          <h3>Conversation</h3>
+          <p>Feed, attachment, event, and input primitives remain domain-neutral.</p>
+          <div class="conversation-feed surface down">
+            <article class="conversation-message card">
+              <header>System</header>
+              <p>A response can include an attachment.</p>
+              <div aria-label="Attached files" class="attachment-list">
+                <a class="attachment-chip badge" href="#conversation">report.pdf <small>240 KB</small></a>
+              </div>
+            </article>
+            <section class="event-log">
+              <header>Processing <small>2 seconds</small><button class="secondary small" type="button">Cancel</button></header>
+              <div class="event-list">
+                <p class="event-summary" data-state="pending"><span aria-hidden="true" class="spinner"></span>Preparing output <small>1 second</small></p>
+                <section class="event-request">
+                  <strong>Confirmation required:</strong><span>Publish the selected changes?</span>
+                  <span data-actions><button class="primary small" type="button">Continue</button><button class="secondary small" type="button">Cancel</button></span>
+                </section>
+                <p class="event-more">(3 more) <button class="inline" type="button">Show all</button></p>
+              </div>
+            </section>
+            <article class="conversation-message card" data-align="end">
+              <header>You</header>
+              <p>Publish the report when it is ready.</p>
+              <button aria-label="Copy message" class="icon" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><rect height="14" rx="2" width="14" x="8" y="8"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg></button>
+            </article>
+          </div>
+          <form class="input-group" data-pending>
+            <div aria-label="Selected files" class="attachment-list">
+              <span class="attachment-chip badge" data-state="pending"><span aria-hidden="true" class="spinner"></span>source.txt <button aria-label="Remove source.txt" class="icon" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></svg></button></span>
+            </div>
+            <div class="input-group-controls">
+              <button aria-label="Attach files" class="icon" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14M12 5v14"/></svg></button>
+              <div data-select data-selected title="Select mode"><span aria-hidden="true">*</span><select aria-label="Mode"><option>Automatic</option><option>Manual</option></select></div>
+              <textarea aria-label="Message" placeholder="Write a message" rows="1"></textarea>
+              <button aria-label="Send message" class="icon primary" type="submit"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg></button>
+            </div>
+          </form>
+        </article>
+
+        <article class="centered-page" data-demo-section id="centered-page">
+          <section class="card stack">
+            <hgroup>
+              <h3>Centered page</h3>
+              <p>A standalone content surface centered in the viewport.</p>
+            </hgroup>
+            <div><button class="primary" type="button">Continue</button></div>
+          </section>
+        </article>
+
+        <article class="stack" data-demo-section id="disclosure">
+          <h3>Disclosure</h3>
+          <details open>
+            <summary>Advanced preferences</summary>
+            <p>Standalone disclosures reveal secondary content without a separate component wrapper.</p>
+          </details>
+          <div class="accordion">
+            <details name="demo-accordion" open>
+              <summary>Can multiple sections be open?</summary>
+              <p>Not in this group. The shared name makes it a browser-native accordion.</p>
+            </details>
+            <details name="demo-accordion">
+              <summary>Does it require JavaScript?</summary>
+              <p>No. Details and summary supply the interaction and accessibility semantics.</p>
+            </details>
+            <details name="demo-accordion">
+              <summary>Can it contain rich content?</summary>
+              <p>Yes. Accordion content can contain ordinary prose, lists, forms, or other semantic HTML.</p>
+            </details>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="dropdown">
+          <h3>Dropdown</h3>
+          <div class="cluster">
+            <details class="dropdown">
+              <summary>Workspace actions</summary>
+              <ul>
+                <li><a href="?section=surfaces">Rename workspace</a></li>
+                <li><a href="#forms">Manage members</a></li>
+                <li><a href="#table">View build history</a></li>
+              </ul>
+            </details>
+            <details class="dropdown dropdown-end">
+              <summary>View options</summary>
+              <ul>
+                <li><a href="?section=surfaces">Compact view</a></li>
+                <li><a href="?section=surfaces">Comfortable view</a></li>
+              </ul>
+            </details>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="table">
+          <h3>Table</h3>
+          <div class="table-wrap">
+            <table>
+              <caption>Recent package builds</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Package</th>
+                  <th scope="col">Variant</th>
+                  <th scope="col">Duration</th>
+                  <th scope="col">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>gatehouse-css</td>
+                  <td>default</td>
+                  <td>3.2 seconds</td>
+                  <td>Complete</td>
+                </tr>
+                <tr>
+                  <td>stylelint-sass</td>
+                  <td>version=17.15.0</td>
+                  <td>1.1 seconds</td>
+                  <td>Complete</td>
+                </tr>
+                <tr>
+                  <td>dart-sass</td>
+                  <td>arch=amd64+os=linux</td>
+                  <td>2.4 seconds</td>
+                  <td>Complete</td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colspan="2">Three packages</td>
+                  <td>6.7 seconds</td>
+                  <td>Complete</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="modal">
+          <h3>Modal</h3>
+          <p>Modal behavior remains application-owned; the library styles the native dialog element.</p>
+          <div><button class="primary" id="modal-open" type="button">Open modal</button></div>
+          <div class="modal-overlay" style="block-size: 3rem; opacity: 1; position: static;"></div>
+          <section class="modal-content stack" style="inset: auto; position: static; transform: none;">
+            <h4>Modal content surface</h4>
+            <p>Use this primitive when a modal library renders a non-native modal surface.</p>
+          </section>
+        </article>
+
+        <article class="stack" data-demo-section id="pagination">
+          <h3>Pagination</h3>
+          <nav aria-label="Pagination" class="pagination">
+            <ul>
+              <li><a href="#table">Previous</a></li>
+              <li><a href="#table">1</a></li>
+              <li><span aria-hidden="true">...</span></li>
+              <li><a href="#table">4</a></li>
+              <li><a aria-current="page" href="#table">5</a></li>
+              <li><a href="#table">6</a></li>
+              <li><span aria-hidden="true">...</span></li>
+              <li><a href="#table">12</a></li>
+              <li><a href="#table">Next</a></li>
+            </ul>
+          </nav>
+        </article>
+
+        <article class="stack" data-demo-section id="tabs">
+          <h3>Tabs</h3>
+          <div aria-label="Demo settings" role="tablist">
+            <button aria-controls="tab-panel-general" aria-selected="true" id="tab-general" role="tab" type="button">General</button>
+            <button aria-controls="tab-panel-access" aria-selected="false" id="tab-access" role="tab" tabindex="-1" type="button">Access</button>
+            <button aria-controls="tab-panel-billing" aria-selected="false" id="tab-billing" role="tab" tabindex="-1" type="button">Billing</button>
+          </div>
+          <section aria-labelledby="tab-general" id="tab-panel-general" role="tabpanel" tabindex="0">
+            <p>General settings control the workspace name, description, and default visibility.</p>
+          </section>
+          <section aria-labelledby="tab-access" hidden id="tab-panel-access" role="tabpanel" tabindex="0">
+            <p>Access settings control member roles and workspace invitations.</p>
+          </section>
+          <section aria-labelledby="tab-billing" hidden id="tab-panel-billing" role="tabpanel" tabindex="0">
+            <p>Billing settings control subscription details and invoice recipients.</p>
+          </section>
+        </article>
+
+        <article class="stack" data-demo-section id="progress">
+          <h3>Progress</h3>
+          <div class="field">
+            <label for="build-progress">Building gatehouse-css</label>
+            <progress id="build-progress" max="100" value="68">68%</progress>
+            <p class="field-help">68% complete, 2 of 3 outputs written.</p>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="notices">
+          <h3>Notices</h3>
+          <aside aria-labelledby="info-notice-title" class="notice info">
+            <h4 id="info-notice-title">Informational notice</h4>
+            <p>Build artifacts are retained until they are no longer referenced by a package root.</p>
+          </aside>
+          <aside aria-labelledby="action-notice-title" class="notice action" role="alert">
+            <h4 id="action-notice-title">Action required</h4>
+            <p>Your session is about to expire. Save any unfinished work before continuing.</p>
+          </aside>
+        </article>
+
+        <article class="stack" data-demo-section id="badges">
+          <h3>Badges</h3>
+          <div class="cluster">
+            <span class="badge">Draft</span>
+            <span class="badge info">3 pending</span>
+            <span class="badge action">New</span>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="spinner">
+          <h3>Spinner</h3>
+          <div class="cluster">
+            <span class="spinner" role="status"><span class="visually-hidden">Loading build output</span></span>
+            <span>Preparing build output</span>
+          </div>
+        </article>
+
+        <article class="stack" data-demo-section id="toast">
+          <h3>Toast</h3>
+          <p>Toast placement and presentation are CSS-owned; the application controls when it appears.</p>
+          <div><button id="toast-open" type="button">Show toast</button></div>
+        </article>
+
+        <article class="stack" data-demo-section id="typography">
+          <hgroup>
+            <h3>Typography</h3>
+            <p>Semantic defaults without extra classes.</p>
+          </hgroup>
+          <section class="stack">
+            <h4>Text scale</h4>
+            <div class="type-scale" aria-label="Heading size scale">
+              <h1>Heading one</h1>
+              <h2>Heading two</h2>
+              <h3>Heading three</h3>
+              <h4>Heading four</h4>
+              <h5>Heading five</h5>
+              <h6>Heading six</h6>
+              <p>Body text</p>
+              <small>Small text</small>
+              <p class="eyebrow">Eyebrow text</p>
+            </div>
+          </section>
+          <section class="stack">
+            <h4>Prose</h4>
+            <p>
+              Inline <code>code</code>, <kbd>Ctrl</kbd>, and <var>variables</var>
+              share the monospace font token.
+            </p>
+            <p><a href="#">Inline links use the action color.</a></p>
+            <ul>
+              <li>Headings use a responsive rem scale.</li>
+              <li>Prose has default vertical rhythm.</li>
+            </ul>
+            <blockquote>
+              We should forget about small efficiencies, say about 97% of the time:
+              premature optimization is the root of all evil.
+              <footer><cite>Donald Knuth</cite></footer>
+            </blockquote>
+            <div class="prose">
+              <div class="code-block">
+                <button aria-label="Copy code" class="code-copy icon inline" type="button"><svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24"><rect height="14" rx="2" width="14" x="8" y="8"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2"/></svg></button>
+                <pre><code id="theme-code">const theme = "light";</code></pre>
+              </div>
+            </div>
+          </section>
+        </article>
+      </section>
+        </div>
+        </section>
+        <footer class="page-footer" data-position="floating">
+          <small class="muted">Gatehouse CSS component preview</small>
+        </footer>
+      </main>
+    </div>
+    <dialog aria-labelledby="sidebar-page-title" class="sidebar-page-drawer" id="demo-sidebar-drawer">
+      <header>
+        <h2 id="sidebar-page-title">Library</h2>
+        <form method="dialog">
+          <button aria-label="Close navigation" type="submit">Close</button>
+        </form>
+      </header>
+      <div class="modal-body">
+        <nav aria-label="Library navigation">
+          <ul>
+            <li><a aria-current="page" data-demo-link data-section="typography" href="?section=typography">Typography</a></li>
+            <li><a data-demo-link data-section="surfaces" href="?section=surfaces">Surfaces</a></li>
+            <li><a data-demo-link data-section="buttons" href="?section=buttons">Buttons</a></li>
+            <li><a data-demo-link data-section="forms" href="?section=forms">Forms</a></li>
+            <li><a data-demo-link data-section="grid" href="?section=grid">Grid</a></li>
+            <li><a data-demo-link data-section="display" href="?section=display">Display</a></li>
+            <li><a data-demo-link data-section="list" href="?section=list">List</a></li>
+            <li><a data-demo-link data-section="conversation" href="?section=conversation">Conversation</a></li>
+            <li><a data-demo-link data-section="centered-page" href="?section=centered-page">Centered page</a></li>
+            <li><a data-demo-link data-section="disclosure" href="?section=disclosure">Disclosure</a></li>
+            <li><a data-demo-link data-section="dropdown" href="?section=dropdown">Dropdown</a></li>
+            <li><a data-demo-link data-section="table" href="?section=table">Table</a></li>
+            <li><a data-demo-link data-section="modal" href="?section=modal">Modal</a></li>
+            <li><a data-demo-link data-section="pagination" href="?section=pagination">Pagination</a></li>
+            <li><a data-demo-link data-section="tabs" href="?section=tabs">Tabs</a></li>
+            <li><a data-demo-link data-section="progress" href="?section=progress">Progress</a></li>
+            <li><a data-demo-link data-section="notices" href="?section=notices">Notices</a></li>
+            <li><a data-demo-link data-section="badges" href="?section=badges">Badges</a></li>
+            <li><a data-demo-link data-section="spinner" href="?section=spinner">Spinner</a></li>
+            <li><a data-demo-link data-section="toast" href="?section=toast">Toast</a></li>
+          </ul>
+        </nav>
+      </div>
+    </dialog>
+    <div aria-live="polite" class="toast-region" data-position="bottom-end" hidden id="demo-toast-region">
+      <aside class="notice info" role="status">
+        <h4>Build complete</h4>
+        <p>gatehouse-css was rebuilt successfully.</p>
+        <div><button id="toast-dismiss" type="button">Dismiss</button></div>
+      </aside>
+    </div>
+    <dialog aria-labelledby="modal-title" class="modal" id="demo-modal">
+      <form class="modal-body stack" method="dialog">
+        <div class="modal-header">
+          <h2 id="modal-title">Publish changes?</h2>
+          <button aria-label="Close modal" type="submit">Close</button>
+        </div>
+        <p>The modal header and body share the surface floor.</p>
+        <p class="muted">Changes become visible to everyone with access to this workspace.</p>
+        <div class="modal-footer">
+          <button type="submit">Cancel</button>
+          <button class="primary" type="submit" value="publish">Publish</button>
+        </div>
+      </form>
+    </dialog>
+    <script>
+      const modal = document.querySelector("#demo-modal");
+      const modalOpen = document.querySelector("#modal-open");
+      const demoLinks = Array.from(document.querySelectorAll("[data-demo-link]"));
+      const demoSections = Array.from(document.querySelectorAll("[data-demo-section]"));
+      const demoSectionNames = {
+        typography: "Typography",
+        surfaces: "Surfaces",
+        buttons: "Buttons",
+        forms: "Forms",
+        grid: "Grid",
+        display: "Display",
+        conversation: "Conversation",
+        "centered-page": "Centered page",
+        list: "List",
+        disclosure: "Disclosure",
+        dropdown: "Dropdown",
+        table: "Table",
+        modal: "Modal",
+        pagination: "Pagination",
+        tabs: "Tabs",
+        progress: "Progress",
+        notices: "Notices",
+        badges: "Badges",
+        spinner: "Spinner",
+        toast: "Toast",
+      };
+      const breadcrumbCurrent = document.querySelector("#breadcrumb-current");
+      const sidebarDrawer = document.querySelector("#demo-sidebar-drawer");
+      const sidebarPageOpen = document.querySelector("#sidebar-page-open");
+      const toastDismiss = document.querySelector("#toast-dismiss");
+      const toastOpen = document.querySelector("#toast-open");
+      const toastRegion = document.querySelector("#demo-toast-region");
+      const tabList = document.querySelector("[role=tablist]");
+      const tabs = Array.from(tabList.querySelectorAll("[role=tab]"));
+      const themeToggle = document.querySelector("#theme-toggle");
+      const themeCode = document.querySelector("#theme-code");
+
+      function selectDemoSection(section, updateHistory = false) {
+        const selected = demoSections.find((candidate) => candidate.id === section)
+          ?? document.querySelector("#typography");
+
+        for (const candidate of demoSections) {
+          candidate.hidden = candidate !== selected;
+        }
+
+        for (const link of demoLinks) {
+          if (link.dataset.section === selected.id) {
+            link.setAttribute("aria-current", "page");
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        }
+
+        breadcrumbCurrent.textContent = demoSectionNames[selected.id];
+
+        if (updateHistory) {
+          const url = new URL(window.location.href);
+
+          if (selected.id === "typography") {
+            url.searchParams.delete("section");
+          } else {
+            url.searchParams.set("section", selected.id);
+          }
+
+          window.history.pushState({}, "", url);
+        }
+      }
+
+      for (const link of demoLinks) {
+        link.addEventListener("click", (event) => {
+          event.preventDefault();
+          selectDemoSection(link.dataset.section, true);
+        });
+      }
+
+      window.addEventListener("popstate", () => {
+        selectDemoSection(new URLSearchParams(window.location.search).get("section"));
+      });
+
+      selectDemoSection(new URLSearchParams(window.location.search).get("section"));
+
+      modalOpen.addEventListener("click", () => modal.showModal());
+
+      sidebarPageOpen.addEventListener("click", () => sidebarDrawer.showModal());
+
+      sidebarDrawer.addEventListener("click", (event) => {
+        if (event.target.closest("a")) {
+          sidebarDrawer.close();
+        }
+      });
+
+      toastOpen.addEventListener("click", () => {
+        toastRegion.hidden = false;
+        toastDismiss.focus();
+      });
+
+      toastDismiss.addEventListener("click", () => {
+        toastRegion.hidden = true;
+        toastOpen.focus();
+      });
+
+      function selectTab(tab) {
+        for (const candidate of tabs) {
+          const selected = candidate === tab;
+          const panel = document.querySelector(`#${candidate.getAttribute("aria-controls")}`);
+
+          candidate.setAttribute("aria-selected", String(selected));
+          candidate.tabIndex = selected ? 0 : -1;
+          panel.hidden = !selected;
+        }
+      }
+
+      for (const tab of tabs) {
+        tab.addEventListener("click", () => selectTab(tab));
+      }
+
+      tabList.addEventListener("keydown", (event) => {
+        const index = tabs.indexOf(document.activeElement);
+
+        if (index === -1) {
+          return;
+        }
+
+        let nextIndex = index;
+
+        if (event.key === "ArrowLeft") {
+          nextIndex = (index - 1 + tabs.length) % tabs.length;
+        } else if (event.key === "ArrowRight") {
+          nextIndex = (index + 1) % tabs.length;
+        } else if (event.key === "Home") {
+          nextIndex = 0;
+        } else if (event.key === "End") {
+          nextIndex = tabs.length - 1;
+        } else {
+          return;
+        }
+
+        event.preventDefault();
+        tabs[nextIndex].focus();
+        selectTab(tabs[nextIndex]);
+      });
+
+      themeToggle.addEventListener("click", () => {
+        const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+
+        document.documentElement.dataset.theme = theme;
+        themeCode.textContent = `const theme = "${theme}";`;
+        themeToggle.setAttribute("aria-pressed", String(theme === "dark"));
+        themeToggle.textContent = `Switch to ${theme === "dark" ? "light" : "dark"} mode`;
+      });
+    </script>
+  </body>
+</html>

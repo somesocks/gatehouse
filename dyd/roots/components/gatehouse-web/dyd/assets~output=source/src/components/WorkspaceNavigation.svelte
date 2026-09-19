@@ -3,6 +3,7 @@
   import type { Workspace } from "../app/access"
   import { useRuntime } from "../app/runtime.svelte"
   import RouterLink from "./RouterLink.svelte"
+  import * as SidebarPage from "./sidebar-page"
 
   let {
     workspace,
@@ -22,55 +23,44 @@
   }
 </script>
 
-<RouterLink class="workspace-navigation-wordmark" href="/app/"
-  >Gatehouse</RouterLink
->
-<div class="workspace-navigation-switcher">
-  <label for="workspace">Workspace</label>
-  <select
-    id="workspace"
-    value={workspace.id}
-    onchange={(event) =>
-      runtime.navigate(workspacePath(event.currentTarget.value))}
-  >
-    {#each runtime.access.state.workspaces as candidate (candidate.id)}<option
-        value={candidate.id}>{candidate.name ?? candidate.id}</option
-      >{/each}
-  </select>
-</div>
-<nav class="workspace-navigation-links" aria-label="Workspace navigation">
-  <ul>
-    <li>
-      <RouterLink
-        class={active === "chats" ? "active" : undefined}
-        href={`${workspacePath(workspace.id)}/ses`}>Chats</RouterLink
-      >
-    </li>
-    <li>
-      <RouterLink
-        class={active === "projects" ? "active" : undefined}
-        href={`${workspacePath(workspace.id)}/prj`}>Projects</RouterLink
-      >
-    </li>
-    <li>
-      <RouterLink
-        class={active === "groups" ? "active" : undefined}
-        href={`${workspacePath(workspace.id)}/grp`}>Groups</RouterLink
-      >
-    </li>
-  </ul>
-</nav>
-{#if runtime.access.state.systemAccess === "available"}<div
-    class="workspace-navigation-system"
-  >
-    <RouterLink href="/app/system" target="_blank" rel="noopener"
-      >System</RouterLink
-    >
-  </div>{/if}
-<div class="workspace-navigation-footer">
+<SidebarPage.SidebarHeader title={workspace.name ?? workspace.id} />
+<SidebarPage.SidebarBody>
+  <nav aria-label="Workspace navigation">
+    <ul>
+      <li>
+        <RouterLink
+          aria-current={active === "chats" ? "page" : undefined}
+          href={`${workspacePath(workspace.id)}/ses`}>Chats</RouterLink
+        >
+      </li>
+      <li>
+        <RouterLink
+          aria-current={active === "projects" ? "page" : undefined}
+          href={`${workspacePath(workspace.id)}/prj`}>Projects</RouterLink
+        >
+      </li>
+      <li>
+        <RouterLink
+          aria-current={active === "groups" ? "page" : undefined}
+          href={`${workspacePath(workspace.id)}/grp`}>Groups</RouterLink
+        >
+      </li>
+    </ul>
+  </nav>
+  {#if runtime.access.state.systemAccess === "available"}<nav aria-label="System">
+      <ul>
+        <li>
+          <RouterLink href="/app/system" target="_blank" rel="noopener"
+            >System</RouterLink
+          >
+        </li>
+      </ul>
+    </nav>{/if}
+</SidebarPage.SidebarBody>
+<SidebarPage.SidebarFooter>
   <span>{runtime.auth.state.claims?.principal.name ?? "User"}</span><button
-    class="brand-button brand-button--compact brand-button--danger"
+    class="small"
     type="button"
     onclick={() => void logout()}>Log out</button
   >
-</div>
+</SidebarPage.SidebarFooter>

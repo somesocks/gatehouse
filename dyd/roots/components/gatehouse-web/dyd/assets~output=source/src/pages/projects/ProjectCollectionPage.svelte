@@ -59,9 +59,9 @@
   }
 </script>
 
-<PageBody>
+<PageBody fluid>
   {#snippet projectActions()}<button
-      class="button is-primary is-small"
+      class="primary small"
       type="button"
       disabled={creating}
       onclick={() => void onCreate()}>New project</button
@@ -70,15 +70,14 @@
     <h1>Projects</h1>
   </PageHeading>
   <form
-    class="collection-search"
+    class="split"
     onsubmit={(event) => {
       event.preventDefault()
       onNavigate(searchPath())
     }}
   >
-    <label
+    <label class="field"
       ><span>Search projects</span><input
-        class="input"
         type="search"
         autocomplete="off"
         placeholder="Search projects"
@@ -86,31 +85,31 @@
       /></label
     >
     <button
-      class="button"
+      class="icon"
       type="submit"
       aria-label="Search projects"
       title="Search projects"
       ><Search size={20} strokeWidth={2} aria-hidden="true" /></button
     >
   </form>
-  <div class="collection-list">
+  <div class="list">
     {#each controller.state.projects as project}
-      <RouterLink class="dashboard-row" href={projectPath(project.id)}
-        ><span class="dashboard-row-content"
+      <RouterLink class="list-item surface" href={projectPath(project.id)}
+        ><span class="stack" style:--space="calc(var(--space) / 4)"
           ><span>{project.name ?? "New Project"}</span><time
             datetime={project.created_at}
             >{createdAtLabel(project.created_at)}</time
           ></span
         ></RouterLink
       >
-    {:else}<p class="dashboard-empty">
+    {:else}<p class="notice">
         {controller.state.loading
           ? "Searching projects..."
           : "No projects match your search."}
       </p>{/each}
   </div>
   {#if controller.state.cursor !== null}<button
-      class="button is-small"
+      class="small"
       type="button"
       disabled={controller.state.loading}
       onclick={() => controller.loadMore(workspace.id, search, signal)}

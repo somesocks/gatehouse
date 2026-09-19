@@ -27,27 +27,27 @@
 </script>
 
 <SystemFrame active="storage-providers" title="New storage provider">
-  <section class="system-page">
-    <div class="system-page-heading mb-5">
+  <section class="stack">
+    <div class="stack">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">New storage provider</h2>
-        <p class="subtitle is-6">
+        <h2>New storage provider</h2>
+        <p>
           Credentials are write-only and cannot be viewed after saving.
         </p>
       </div>
     </div>
     <form
+      class="stack"
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
       <div class="field">
-        <label class="label" for="storage-provider-alias">Alias</label>
-        <div class="control">
+        <label for="storage-provider-alias">Alias</label>
+        <div>
           <input
-            class="input"
             id="storage-provider-alias"
             required
             bind:value={controller.state.form.alias}
@@ -55,9 +55,9 @@
         </div>
       </div>
       <div class="field">
-        <label class="label" for="storage-provider-protocol">Protocol</label>
-        <div class="control">
-          <div class="select is-fullwidth">
+        <label for="storage-provider-protocol">Protocol</label>
+        <div>
+          <div>
             <select
               id="storage-provider-protocol"
               bind:value={controller.state.form.protocol}
@@ -69,10 +69,9 @@
         </div>
       </div>
       <div class="field">
-        <label class="label" for="storage-provider-endpoint">Endpoint</label>
-        <div class="control">
+        <label for="storage-provider-endpoint">Endpoint</label>
+        <div>
           <input
-            class="input"
             id="storage-provider-endpoint"
             bind:value={controller.state.form.endpoint}
           />
@@ -80,41 +79,38 @@
       </div>
       {#if controller.state.form.protocol === "s3"}
         <div class="field">
-          <label class="label" for="storage-provider-region">Region</label>
-          <div class="control">
+          <label for="storage-provider-region">Region</label>
+          <div>
             <input
-              class="input"
               id="storage-provider-region"
               bind:value={controller.state.form.region}
             />
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-bucket">Bucket</label>
-          <div class="control">
+          <label for="storage-provider-bucket">Bucket</label>
+          <div>
             <input
-              class="input"
               id="storage-provider-bucket"
               bind:value={controller.state.form.bucket}
             />
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-access-key-id"
+          <label for="storage-provider-access-key-id"
             >Access key ID</label
           >
-          <div class="control">
+          <div>
             <input
-              class="input"
               id="storage-provider-access-key-id"
               bind:value={controller.state.form.accessKeyID}
             />
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-keychain">Keychain</label>
-          <div class="control">
-            <div class="select is-fullwidth">
+          <label for="storage-provider-keychain">Keychain</label>
+          <div>
+            <div>
               <select
                 id="storage-provider-keychain"
                 required
@@ -129,12 +125,11 @@
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-secret"
+          <label for="storage-provider-secret"
             >Secret access key</label
           >
-          <div class="control">
+          <div>
             <input
-              class="input"
               id="storage-provider-secret"
               type="password"
               required
@@ -143,20 +138,20 @@
           </div>
         </div>
       {/if}
-      <div class="field is-grouped">
-        <p class="control">
-          <button class="button is-primary" disabled={controller.state.saving}
+      <div class="cluster">
+        <div>
+          <button class="primary" disabled={controller.state.saving}
             >Add provider</button
           >
-        </p>
-        <p class="control">
-          <RouterLink class="button" href="/app/system/storage-providers"
+        </div>
+        <div>
+          <RouterLink class="secondary" href="/app/system/storage-providers"
             >Cancel</RouterLink
           >
-        </p>
+        </div>
       </div>
     </form>
-    {#if controller.state.error}<p class="help is-danger">
+    {#if controller.state.error}<p class="field-help" role="alert">
         {controller.state.error}
       </p>{/if}
   </section>

@@ -74,24 +74,24 @@
   active="workspace-storage-bindings"
   title="Workspace storage binding"
 >
-  <section class="system-page">
+  <section class="stack">
     {#if loading}
-      <p class="dashboard-empty">Loading binding...</p>
+      <p class="muted">Loading binding...</p>
     {:else if binding === null}
-      <p class="help is-danger">
+      <p class="field-help" role="alert">
         {error || "Workspace storage binding was not found."}
       </p>
-      <RouterLink class="button" href="/app/system/workspace-storage-bindings"
+      <RouterLink class="secondary" href="/app/system/workspace-storage-bindings"
         >Back to bindings</RouterLink
       >
     {:else if !editing}
-      <div class="system-page-heading mb-5">
+      <div class="split">
         <div>
           <p class="eyebrow">Workspace storage binding</p>
-          <h2 class="title is-3">{binding.workspace} / {binding.provider}</h2>
+          <h2>{binding.workspace} / {binding.provider}</h2>
         </div>
         <button
-          class="button is-primary"
+          class="secondary"
           type="button"
           onclick={() => {
             priority = binding!.priority
@@ -102,63 +102,63 @@
       </div>
       <dl>
         <div class="field">
-          <dt class="label">Priority</dt>
+          <dt>Priority</dt>
           <dd>{binding.priority}</dd>
         </div>
         <div class="field">
-          <dt class="label">Status</dt>
+          <dt>Status</dt>
           <dd>{binding.enabled ? "Enabled" : "Disabled"}</dd>
         </div>
         <div class="field">
-          <dt class="label">Revision</dt>
+          <dt>Revision</dt>
           <dd>{binding.revision}</dd>
         </div>
       </dl>
     {:else}
-      <div class="system-page-heading mb-5">
+      <div class="stack">
         <div>
           <p class="eyebrow">Workspace storage binding</p>
-          <h2 class="title is-3">Edit binding</h2>
+          <h2>Edit binding</h2>
         </div>
       </div>
       <form
+        class="stack"
         onsubmit={(event) => {
           event.preventDefault()
           void save()
         }}
       >
         <div class="field">
-          <label class="checkbox"
+          <label class="choice"
             ><input type="checkbox" bind:checked={enabled} /> Enabled</label
           >
         </div>
         <div class="field">
-          <label class="label" for="storage-binding-priority">Priority</label>
-          <div class="control">
+          <label for="storage-binding-priority">Priority</label>
+          <div>
             <input
-              class="input"
               id="storage-binding-priority"
               type="number"
               bind:value={priority}
             />
           </div>
         </div>
-        <div class="field is-grouped">
-          <p class="control">
-            <button class="button is-primary" disabled={saving}
+        <div class="cluster">
+          <div>
+            <button class="primary" disabled={saving}
               >Save changes</button
             >
-          </p>
-          <p class="control">
+          </div>
+          <div>
             <button
-              class="button"
+              class="secondary"
               type="button"
               onclick={() => (editing = false)}>Cancel</button
             >
-          </p>
+          </div>
         </div>
       </form>
-      {#if error}<p class="help is-danger">{error}</p>{/if}
+      {#if error}<p class="field-help" role="alert">{error}</p>{/if}
     {/if}
   </section>
 </SystemFrame>

@@ -57,9 +57,9 @@
   }
 </script>
 
-<PageBody>
+<PageBody fluid>
   {#snippet chatActions()}<button
-      class="button is-primary is-small"
+      class="primary small"
       type="button"
       onclick={() => void onCreate()}>New chat</button
     >{/snippet}
@@ -67,15 +67,14 @@
     <h1>Chats</h1>
   </PageHeading>
   <form
-    class="collection-search"
+    class="split"
     onsubmit={(event) => {
       event.preventDefault()
       onNavigate(searchPath())
     }}
   >
-    <label
+    <label class="field"
       ><span>Search chats</span><input
-        class="input"
         type="search"
         autocomplete="off"
         placeholder="Search chats"
@@ -83,19 +82,20 @@
       /></label
     >
     <button
-      class="button"
+      class="icon"
       type="submit"
       aria-label="Search chats"
       title="Search chats"
       ><Search size={20} strokeWidth={2} aria-hidden="true" /></button
     >
   </form>
-  <div class="collection-list">
+  <div class="list">
     {#each controller.state.chats as chat}
-      <RouterLink class="dashboard-row" href={sessionPath(chat.id)}
-        ><span class="dashboard-row-content"
+      <RouterLink class="list-item surface" href={sessionPath(chat.id)}
+        ><span class="stack" style:--space="calc(var(--space) / 4)"
           ><span>{chat.name ?? "New Chat"}</span><span
-            class="dashboard-row-meta"
+            class="cluster"
+            style:--space="calc(var(--space) / 2)"
             ><time datetime={chat.created_at}
               >{createdAtLabel(chat.created_at)}</time
             >{#if chat.project !== undefined}<span aria-hidden="true">/</span
@@ -103,14 +103,14 @@
           ></span
         ></RouterLink
       >
-    {:else}<p class="dashboard-empty">
+    {:else}<p class="notice">
         {controller.state.loading
           ? "Searching chats..."
           : "No chats match your search."}
       </p>{/each}
   </div>
   {#if controller.state.cursor !== null}<button
-      class="button is-small"
+      class="small"
       type="button"
       disabled={controller.state.loading}
       onclick={() => controller.loadMore(workspace.id, search, signal)}

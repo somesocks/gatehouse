@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { PanelLeftOpen } from "@lucide/svelte"
   import {
     chatFileDownloadPath,
     fetchChatFiles,
@@ -11,6 +10,7 @@
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -207,50 +207,23 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true" aria-live="polite">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage eyebrow="Gatehouse" busy live="polite">
+    {#snippet children()}
       <p>Loading your workspace.</p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Connection unavailable</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Connection unavailable">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">No workspace access</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.navigate("/app/no-access", true)}
-        >Continue</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="No workspace access">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
@@ -258,44 +231,19 @@
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen
-              size={20}
-              strokeWidth={2}
-              aria-hidden="true"
-            /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={workspacePath(workspace.id)}
-            ><span>{workspace.name ?? workspace.id}</span></RouterLink
-          >
-          {#if session !== null}{#if session.project !== undefined}<span
-                class="brand-workspace-breadcrumb-separator"
-                aria-hidden="true">/</span
-              ><RouterLink
-                class="brand-workspace-breadcrumb-segment"
-                href={projectPath(workspace.id, session.project.id)}
-                ><span>{session.project.name ?? "New Project"}</span
-                ></RouterLink
-              >{/if}<span
-              class="brand-workspace-breadcrumb-separator"
-              aria-hidden="true">/</span
-            ><RouterLink
-              class="brand-workspace-breadcrumb-segment"
-              href={sessionPath(workspace.id, session.id)}
-              ><span>{session.name ?? "New Chat"}</span></RouterLink
-            ><span
-              class="brand-workspace-breadcrumb-separator"
-              aria-hidden="true">/</span
-            ><span>Files</span>{/if}
-        </h1>
+        <SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb">
+          <ol>
+            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+            {#if session !== null}
+              {#if session.project !== undefined}
+                <li><RouterLink href={projectPath(workspace.id, session.project.id)}>{session.project.name ?? "New Project"}</RouterLink></li>
+              {/if}
+              <li><RouterLink href={sessionPath(workspace.id, session.id)}>{session.name ?? "New Chat"}</RouterLink></li>
+              <li aria-current="page">Files</li>
+            {/if}
+          </ol>
+        </nav>
         {#if session !== null}<SessionNavigation
             workspaceID={workspace.id}
             sessionID={session.id}
@@ -306,34 +254,34 @@
       </SidebarPage.Header>
       <SidebarPage.Body>
         {#if sessionStatus === "checking"}
-          <p class="dashboard-empty" aria-busy="true" aria-live="polite">
+          <p class="muted" aria-busy="true" aria-live="polite">
             Loading chat...
           </p>
         {:else if sessionStatus === "unavailable"}
-          <p class="dashboard-empty">This chat could not be loaded.</p>
+          <p class="muted">This chat could not be loaded.</p>
         {:else}
-          <PageBody>
+          <PageBody fluid>
             <PageHeading>
               <h2>Files</h2>
             </PageHeading>
-            <div class="collection-list">
+            <div class="list">
               {#if filesStatus === "checking"}
-                <p class="dashboard-empty" aria-busy="true">Loading files...</p>
+                <p class="muted" aria-busy="true">Loading files...</p>
               {:else if filesStatus === "unavailable"}
-                <p class="dashboard-empty">Files could not be loaded.</p>
+                <p class="muted">Files could not be loaded.</p>
               {:else}
                 {#each files as file (file.id)}
-                  <article class="dashboard-row project-note-row">
-                    <span class="dashboard-row-content"
-                      ><span class="project-note-title">{file.name}</span><span
-                        class="dashboard-row-meta"
+                  <article class="list-item surface stack">
+                    <span class="stack"
+                      ><span>{file.name}</span><small
+                        class="cluster muted"
                         ><span>{file.media_type ?? "Unknown type"}</span><span
                           >{sizeLabel(file.size)}</span
-                        ></span
+                        ></small
                       ></span
                     >
                     <a
-                      class="button is-small"
+                      class="small"
                       href={chatFileDownloadPath(
                         workspace.id,
                         session?.id ?? "",
@@ -344,7 +292,7 @@
                     >
                   </article>
                 {:else}
-                  <p class="dashboard-empty">
+                  <p class="muted">
                     No files attached to this session.
                   </p>
                 {/each}

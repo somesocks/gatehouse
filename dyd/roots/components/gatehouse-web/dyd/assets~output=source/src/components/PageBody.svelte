@@ -1,16 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte"
 
-  let { children }: { children: Snippet } = $props()
+  let {
+    fluid = false,
+    children,
+  }: { fluid?: boolean; children: Snippet } = $props()
 </script>
 
-<div class="page-body">
+<div class={`stack${fluid ? " page-content" : " container"}`}>
   {@render children()}
 </div>
-
-<style>
-  .page-body {
-    display: grid;
-    gap: 1rem;
-  }
-</style>

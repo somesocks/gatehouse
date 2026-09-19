@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { PanelLeftOpen } from "@lucide/svelte"
   import { fetchProject, type Project } from "../../app/projects"
 
   import { fetchProjectFiles, type ProjectFile } from "../../app/project-files"
@@ -30,6 +29,7 @@
   import PageBody from "../../components/PageBody.svelte"
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -922,40 +922,21 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true">
-    <section class="status-card">
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage busy>
+    {#snippet children()}
       <p>Loading your workspaces.</p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">Connection unavailable</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage title="Connection unavailable">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">No workspace access</h1>
-    </section>
-  </main>
+  <StatusPage title="No workspace access" />
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
@@ -966,42 +947,26 @@
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen size={20} aria-hidden="true" /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-            >{workspace.name ?? workspace.id}</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span
-          ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
-            >Projects</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span
-          ><RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={projectPath(workspace.id, currentRoute.projectID)}
-            >{project?.name ?? "Project"}</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span><span
-            >Records</span
-          >
-        </h1>
+        <SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb">
+          <ol>
+            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li>
+            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li>
+            <li><RouterLink href={projectPath(workspace.id, currentRoute.projectID)}>{project?.name ?? "Project"}</RouterLink></li>
+            <li aria-current="page">Records</li>
+          </ol>
+        </nav>
       </SidebarPage.Header>
       <SidebarPage.Body
-        ><PageBody>
-          {#if projectStatus === "checking"}<p class="dashboard-empty">
+        ><PageBody fluid>
+          {#if projectStatus === "checking"}<p class="muted">
               Loading project...
             </p>
-          {:else if projectStatus === "unavailable"}<p class="dashboard-empty">
+          {:else if projectStatus === "unavailable"}<p class="muted">
               Project unavailable.
             </p>
             <button
-              class="button is-primary"
+              class="primary"
               type="button"
               onclick={() =>
                 void loadRoute(
@@ -1011,14 +976,14 @@
                 )}>Try again</button
             >
           {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}<form
-              class="record-schema-editor"
+              class="stack"
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveSchema()
               }}
             >
               {#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<button
-                    class="button is-danger is-light"
+                    class="secondary"
                     type="button"
                     disabled={saving}
                     onclick={() => void deleteSchema()}
@@ -1033,163 +998,146 @@
                 </h2>
               </PageHeading>
               <div class="field">
-                <label class="label" for="schema-name">Name</label>
-                <div class="control">
-                  <input
-                    class="input"
-                    id="schema-name"
-                    required
-                    disabled={currentRoute.kind !== "project-record-schema-new"}
-                    maxlength="64"
-                    bind:value={schemaName}
-                    placeholder="contacts"
-                  />
-                </div>
-                <p class="help">
+                <label for="schema-name">Name</label>
+                <input
+                  id="schema-name"
+                  required
+                  disabled={currentRoute.kind !== "project-record-schema-new"}
+                  maxlength="64"
+                  bind:value={schemaName}
+                  placeholder="contacts"
+                />
+                <p class="field-help">
                   Lowercase letters, numbers, and underscores only.
                 </p>
               </div>
               <div class="field">
-                <label class="label" for="schema-label">Label</label>
-                <div class="control">
-                  <input
-                    class="input"
-                    id="schema-label"
-                    required
-                    maxlength="256"
-                    bind:value={schemaLabel}
-                  />
-                </div>
+                <label for="schema-label">Label</label>
+                <input
+                  id="schema-label"
+                  required
+                  maxlength="256"
+                  bind:value={schemaLabel}
+                />
               </div>
               <div class="field">
-                <label class="label" for="schema-description">Description</label
+                <label for="schema-description">Description</label
                 >
-                <div class="control">
-                  <textarea
-                    class="textarea"
-                    id="schema-description"
-                    rows="3"
-                    maxlength="4096"
-                    bind:value={schemaDescription}></textarea>
-                </div>
+                <textarea
+                  id="schema-description"
+                  rows="3"
+                  maxlength="4096"
+                  bind:value={schemaDescription}></textarea>
               </div>
-              {#if error !== ""}<p class="help is-danger">{error}</p>{/if}
-              <div class="project-note-actions">
+              {#if error !== ""}<p class="field-help" role="alert">{error}</p>{/if}
+              <div class="cluster">
                 <button
-                  class="button"
                   type="button"
                   onclick={() =>
                     runtime.navigate(
                       recordsPath(workspace.id, currentRoute.projectID),
                     )}>Cancel</button
                 ><button
-                  class="button is-primary"
+                  class="small"
                   type="submit"
                   disabled={saving}
                   >{saving ? "Saving..." : "Save record type"}</button
                 >
               </div>
             </form>
-          {:else if currentRoute.kind === "project-record"}<section>
-              <PageHeading as="header">
+          {:else if currentRoute.kind === "project-record"}<section class="stack">
+              {#snippet recordActions()}<button
+                  class="primary"
+                  type="button"
+                  onclick={() =>
+                    runtime.navigate(
+                      `${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`,
+                    )}>Edit record</button
+                >{/snippet}
+              <PageHeading as="header" actions={recordActions}>
                 <p class="eyebrow">{schema?.label ?? "Record"}</p>
                 <h2>
-                  {#if recordsStatus === "checking"}Loading record...{:else}{#each primaryLines(activeValues) as line}<span
-                        class="is-block">{line}</span
-                      >{/each}{/if}
+                  {#if recordsStatus === "checking"}Loading record...{:else}<span
+                      class="stack"
+                      >{#each primaryLines(activeValues) as line}<span
+                          >{line}</span
+                        >{/each}</span
+                    >{/if}
                 </h2>
               </PageHeading>
-              <section class="card block mb-6">
-                <div class="card-content">
-                  <h2 class="title is-4">Record</h2>
-                  {#if recordsStatus === "checking"}<p class="dashboard-empty">
-                      Loading record...
-                    </p>{:else if activeValues.length === 0}<p
-                      class="dashboard-empty"
-                    >
-                      This record has no values.
-                    </p>{:else}<div>
-                      {#each attributes as attribute (attribute.id)}{@const items =
-                          activeValues.filter(
-                            (item) => item.attribute === attribute.id,
-                          )}{#if items.length !== 0}<div class="block">
-                            <p class="heading">{attribute.label}</p>
-                            <div>
-                              {#each items as item (item.id)}{@const href =
-                                  referencePath(
-                                    attribute,
-                                    item,
-                                  )}{#if href}<RouterLink
-                                    class="is-block"
-                                    {href}
-                                    >{#each valueLines(attribute, item) as line}<span
-                                        class="is-block">{line}</span
-                                      >{/each}</RouterLink
-                                  >{:else}<div>
-                                    {#each valueLines(attribute, item) as line}<span
-                                        class="is-block">{line}</span
-                                      >{/each}
-                                  </div>{/if}{/each}
-                            </div>
-                          </div>{/if}{/each}
-                    </div>{/if}
-                  {#if recordsStatus !== "checking"}<div class="buttons mt-5">
-                      <RouterLink
-                        class="button is-primary is-small"
-                        href={`${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`}
-                        >Edit record</RouterLink
-                      >
-                    </div>
-                  {/if}
-                </div>
-              </section>
-              {#if incomingReferences.length !== 0}<section class="card block">
-                  <div class="card-content">
-                    <h2 class="title is-4">Referenced by</h2>
-                    {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<div
-                        class="block"
-                      >
-                        <p class="heading">
-                          {group.source_schema.label} / {group.source_attribute
-                            .label}
-                        </p>
-                        <div>
-                          {#each group.references as reference, index (`${reference.id}-${index}`)}<RouterLink
-                              class="is-block block"
-                              href={recordPath(
-                                workspace.id,
-                                currentRoute.projectID,
-                                group.source_schema.id,
-                                reference.id,
-                              )}
-                              >{incomingReferenceLabel(
-                                group,
-                                reference,
-                              )}</RouterLink
-                            >{/each}
+              <section class="stack" aria-labelledby="record-heading">
+                <h3 id="record-heading">Record</h3>
+                {#if recordsStatus === "checking"}<p class="muted">
+                    Loading record...
+                  </p>{:else if activeValues.length === 0}<p class="muted">
+                    This record has no values.
+                  </p>{:else}{#each attributes as attribute (attribute.id)}{@const items =
+                      activeValues.filter(
+                        (item) => item.attribute === attribute.id,
+                      )}{#if items.length !== 0}<section class="stack" data-compact>
+                        <p class="eyebrow">{attribute.label}</p>
+                        <div class="list">
+                          {#each items as item (item.id)}{@const href =
+                              referencePath(attribute, item)}{#if href}<RouterLink
+                                class="navigation-link truncate"
+                                {href}
+                                >{valueLines(attribute, item).join(" / ")}</RouterLink
+                              >{:else}<div>
+                                <span class="stack"
+                                  >{#each valueLines(attribute, item) as line}<span
+                                      >{line}</span
+                                    >{/each}</span
+                                >
+                              </div>{/if}{/each}
                         </div>
-                      </div>{/each}
-                    {#if incomingReferencesNextCursor !== undefined}<button
-                        class="button is-small"
-                        type="button"
-                        disabled={incomingReferencesLoading}
-                        onclick={() => void loadMoreIncomingReferences()}
-                        >{incomingReferencesLoading
-                          ? "Loading..."
-                          : "Show more"}</button
-                      >{/if}
-                  </div>
+                      </section>{/if}{/each}{/if}
+              </section>
+              {#if incomingReferences.length !== 0}<section
+                  class="stack"
+                  aria-labelledby="referenced-by-heading"
+                >
+                  <h3 id="referenced-by-heading">Referenced by</h3>
+                  {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<section
+                      class="stack"
+                      data-compact
+                    >
+                      <p class="eyebrow">
+                        {group.source_schema.label} / {group.source_attribute
+                          .label}
+                      </p>
+                      <div class="list">
+                        {#each group.references as reference, index (`${reference.id}-${index}`)}<RouterLink
+                            class="navigation-link"
+                            href={recordPath(
+                              workspace.id,
+                              currentRoute.projectID,
+                              group.source_schema.id,
+                              reference.id,
+                            )}
+                            >{incomingReferenceLabel(group, reference)}</RouterLink
+                          >{/each}
+                      </div>
+                    </section>{/each}
+                  {#if incomingReferencesNextCursor !== undefined}<button
+                      class="small"
+                      type="button"
+                      disabled={incomingReferencesLoading}
+                      onclick={() => void loadMoreIncomingReferences()}
+                      >{incomingReferencesLoading
+                        ? "Loading..."
+                        : "Show more"}</button
+                    >{/if}
                 </section>{/if}
             </section>
           {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}<form
-              class="record-editor record-edit-form"
+              class="stack"
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveRecord()
               }}
             >
               {#snippet recordActions()}{#if currentRoute.kind === "project-record-edit"}<button
-                    class="button is-danger is-light"
+                    class="secondary"
                     type="button"
                     disabled={saving}
                     onclick={() => void deleteRecord()}>Remove record</button
@@ -1202,29 +1150,26 @@
                     : "Edit record"}
                 </h2>
               </PageHeading>
-              {#if recordsStatus === "checking"}<p class="dashboard-empty">
+              {#if recordsStatus === "checking"}<p class="muted">
                   Loading record...
                 </p>{:else if attributes.length === 0}<p
-                  class="dashboard-empty"
+                  class="muted"
                 >
                   Add fields to this record type before creating records.
                 </p>{:else}{#each attributes as attribute (attribute.id)}<fieldset
-                    class="record-value-field"
+                    class="stack"
+                    data-compact
                   >
-                    <legend
-                      >{attribute.label}
-                      <small
-                        >{attribute.type}{attribute.cardinality === "many"
-                          ? ", many"
-                          : ""}</small
-                      ></legend
-                    >{#if attribute.description !== ""}<p>
+                    <legend class="eyebrow">{attribute.label}</legend>
+                    {#if attribute.description !== ""}<p>
                         {attribute.description}
                       </p>{/if}{#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index =
                         draftIndex(draft)}
-                      <div class="record-value-input">
+                      <div class="stack" data-compact>
+                        <div class="split">
+                          <div class="field" style="flex: 1">
                         {#if attribute.type === "boolean"}<label
-                            class="checkbox"
+                            class="choice"
                             ><input
                               type="checkbox"
                               checked={draft.value === true}
@@ -1233,10 +1178,7 @@
                                   value: event.currentTarget.checked,
                                 })}
                             /> Yes</label
-                          >{:else if attribute.type === "file"}<div
-                            class="select is-fullwidth"
-                          >
-                            <select
+                          >{:else if attribute.type === "file"}<select
                               required
                               value={valueLabel(draft.value)}
                               onchange={(event) =>
@@ -1249,9 +1191,7 @@
                                   value={file.id}>{file.name}</option
                                 >{/each}</select
                             >
-                          </div>
-                        {:else}<input
-                            class="input"
+                          {:else}<input
                             required
                             value={valueLabel(draft.value)}
                             type={attribute.type === "number"
@@ -1269,7 +1209,21 @@
                                   event.currentTarget.value,
                                 ),
                               })}
-                          />{/if}<label class="checkbox sensitive-value"
+                          />{/if}
+                          </div>
+                          <button
+                            class="secondary"
+                            type="button"
+                            onclick={() =>
+                              draft.id === undefined
+                                ? (drafts = drafts.filter(
+                                    (candidate) => candidate !== draft,
+                                  ))
+                                : setDraft(index, { removed: true })}
+                            >Remove</button
+                          >
+                        </div>
+                        <label class="choice"
                           ><input
                             type="checkbox"
                             checked={draft.sensitive}
@@ -1278,32 +1232,22 @@
                                 sensitive: event.currentTarget.checked,
                               })}
                           /> Sensitive</label
-                        ><button
-                          class="button is-small is-danger is-light"
-                          type="button"
-                          onclick={() =>
-                            draft.id === undefined
-                              ? (drafts = drafts.filter(
-                                  (candidate) => candidate !== draft,
-                                ))
-                              : setDraft(index, { removed: true })}
-                          >Remove</button
                         >
                       </div>{/each}{#if attribute.cardinality === "many"}<button
-                        class="button is-small"
+                        class="small"
                         type="button"
                         onclick={() =>
                           (drafts = [...drafts, emptyDraft(attribute)])}
                         >Add value</button
                       >{/if}
                   </fieldset>{/each}{/if}{#if error !== ""}<p
-                  class="help is-danger"
+                  class="field-help"
+                  role="alert"
                 >
                   {error}
                 </p>{/if}
-              <div class="project-note-actions">
+              <div class="cluster">
                 <button
-                  class="button"
                   type="button"
                   onclick={() =>
                     runtime.navigate(
@@ -1321,119 +1265,112 @@
                           ),
                     )}>Cancel</button
                 ><button
-                  class="button is-primary"
+                  class="primary"
                   type="submit"
                   disabled={saving || attributes.length === 0}
                   >{saving ? "Saving..." : "Save record"}</button
                 >
               </div>
             </form>
-          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<div
-                class="buttons"
-              >
-                <RouterLink
-                  class="button is-small"
-                  href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`}
-                  >Edit record type</RouterLink
-                ><RouterLink
-                  class="button is-primary is-small"
-                  href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`}
-                  >New record</RouterLink
-                >
-              </div>{/snippet}
-            <PageHeading actions={schemaListActions}>
+          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<button
+                class="small"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(
+                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`,
+                  )}>Edit record type</button
+              ><button
+                class="primary small"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(
+                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`,
+                  )}>New record</button
+              >{/snippet}
+            <PageHeading as="header" actions={schemaListActions}>
               <p class="eyebrow">Record type</p>
               <h2>{schema?.label ?? "Records"}</h2>
-              {#if schema?.description}<p class="subtitle is-6">
-                  {schema.description}
-                </p>{/if}
+              {#if schema?.description}<p class="subtitle">
+                {schema.description}
+              </p>{/if}
             </PageHeading>
-            {#if recordsStatus === "checking"}<p class="dashboard-empty">
+            {#if recordsStatus === "checking"}<p class="muted">
                 Loading records...
               </p>{:else if recordsStatus === "unavailable"}<p
-                class="dashboard-empty"
+                class="muted"
               >
                 Records could not be loaded.
-              </p>{:else}<div class="columns is-multiline">
-                {#each records as record (record.id)}<div
-                    class="column is-half-tablet is-one-third-desktop"
-                  >
-                    <RouterLink
-                      class="card record-card"
-                      href={recordPath(
-                        workspace.id,
-                        currentRoute.projectID,
-                        currentRoute.schemaID,
-                        record.id,
-                      )}
-                      ><div class="card-content p-4">
-                        <p class="title is-5 is-block mb-4">
-                          {#each primaryLines(record.values ?? []) as line}<span
-                              class="is-block">{line}</span
-                            >{/each}
-                        </p>
-                        {#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}{@const item =
-                            record.values?.find(
-                              (candidate) =>
-                                candidate.attribute === attribute.id,
-                            )}{#if item !== undefined}<div class="block">
-                              <p class="heading">{attribute.label}</p>
-                              <div>
-                                {#each valueLines(attribute, item) as line}<span
-                                    class="is-block">{line}</span
-                                  >{/each}
-                              </div>
-                            </div>{/if}{/each}
-                      </div></RouterLink
-                    >
-                  </div>{:else}<p class="dashboard-empty">
+              </p>{:else}<div class="grid">
+                {#each records as record (record.id)}<RouterLink
+                    class="card card-link stack"
+                    href={recordPath(
+                      workspace.id,
+                      currentRoute.projectID,
+                      currentRoute.schemaID,
+                      record.id,
+                    )}
+                    ><h4 class="card-heading stack" style:--space="calc(var(--space) / 4)">
+                      {#each primaryLines(record.values ?? []) as line}<span
+                          >{line}</span
+                        >{/each}
+                    </h4>
+                    {#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}{@const item =
+                        record.values?.find(
+                          (candidate) => candidate.attribute === attribute.id,
+                        )}{#if item !== undefined}<section
+                          class="stack"
+                          style:--space="calc(var(--space) / 4)"
+                        >
+                          <span class="eyebrow">{attribute.label}</span>
+                          <span class="stack" style:--space="calc(var(--space) / 4)">
+                            {#each valueLines(attribute, item) as line}<span
+                                >{line}</span
+                              >{/each}
+                          </span>
+                        </section>{/if}{/each}</RouterLink
+                  >{:else}<p class="muted">
                     No records yet.
                   </p>{/each}
               </div>{/if}
-          {:else}{#snippet recordTypesActions()}<div>
-                <RouterLink
-                  class="button is-primary"
-                  href={`${recordsPath(workspace.id, currentRoute.projectID)}/new`}
-                  >New record type</RouterLink
-                >
-              </div>{/snippet}
-            <PageHeading actions={recordTypesActions}>
+          {:else}{#snippet recordTypesActions()}<button
+                class="primary"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(
+                    `${recordsPath(workspace.id, currentRoute.projectID)}/new`,
+                  )}>New record type</button
+              >{/snippet}
+            <PageHeading as="header" actions={recordTypesActions}>
               <p class="eyebrow">Project records</p>
               <h2>Record Types</h2>
-              <p class="subtitle is-6">
+              <p class="subtitle">
                 Define reusable record types and their fields.
               </p>
             </PageHeading>
-            {#if schemasStatus === "checking"}<p class="dashboard-empty">
+            {#if schemasStatus === "checking"}<p class="muted">
                 Loading record types...
               </p>{:else if schemasStatus === "unavailable"}<p
-                class="dashboard-empty"
+                class="muted"
               >
                 Record types could not be loaded.
-              </p>{:else}<div class="columns is-multiline">
-                {#each schemas as item (item.id)}<div
-                    class="column is-half-tablet is-one-third-desktop"
-                  >
-                    <RouterLink
-                      class="card record-card"
-                      href={schemaPath(
-                        workspace.id,
-                        currentRoute.projectID,
-                        item.id,
-                      )}
-                      ><div class="card-content p-4">
-                        <p class="title is-5">{item.label}</p>
-                        {#if item.description !== ""}<p class="subtitle is-6">
-                            {item.description}
-                          </p>{/if}
-                      </div></RouterLink
-                    >
-                  </div>{:else}<p class="dashboard-empty">
+              </p>{:else}<div class="grid">
+                {#each schemas as item (item.id)}<RouterLink
+                    class="card card-link stack"
+                    href={schemaPath(
+                      workspace.id,
+                      currentRoute.projectID,
+                      item.id,
+                    )}
+                    ><h4 class="card-heading">{item.label}</h4>
+                    {#if item.description !== ""}<span class="field-help">
+                        {item.description}
+                      </span>{/if}</RouterLink
+                  >{:else}<p class="muted">
                     No record types yet. Create one to begin tracking records.
                   </p>{/each}
               </div>{/if}{/if}
           {#if currentRoute.kind === "project-record-schema-edit" && schema !== null}
-            <section class="attribute-editor">
+            <section class="stack">
               <PageHeading>
                 <p class="eyebrow">Record type fields</p>
                 <h2>
@@ -1443,15 +1380,15 @@
                 </h2>
               </PageHeading>
               <form
+                class="stack"
                 onsubmit={(event) => {
                   event.preventDefault()
                   void saveAttribute()
                 }}
               >
-                <div class="record-field-grid">
+                <div class="grid">
                   <div class="field">
-                    <label class="label" for="attribute-name">Name</label><input
-                      class="input"
+                    <label for="attribute-name">Name</label><input
                       id="attribute-name"
                       required
                       disabled={attributeForm.id !== undefined}
@@ -1459,17 +1396,15 @@
                     />
                   </div>
                   <div class="field">
-                    <label class="label" for="attribute-label">Label</label
+                    <label for="attribute-label">Label</label
                     ><input
-                      class="input"
                       id="attribute-label"
                       required
                       bind:value={attributeForm.label}
                     />
                   </div>
                   <div class="field">
-                    <label class="label" for="attribute-type">Type</label>
-                    <div class="select is-fullwidth">
+                    <label for="attribute-type">Type</label>
                       <select
                         id="attribute-type"
                         bind:value={attributeForm.type}
@@ -1481,13 +1416,11 @@
                           value="file">Project file reference</option
                         ></select
                       >
-                    </div>
                   </div>
                   {#if attributeForm.type === "record"}<div class="field">
-                      <label class="label" for="attribute-target"
+                      <label for="attribute-target"
                         >Target record type</label
                       >
-                      <div class="select is-fullwidth">
                         <select
                           id="attribute-target"
                           required
@@ -1497,13 +1430,11 @@
                               value={item.id}>{item.label}</option
                             >{/each}</select
                         >
-                      </div>
                     </div>{/if}
                   <div class="field">
-                    <label class="label" for="attribute-cardinality"
+                    <label for="attribute-cardinality"
                       >Values</label
                     >
-                    <div class="select is-fullwidth">
                       <select
                         id="attribute-cardinality"
                         bind:value={attributeForm.cardinality}
@@ -1511,13 +1442,11 @@
                           >Many</option
                         ></select
                       >
-                    </div>
                   </div>
                   <div class="field">
-                    <label class="label" for="attribute-uniqueness"
+                    <label for="attribute-uniqueness"
                       >Uniqueness</label
                     >
-                    <div class="select is-fullwidth">
                       <select
                         id="attribute-uniqueness"
                         bind:value={attributeForm.uniqueness}
@@ -1525,13 +1454,11 @@
                           value="record">Within record</option
                         ><option value="global">Across records</option></select
                       >
-                    </div>
                   </div>
                   <div class="field">
-                    <label class="label" for="attribute-display"
+                    <label for="attribute-display"
                       >Card display</label
                     >
-                    <div class="select is-fullwidth">
                       <select
                         id="attribute-display"
                         bind:value={attributeForm.display}
@@ -1539,13 +1466,11 @@
                           value="primary">Primary</option
                         ><option value="secondary">Secondary</option></select
                       >
-                    </div>
                   </div>
                   <div class="field">
-                    <label class="label" for="attribute-display-order"
+                    <label for="attribute-display-order"
                       >Display order</label
                     ><input
-                      class="input"
                       id="attribute-display-order"
                       type="number"
                       min="0"
@@ -1553,54 +1478,52 @@
                       required
                       bind:value={attributeForm.display_order}
                     />
-                    <p class="help">
+                    <p class="field-help">
                       Lower numbers appear first; name breaks ties.
                     </p>
                   </div>
                 </div>
                 <div class="field">
-                  <label class="label" for="attribute-description"
+                  <label for="attribute-description"
                     >Description</label
                   ><textarea
-                    class="textarea"
                     id="attribute-description"
                     rows="2"
                     bind:value={attributeForm.description}></textarea>
                 </div>
-                <div class="project-note-actions">
+                <div class="cluster">
                   <button
-                    class="button"
                     type="button"
                     onclick={resetAttributeForm}>Cancel</button
                   ><button
-                    class="button is-primary"
+                    class="primary"
                     type="submit"
                     disabled={saving}
                     >{saving ? "Saving..." : "Save field"}</button
                   >
                 </div>
               </form>
-              <div class="collection-list">
+              <div class="list">
                 {#each attributes as attribute (attribute.id)}<div
-                    class="dashboard-row record-attribute-row"
+                    class="list-item surface split"
                   >
-                    <span class="dashboard-row-content"
+                    <span class="stack"
                       ><strong>{attribute.label}</strong><span
                         >{attribute.name} · {attribute.type} · {attribute.cardinality}</span
                       ></span
-                    ><span class="project-note-actions"
+                    ><span class="cluster"
                       ><button
-                        class="button is-small"
+                        class="small"
                         type="button"
                         onclick={() => editAttribute(attribute)}>Edit</button
                       ><button
-                        class="button is-small is-danger is-light"
+                        class="secondary small"
                         type="button"
                         onclick={() => void deleteAttribute(attribute)}
                         >Remove</button
                       ></span
                     >
-                  </div>{:else}<p class="dashboard-empty">
+                  </div>{:else}<p class="muted">
                     No fields yet.
                   </p>{/each}
               </div>

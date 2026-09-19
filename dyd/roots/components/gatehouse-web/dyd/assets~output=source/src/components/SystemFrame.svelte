@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { PanelLeftOpen } from "@lucide/svelte"
   import { signOut } from "../app/auth"
   import { useRuntime } from "../app/runtime.svelte"
+  import PageBody from "./PageBody.svelte"
   import RouterLink from "./RouterLink.svelte"
   import type { Snippet } from "svelte"
   import * as SidebarPage from "./sidebar-page"
@@ -22,53 +22,52 @@
   }
 </script>
 
-<SidebarPage.Root className="brand-system-frame">
+<SidebarPage.Root>
   <SidebarPage.Sidebar>
-    <RouterLink class="brand" href="/app/">Gatehouse</RouterLink>
-    <nav class="sidebar-nav" aria-label="System navigation">
-      <section class="sidebar-section">
-        <h2>System</h2>
+    <SidebarPage.SidebarHeader />
+    <SidebarPage.SidebarBody>
+      <nav aria-label="System navigation">
         <ul>
           <li>
             <RouterLink
-              class={active === "overview" ? "active" : undefined}
+              aria-current={active === "overview" ? "page" : undefined}
               href="/app/system">Overview</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "principals" ? "active" : undefined}
+              aria-current={active === "principals" ? "page" : undefined}
               href="/app/system/principals">Principals</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "grants" ? "active" : undefined}
+              aria-current={active === "grants" ? "page" : undefined}
               href="/app/system/grants">System grants</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "agent-providers" ? "active" : undefined}
+              aria-current={active === "agent-providers" ? "page" : undefined}
               href="/app/system/agent-providers">Agent providers</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "agent-models" ? "active" : undefined}
+              aria-current={active === "agent-models" ? "page" : undefined}
               href="/app/system/agent-models">Agent models</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "storage-providers" ? "active" : undefined}
+              aria-current={active === "storage-providers" ? "page" : undefined}
               href="/app/system/storage-providers">Storage providers</RouterLink
             >
           </li>
           <li>
             <RouterLink
-              class={active === "workspace-agent-bindings"
-                ? "active"
+              aria-current={active === "workspace-agent-bindings"
+                ? "page"
                 : undefined}
               href="/app/system/workspace-agent-bindings"
               >Workspace agent bindings</RouterLink
@@ -76,47 +75,34 @@
           </li>
           <li>
             <RouterLink
-              class={active === "workspace-storage-bindings"
-                ? "active"
+              aria-current={active === "workspace-storage-bindings"
+                ? "page"
                 : undefined}
               href="/app/system/workspace-storage-bindings"
               >Workspace storage bindings</RouterLink
             >
           </li>
         </ul>
-      </section>
-    </nav>
-    <div class="sidebar-footer">
+      </nav>
+    </SidebarPage.SidebarBody>
+    <SidebarPage.SidebarFooter>
       <span>{runtime.auth.state.claims?.principal.name ?? "User"}</span><button
-        class="button is-small is-danger is-light"
+        class="small"
         type="button"
         onclick={() => void logout()}>Log out</button
       >
-    </div>
+    </SidebarPage.SidebarFooter>
   </SidebarPage.Sidebar>
   <SidebarPage.Page>
-    <SidebarPage.Header
-      ><SidebarPage.Toggle
-        ><button
-          class="mobile-menu-trigger"
-          type="button"
-          aria-label="Open navigation menu"
-          ><PanelLeftOpen
-            size={20}
-            strokeWidth={2}
-            aria-hidden="true"
-          /></button
-        ></SidebarPage.Toggle
-      >
-      <h1 class="brand-workspace-breadcrumb">
-        <RouterLink
-          class="brand-workspace-breadcrumb-segment"
-          href="/app/system"><span>System</span></RouterLink
-        ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-          >/</span
-        ><span>{title}</span>
-      </h1></SidebarPage.Header
-    >
-    <SidebarPage.Body>{@render children()}</SidebarPage.Body>
+    <SidebarPage.Header>
+      <SidebarPage.Toggle />
+      <nav aria-label="Breadcrumb">
+        <ol>
+          <li><RouterLink href="/app/system">System</RouterLink></li>
+          <li aria-current="page">{title}</li>
+        </ol>
+      </nav>
+    </SidebarPage.Header>
+    <SidebarPage.Body><PageBody fluid>{@render children()}</PageBody></SidebarPage.Body>
   </SidebarPage.Page>
 </SidebarPage.Root>

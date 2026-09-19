@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { PanelLeftOpen } from "@lucide/svelte"
   import { useRuntime } from "../../app/runtime.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -76,85 +76,35 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true" aria-live="polite">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage eyebrow="Gatehouse" busy live="polite">
+    {#snippet children()}
       <p>
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
       </p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Connection unavailable</h1>
-      <p class="subtitle is-6">Gatehouse could not load your account.</p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">
-        Ask an administrator to add you to a workspace group.
-      </p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.navigate("/app/no-access", true)}
-        >Continue</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
       ><WorkspaceNavigation {workspace} active="groups" /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
-        ><SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen
-              size={20}
-              strokeWidth={2}
-              aria-hidden="true"
-            /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={workspacePath(workspace.id)}
-            ><span>{workspace.name ?? workspace.id}</span></RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          ><span>Groups</span>
-        </h1></SidebarPage.Header
+        ><SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb"><ol><li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li><li aria-current="page">Groups</li></ol></nav></SidebarPage.Header
       ><SidebarPage.Body
         >{#if routeSignal !== null}<GroupsPage
             {workspace}

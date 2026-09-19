@@ -1,16 +1,16 @@
 <script lang="ts">
+  import { PanelLeft } from "@lucide/svelte"
   import type { Snippet } from "svelte"
   import { useSidebarPage } from "./context"
 
-  let { children }: { children: Snippet } = $props()
+  let { children: _children }: { children?: Snippet } = $props()
   const pageState = useSidebarPage()
 </script>
 
-<span
-  class="sidebar-page-toggle"
-  role="presentation"
-  onclick={() => (pageState.drawerOpen = true)}
-  onkeydown={(event) => {
-    if (event.key === "Enter" || event.key === " ") pageState.drawerOpen = true
-  }}>{@render children()}</span
->
+<button
+  aria-haspopup="dialog"
+  aria-label="Open navigation"
+  class="sidebar-page-trigger icon inline"
+  type="button"
+  onclick={() => pageState.drawer?.showModal()}
+><PanelLeft size={18} strokeWidth={2} aria-hidden="true" /></button>

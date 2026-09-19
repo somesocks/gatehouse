@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { PanelLeftOpen } from "@lucide/svelte"
   import { signOut } from "../../app/auth"
   import {
     createChat,
@@ -15,6 +14,7 @@
   } from "../../app/projects"
   import { useRuntime } from "../../app/runtime.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -298,73 +298,36 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true" aria-live="polite">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage eyebrow="Gatehouse" busy live="polite">
+    {#snippet children()}
       <p>
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
       </p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Connection unavailable</h1>
-      <p class="subtitle is-6">Gatehouse could not load your account.</p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">
-        Ask an administrator to add you to a workspace group.
-      </p>
-      {#if access.state.systemAccess === "available"}<RouterLink
-          class="button is-primary is-light is-fullwidth"
-          href="/app/system">System</RouterLink
-        >{/if}<button
-        class="button is-danger is-light is-fullwidth"
-        type="button"
-        onclick={() => void logout()}>Log out</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
+    {#snippet children()}
+      {#if access.state.systemAccess === "available"}<div><RouterLink class="primary" href="/app/system">System</RouterLink></div>{/if}
+      <div><button class="secondary" type="button" onclick={() => void logout()}>Log out</button></div>
+    {/snippet}
+  </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
       ><WorkspaceNavigation {workspace} /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
-        ><SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen
-              size={20}
-              strokeWidth={2}
-              aria-hidden="true"
-            /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <span class="brand-workspace-breadcrumb-segment"
-            >{workspace.name ?? workspace.id}</span
-          >
-        </h1></SidebarPage.Header
+        ><SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb"><ol><li aria-current="page">{workspace.name ?? workspace.id}</li></ol></nav></SidebarPage.Header
       ><SidebarPage.Body
         ><WorkspaceDashboardPage
           {workspace}

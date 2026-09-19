@@ -21,32 +21,33 @@
 <SystemFrame
   active="workspace-storage-bindings"
   title="Workspace storage bindings"
-  ><section class="system-page">
-    <div class="system-page-heading mb-5">
+  ><section class="stack">
+    <div class="split">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">Workspace storage bindings</h2>
-        <p class="subtitle is-6">
+        <h2>Workspace storage bindings</h2>
+        <p>
           Bind global storage providers to workspaces.
         </p>
       </div>
       <RouterLink
-        class="button is-primary"
+        class="primary"
         href="/app/system/workspace-storage-bindings/new"
         >Add binding</RouterLink
       >
     </div>
-    <div class="system-grant-list">
+    <div class="list">
       {#each controller.state.bindings as b (`${b.workspace}/${b.provider}`)}<RouterLink
-          class={`system-grant-row${b.enabled ? "" : " system-grant-disabled"}`}
+          class="list-item surface split"
+          data-disabled={!b.enabled || undefined}
           href={`/app/system/workspace-storage-bindings/${encodeURIComponent(b.workspace)}/${encodeURIComponent(b.provider)}`}
-          ><div>
+          ><div class="stack">
             <strong>{b.workspace} / {b.provider}</strong><small
               >priority {b.priority} / revision {b.revision}</small
             >
           </div>
           <span>{b.enabled ? "Enabled" : "Disabled"}</span></RouterLink
-        >{:else}<p class="dashboard-empty">
+        >{:else}<p class="muted">
           No workspace storage bindings are configured.
         </p>{/each}
     </div>

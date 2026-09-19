@@ -6,20 +6,12 @@
   let { className = "", children }: { className?: string; children: Snippet } =
     $props()
   const state = $state<SidebarPageState>({
-    drawerOpen: false,
-    floatingHeaderHeight: 0,
-    floatingFooterHeight: 0,
+    drawer: undefined,
   })
 
   setContext(sidebarPageContext, state)
 </script>
 
-<div class={`sidebar-page-root brand-workspace-frame ${className}`}>
-  {#if state.drawerOpen}<button
-      class="sidebar-page-backdrop"
-      type="button"
-      aria-label="Close navigation menu"
-      onclick={() => (state.drawerOpen = false)}
-    ></button>{/if}
+<div class={`sidebar-page ${className}`}>
   {@render children()}
 </div>

@@ -31,41 +31,41 @@
 </script>
 
 <SystemFrame active="storage-providers" title="Storage providers"
-  ><section class="system-page">
-    <div class="system-page-heading mb-5">
+  ><section class="stack">
+    <div class="split">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">Storage providers</h2>
-        <p class="subtitle is-6">Configure embedded and S3 storage.</p>
+        <h2>Storage providers</h2>
+        <p>Configure embedded and S3 storage.</p>
       </div>
       <RouterLink
-        class="button is-primary"
+        class="primary"
         href="/app/system/storage-providers/new">Add provider</RouterLink
       >
     </div>
-    <div class="collection-search">
+    <div class="field">
       <label
         ><span>Search storage providers</span><input
-          class="input"
           type="search"
           bind:value={controller.state.search}
         /></label
       >
     </div>
-    {#if controller.state.error}<p class="help is-danger">
+    {#if controller.state.error}<p class="field-help" role="alert">
         {controller.state.error}
       </p>{/if}
-    <div class="system-grant-list">
+    <div class="list">
       {#each controller.state.providers.filter( (p) => matches(p, controller.state.search), ) as p (p.id)}<RouterLink
-          class={`system-grant-row${p.enabled ? "" : " system-grant-disabled"}`}
+          class="list-item surface split"
+          data-disabled={!p.enabled || undefined}
           href={`/app/system/storage-providers/${encodeURIComponent(p.id)}`}
-          ><div>
+          ><div class="stack">
             <strong>{p.alias}</strong><small
               >{p.id} / {p.protocol} / {p.bucket ?? "no bucket"}</small
             >
           </div>
           <span>{p.enabled ? "Enabled" : "Disabled"}</span></RouterLink
-        >{:else}<p class="dashboard-empty">
+        >{:else}<p class="muted">
           No storage providers match your search.
         </p>{/each}
     </div>

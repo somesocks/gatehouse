@@ -19,52 +19,52 @@
 </script>
 
 <SystemFrame active="storage-providers" title="Storage provider">
-  <section class="system-page">
+  <section class="stack">
     {#if controller.state.loading}
-      <p class="dashboard-empty">Loading storage provider...</p>
+      <p class="muted">Loading storage provider...</p>
     {:else if controller.state.provider === null}
-      <p class="help is-danger">
+      <p class="field-help" role="alert">
         {controller.state.error || "Storage provider was not found."}
       </p>
-      <RouterLink class="button" href="/app/system/storage-providers"
+      <RouterLink class="secondary" href="/app/system/storage-providers"
         >Back to providers</RouterLink
       >
     {:else if !controller.state.editing}
-      <div class="system-page-heading mb-5">
+      <div class="split">
         <div>
           <p class="eyebrow">Storage provider</p>
-          <h2 class="title is-3">{controller.state.provider.alias}</h2>
-          <p class="subtitle is-6">{controller.state.provider.id}</p>
+          <h2>{controller.state.provider.alias}</h2>
+          <p>{controller.state.provider.id}</p>
         </div>
         <button
-          class="button is-primary"
+          class="secondary"
           type="button"
           onclick={() => void controller.beginEdit()}>Edit</button
         >
       </div>
       <dl>
         <div class="field">
-          <dt class="label">Protocol</dt>
+          <dt>Protocol</dt>
           <dd>{controller.state.provider.protocol}</dd>
         </div>
         <div class="field">
-          <dt class="label">Endpoint</dt>
+          <dt>Endpoint</dt>
           <dd>{controller.state.provider.endpoint ?? "Not configured"}</dd>
         </div>
         <div class="field">
-          <dt class="label">Region</dt>
+          <dt>Region</dt>
           <dd>{controller.state.provider.region ?? "Not configured"}</dd>
         </div>
         <div class="field">
-          <dt class="label">Bucket</dt>
+          <dt>Bucket</dt>
           <dd>{controller.state.provider.bucket ?? "Not configured"}</dd>
         </div>
         <div class="field">
-          <dt class="label">Access key ID</dt>
+          <dt>Access key ID</dt>
           <dd>{controller.state.provider.access_key_id ?? "Not configured"}</dd>
         </div>
         <div class="field">
-          <dt class="label">Keychain</dt>
+          <dt>Keychain</dt>
           <dd>
             {controller.state.provider.keychain === undefined
               ? "Not configured"
@@ -72,7 +72,7 @@
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Credential</dt>
+          <dt>Credential</dt>
           <dd>
             {controller.state.provider.credential_configured
               ? "Configured"
@@ -80,29 +80,29 @@
           </dd>
         </div>
         <div class="field">
-          <dt class="label">Status</dt>
+          <dt>Status</dt>
           <dd>{controller.state.provider.enabled ? "Enabled" : "Disabled"}</dd>
         </div>
       </dl>
     {:else}
-      <div class="system-page-heading mb-5">
+      <div class="stack">
         <div>
           <p class="eyebrow">Storage provider</p>
-          <h2 class="title is-3">Edit {controller.state.provider.alias}</h2>
-          <p class="subtitle is-6">Update provider settings.</p>
+          <h2>Edit {controller.state.provider.alias}</h2>
+          <p>Update provider settings.</p>
         </div>
       </div>
       <form
+        class="stack"
         onsubmit={(event) => {
           event.preventDefault()
           void controller.update()
         }}
       >
         <div class="field">
-          <label class="label" for="storage-provider-alias">Alias</label>
-          <div class="control">
+          <label for="storage-provider-alias">Alias</label>
+          <div>
             <input
-              class="input"
               id="storage-provider-alias"
               disabled
               value={controller.state.form.alias}
@@ -110,9 +110,9 @@
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-protocol">Protocol</label>
-          <div class="control">
-            <div class="select is-fullwidth">
+          <label for="storage-provider-protocol">Protocol</label>
+          <div>
+            <div>
               <select
                 id="storage-provider-protocol"
                 bind:value={controller.state.form.protocol}
@@ -124,10 +124,9 @@
           </div>
         </div>
         <div class="field">
-          <label class="label" for="storage-provider-endpoint">Endpoint</label>
-          <div class="control">
+          <label for="storage-provider-endpoint">Endpoint</label>
+          <div>
             <input
-              class="input"
               id="storage-provider-endpoint"
               bind:value={controller.state.form.endpoint}
             />
@@ -135,42 +134,39 @@
         </div>
         {#if controller.state.form.protocol === "s3"}
           <div class="field">
-            <label class="label" for="storage-provider-region">Region</label>
-            <div class="control">
+            <label for="storage-provider-region">Region</label>
+            <div>
               <input
-                class="input"
                 id="storage-provider-region"
                 bind:value={controller.state.form.region}
               />
             </div>
           </div>
           <div class="field">
-            <label class="label" for="storage-provider-bucket">Bucket</label>
-            <div class="control">
+            <label for="storage-provider-bucket">Bucket</label>
+            <div>
               <input
-                class="input"
                 id="storage-provider-bucket"
                 bind:value={controller.state.form.bucket}
               />
             </div>
           </div>
           <div class="field">
-            <label class="label" for="storage-provider-access-key-id"
+            <label for="storage-provider-access-key-id"
               >Access key ID</label
             >
-            <div class="control">
+            <div>
               <input
-                class="input"
                 id="storage-provider-access-key-id"
                 bind:value={controller.state.form.accessKeyID}
               />
             </div>
           </div>
           <div class="field">
-            <label class="label" for="storage-provider-keychain">Keychain</label
+            <label for="storage-provider-keychain">Keychain</label
             >
-            <div class="control">
-              <div class="select is-fullwidth">
+            <div>
+              <div>
                 <select
                   id="storage-provider-keychain"
                   required
@@ -185,47 +181,46 @@
             </div>
           </div>
           <div class="field">
-            <label class="label" for="storage-provider-secret"
+            <label for="storage-provider-secret"
               >Replacement secret access key</label
             >
-            <div class="control">
+            <div>
               <input
-                class="input"
                 id="storage-provider-secret"
                 type="password"
                 bind:value={controller.state.form.secret}
               />
             </div>
-            <p class="help">
+            <p class="field-help">
               Leave blank to preserve the current secret. Required when changing
               protocol or keychain.
             </p>
           </div>
         {/if}
         <div class="field">
-          <label class="checkbox"
+          <label class="choice"
             ><input
               type="checkbox"
               bind:checked={controller.state.form.enabled}
             /> Enabled</label
           >
         </div>
-        <div class="field is-grouped">
-          <p class="control">
-            <button class="button is-primary" disabled={controller.state.saving}
+        <div class="cluster">
+          <div>
+            <button class="primary" disabled={controller.state.saving}
               >Save changes</button
             >
-          </p>
-          <p class="control">
+          </div>
+          <div>
             <button
-              class="button"
+              class="secondary"
               type="button"
               onclick={() => (controller.state.editing = false)}>Cancel</button
             >
-          </p>
+          </div>
         </div>
       </form>
-      {#if controller.state.error}<p class="help is-danger">
+      {#if controller.state.error}<p class="field-help" role="alert">
           {controller.state.error}
         </p>{/if}
     {/if}

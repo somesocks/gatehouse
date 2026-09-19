@@ -5,7 +5,6 @@
     CircleCheck,
     CircleX,
     Copy,
-    PanelLeftOpen,
     Paperclip,
     Send,
     ShieldCheck,
@@ -21,6 +20,7 @@
   import { useRuntime } from "../../app/runtime.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import { renderMarkdown } from "../../markdown"
@@ -55,7 +55,6 @@
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   let sessionStatus = $state<Status>("checking")
-  let chatPageElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let generation = 0
@@ -91,11 +90,12 @@
   }
 
   function isNearBottom(): boolean {
+    const scrollingElement = document.scrollingElement
     return (
-      chatPageElement === undefined ||
-      chatPageElement.scrollHeight -
-        chatPageElement.scrollTop -
-        chatPageElement.clientHeight <
+      scrollingElement === null ||
+      scrollingElement.scrollHeight -
+        scrollingElement.scrollTop -
+        scrollingElement.clientHeight <
         64
     )
   }
@@ -103,32 +103,16 @@
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
     await tick()
-    chatPageElement?.scrollTo({
-      top: chatPageElement.scrollHeight,
+    const scrollingElement = document.scrollingElement
+    scrollingElement?.scrollTo({
+      top: scrollingElement.scrollHeight,
       behavior,
     })
-  }
-  function resizeComposer(input = messageInputElement): void {
-    if (input === undefined) return
-    if (CSS.supports("field-sizing", "content")) return
-    input.style.height = "auto"
-    const styles = window.getComputedStyle(input)
-    const lineHeight =
-      Number.parseFloat(styles.lineHeight) ||
-      Number.parseFloat(styles.fontSize) * 1.5
-    const maximumHeight =
-      lineHeight * 6 +
-      Number.parseFloat(styles.paddingTop) +
-      Number.parseFloat(styles.paddingBottom)
-    input.style.height = `${Math.min(input.scrollHeight, maximumHeight)}px`
-    input.style.overflowY =
-      input.scrollHeight > maximumHeight ? "auto" : "hidden"
   }
   const controller = untrack(() =>
     createChatController({
       isNearBottom,
       followLatest,
-      resizeComposer,
       focusComposer: () => messageInputElement?.focus(),
     }),
   )
@@ -141,18 +125,16 @@
     if (controller.state.authenticationRequired) runtime.requireLogin()
   })
   $effect(() => {
-    const target = chatPageElement
-    if (target === undefined) return
     const track = () => controller.trackScroll()
-    target.addEventListener("scroll", track)
-    return () => target.removeEventListener("scroll", track)
+    window.addEventListener("scroll", track, { passive: true })
+    return () => window.removeEventListener("scroll", track)
   })
 
   onMount(() => {
     const copyCodeBlock = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return
       const button = event.target.closest<HTMLButtonElement>(
-        ".markdown-code-copy",
+        ".code-copy",
       )
       const code = button?.parentElement?.querySelector("pre > code")
       if (code !== null && code !== undefined)
@@ -356,97 +338,46 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true" aria-live="polite">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage eyebrow="Gatehouse" busy live="polite">
+    {#snippet children()}
       <p>
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
       </p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Connection unavailable</h1>
-      <p class="subtitle is-6">Gatehouse could not load your account.</p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">
-        Ask an administrator to add you to a workspace group.
-      </p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.navigate("/app/no-access", true)}
-        >Continue</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
       ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
     >
-    <SidebarPage.Page bind:element={chatPageElement}>
+    <SidebarPage.Page>
       <SidebarPage.Header placement="floating">
-        <SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen
-              size={20}
-              strokeWidth={2}
-              aria-hidden="true"
-            /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={workspacePath(workspace.id)}
-            ><span>{workspace.name ?? workspace.id}</span></RouterLink
-          >{#if session !== null}{#if session.project !== undefined}<span
-                class="brand-workspace-breadcrumb-separator"
-                aria-hidden="true">/</span
-              ><RouterLink
-                class="brand-workspace-breadcrumb-segment"
-                href={projectPath(workspace.id, session.project.id)}
-                ><span>{session.project.name ?? "New Project"}</span
-                ></RouterLink
-              >{/if}<span
-              class="brand-workspace-breadcrumb-separator"
-              aria-hidden="true">/</span
-            ><span class="brand-workspace-breadcrumb-segment"
-              >{session.name ?? "New Chat"}</span
-            >{/if}
-        </h1>
+        <SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb" data-page-breadcrumb>
+          <ol>
+            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+            {#if session !== null}
+              {#if session.project !== undefined}
+                <li><RouterLink href={projectPath(workspace.id, session.project.id)}>{session.project.name ?? "New Project"}</RouterLink></li>
+              {/if}
+              <li aria-current="page">{session.name ?? "New Chat"}</li>
+            {/if}
+          </ol>
+        </nav>
         {#if session !== null}<SessionNavigation
             workspaceID={workspace.id}
             sessionID={session.id}
@@ -456,43 +387,46 @@
           />{/if}
       </SidebarPage.Header>
       <SidebarPage.Body>
-        {#if sessionStatus === "checking"}<p
-            class="dashboard-empty"
-            aria-busy="true"
-            aria-live="polite"
-          >
-            Loading chat...
-          </p>
-        {:else if sessionStatus === "unavailable"}<p class="dashboard-empty">
+        {#if sessionStatus === "unavailable"}<p class="muted">
             This chat could not be loaded.
           </p>
           <button
-            class="button is-primary"
+            class="primary"
             type="button"
             onclick={() =>
               void loadRoute(currentRoute, generation, abortController!.signal)}
             >Try again</button
           >
+        {:else if sessionStatus === "checking" || controller.state.status === "checking"}<div
+            class="conversation-feed"
+            data-loading
+            aria-busy="true"
+            aria-live="polite"
+          >
+            <p class="conversation-status"><span class="spinner" role="status"
+                ><span class="visually-hidden">Loading</span></span
+              > Loading chat...</p
+            >
+          </div>
         {:else if session !== null}
-          <div class="chat-events" aria-live="polite">
-            {#if controller.state.status === "checking"}<p class="chat-status">
-                Loading chat...
-              </p>{:else if controller.state.status === "unavailable"}<p
-                class="chat-status"
+          <div class="conversation-feed" aria-live="polite">
+            {#if controller.state.status === "unavailable"}<p
+                class="conversation-status"
               >
                 This chat could not be loaded.
               </p>{:else if controller.state.events.length === 0}<p
-                class="chat-status"
+                class="conversation-status"
               >
                 Send the first message to begin.
               </p>{:else}{#each controller.state.events as tree (tree.event.ref.id)}{#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0))}<article
-                    class="chat-message message-own"
+                    class="conversation-message card"
+                    data-align="end"
                   >
-                    <p class="chat-message-author">
+                    <header>
                       {tree.event.author_principal?.name ?? "User"}
-                    </p>
+                    </header>
                     {#if tree.event.payload.text !== undefined}<button
-                        class="chat-message-copy"
+                        class="icon inline small"
                         type="button"
                         aria-label="Copy message Markdown"
                         title="Copy Markdown"
@@ -500,14 +434,14 @@
                           void copyMarkdown(tree.event.payload.text)}
                         ><Copy size={16} strokeWidth={2} /></button
                       >
-                      <div class="markdown-content chat-message-text">
+                      <div class="prose">
                         {@html renderMarkdown(tree.event.payload.text)}
                       </div>{/if}{#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}<div
-                        class="message-files"
+                        class="attachment-list"
                         aria-label="Attached files"
                       >
                         {#each tree.event.payload.attachments as file (file.id)}<a
-                            class="message-file"
+                            class="attachment-chip badge"
                             href={chatFileDownloadPath(
                               workspace.id,
                               session.id,
@@ -530,9 +464,9 @@
                       </div>{/if}
                   </article>
                   {#if activityEvents(tree).length > 0 || controller.state.awaitingReplyFor.includes(tree.event.ref.id) || replyCanBeCancelled(tree)}<section
-                      class="agent-activity-section"
+                      class="event-log"
                     >
-                      <p class="agent-activity-heading">
+                      <header>
                         {hasCancellationSuccess(tree)
                           ? "Cancelled"
                           : cancellationRequest(tree) !== undefined
@@ -541,14 +475,8 @@
                               ? `${activityAgentLabel(tree)} is working`
                               : activityAgentLabel(
                                   tree,
-                                )}{#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}<span
-                            class="agent-activity-duration"
-                            >{replyDuration(tree)}</span
-                          >{/if}{#if replyCanBeCancelled(tree) && workingReplyDuration(tree) !== ""}<span
-                            class="agent-activity-duration"
-                            >{workingReplyDuration(tree)}</span
-                          >{/if}{#if replyCanBeCancelled(tree)}<button
-                            class="agent-activity-cancel"
+                                )}{#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}<small>{replyDuration(tree)}</small>{/if}{#if replyCanBeCancelled(tree) && workingReplyDuration(tree) !== ""}<small>{workingReplyDuration(tree)}</small>{/if}{#if replyCanBeCancelled(tree)}<button
+                            class="inline"
                             type="button"
                             disabled={controller.state.cancellingReplyFor.has(
                               tree.event.ref.id,
@@ -560,74 +488,60 @@
                               ? "Cancelling..."
                               : "Cancel"}</button
                           >{/if}
-                      </p>
+                      </header>
                       {#if renderedActivityEvents(tree).length > 0}<div
-                          class="agent-activity"
+                          class="event-list"
                         >
                           {#if renderedActivityEvents(tree).length > 5 && !controller.state.expandedActivity.has(tree.event.ref.id)}<p
-                              class="agent-activity-overflow"
+                              class="event-more"
                             >
                               <span
                                 >({renderedActivityEvents(tree).length - 5} more)</span
-                              ><button
-                                type="button"
+                               ><button
+                                  class="primary inline"
+                                  type="button"
                                 onclick={() => controller.toggleActivity(tree)}
                                 >Show all</button
                               >
                             </p>{/if}{#each displayedActivityEvents(tree, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<p
-                                class:tool-call-failed={toolStatus(event) ===
-                                  "failed"}
-                                class:tool-call-succeeded={toolStatus(event) ===
-                                  "succeeded"}
-                                class="tool-call"
+                                class="event-summary"
+                                data-state={toolStatus(event)}
                                 title={event.event.payload.name ?? "tool"}
                               >
                                 {#if toolStatus(event) === "working"}<span
-                                    class="tool-status tool-status-working"
+                                    class="spinner"
                                     aria-hidden="true"
 
                                   ></span>{:else if toolStatus(event) === "succeeded"}<CircleCheck
-                                    class="tool-status"
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
                                   />{:else}<CircleX
-                                    class="tool-status"
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
                                   />{/if}Task: {event.event.payload.reason ??
-                                  `Running ${event.event.payload.name ?? "tool"}`}{#if activityDuration(event, "tool.success", "tool.failure") !== ""}<span
-                                    class="tool-call-duration"
-                                    >{activityDuration(
+                                  `Running ${event.event.payload.name ?? "tool"}`}{#if activityDuration(event, "tool.success", "tool.failure") !== ""}<small>{activityDuration(
                                       event,
                                       "tool.success",
                                       "tool.failure",
-                                    )}</span
-                                  >{/if}
+                                    )}</small>{/if}
                               </p>
                               {#each approvalRequests(event) as approval (approval.event.ref.id)}{@const response =
                                   approvalResponse(approval)}
-                                <section
-                                  class:approval-request-resolved={response !==
-                                    undefined}
-                                  class="approval-request"
-                                >
+                                <section class="event-request" data-resolved={response !== undefined || undefined}>
                                   {#if response === undefined}<ShieldQuestionMark
-                                      class="approval-request-icon"
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><span class="approval-request-heading"
-                                      >Action approval required:</span
-                                    ><span class="approval-request-detail"
-                                      >{approvalDescription(
+                                    /><strong>Action approval required:</strong
+                                    ><span>{approvalDescription(
                                         approval,
                                         event,
                                       )}</span
-                                    ><span class="approval-request-actions"
+                                    ><span data-actions
                                       ><button
-                                        class="approval-approve"
+                                        class="primary small"
                                         type="button"
                                         disabled={controller.state.submittingApprovals.has(
                                           approval.event.ref.id,
@@ -643,7 +557,7 @@
                                           ? "Submitting..."
                                           : "Approve"}</button
                                       ><button
-                                        class="approval-reject"
+                                        class="secondary small"
                                         type="button"
                                         disabled={controller.state.submittingApprovals.has(
                                           approval.event.ref.id,
@@ -655,58 +569,45 @@
                                           )}>Reject</button
                                       ></span
                                     >{:else if response.event.kind === "approval.approved"}<ShieldCheck
-                                      class="approval-request-icon approval-request-approved"
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><span class="approval-request-heading"
-                                      >Action approved:</span
-                                    ><span class="approval-request-detail"
-                                      >{approvalDescription(
+                                    /><strong>Action approved:</strong
+                                    ><span>{approvalDescription(
                                         approval,
                                         event,
                                       )}</span
                                     >{:else}<ShieldX
-                                      class="approval-request-icon approval-request-rejected"
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><span class="approval-request-heading"
-                                      >Action rejected:</span
-                                    ><span class="approval-request-detail"
-                                      >{approvalDescription(
+                                    /><strong>Action rejected:</strong
+                                    ><span>{approvalDescription(
                                         approval,
                                         event,
                                       )}</span
                                     >{/if}
                                 </section>
                                 {#if response === undefined && (controller.state.approvalErrors.get(approval.event.ref.id) ?? "") !== ""}<p
-                                    class="approval-request-error"
+                                    class="event-error"
                                     role="alert"
                                   >
                                     {controller.state.approvalErrors.get(
                                       approval.event.ref.id,
                                     )}
                                   </p>{/if}{/each}{:else if event.event.kind === "thinking.started"}<p
-                                class:tool-call-failed={thinkingStatus(
-                                  event,
-                                ) === "failed"}
-                                class:tool-call-succeeded={thinkingStatus(
-                                  event,
-                                ) === "succeeded"}
-                                class="tool-call"
+                                class="event-summary"
+                                data-state={thinkingStatus(event)}
                               >
                                 {#if thinkingStatus(event) === "working"}<span
-                                    class="tool-status tool-status-working"
+                                    class="spinner"
                                     aria-hidden="true"
 
                                   ></span>{:else if thinkingStatus(event) === "succeeded"}<CircleCheck
-                                    class="tool-status"
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
                                   />{:else}<CircleX
-                                    class="tool-status"
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
@@ -714,36 +615,34 @@
                                   ? "Thinking"
                                   : thinkingStatus(event) === "succeeded"
                                     ? "Thought"
-                                    : "Thinking failed after"}{#if activityDuration(event, "thinking.completed", "thinking.failed") !== ""}<span
-                                    class="tool-call-duration"
-                                    >{activityDuration(
+                                    : "Thinking failed after"}{#if activityDuration(event, "thinking.completed", "thinking.failed") !== ""}<small>{activityDuration(
                                       event,
                                       "thinking.completed",
                                       "thinking.failed",
-                                    )}</span
-                                  >{/if}
+                                    )}</small>{/if}
                               </p>{/if}{/each}{#if renderedActivityEvents(tree).length > 5 && controller.state.expandedActivity.has(tree.event.ref.id)}<p
-                              class="agent-activity-overflow"
+                              class="event-more"
                             >
                               <span
                                 >({renderedActivityEvents(tree).length} steps)</span
-                              ><button
-                                type="button"
+                               ><button
+                                  class="primary inline"
+                                  type="button"
                                 onclick={() => controller.toggleActivity(tree)}
                                 >Show less</button
                               >
                             </p>{/if}
                         </div>{/if}
                     </section>{/if}{#each finalReplies(tree) as reply (reply.event.ref.id)}<article
-                      class="chat-message"
+                      class="conversation-message card"
                     >
-                      <p class="chat-message-author">
+                      <header>
                         {reply.event.author_agent === undefined
                           ? "Gatehouse"
                           : agentLabel(reply.event.author_agent.id)}
-                      </p>
+                      </header>
                       {#if reply.event.payload.text !== ""}<button
-                          class="chat-message-copy"
+                          class="icon inline small"
                           type="button"
                           aria-label="Copy response Markdown"
                           title="Copy Markdown"
@@ -751,18 +650,17 @@
                             void copyMarkdown(reply.event.payload.text ?? "")}
                           ><Copy size={16} strokeWidth={2} /></button
                         >
-                        <div class="markdown-content chat-message-text">
+                        <div class="prose">
                           {@html renderMarkdown(reply.event.payload.text ?? "")}
                         </div>{:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}<div
-                          class="chat-message-text"
                         >
                           <em>No reply.</em>
                         </div>{/if}{#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}<div
-                          class="message-files"
+                          class="attachment-list"
                           aria-label="Attached files"
                         >
                           {#each reply.event.payload.attachments as file (file.id)}<a
-                              class="message-file message-file--primary"
+                              class="attachment-chip badge"
                               href={chatFileDownloadPath(
                                 workspace.id,
                                 session.id,
@@ -784,7 +682,7 @@
                             >{/each}
                         </div>{/if}
                     </article>{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<button
-                class="button is-small chat-jump"
+                class="primary small conversation-jump"
                 type="button"
                 onclick={() => void controller.jumpToLatest()}
                 >Jump to latest</button
@@ -792,18 +690,18 @@
           </div>
         {/if}
       </SidebarPage.Body>
-      {#if session !== null}<SidebarPage.Footer placement="floating"
+      {#if session !== null}<SidebarPage.Footer placement="floating" surface={false}
           ><form
-            class:sending={controller.state.sendingMessage}
-            class="chat-composer"
+            class="input-group"
+            data-pending={controller.state.sendingMessage || undefined}
             autocomplete="off"
             onsubmit={(event) => {
               event.preventDefault()
               void controller.sendMessage()
             }}
           >
-            <label class="is-sr-only" for="message">Message</label><input
-              class="is-sr-only"
+            <label class="visually-hidden" for="message">Message</label><input
+              class="visually-hidden"
               id="files"
               type="file"
               autocomplete="off"
@@ -812,14 +710,14 @@
               onchange={(event) =>
                 controller.selectComposerFiles(event.currentTarget)}
             />{#if controller.state.composerFiles.length > 0}<div
-                class="composer-files"
+                class="attachment-list"
                 aria-label="Selected files"
               >
                 {#each controller.state.composerFiles as entry (entry.file)}<span
-                    class:failed={entry.status === "failed"}
-                    class="composer-file"
+                    class="attachment-chip badge"
+                    data-state={entry.status}
                     >{#if entry.status === "uploading"}<span
-                        class="composer-file-spinner"
+                        class="spinner"
                         aria-hidden="true"
                       ></span>{:else}<Paperclip
                         size={14}
@@ -834,6 +732,7 @@
                             ? `${entry.file.size} bytes`
                             : "Ready"}</small
                     ><button
+                      class="icon"
                       type="button"
                       aria-label={`Remove ${entry.file.name}`}
                       disabled={controller.state.sendingMessage}
@@ -842,9 +741,9 @@
                     ></span
                   >{/each}
               </div>{/if}
-            <div class="chat-composer-row">
+            <div class="input-group-controls">
               <button
-                class="chat-composer-attach"
+                class="icon"
                 type="button"
                 aria-label="Attach files"
                 title="Attach files"
@@ -857,8 +756,8 @@
                 /></button
               >
               <div
-                class:agent-selected={controller.state.selectedAgent !== ""}
-                class="chat-composer-agent"
+                data-select
+                data-selected={controller.state.selectedAgent !== "" || undefined}
                 title="Select agent"
               >
                 <Bot size={20} strokeWidth={2.25} aria-hidden="true" /><select
@@ -873,21 +772,19 @@
               </div>
               <textarea
                 id="message"
-                class="textarea"
                 rows="1"
                 autocomplete="off"
                 placeholder="Write a message"
                 bind:this={messageInputElement}
                 bind:value={controller.state.messageText}
                 disabled={controller.state.sendingMessage}
-                oninput={(event) => resizeComposer(event.currentTarget)}
                 onkeydown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
                     void controller.sendMessage()
                   }
                 }}></textarea><button
-                class="button is-primary chat-composer-send"
+                class="icon primary"
                 type="submit"
                 aria-label="Send message"
                 title="Send message"
@@ -902,7 +799,8 @@
               >
             </div>
             {#if controller.state.messageError !== ""}<p
-                class="help is-danger"
+                class="field-help"
+                role="alert"
                 aria-live="polite"
               >
                 {controller.state.messageError}

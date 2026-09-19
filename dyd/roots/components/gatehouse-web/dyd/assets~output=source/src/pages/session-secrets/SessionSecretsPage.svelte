@@ -74,10 +74,10 @@
   }
 </script>
 
-<PageBody>
+<PageBody fluid>
   {#if controller.state.editing}
     <form
-      class="project-note-editor"
+      class="stack"
       onsubmit={(event) => {
         event.preventDefault()
         void controller.save()
@@ -88,51 +88,45 @@
         <h2>{controller.state.creating ? "New Secret" : "Edit Secret"}</h2>
       </PageHeading>
       <div class="field">
-        <label class="label" for="session-secret-description">Description</label
+        <label for="session-secret-description">Description</label
         >
-        <div class="control">
-          <textarea
-            class="textarea"
-            id="session-secret-description"
-            autocomplete="off"
-            rows="3"
-            maxlength="4096"
-            required
-            bind:value={controller.state.description}></textarea>
-        </div>
+        <textarea
+          id="session-secret-description"
+          autocomplete="off"
+          rows="3"
+          maxlength="4096"
+          required
+          bind:value={controller.state.description}></textarea>
       </div>
       <div class="field">
-        <label class="label" for="session-secret-value"
+        <label for="session-secret-value"
           >{controller.state.creating ? "Value" : "New value (optional)"}</label
         >
-        <div class="control">
-          <textarea
-            class="textarea"
-            id="session-secret-value"
-            autocomplete="new-password"
-            rows="5"
-            maxlength="1048576"
-            required={controller.state.creating}
-            bind:value={controller.state.value}></textarea>
-        </div>
-        {#if !controller.state.creating}<p class="help">
+        <textarea
+          id="session-secret-value"
+          autocomplete="new-password"
+          rows="5"
+          maxlength="1048576"
+          required={controller.state.creating}
+          bind:value={controller.state.value}></textarea>
+        {#if !controller.state.creating}<p class="field-help">
             Leave blank to keep the current value.
           </p>{/if}
       </div>
       {#if controller.state.error !== ""}<p
-          class="help is-danger"
+          class="field-help"
+          role="alert"
           aria-live="polite"
         >
           {controller.state.error}
         </p>{/if}
-      <div class="project-note-actions">
+      <div class="cluster">
         <button
-          class="button"
           type="button"
           disabled={controller.state.saving}
           onclick={() => controller.cancelEdit()}>Cancel</button
         ><button
-          class="button is-primary"
+          class="primary"
           type="submit"
           disabled={controller.state.saving}
           >{controller.state.saving ? "Saving..." : "Save secret"}</button
@@ -140,13 +134,13 @@
       </div>
     </form>
   {:else if controller.state.active !== null}
-    <article class="project-note-view">
+    <article class="stack">
       {#snippet secretActions()}<button
-          class="button is-small"
+          class="small"
           type="button"
           onclick={() => controller.startEdit()}>Edit</button
         ><button
-          class="button is-small is-danger is-light"
+          class="secondary small"
           type="button"
           disabled={controller.state.deleting}
           onclick={() => void controller.remove()}
@@ -166,41 +160,42 @@
         >
       </PageHeading>
       {#if controller.state.error !== ""}<p
-          class="help is-danger"
+          class="field-help"
+          role="alert"
           aria-live="polite"
         >
           {controller.state.error}
         </p>{/if}
     </article>
   {:else}{#snippet collectionActions()}<button
-        class="button is-primary is-small"
+        class="primary small"
         type="button"
         onclick={() => controller.startCreate()}>New secret</button
       >{/snippet}
     <PageHeading actions={collectionActions}>
       <h2>Session Secrets</h2>
     </PageHeading>
-    <div class="collection-list">
+    <div class="list">
       {#if controller.state.status === "checking"}
-        <p class="dashboard-empty">Loading secrets...</p>
+        <p class="muted">Loading secrets...</p>
       {:else if controller.state.status === "unavailable"}
-        <p class="dashboard-empty">Secrets could not be loaded.</p>
+        <p class="muted">Secrets could not be loaded.</p>
       {:else}
         {#each controller.state.secrets as secret (secret.id)}
           <RouterLink
-            class="dashboard-row project-note-row"
+            class="list-item surface stack"
             href={secretPath(secret.id)}
-            ><span class="dashboard-row-content"
-              ><span class="project-note-title">{secret.description}</span><span
-                class="dashboard-row-meta"
+            ><span class="stack"
+              ><span>{secret.description}</span><small
+                class="cluster muted"
                 ><span>{secret.author.name ?? secret.author.id}</span><time
                   datetime={secret.updated_at}
                   >Updated {createdAtLabel(secret.updated_at)}</time
-                ></span
+                ></small
               ></span
             ></RouterLink
           >
-        {:else}<p class="dashboard-empty">No secrets yet.</p>{/each}
+        {:else}<p class="muted">No secrets yet.</p>{/each}
       {/if}
     </div>
   {/if}

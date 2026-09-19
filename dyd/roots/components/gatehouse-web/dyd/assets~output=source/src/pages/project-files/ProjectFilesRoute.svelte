@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Button } from "bits-ui"
-  import { PanelLeftOpen } from "@lucide/svelte"
   import {
     fetchProjectFiles,
     finishProjectFileUpload,
@@ -14,6 +13,7 @@
   import PageBody from "../../components/PageBody.svelte"
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -306,40 +306,21 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true">
-    <section class="status-card">
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage busy>
+    {#snippet children()}
       <p>Loading your workspaces.</p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">Connection unavailable</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage title="Connection unavailable">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <h1 class="title is-3">No workspace access</h1>
-    </section>
-  </main>
+  <StatusPage title="No workspace access" />
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
@@ -350,46 +331,31 @@
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
-        <SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen size={20} aria-hidden="true" /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-            >{workspace.name ?? workspace.id}</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span
-          ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
-            >Projects</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span
-          ><RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={projectPath(workspace.id, currentRoute.projectID)}
-            >{project?.name ?? "Project"}</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator">/</span
-          >{#if currentRoute.kind === "project-file"}<RouterLink
-              href={filesPath(workspace.id, currentRoute.projectID)}
-              >Files</RouterLink
-            ><span class="brand-workspace-breadcrumb-separator">/</span><span
-              >{selectedFile?.name ?? "File"}</span
-            >{:else}<span>Files</span>{/if}
-        </h1>
+        <SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb">
+          <ol>
+            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li>
+            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li>
+            <li><RouterLink href={projectPath(workspace.id, currentRoute.projectID)}>{project?.name ?? "Project"}</RouterLink></li>
+            {#if currentRoute.kind === "project-file"}
+              <li><RouterLink href={filesPath(workspace.id, currentRoute.projectID)}>Files</RouterLink></li>
+              <li aria-current="page">{selectedFile?.name ?? "File"}</li>
+            {:else}
+              <li aria-current="page">Files</li>
+            {/if}
+          </ol>
+        </nav>
       </SidebarPage.Header>
       <SidebarPage.Body
-        ><PageBody>
-          {#if projectStatus === "checking"}<p class="dashboard-empty">
+        ><PageBody fluid>
+          {#if projectStatus === "checking"}<p class="notice">
               Loading project...
             </p>
-          {:else if projectStatus === "unavailable"}<p class="dashboard-empty">
+          {:else if projectStatus === "unavailable"}<p class="notice">
               Project unavailable.
             </p>
             <button
-              class="button is-primary"
+              class="primary"
               type="button"
               onclick={() =>
                 void loadRoute(
@@ -398,19 +364,19 @@
                   abortController!.signal,
                 )}>Try again</button
             >
-          {:else if currentRoute.kind === "project-file"}<PageHeading
-              as="header"
-              ><p class="eyebrow">Project file</p>
-              <h1>{selectedFile?.name ?? "File"}</h1></PageHeading
+           {:else if currentRoute.kind === "project-file"}<PageHeading
+               as="header"
+               ><p class="eyebrow">Project file</p>
+               <h1>{selectedFile?.name ?? "File"}</h1></PageHeading
             >
-            {#if filesStatus === "checking"}<p class="dashboard-empty">
+            {#if filesStatus === "checking"}<p class="notice">
                 Loading file...
               </p>
-            {:else if filesStatus === "unavailable"}<p class="dashboard-empty">
+            {:else if filesStatus === "unavailable"}<p class="notice">
                 File could not be loaded.
               </p>
               <Button.Root
-                class="brand-button brand-button--primary brand-button--compact"
+                class="primary small"
                 type="button"
                 onclick={() =>
                   void loadFiles(
@@ -419,15 +385,13 @@
                     abortController!.signal,
                   )}>Try again</Button.Root
               >
-            {:else if selectedFile !== null}<section
-                class="brand-dashboard-card"
-              >
-                <div class="brand-card-heading">
-                  <h2 class="brand-card-title">File details</h2>
-                  <div class="field is-grouped">
-                    <div class="control">
+            {:else if selectedFile !== null}<section class="card surface stack">
+                <div class="split">
+                  <h2>File details</h2>
+                  <div class="cluster">
+                    <div>
                       <a
-                        class="brand-button brand-button--primary brand-button--compact"
+                        class="primary"
                         href={projectFileDownloadPath(
                           workspace.id,
                           currentRoute.projectID,
@@ -437,9 +401,9 @@
                         rel="noopener">Download</a
                       >
                     </div>
-                    <div class="control">
+                    <div>
                       <Button.Root
-                        class="brand-button brand-button--compact brand-button--danger"
+                        class="small"
                         type="button"
                         disabled={removingFileIDs.has(selectedFile.id)}
                         onclick={() => void deleteFile(selectedFile)}
@@ -451,66 +415,66 @@
                   </div>
                 </div>
                 <dl>
-                  <div class="brand-dashboard-row">
-                    <div class="brand-row-content">
-                      <dt class="label">
-                        <span class="brand-row-meta">Name</span>
+                  <div class="list-item surface up">
+                    <div class="stack" style:--space="calc(var(--space) / 4)">
+                      <dt>
+                        <small>Name</small>
                       </dt>
-                      <dd class="control">{selectedFile.name}</dd>
+                      <dd>{selectedFile.name}</dd>
                     </div>
                   </div>
-                  <div class="brand-dashboard-row">
-                    <div class="brand-row-content">
-                      <dt class="label">
-                        <span class="brand-row-meta">Created</span>
+                  <div class="list-item surface up">
+                    <div class="stack" style:--space="calc(var(--space) / 4)">
+                      <dt>
+                        <small>Created</small>
                       </dt>
-                      <dd class="control">
+                      <dd>
                         <time datetime={selectedFile.created_at}
                           >{dateLabel(selectedFile.created_at)}</time
                         >
                       </dd>
                     </div>
                   </div>
-                  <div class="brand-dashboard-row">
-                    <div class="brand-row-content">
-                      <dt class="label">
-                        <span class="brand-row-meta">Size</span>
+                  <div class="list-item surface up">
+                    <div class="stack" style:--space="calc(var(--space) / 4)">
+                      <dt>
+                        <small>Size</small>
                       </dt>
-                      <dd class="control">{selectedFile.size} bytes</dd>
+                      <dd>{selectedFile.size} bytes</dd>
                     </div>
                   </div>
-                  <div class="brand-dashboard-row">
-                    <div class="brand-row-content">
-                      <dt class="label">
-                        <span class="brand-row-meta">Media type</span>
+                  <div class="list-item surface up">
+                    <div class="stack" style:--space="calc(var(--space) / 4)">
+                      <dt>
+                        <small>Media type</small>
                       </dt>
-                      <dd class="control">
+                      <dd>
                         {selectedFile.media_type ?? "Unknown"}
                       </dd>
                     </div>
                   </div>
-                  <div class="brand-dashboard-row">
-                    <div class="brand-row-content">
-                      <dt class="label">
-                        <span class="brand-row-meta">Fingerprint</span>
+                  <div class="list-item surface up">
+                    <div class="stack" style:--space="calc(var(--space) / 4)">
+                      <dt>
+                        <small>Fingerprint</small>
                       </dt>
-                      <dd class="control">{selectedFile.fingerprint}</dd>
+                      <dd>{selectedFile.fingerprint}</dd>
                     </div>
                   </div>
                 </dl>
               </section>{/if}
-            {#if filesError !== ""}<p class="brand-error" aria-live="polite">
+            {#if filesError !== ""}<p class="notice action" aria-live="polite">
                 {filesError}
               </p>{/if}
-          {:else}<PageHeading as="header"
-              ><p class="eyebrow">Project files</p>
-              <h1>Files</h1></PageHeading
+           {:else}<PageHeading as="header"
+               ><p class="eyebrow">Project files</p>
+               <h1>Files</h1></PageHeading
             >
-            <section class="brand-dashboard-card">
-              <div class="brand-card-heading">
-                <h2 class="brand-card-title">Project Files</h2>
+            <section class="card surface stack">
+              <div class="split">
+                <h2>Project Files</h2>
                 <Button.Root
-                  class="brand-button brand-button--primary brand-button--compact"
+                  class="primary small"
                   type="button"
                   disabled={uploadingFiles > 0}
                   onclick={() => fileInput?.click()}
@@ -520,21 +484,21 @@
                 >
               </div>
               <input
-                class="brand-visually-hidden"
+                class="visually-hidden"
                 type="file"
                 autocomplete="off"
                 multiple
                 bind:this={fileInput}
                 onchange={(event) => void uploadFiles(event.currentTarget)}
               />
-              {#if filesStatus === "checking"}<p class="brand-empty">
+              {#if filesStatus === "checking"}<p class="notice">
                   Loading files...
                 </p>
-              {:else if filesStatus === "unavailable"}<p class="brand-empty">
+              {:else if filesStatus === "unavailable"}<p class="notice">
                   Files could not be loaded.
                 </p>
                 <Button.Root
-                  class="brand-button brand-button--primary brand-button--compact"
+                  class="primary small"
                   type="button"
                   onclick={() =>
                     void loadFiles(
@@ -544,14 +508,14 @@
                     )}>Try again</Button.Root
                 >
               {:else}{#each files as file (file.id)}<RouterLink
-                    class="brand-dashboard-row"
+                    class="list-item surface up"
                     href={filePath(
                       workspace.id,
                       currentRoute.projectID,
                       file.id,
                     )}
-                    ><span class="brand-file-content"
-                      ><span>{file.name}</span><span class="brand-file-meta"
+                    ><span class="stack" style:--space="calc(var(--space) / 4)"
+                      ><span>{file.name}</span><span class="cluster" style:--space="calc(var(--space) / 2)"
                         ><time datetime={file.created_at}
                           >{dateLabel(file.created_at)}</time
                         ><span>{file.size} bytes</span
@@ -560,8 +524,8 @@
                           >{/if}</span
                       ></span
                     ></RouterLink
-                  >{:else}<p class="brand-empty">No files yet.</p>{/each}{/if}
-              {#if filesError !== ""}<p class="brand-error" aria-live="polite">
+                  >{:else}<p class="notice">No files yet.</p>{/each}{/if}
+              {#if filesError !== ""}<p class="notice action" aria-live="polite">
                   {filesError}
                 </p>{/if}
             </section>

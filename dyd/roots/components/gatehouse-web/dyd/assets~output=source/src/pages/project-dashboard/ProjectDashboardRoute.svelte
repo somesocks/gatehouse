@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { Button, Dialog, DropdownMenu } from "bits-ui"
-  import { Menu, PanelLeftOpen, X } from "@lucide/svelte"
+  import { Button, Dialog as Modal, DropdownMenu } from "bits-ui"
+  import { Menu, X } from "@lucide/svelte"
   import {
     createProjectChat,
     fetchProjectChats,
@@ -33,6 +33,7 @@
   import PageBody from "../../components/PageBody.svelte"
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import type { Route } from "../../route"
@@ -644,58 +645,27 @@
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
-  <main class="status-page" aria-busy="true" aria-live="polite">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <div class="loading-mark" aria-hidden="true"></div>
+  <StatusPage eyebrow="Gatehouse" busy live="polite">
+    {#snippet children()}
       <p>
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
       </p>
-    </section>
-  </main>
+    {/snippet}
+  </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Connection unavailable</h1>
-      <p class="subtitle is-6">Gatehouse could not load your account.</p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => void runtime.refresh()}>Try again</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  </StatusPage>
 {:else if auth.state.status !== "authenticated"}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">Sign in required</h1>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.requireLogin()}>Sign in</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="Sign in required">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+  </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <main class="status-page">
-    <section class="status-card">
-      <p class="eyebrow">Gatehouse</p>
-      <h1 class="title is-3">No workspace access</h1>
-      <p class="subtitle is-6">
-        Ask an administrator to add you to a workspace group.
-      </p>
-      <button
-        class="button is-primary"
-        type="button"
-        onclick={() => runtime.navigate("/app/no-access", true)}
-        >Continue</button
-      >
-    </section>
-  </main>
+  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
+    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
@@ -705,46 +675,17 @@
       /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
-        ><SidebarPage.Toggle
-          ><button
-            class="mobile-menu-trigger"
-            type="button"
-            aria-label="Open navigation menu"
-            ><PanelLeftOpen
-              size={20}
-              strokeWidth={2}
-              aria-hidden="true"
-            /></button
-          ></SidebarPage.Toggle
-        >
-        <h1 class="brand-workspace-breadcrumb">
-          <RouterLink
-            class="brand-workspace-breadcrumb-segment"
-            href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-            ><span>{workspace.name ?? workspace.id}</span></RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
-            >Projects</RouterLink
-          ><span class="brand-workspace-breadcrumb-separator" aria-hidden="true"
-            >/</span
-          ><span class="brand-workspace-breadcrumb-segment"
-            >{project?.name ?? "New Project"}</span
-          >
-        </h1></SidebarPage.Header
+        ><SidebarPage.Toggle />
+        <nav aria-label="Breadcrumb"><ol><li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li><li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li><li aria-current="page">{project?.name ?? "New Project"}</li></ol></nav></SidebarPage.Header
       ><SidebarPage.Body
-        ><PageBody>
-          {#if projectStatus === "checking"}<section
-              class="brand-dashboard brand-dashboard-status"
-            >
+        ><PageBody fluid>
+          {#if projectStatus === "checking"}<section class="notice">
               <p>Loading project...</p>
             </section>
-          {:else if projectStatus === "unavailable"}<section
-              class="brand-dashboard brand-dashboard-status"
-            >
+          {:else if projectStatus === "unavailable"}<section class="notice stack">
               <p>Project unavailable.</p>
               <Button.Root
-                class="brand-button brand-button--primary"
+                class="primary"
                 type="button"
                 onclick={() =>
                   void loadRoute(
@@ -755,10 +696,10 @@
               >
             </section>
           {:else if project !== null}
-            <section>
+            <section class="stack">
               {#snippet projectActions()}<DropdownMenu.Root
                   ><DropdownMenu.Trigger
-                    class="brand-icon-button"
+                    class="icon inline"
                     aria-label="Project actions"
                     title="Project actions"
                     ><Menu
@@ -768,31 +709,31 @@
                     /></DropdownMenu.Trigger
                   ><DropdownMenu.Portal
                     ><DropdownMenu.Content
-                      class="brand-menu-content"
+                      class="list dropdown-menu-content"
                       sideOffset={6}
                       align="end"
                       ><DropdownMenu.Item
-                        class="brand-menu-item"
+                        class="list-item"
                         onSelect={openEdit}>Edit project</DropdownMenu.Item
                       ></DropdownMenu.Content
                     ></DropdownMenu.Portal
                   ></DropdownMenu.Root
                 >{/snippet}
               <PageHeading as="header" actions={projectActions}>
-                <p class="eyebrow">PROJECT</p>
+                <p class="eyebrow">Project</p>
                 <h2>
                   {project.name ?? "New Project"}
                 </h2>
-                <p class="subtitle is-6">
+                <p class="subtitle">
                   {project.description ?? "No description yet."}
                 </p>
               </PageHeading>
-              <section class="brand-dashboard-grid">
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Chats</h2>
+              <section class="grid" data-columns="2">
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Chats</h2>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       disabled={creatingChat}
                       onclick={() => void createChat()}
@@ -800,31 +741,28 @@
                     >
                   </div>
                   {#each chats as chat (chat.id)}<RouterLink
-                      class="brand-dashboard-row"
+                      class="list-entry"
                       href={chatPath(workspace.id, chat.id)}
-                      ><span class="brand-row-content"
-                        ><span>{chat.name ?? "New Chat"}</span><span
-                          class="brand-row-meta"
+                      ><span class="stack" style:--space="calc(var(--space) / 4)"
+                        ><span class="truncate">{chat.name ?? "New Chat"}</span><span
+                          class="field-help truncate"
                           ><time datetime={chat.created_at}
                             >{dateLabel(chat.created_at)}</time
-                          >{#if chat.project !== undefined}<span
-                              aria-hidden="true">/</span
-                            ><span>{chat.project.name ?? "New Project"}</span
-                            >{/if}</span
+                          ></span
                         ></span
                       ></RouterLink
-                    >{:else}<p class="brand-empty">
+                    >{:else}<p class="notice">
                       No project chats yet.
                     </p>{/each}<RouterLink
-                    class="brand-view-all"
+                    class="navigation-link"
                     href={chatsPath(workspace.id)}>View all chats</RouterLink
                   >
                 </section>
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Files</h2>
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Files</h2>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       disabled={uploadingFiles > 0}
                       onclick={() => fileInput?.click()}
@@ -834,21 +772,21 @@
                     >
                   </div>
                   <input
-                    class="brand-visually-hidden"
+                    class="visually-hidden"
                     type="file"
                     autocomplete="off"
                     multiple
                     bind:this={fileInput}
                     onchange={(event) => void uploadFiles(event.currentTarget)}
-                  />{#if filesStatus === "checking"}<p class="brand-empty">
+                  />{#if filesStatus === "checking"}<p class="notice">
                       Loading files...
                     </p>{:else if filesStatus === "unavailable"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Files could not be loaded.
                     </p>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       onclick={() =>
                         void loadFiles(
@@ -858,49 +796,50 @@
                           abortController!.signal,
                         )}>Try again</Button.Root
                     >{:else}{#each files.slice(0, 5) as file (file.id)}<RouterLink
-                        class="brand-dashboard-row"
+                        class="list-entry"
                         href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}`}
-                        ><span class="brand-file-content"
-                          ><span>{file.name}</span><span class="brand-file-meta"
+                        ><span class="stack" style:--space="calc(var(--space) / 4)"
+                          ><span class="truncate">{file.name}</span><span
+                            class="field-help truncate"
                             ><time datetime={file.created_at}
                               >{dateLabel(file.created_at)}</time
-                            ><span>{file.size} bytes</span
-                            >{#if file.media_type !== undefined}<span
-                                >{file.media_type}</span
-                              >{/if}</span
+                            > / {file.size} bytes{#if file.media_type !== undefined} / {file.media_type}{/if}</span
                           ></span
                         ></RouterLink
-                      >{:else}<p class="brand-empty">
+                      >{:else}<p class="notice">
                         No files yet.
                       </p>{/each}{/if}<RouterLink
-                    class="brand-view-all"
+                    class="navigation-link"
                     href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files`}
                     >View all files</RouterLink
                   >{#if filesError !== ""}<p
-                      class="brand-error"
+                      class="notice action"
                       aria-live="polite"
                     >
                       {filesError}
                     </p>{/if}
                 </section>
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Notes</h2>
-                    <RouterLink
-                      class="brand-button brand-button--primary brand-button--compact"
-                      href={`${notesPath(workspace.id, project.id)}/new`}
-                      >New note</RouterLink
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Notes</h2>
+                    <Button.Root
+                      class="primary small"
+                      type="button"
+                      onclick={() =>
+                        runtime.navigate(
+                          `${notesPath(workspace.id, project.id)}/new`,
+                        )}>New note</Button.Root
                     >
                   </div>
-                  {#if notesStatus === "checking"}<p class="brand-empty">
+                  {#if notesStatus === "checking"}<p class="notice">
                       Loading notes...
                     </p>{:else if notesStatus === "unavailable"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Notes could not be loaded.
                     </p>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       onclick={() =>
                         void loadNotes(
@@ -910,48 +849,47 @@
                           abortController!.signal,
                         )}>Try again</Button.Root
                     >{:else}{#each notes as note (note.id)}<RouterLink
-                        class="brand-dashboard-row"
+                        class="list-entry"
                         href={notePath(workspace.id, project.id, note.id)}
-                        ><span class="brand-row-content"
-                          ><span
-                            >{note.title}{#if note.sensitive}<span
-                                class="brand-badge">Sensitive</span
-                              >{/if}</span
-                          >{#if note.description !== ""}<span
-                              class="brand-row-description"
-                              >{note.description}</span
-                            >{/if}<span class="brand-row-meta"
-                            ><time datetime={note.created_at}
-                              >{dateLabel(note.created_at)}</time
-                            ></span
-                          ></span
-                        ></RouterLink
-                      >{:else}<p class="brand-empty">
+                      >
+                        <span class="stack" style:--space="calc(var(--space) / 4)">
+                          <span class="truncate">{note.title}</span>
+                          {#if note.description !== "" || note.sensitive}
+                            <span class="field-help truncate"
+                              >{note.sensitive ? "Sensitive" : ""}{#if note.sensitive && note.description !== ""} / {/if}{note.description}</span
+                            >
+                          {/if}
+                        </span>
+                      </RouterLink>
+                      {:else}<p class="notice">
                         No notes yet.
                       </p>{/each}{/if}<RouterLink
-                    class="brand-view-all"
+                    class="navigation-link"
                     href={notesPath(workspace.id, project.id)}
                     >View all notes</RouterLink
                   >
                 </section>
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Tasks</h2>
-                    <RouterLink
-                      class="brand-button brand-button--primary brand-button--compact"
-                      href={`${tasksPath(workspace.id, project.id)}/new`}
-                      >New task</RouterLink
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Tasks</h2>
+                    <Button.Root
+                      class="primary small"
+                      type="button"
+                      onclick={() =>
+                        runtime.navigate(
+                          `${tasksPath(workspace.id, project.id)}/new`,
+                        )}>New task</Button.Root
                     >
                   </div>
-                  {#if tasksStatus === "checking"}<p class="brand-empty">
+                  {#if tasksStatus === "checking"}<p class="notice">
                       Loading tasks...
                     </p>{:else if tasksStatus === "unavailable"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Tasks could not be loaded.
                     </p>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       onclick={() =>
                         void loadTasks(
@@ -961,48 +899,43 @@
                           abortController!.signal,
                         )}>Try again</Button.Root
                     >{:else}{#each tasks.slice(0, 5) as task (task.id)}<RouterLink
-                        class="brand-dashboard-row"
+                        class="list-entry"
                         href={taskPath(workspace.id, project.id, task.id)}
-                        ><span class="brand-row-content"
-                          ><span
-                            >{task.title}
-                            <span class="brand-status"
-                              >{statusLabel(task.status)}</span
-                            >{#if task.sensitive}<span class="brand-badge"
-                                >Sensitive</span
-                              >{/if}</span
-                          ><span class="brand-row-meta"
-                            ><time datetime={task.created_at}
-                              >{dateLabel(task.created_at)}</time
-                            ></span
+                        ><span class="stack" style:--space="calc(var(--space) / 4)"
+                          ><span class="truncate">{task.title}</span
+                          ><span class="field-help truncate"
+                            >{statusLabel(task.status)}{#if task.sensitive} / Sensitive{/if}</span
                           ></span
                         ></RouterLink
-                      >{:else}<p class="brand-empty">
+                      >{:else}<p class="notice">
                         No tasks yet.
                       </p>{/each}{/if}<RouterLink
-                    class="brand-view-all"
+                    class="navigation-link"
                     href={tasksPath(workspace.id, project.id)}
                     >View all tasks</RouterLink
                   >
                 </section>
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Secrets</h2>
-                    <RouterLink
-                      class="brand-button brand-button--primary brand-button--compact"
-                      href={`${secretsPath(workspace.id, project.id)}/new`}
-                      >New secret</RouterLink
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Secrets</h2>
+                    <Button.Root
+                      class="primary small"
+                      type="button"
+                      onclick={() =>
+                        runtime.navigate(
+                          `${secretsPath(workspace.id, project.id)}/new`,
+                        )}>New secret</Button.Root
                     >
                   </div>
-                  {#if secretsStatus === "checking"}<p class="brand-empty">
+                  {#if secretsStatus === "checking"}<p class="notice">
                       Loading secrets...
                     </p>{:else if secretsStatus === "unavailable"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Secrets could not be loaded.
                     </p>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       onclick={() =>
                         void loadSecrets(
@@ -1012,11 +945,12 @@
                           abortController!.signal,
                         )}>Try again</Button.Root
                     >{:else}{#each secrets as secret (secret.id)}<RouterLink
-                        class="brand-dashboard-row"
+                        class="list-entry"
                         href={secretPath(workspace.id, project.id, secret.id)}
-                        ><span class="brand-row-content"
+                        ><span class="stack" style:--space="calc(var(--space) / 4)"
                           ><span>{secret.description}</span><span
-                            class="brand-row-meta"
+                            class="cluster"
+                            style:--space="calc(var(--space) / 2)"
                             ><span
                               >{secret.author.name ?? secret.author.id}</span
                             ><time datetime={secret.updated_at}
@@ -1024,29 +958,29 @@
                             ></span
                           ></span
                         ></RouterLink
-                      >{:else}<p class="brand-empty">
+                      >{:else}<p class="notice">
                         No secrets yet.
                       </p>{/each}{/if}<RouterLink
-                    class="brand-view-all"
+                    class="navigation-link"
                     href={secretsPath(workspace.id, project.id)}
                     >View all secrets</RouterLink
                   >
                 </section>
-                <section class="brand-dashboard-card">
-                  <div class="brand-card-heading">
-                    <h2 class="brand-card-title">Project Records</h2>
+                <section class="card surface stack">
+                  <div class="split">
+                    <h2>Project Records</h2>
                   </div>
                   {#if recordSchemasStatus === "checking"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Loading record types...
                     </p>{:else if recordSchemasStatus === "unavailable"}<p
-                      class="brand-empty"
+                      class="notice"
                     >
                       Record types could not be loaded.
                     </p>
                     <Button.Root
-                      class="brand-button brand-button--primary brand-button--compact"
+                      class="primary small"
                       type="button"
                       onclick={() =>
                         void loadRecordSchemas(
@@ -1056,29 +990,29 @@
                           abortController!.signal,
                         )}>Try again</Button.Root
                     >{:else}{#each recordSchemas.slice(0, 5) as schema (schema.id)}<RouterLink
-                        class="brand-dashboard-row"
+                        class="list-entry"
                         href={recordSchemaPath(
                           workspace.id,
                           project.id,
                           schema.id,
                         )}
-                        ><span class="brand-row-content"
+                        ><span class="stack" style:--space="calc(var(--space) / 4)"
                           ><span>{schema.label}</span
                           >{#if schema.description !== ""}<span
-                              class="brand-row-description"
+                              class="field-help"
                               >{schema.description}</span
                             >{/if}</span
                         ></RouterLink
-                      >{:else}<p class="brand-empty">
+                      >{:else}<p class="notice">
                         No record types yet.
                       </p>{/each}<RouterLink
-                      class="brand-view-all"
+                      class="navigation-link"
                       href={recordsPath(workspace.id, project.id)}
                       >View all records</RouterLink
                     >{/if}
                 </section>
               </section>
-              {#if actionError !== ""}<p class="brand-error" aria-live="polite">
+              {#if actionError !== ""}<p class="notice action" aria-live="polite">
                   {actionError}
                 </p>{/if}
             </section>
@@ -1087,63 +1021,60 @@
       ></SidebarPage.Page
     ></SidebarPage.Root
   >
-  <Dialog.Root bind:open={editOpen}
-    ><Dialog.Portal
-      ><Dialog.Overlay class="brand-dialog-overlay" /><Dialog.Content
-        class="brand-dialog-content"
+  <Modal.Root bind:open={editOpen}
+    ><Modal.Portal
+        ><Modal.Overlay class="modal-overlay" /><Modal.Content
+          class="modal"
         ><form
-          class="brand-dialog-form"
+          class="modal-body stack"
           onsubmit={(event) => {
             event.preventDefault()
             void saveProject()
           }}
         >
-          <div class="brand-dialog-heading">
-            <Dialog.Title class="brand-dialog-title">Edit project</Dialog.Title
+          <div class="modal-header">
+            <Modal.Title>Edit project</Modal.Title
             ><Button.Root
-              class="brand-icon-button"
+              class="icon"
               type="button"
               aria-label="Close"
               onclick={closeEdit}
               ><X size={18} strokeWidth={2} aria-hidden="true" /></Button.Root
             >
           </div>
-          <div class="brand-field">
+          <div class="field">
             <label for="project-edit-name">Name</label><input
-              class="brand-input"
               id="project-edit-name"
               autocomplete="off"
               maxlength="256"
               bind:value={editName}
             />
           </div>
-          <div class="brand-field">
+          <div class="field">
             <label for="project-edit-description">Description</label><textarea
-              class="brand-textarea"
               id="project-edit-description"
               autocomplete="off"
               rows="4"
               maxlength="4096"
               bind:value={editDescription}></textarea>
           </div>
-          {#if editError !== ""}<p class="brand-form-error" aria-live="polite">
+          {#if editError !== ""}<p class="notice action" aria-live="polite">
               {editError}
             </p>{/if}
-          <div class="brand-dialog-actions">
+          <div class="modal-footer">
             <Button.Root
-              class="brand-button"
               type="button"
               disabled={updatingProject}
               onclick={closeEdit}>Cancel</Button.Root
             ><Button.Root
-              class="brand-button brand-button--primary"
+              class="primary"
               type="submit"
               disabled={updatingProject}
               >{updatingProject ? "Saving..." : "Save changes"}</Button.Root
             >
           </div>
-        </form></Dialog.Content
-      ></Dialog.Portal
-    ></Dialog.Root
+        </form></Modal.Content
+      ></Modal.Portal
+    ></Modal.Root
   >
 {/if}

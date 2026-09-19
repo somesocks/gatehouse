@@ -7,4 +7,4 @@
   }: { element?: HTMLElement; children: Snippet } = $props()
 </script>
 
-<main bind:this={element} class="sidebar-page-page">{@render children()}</main>
+<main bind:this={element} class="sidebar-page-main page">{@render children()}</main>

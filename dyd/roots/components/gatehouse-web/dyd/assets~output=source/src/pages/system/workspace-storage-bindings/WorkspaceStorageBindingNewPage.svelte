@@ -25,25 +25,25 @@
   active="workspace-storage-bindings"
   title="New workspace storage binding"
 >
-  <section class="system-page">
-    <div class="system-page-heading mb-5">
+  <section class="stack">
+    <div class="stack">
       <div>
         <p class="eyebrow">System</p>
-        <h2 class="title is-3">New workspace storage binding</h2>
+        <h2>New workspace storage binding</h2>
       </div>
     </div>
     <form
+      class="stack"
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
       <div class="field">
-        <label class="label" for="storage-binding-workspace">Workspace ID</label
+        <label for="storage-binding-workspace">Workspace ID</label
         >
-        <div class="control">
+        <div>
           <input
-            class="input"
             id="storage-binding-workspace"
             required
             bind:value={controller.state.form.workspace}
@@ -51,12 +51,11 @@
         </div>
       </div>
       <div class="field">
-        <label class="label" for="storage-binding-provider"
+        <label for="storage-binding-provider"
           >Storage provider ID</label
         >
-        <div class="control">
+        <div>
           <input
-            class="input"
             id="storage-binding-provider"
             required
             bind:value={controller.state.form.provider}
@@ -64,29 +63,28 @@
         </div>
       </div>
       <div class="field">
-        <label class="label" for="storage-binding-priority">Priority</label>
-        <div class="control">
+        <label for="storage-binding-priority">Priority</label>
+        <div>
           <input
-            class="input"
             id="storage-binding-priority"
             type="number"
             bind:value={controller.state.form.priority}
           />
         </div>
       </div>
-      <div class="field is-grouped">
-        <p class="control">
-          <button class="button is-primary">Add binding</button>
-        </p>
-        <p class="control">
+      <div class="cluster">
+        <div>
+          <button class="primary">Add binding</button>
+        </div>
+        <div>
           <RouterLink
-            class="button"
+            class="secondary"
             href="/app/system/workspace-storage-bindings">Cancel</RouterLink
           >
-        </p>
+        </div>
       </div>
     </form>
-    {#if controller.state.error}<p class="help is-danger">
+    {#if controller.state.error}<p class="field-help" role="alert">
         {controller.state.error}
       </p>{/if}
   </section>

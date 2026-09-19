@@ -41,10 +41,9 @@
   <PageHeading>
     <h1>Groups</h1>
   </PageHeading>
-  <div class="collection-search">
-    <label
+  <div class="field">
+    <label class="field"
       ><span>Search groups</span><input
-        class="input"
         type="search"
         autocomplete="off"
         placeholder="Search groups"
@@ -52,11 +51,11 @@
       /></label
     >
   </div>
-  <div class="collection-list">
+  <div class="list">
     {#each ordered(controller.state.groups.filter( (group) => matchesSearch(group, controller.state.search), )) as group}
-      <div class="dashboard-row">
+      <div class="list-item surface split">
         <span>{group.name ?? "New Group"}</span><small>{group.id}</small>
       </div>
-    {:else}<p class="dashboard-empty">No groups match your search.</p>{/each}
+    {:else}<p class="notice">No groups match your search.</p>{/each}
   </div>
 </PageBody>
