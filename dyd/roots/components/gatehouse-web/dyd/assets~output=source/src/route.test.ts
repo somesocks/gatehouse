@@ -113,7 +113,23 @@ describe("routes", () => {
     },
     {
       path: "/app/wsp/wsp_a/ses/ses_a",
-      route: { kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" },
+      route: {
+        kind: "session-chat",
+        workspaceID: "wsp_a",
+        sessionID: "ses_a",
+        mode: "group",
+        agent: null,
+      },
+    },
+    {
+      path: "/app/wsp/wsp_a/ses/ses_a?mode=direct&agent=wag_a",
+      route: {
+        kind: "session-chat",
+        workspaceID: "wsp_a",
+        sessionID: "ses_a",
+        mode: "direct",
+        agent: "wag_a",
+      },
     },
     {
       path: "/app/wsp/wsp_a/ses/ses_a/files",

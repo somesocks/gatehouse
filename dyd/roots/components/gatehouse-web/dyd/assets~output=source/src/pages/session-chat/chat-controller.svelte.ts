@@ -12,12 +12,17 @@ import {
   type ChatComposerFile,
   type ChatEventTree,
 } from "../../app/chat"
+import { mentionedAgentIDs } from "./chat-mentions"
 
 type ChatControllerOptions = {
   isNearBottom: () => boolean
   followLatest: (behavior?: ScrollBehavior) => Promise<void>
   focusComposer: () => void
 }
+
+export type ChatDelivery =
+  | { mode: "group" }
+  | { mode: "direct"; agentID?: string }
 
 export function createChatController({
   isNearBottom,
@@ -28,7 +33,6 @@ export function createChatController({
     events: [] as ChatEventTree[],
     status: "checking" as "checking" | "ready" | "unavailable",
     agents: [] as ChatAgent[],
-    selectedAgent: "",
     messageText: "",
     composerFiles: [] as ChatComposerFile[],
     messageError: "",
@@ -122,12 +126,10 @@ export function createChatController({
         return false
       }
       if (!response.ok) throw new Error("agents could not be refreshed")
-      const agents = (await response.json()) as ChatAgent[]
-      if (!validContext(value, workspaceID, sessionID)) return false
-      state.agents = agents
-      if (!agents.some((agent) => agent.id === state.selectedAgent))
-        state.selectedAgent = ""
-      return true
+       const agents = (await response.json()) as ChatAgent[]
+       if (!validContext(value, workspaceID, sessionID)) return false
+       state.agents = agents
+       return true
     } catch {
       return false
     }
@@ -144,7 +146,6 @@ export function createChatController({
     state.events = []
     state.status = "checking"
     state.agents = []
-    state.selectedAgent = ""
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
@@ -166,7 +167,6 @@ export function createChatController({
     context = null
     state.events = []
     state.agents = []
-    state.selectedAgent = ""
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
@@ -180,7 +180,7 @@ export function createChatController({
     followingLatest = false
   }
 
-  async function sendMessage(): Promise<void> {
+  async function sendMessage(delivery: ChatDelivery = { mode: "group" }): Promise<void> {
     if (
       context === null ||
       state.sendingMessage ||
@@ -190,7 +190,11 @@ export function createChatController({
     const { workspaceID, sessionID, signal } = context
     const value = generation
     const text = state.messageText
-    const agent = state.selectedAgent
+    if (delivery.mode === "direct" && delivery.agentID === undefined) {
+      state.messageError = "The direct agent is unavailable. Choose another agent."
+      return
+    }
+    const agents = deliveredAgentIDs(text, state.agents, delivery)
     state.messageError = ""
     state.sendingMessage = true
     try {
@@ -205,7 +209,7 @@ export function createChatController({
         sessionID,
         {
           ...(text.trim() === "" ? {} : { text }),
-          ...(agent === "" ? {} : { agent }),
+          ...(agents.length === 0 ? {} : { agents }),
           ...(attachments.length === 0 ? {} : { attachments }),
         },
         signal,
@@ -223,7 +227,8 @@ export function createChatController({
       await tick()
       state.events = [...state.events, { event, children: [] }]
       void followLatest()
-      state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
+      if (agents.length > 0)
+        state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
     } catch {
       if (current(value))
         state.messageError =
@@ -306,6 +311,7 @@ export function createChatController({
   async function cancelReply(tree: ChatEventTree): Promise<void> {
     if (context === null || state.cancellingReplyFor.has(tree.event.ref.id))
       return
+    if (tree.event.kind !== "agent.request") return
     const { workspaceID, sessionID, signal } = context
     const value = generation
     state.cancellingReplyFor = new Set(state.cancellingReplyFor).add(
@@ -460,16 +466,36 @@ export function createChatController({
 export function eventTreeIDs(tree: ChatEventTree): string[] {
   return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)]
 }
+export function deliveredAgentIDs(
+  text: string,
+  agents: ChatAgent[],
+  delivery: ChatDelivery,
+): string[] {
+  const mentions = mentionedAgentIDs(text, agents)
+  if (mentions.length > 0 || delivery.mode === "group") return mentions
+  return delivery.agentID === undefined ? [] : [delivery.agentID]
+}
 export function finalReplies(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter(
-    (child) =>
-      child.event.kind === "message.text" &&
-      child.event.author_agent !== undefined &&
-      child.event.payload.text !== undefined,
-  )
+  return tree.children.flatMap((child) => [
+    ...(child.event.kind === "agent.reply" &&
+    child.event.author_agent !== undefined &&
+    child.event.payload.text !== undefined
+      ? [child]
+      : []),
+    ...finalReplies(child),
+  ])
+}
+export function agentRequests(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter((child) => child.event.kind === "agent.request")
 }
 export function activityEvents(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter((child) => !finalReplies(tree).includes(child))
+  return tree.children.flatMap((child) => [
+    ...(child.event.kind !== "agent.request" &&
+    child.event.kind !== "agent.reply"
+      ? [child]
+      : []),
+    ...activityEvents(child),
+  ])
 }
 export function renderedActivityEvents(tree: ChatEventTree): ChatEventTree[] {
   return activityEvents(tree).filter(
@@ -488,7 +514,7 @@ export function displayedActivityEvents(
     : activity.slice(-5)
 }
 export function hasThinkingFailure(tree: ChatEventTree): boolean {
-  return tree.children.some(
+  return activityEvents(tree).some(
     (child) =>
       child.event.kind === "thinking.started" &&
       thinkingStatus(child) === "failed",
@@ -497,7 +523,12 @@ export function hasThinkingFailure(tree: ChatEventTree): boolean {
 export function cancellationRequest(
   tree: ChatEventTree,
 ): ChatEventTree | undefined {
-  return tree.children.find((child) => child.event.kind === "cancel.request")
+  for (const child of tree.children) {
+    if (child.event.kind === "cancel.request") return child
+    const nested = cancellationRequest(child)
+    if (nested !== undefined) return nested
+  }
+  return undefined
 }
 export function hasCancellationSuccess(tree: ChatEventTree): boolean {
   return (
@@ -508,6 +539,7 @@ export function hasCancellationSuccess(tree: ChatEventTree): boolean {
 }
 export function replyCanBeCancelled(tree: ChatEventTree): boolean {
   return (
+    (tree.event.kind === "agent.request" || agentRequests(tree).length === 1) &&
     finalReplies(tree).length === 0 &&
     !hasThinkingFailure(tree) &&
     cancellationRequest(tree) === undefined

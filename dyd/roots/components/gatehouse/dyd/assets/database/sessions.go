@@ -12,6 +12,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
 	"gatehouse/authz"
+	"gatehouse/config"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -446,7 +447,32 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 }
 
 func (store *Store) SessionMessagesCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, true, false)
+	targets, err := sessionMessageTargetAgents(event)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	if event.Parent != nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
+		return fmt.Errorf("create session message: message must be a principal-authored root"), model.SessionEvent{}
+	}
+	if len(targets) > 0 {
+		event.Payload["agents"] = targets
+	}
+	events := make([]model.SessionEvent, 1, len(targets)+1)
+	events[0] = event
+	for _, target := range targets {
+		id, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			return fmt.Errorf("create agent request: generate event ID: %w", err), model.SessionEvent{}
+		}
+		events = append(events, model.SessionEvent{
+			Ref:             model.SessionEventRef{Session: event.Ref.Session, Id: id},
+			Parent:          &event.Ref,
+			Kind:            "agent.request",
+			AuthorPrincipal: event.AuthorPrincipal,
+			Payload:         map[string]interface{}{"agent": target},
+		})
+	}
+	err, events = store.sessionEventsCreateBatch(ctx, events, true, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -466,6 +492,47 @@ func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
 		return nil, fmt.Errorf("create session message: attachments must be string IDs")
 	}
 	return values, nil
+}
+
+func sessionMessageTargetAgents(event model.SessionEvent) ([]string, error) {
+	if event.Kind != "message.text" {
+		return nil, fmt.Errorf("create session message: event kind must be message.text")
+	}
+	if _, exists := event.Payload["agent"]; exists {
+		return nil, fmt.Errorf("create session message: use agents instead of agent")
+	}
+	value, exists := event.Payload["agents"]
+	if !exists {
+		return nil, nil
+	}
+	agents, ok := value.([]string)
+	if !ok {
+		return nil, fmt.Errorf("create session message: agents must be binding IDs")
+	}
+	targets := make([]string, 0, len(agents))
+	seen := make(map[string]struct{}, len(agents))
+	for _, agent := range agents {
+		if !typed_id.Valid(typed_id.WorkspaceAgent, agent) {
+			return nil, fmt.Errorf("create session message: agents must be binding IDs")
+		}
+		if _, exists := seen[agent]; exists {
+			continue
+		}
+		seen[agent] = struct{}{}
+		targets = append(targets, agent)
+	}
+	return targets, nil
+}
+
+func sessionAgentRequestTarget(event model.SessionEvent) (string, error) {
+	if event.Kind != "agent.request" || event.Parent == nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
+		return "", fmt.Errorf("create agent request: request must be a principal-authored child")
+	}
+	agent, ok := event.Payload["agent"].(string)
+	if !ok || !typed_id.Valid(typed_id.WorkspaceAgent, agent) {
+		return "", fmt.Errorf("create agent request: agent must be a binding ID")
+	}
+	return agent, nil
 }
 
 // SessionEventAttachmentsHydrate replaces attachment IDs with current session-file references.
@@ -617,13 +684,33 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		}
 		event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 		if createReplyTasks {
-			attachments, err := sessionMessageAttachmentIDs(event)
-			if err != nil {
-				return err, nil
-			}
-			err, _ = store.sessionFileReferencesGet(ctx, transaction, event.Ref.Session, attachments)
-			if err != nil {
-				return fmt.Errorf("create session message: %w", err), nil
+			switch event.Kind {
+			case "message.text":
+				attachments, err := sessionMessageAttachmentIDs(event)
+				if err != nil {
+					return err, nil
+				}
+				err, _ = store.sessionFileReferencesGet(ctx, transaction, event.Ref.Session, attachments)
+				if err != nil {
+					return fmt.Errorf("create session message: %w", err), nil
+				}
+				targets, err := sessionMessageTargetAgents(event)
+				if err != nil {
+					return err, nil
+				}
+				for _, target := range targets {
+					if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session.Workspace, target); err != nil {
+						return err, nil
+					}
+				}
+			case "agent.request":
+				target, err := sessionAgentRequestTarget(event)
+				if err != nil {
+					return err, nil
+				}
+				if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session.Workspace, target); err != nil {
+					return err, nil
+				}
 			}
 		}
 		payload, err := json.Marshal(event.Payload)
@@ -665,15 +752,25 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			return fmt.Errorf("append session event activity: %w", err), nil
 		}
 		if createReplyTasks {
-			_, err := transaction.ExecContext(ctx, `
+			if insert.event.Kind == "agent.request" {
+				_, err := transaction.ExecContext(ctx, `
 				INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
 				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
 			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.event.CreatedAt)
-			if err != nil {
-				return fmt.Errorf("insert session event reply task: %w", err), nil
+				if err != nil {
+					return fmt.Errorf("insert session event reply task: %w", err), nil
+				}
 			}
-			if text, _ := insert.event.Payload["text"].(string); strings.TrimSpace(text) != "" {
-				_, err = transaction.ExecContext(ctx, `
+			if insert.event.Kind == "message.text" {
+				targets, err := sessionMessageTargetAgents(insert.event)
+				if err != nil {
+					return err, nil
+				}
+				if len(targets) == 0 {
+					continue
+				}
+				if text, _ := insert.event.Payload["text"].(string); strings.TrimSpace(text) != "" {
+					_, err = transaction.ExecContext(ctx, `
 					INSERT INTO gatehouse_agent_tasks__session_name (workspace, session, created_at)
 					SELECT `+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`
 					WHERE EXISTS (
@@ -682,8 +779,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 					)
 					ON CONFLICT (workspace, session) DO NOTHING
 				`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.CreatedAt, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id)
-				if err != nil {
-					return fmt.Errorf("insert session name task: %w", err), nil
+					if err != nil {
+						return fmt.Errorf("insert session name task: %w", err), nil
+					}
 				}
 			}
 		}
@@ -715,9 +813,91 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 	return nil, stored
 }
 
+func (store *Store) sessionAgentTargetValidate(ctx context.Context, transaction *sql.Tx, workspace model.WorkspaceRef, agent string) error {
+	placeholder := keychainPlaceholder(store.kind)
+	var exists bool
+	err := transaction.QueryRowContext(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM gatehouse_workspace_agents AS bindings
+			JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
+			JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
+			WHERE bindings.workspace_id = `+placeholder(1)+` AND bindings.id = `+placeholder(2)+`
+				AND bindings.enabled = TRUE AND models.enabled = TRUE AND providers.enabled = TRUE
+		)
+	`, workspace.Id, agent).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("validate agent request target: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("create session message: agent %q is unavailable", agent)
+	}
+	return nil
+}
+
 func (store *Store) SessionEventsGet(ctx context.Context, session model.SessionRef) (error, []model.SessionEvent) {
 	return store.SessionEventsPageGet(ctx, session, "", 0)
 }
+
+// SessionAgentRequestEventsGet returns one agent request's immutable historical
+// snapshot plus its live subtree. The request ULID is the snapshot boundary.
+func (store *Store) SessionAgentRequestEventsGet(ctx context.Context, request model.SessionEventRef, agent model.WorkspaceAgentRef) (error, []model.SessionEvent) {
+	if request.Session.Workspace != agent.Workspace || !typed_id.Valid(typed_id.SessionEvent, request.Id) || agent.Id == "" {
+		return fmt.Errorf("get agent request events: invalid request scope"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	target := "json_extract(events.payload, '$.agent')"
+	if store.kind != config.DatabaseKindSQLite {
+		target = "events.payload ->> 'agent'"
+	}
+	rows, err := store.QueryContext(ctx, `
+		WITH RECURSIVE
+		requests (id, parent) AS (
+			SELECT events.id, events.parent
+			FROM gatehouse_session_events AS events
+			WHERE events.workspace = `+placeholder(1)+` AND events.session = `+placeholder(2)+`
+				AND events.kind = 'agent.request' AND `+target+` = `+placeholder(3)+`
+				AND events.id <= `+placeholder(4)+`
+		),
+		history (id) AS (
+			SELECT id FROM requests WHERE id < `+placeholder(5)+`
+			UNION
+			SELECT child.id
+			FROM gatehouse_session_events AS child
+			JOIN history ON child.parent = history.id
+			WHERE child.workspace = `+placeholder(6)+` AND child.session = `+placeholder(7)+`
+				AND child.id < `+placeholder(8)+`
+				AND (child.author_agent IS NULL OR child.author_agent = `+placeholder(9)+`)
+		),
+		active (id) AS (
+			SELECT id FROM requests WHERE id = `+placeholder(10)+`
+			UNION
+			SELECT child.id
+			FROM gatehouse_session_events AS child
+			JOIN active ON child.parent = active.id
+			WHERE child.workspace = `+placeholder(11)+` AND child.session = `+placeholder(12)+`
+				AND (child.author_agent IS NULL OR child.author_agent = `+placeholder(13)+`)
+		),
+		visible (id) AS (
+			SELECT id FROM history
+			UNION SELECT id FROM active
+			UNION SELECT parent FROM requests WHERE parent IS NOT NULL
+		)
+		SELECT `+sessionEventColumns+`
+		FROM visible
+		JOIN gatehouse_session_events AS events ON events.id = visible.id
+		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
+		WHERE events.workspace = `+placeholder(14)+` AND events.session = `+placeholder(15)+`
+		ORDER BY events.id
+	`, request.Session.Workspace.Id, request.Session.Id, agent.Id, request.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, request.Id, agent.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, agent.Id, request.Session.Workspace.Id, request.Session.Id)
+	if err != nil {
+		return fmt.Errorf("get agent request events: %w", err), nil
+	}
+	defer rows.Close()
+	return sessionEventRowsGet(rows, request.Session)
+}
+
+const sessionEventColumns = `events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at`
 
 func (store *Store) SessionEventsPageGet(ctx context.Context, session model.SessionRef, afterID string, limit int) (error, []model.SessionEvent) {
 	if limit < 0 {
@@ -725,7 +905,7 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	query := `
-		SELECT events.id, events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at
+		SELECT ` + sessionEventColumns + `
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
 		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
@@ -743,52 +923,19 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 	}
 	defer rows.Close()
 
+	return sessionEventRowsGet(rows, session)
+}
+
+type sessionEventRow interface {
+	Scan(dest ...any) error
+}
+
+func sessionEventRowsGet(rows *sql.Rows, session model.SessionRef) (error, []model.SessionEvent) {
 	events := []model.SessionEvent{}
 	for rows.Next() {
-		var id, kind, payload, createdAt string
-		var metrics sql.NullString
-		var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
-		var principalEnabled sql.NullBool
-		if err := rows.Scan(
-			&id,
-			&parent,
-			&kind,
-			&principal,
-			&principalAlias,
-			&principalName,
-			&principalEnabled,
-			&agent,
-			&gateway,
-			&payload,
-			&metrics,
-			&createdAt,
-		); err != nil {
-			return fmt.Errorf("scan session event: %w", err), nil
-		}
-		decoded := map[string]interface{}{}
-		if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
-			return fmt.Errorf("decode session event payload: %w", err), nil
-		}
-		decodedMetrics, err := sessionEventMetricsFromValue(metrics)
+		err, event := sessionEventFromRow(rows, session)
 		if err != nil {
 			return err, nil
-		}
-		authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
-		if err != nil {
-			return err, nil
-		}
-		event := model.SessionEvent{
-			Ref:             model.SessionEventRef{Session: session, Id: id},
-			Kind:            kind,
-			AuthorPrincipal: authorPrincipal,
-			AuthorAgent:     authorAgent,
-			AuthorGateway:   authorGateway,
-			Payload:         decoded,
-			Metrics:         decodedMetrics,
-			CreatedAt:       createdAt,
-		}
-		if parent.Valid {
-			event.Parent = &model.SessionEventRef{Session: session, Id: parent.String}
 		}
 		events = append(events, event)
 	}
@@ -796,6 +943,55 @@ func (store *Store) SessionEventsPageGet(ctx context.Context, session model.Sess
 		return fmt.Errorf("iterate session events: %w", err), nil
 	}
 	return nil, events
+}
+
+func sessionEventFromRow(row sessionEventRow, session model.SessionRef) (error, model.SessionEvent) {
+	var id, kind, payload, createdAt string
+	var metrics sql.NullString
+	var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
+	var principalEnabled sql.NullBool
+	if err := row.Scan(
+		&id,
+		&parent,
+		&kind,
+		&principal,
+		&principalAlias,
+		&principalName,
+		&principalEnabled,
+		&agent,
+		&gateway,
+		&payload,
+		&metrics,
+		&createdAt,
+	); err != nil {
+		return fmt.Errorf("scan session event: %w", err), model.SessionEvent{}
+	}
+	decoded := map[string]interface{}{}
+	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
+		return fmt.Errorf("decode session event payload: %w", err), model.SessionEvent{}
+	}
+	decodedMetrics, err := sessionEventMetricsFromValue(metrics)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	event := model.SessionEvent{
+		Ref:             model.SessionEventRef{Session: session, Id: id},
+		Kind:            kind,
+		AuthorPrincipal: authorPrincipal,
+		AuthorAgent:     authorAgent,
+		AuthorGateway:   authorGateway,
+		Payload:         decoded,
+		Metrics:         decodedMetrics,
+		CreatedAt:       createdAt,
+	}
+	if parent.Valid {
+		event.Parent = &model.SessionEventRef{Session: session, Id: parent.String}
+	}
+	return nil, event
 }
 
 // SessionEventsTailGet returns a bounded creation-order suffix for cold context construction.
@@ -811,9 +1007,10 @@ func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	query := `
-		SELECT id
-		FROM gatehouse_session_events
-		WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + `
+		WITH tail AS (
+			SELECT id
+			FROM gatehouse_session_events
+			WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + `
 	`
 	arguments := []any{session.Workspace.Id, session.Id}
 	if beforeID != "" {
@@ -821,36 +1018,23 @@ func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.
 		arguments = append(arguments, beforeID)
 	}
 	query += `
-		ORDER BY id DESC
-		LIMIT ` + placeholder(len(arguments)+1)
+			ORDER BY id DESC
+			LIMIT ` + placeholder(len(arguments)+1) + `
+		)
+		SELECT ` + sessionEventColumns + `
+		FROM tail
+		JOIN gatehouse_session_events AS events ON events.id = tail.id
+		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
+		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
+		ORDER BY events.id
+	`
 	arguments = append(arguments, limit)
 	rows, err := store.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return fmt.Errorf("get session event tail page: %w", err), nil
 	}
 	defer rows.Close()
-	ids := []string{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return fmt.Errorf("scan session event tail page: %w", err), nil
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate session event tail page: %w", err), nil
-	}
-	events := make([]model.SessionEvent, 0, len(ids))
-	for index := len(ids) - 1; index >= 0; index-- {
-		err, event := store.SessionEventGet(ctx, model.SessionEventRef{Session: session, Id: ids[index]})
-		if err != nil {
-			return err, nil
-		}
-		if event != nil {
-			events = append(events, *event)
-		}
-	}
-	return nil, events
+	return sessionEventRowsGet(rows, session)
 }
 
 type SessionEventTreeEntry struct {
@@ -907,6 +1091,32 @@ func (store *Store) AgentContextLatestGet(ctx context.Context, session model.Ses
 			return nil, nil
 		}
 		return fmt.Errorf("get latest agent context: %w", err), nil
+	}
+	context.State = json.RawMessage(state)
+	return nil, &context
+}
+
+// AgentContextPreviousGet returns the nearest earlier best-effort checkpoint for one agent.
+func (store *Store) AgentContextPreviousGet(ctx context.Context, session model.SessionRef, agent model.WorkspaceAgentRef, before string) (error, *AgentContext) {
+	if session.Workspace != agent.Workspace || agent.Id == "" || !typed_id.Valid(typed_id.SessionEvent, before) {
+		return fmt.Errorf("get previous agent context: invalid context selector"), nil
+	}
+	placeholder := keychainPlaceholder(store.kind)
+	row := store.QueryRowContext(ctx, `
+		SELECT root, profile, state, updated_at
+		FROM gatehouse_agent_contexts
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND model = `+placeholder(3)+`
+			AND root < `+placeholder(4)+`
+		ORDER BY root DESC
+		LIMIT 1
+	`, session.Workspace.Id, session.Id, agent.Id, before)
+	context := AgentContext{Root: model.SessionEventRef{Session: session}, Model: agent}
+	var state string
+	if err := row.Scan(&context.Root.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return fmt.Errorf("get previous agent context: %w", err), nil
 	}
 	context.State = json.RawMessage(state)
 	return nil, &context
@@ -1065,43 +1275,17 @@ func (store *Store) SessionEventsTreeTailGet(ctx context.Context, session model.
 func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEventRef) (error, *model.SessionEvent) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT events.parent, events.kind, events.author_principal, principals.alias, principals.name, principals.enabled, events.author_agent, events.author_gateway, events.payload, events.metrics, events.created_at
+		SELECT `+sessionEventColumns+`
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
 		WHERE events.workspace = `+placeholder(1)+` AND events.session = `+placeholder(2)+` AND events.id = `+placeholder(3)+`
 	`, event.Session.Workspace.Id, event.Session.Id, event.Id)
-	var stored model.SessionEvent
-	stored.Ref = event
-	var payload, createdAt string
-	var metrics sql.NullString
-	var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
-	var principalEnabled sql.NullBool
-	if err := row.Scan(&parent, &stored.Kind, &principal, &principalAlias, &principalName, &principalEnabled, &agent, &gateway, &payload, &metrics, &createdAt); err != nil {
-		if err == sql.ErrNoRows {
+	err, stored := sessionEventFromRow(row, event.Session)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		return fmt.Errorf("get session event: %w", err), nil
-	}
-	decoded := map[string]interface{}{}
-	if err := json.Unmarshal([]byte(payload), &decoded); err != nil {
-		return fmt.Errorf("decode session event payload: %w", err), nil
-	}
-	decodedMetrics, err := sessionEventMetricsFromValue(metrics)
-	if err != nil {
 		return err, nil
-	}
-	authorPrincipal, authorAgent, authorGateway, err := sessionEventAuthorsFromValues(event.Session.Workspace, principal, principalAlias, principalName, principalEnabled, agent, gateway)
-	if err != nil {
-		return err, nil
-	}
-	stored.AuthorPrincipal = authorPrincipal
-	stored.AuthorAgent = authorAgent
-	stored.AuthorGateway = authorGateway
-	stored.Payload = decoded
-	stored.Metrics = decodedMetrics
-	stored.CreatedAt = createdAt
-	if parent.Valid {
-		stored.Parent = &model.SessionEventRef{Session: event.Session, Id: parent.String}
 	}
 	return nil, &stored
 }
@@ -1397,15 +1581,16 @@ type WorkspaceAgentModel struct {
 }
 
 type WorkspaceAgent struct {
-	ID    string
-	Alias string
-	Label *string
+	ID      string
+	Alias   string
+	Label   *string
+	Default bool
 }
 
 func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.WorkspaceRef) (error, []WorkspaceAgent) {
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
-		SELECT bindings.id, bindings.alias, bindings.label
+		SELECT bindings.id, bindings.alias, bindings.label, bindings."default"
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1423,7 +1608,7 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 	for rows.Next() {
 		var agent WorkspaceAgent
 		var label sql.NullString
-		if err := rows.Scan(&agent.ID, &agent.Alias, &label); err != nil {
+		if err := rows.Scan(&agent.ID, &agent.Alias, &label, &agent.Default); err != nil {
 			return fmt.Errorf("scan workspace agent: %w", err), nil
 		}
 		if label.Valid {
@@ -1437,7 +1622,11 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 	return nil, agents
 }
 
-func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace model.WorkspaceRef, preferred string) (error, *WorkspaceAgentModel) {
+// WorkspaceAgentModelGet resolves one enabled workspace-agent binding without default fallback.
+func (store *Store) WorkspaceAgentModelGet(ctx context.Context, workspace model.WorkspaceRef, bindingID string) (error, *WorkspaceAgentModel) {
+	if !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) {
+		return nil, nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
 		SELECT bindings.id, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude
@@ -1445,13 +1634,15 @@ func (store *Store) WorkspaceAgentModelSelect(ctx context.Context, workspace mod
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
 		WHERE bindings.workspace_id = `+placeholder(1)+`
+			AND bindings.id = `+placeholder(2)+`
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
-			AND (bindings.id = `+placeholder(2)+` OR bindings."default" = TRUE)
-		ORDER BY CASE WHEN bindings.id = `+placeholder(3)+` THEN 0 ELSE 1 END
-		LIMIT 1
-	`, workspace.Id, preferred, preferred)
+	`, workspace.Id, bindingID)
+	return scanWorkspaceAgentModel(row, workspace)
+}
+
+func scanWorkspaceAgentModel(row *sql.Row, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
 	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude sql.NullString

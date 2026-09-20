@@ -59,6 +59,19 @@ func TestCompileMCMTRContextReplaysActiveToolBatchesNatively(t *testing.T) {
 	}
 }
 
+func TestMCMTRContextActiveUsesAgentRequestParent(t *testing.T) {
+	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
+	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}
+	message := event(session, "message", "message.text", &principal, nil, map[string]interface{}{"text": "Current request."})
+	request := event(session, "request", "agent.request", &principal, nil, map[string]interface{}{"agent": "wag_agent"})
+	request.Parent = &message.Ref
+
+	err, active := mcmtrContextActive([]model.SessionEvent{message, request}, request.Ref)
+	if err != nil || active != message.Ref {
+		t.Fatalf("mcmtrContextActive() = (%#v, %v), want %v", active, err, message.Ref)
+	}
+}
+
 func TestCompileMCMTRContextTruncatesActiveUserAndNativeToolRecords(t *testing.T) {
 	session := model.SessionRef{Workspace: model.WorkspaceRef{Id: "workspace"}, Id: "session"}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: "user"}, Enabled: true}

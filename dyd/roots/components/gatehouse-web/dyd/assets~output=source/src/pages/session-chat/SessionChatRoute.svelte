@@ -12,9 +12,11 @@
     ShieldX,
     X,
   } from "@lucide/svelte"
+  import { Command, Dialog } from "bits-ui"
   import {
     chatFileDownloadPath,
     fetchChatSession,
+    type ChatAgent,
     type ChatEventTree,
   } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
@@ -28,9 +30,11 @@
   import {
     activityDuration,
     activityEvents,
+    agentRequests,
     approvalRequests,
     approvalResponse,
     cancellationRequest,
+    type ChatDelivery,
     createChatController,
     displayedActivityEvents,
     elapsedDuration,
@@ -43,6 +47,7 @@
   } from "./chat-controller.svelte"
 
   type SessionRoute = Extract<Route, { kind: "session-chat" }>
+  type SessionTarget = Pick<SessionRoute, "workspaceID" | "sessionID">
   type Session = {
     id: string
     created_at: string
@@ -57,11 +62,22 @@
   let sessionStatus = $state<Status>("checking")
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
+  let mentionSearchInputElement = $state<HTMLInputElement | undefined>()
+  let deliverySearchInputElement = $state<HTMLInputElement | undefined>()
+  let mentionOpen = $state(false)
+  let mentionQuery = $state("")
+  let deliveryQuery = $state("")
+  let mentionStart = -1
+  let pendingMentionStart: number | undefined
+  let deliveryOpen = $state(false)
   let generation = 0
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
   const currentRoute = $derived(runtime.state.route as SessionRoute)
+  const sessionKey = $derived(
+    `${currentRoute.workspaceID}\u0000${currentRoute.sessionID}`,
+  )
   const workspace = $derived(
     access.state.workspaces.find(
       (candidate) => candidate.id === currentRoute.workspaceID,
@@ -116,10 +132,58 @@
       focusComposer: () => messageInputElement?.focus(),
     }),
   )
+  const filteredMentionAgents = $derived(
+    controller.state.agents.filter((agent) => {
+      const query = mentionQuery.trim().toLowerCase()
+      return (
+        query === "" ||
+        agent.alias.includes(query) ||
+        agent.label?.toLowerCase().includes(query) === true
+      )
+    }),
+  )
+  const filteredDeliveryAgents = $derived(
+    controller.state.agents.filter((agent) => {
+      const query = deliveryQuery.trim().toLowerCase()
+      return (
+        query === "" ||
+        "direct".includes(query) ||
+        agent.alias.includes(query) ||
+        agent.label?.toLowerCase().includes(query) === true
+      )
+    }),
+  )
+  const groupDeliveryVisible = $derived(
+    "group chat".includes(deliveryQuery.trim().toLowerCase()),
+  )
+  let directAgentID = $state<string | null>(currentRoute.agent)
+  let deliveryMode = $state<ChatDelivery["mode"]>(currentRoute.mode)
+  const directAgent = $derived.by(() => {
+    if (deliveryMode !== "direct") return undefined
+    return controller.state.agents.find((agent) =>
+      directAgentID === null ? agent.default : agent.id === directAgentID,
+    )
+  })
+  const delivery = $derived<ChatDelivery>(
+    deliveryMode === "direct"
+      ? { mode: "direct", agentID: directAgent?.id }
+      : { mode: "group" },
+  )
+  const deliveryTitle = $derived(
+    deliveryMode === "group"
+      ? "Group chat"
+      : directAgent === undefined
+        ? "Direct chat"
+        : `Direct chat with @${directAgent.alias}`,
+  )
 
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    const [workspaceID, sessionID] = sessionKey.split("\u0000")
+    return activate({ workspaceID, sessionID })
+  })
+  $effect(() => {
+    directAgentID = currentRoute.agent
+    deliveryMode = currentRoute.mode
   })
   $effect(() => {
     if (controller.state.authenticationRequired) runtime.requireLogin()
@@ -151,7 +215,7 @@
     }
   })
 
-  function activate(route: SessionRoute): () => void {
+  function activate(route: SessionTarget): () => void {
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -181,7 +245,7 @@
   }
 
   async function loadRoute(
-    route: SessionRoute,
+    route: SessionTarget,
     value: number,
     signal: AbortSignal,
   ): Promise<void> {
@@ -238,7 +302,7 @@
   }
 
   function subscribe(
-    route: SessionRoute,
+    route: SessionTarget,
     value: number,
     routeSignal: AbortSignal,
   ): void {
@@ -313,6 +377,9 @@
     )
   }
   function activityAgentLabel(tree: ChatEventTree): string {
+    const request = agentRequests(tree)[0]
+    if (request?.event.payload.agent !== undefined)
+      return agentLabel(request.event.payload.agent)
     if (tree.event.payload.agent !== undefined)
       return agentLabel(tree.event.payload.agent)
     const activity = activityEvents(tree).find(
@@ -334,6 +401,66 @@
       task.event.payload.reason ??
       `Run ${task.event.payload.name ?? "tool"}`
     )
+  }
+  function handleMentionKeydown(event: KeyboardEvent): void {
+    if (
+      event.key !== "@" ||
+      event.isComposing ||
+      messageInputElement === undefined
+    )
+      return
+    pendingMentionStart = messageInputElement.selectionStart
+  }
+  function openMentionAfterInput(): void {
+    if (pendingMentionStart === undefined) return
+    mentionStart = pendingMentionStart
+    pendingMentionStart = undefined
+    mentionQuery = ""
+    mentionOpen = true
+  }
+  function focusComposer(cursor?: number): void {
+    void tick().then(() => {
+      messageInputElement?.focus({ preventScroll: true })
+      if (cursor !== undefined)
+        messageInputElement?.setSelectionRange(cursor, cursor)
+    })
+  }
+  function selectMention(agent: ChatAgent): void {
+    if (mentionStart < 0) return
+    const start = mentionStart
+    mentionStart = -1
+    const alias = `@${agent.alias}`
+    const text = controller.state.messageText
+    controller.state.messageText =
+      text.slice(0, start) + alias + text.slice(start + 1)
+    mentionOpen = false
+    focusComposer(start + alias.length)
+  }
+  function setGroupDelivery(): void {
+    deliveryMode = "group"
+    directAgentID = null
+    deliveryOpen = false
+    window.history.replaceState(
+      null,
+      "",
+      sessionPath(currentRoute.workspaceID, currentRoute.sessionID),
+    )
+  }
+  function setDirectDelivery(agentID?: string): void {
+    const parameters = new URLSearchParams({ mode: "direct" })
+    if (agentID !== undefined) parameters.set("agent", agentID)
+    deliveryMode = "direct"
+    directAgentID = agentID ?? null
+    deliveryOpen = false
+    window.history.replaceState(
+      null,
+      "",
+      `${sessionPath(currentRoute.workspaceID, currentRoute.sessionID)}?${parameters}`,
+    )
+  }
+  function openDelivery(): void {
+    deliveryQuery = ""
+    deliveryOpen = true
   }
 </script>
 
@@ -463,47 +590,47 @@
                           >{/each}
                       </div>{/if}
                   </article>
-                  {#if activityEvents(tree).length > 0 || controller.state.awaitingReplyFor.includes(tree.event.ref.id) || replyCanBeCancelled(tree)}<section
+                  {#each agentRequests(tree) as request (request.event.ref.id)}<section
                       class="event-log"
                     >
                       <header>
-                        {hasCancellationSuccess(tree)
+                        {hasCancellationSuccess(request)
                           ? "Cancelled"
-                          : cancellationRequest(tree) !== undefined
+                          : cancellationRequest(request) !== undefined
                             ? "Cancellation requested"
-                            : finalReplies(tree).length === 0
-                              ? `${activityAgentLabel(tree)} is working`
+                            : finalReplies(request).length === 0
+                              ? `${activityAgentLabel(request)} is working`
                               : activityAgentLabel(
-                                  tree,
-                                )}{#if finalReplies(tree).length > 0 && replyDuration(tree) !== ""}<small>{replyDuration(tree)}</small>{/if}{#if replyCanBeCancelled(tree) && workingReplyDuration(tree) !== ""}<small>{workingReplyDuration(tree)}</small>{/if}{#if replyCanBeCancelled(tree)}<button
+                                  request,
+                                )}{#if finalReplies(request).length > 0 && replyDuration(request) !== ""}<small>{replyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request) && workingReplyDuration(request) !== ""}<small>{workingReplyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request)}<button
                             class="inline"
                             type="button"
                             disabled={controller.state.cancellingReplyFor.has(
-                              tree.event.ref.id,
+                              request.event.ref.id,
                             )}
-                            onclick={() => void controller.cancelReply(tree)}
+                            onclick={() => void controller.cancelReply(request)}
                             >{controller.state.cancellingReplyFor.has(
-                              tree.event.ref.id,
+                              request.event.ref.id,
                             )
                               ? "Cancelling..."
                               : "Cancel"}</button
                           >{/if}
                       </header>
-                      {#if renderedActivityEvents(tree).length > 0}<div
+                      {#if renderedActivityEvents(request).length > 0}<div
                           class="event-list"
                         >
-                          {#if renderedActivityEvents(tree).length > 5 && !controller.state.expandedActivity.has(tree.event.ref.id)}<p
+                          {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<p
                               class="event-more"
                             >
                               <span
-                                >({renderedActivityEvents(tree).length - 5} more)</span
+                                >({renderedActivityEvents(request).length - 5} more)</span
                                ><button
-                                  class="primary inline"
-                                  type="button"
-                                onclick={() => controller.toggleActivity(tree)}
+                                class="primary inline"
+                                type="button"
+                              onclick={() => controller.toggleActivity(request)}
                                 >Show all</button
                               >
-                            </p>{/if}{#each displayedActivityEvents(tree, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<p
+                            </p>{/if}{#each displayedActivityEvents(request, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<p
                                 class="event-summary"
                                 data-state={toolStatus(event)}
                                 title={event.event.payload.name ?? "tool"}
@@ -595,7 +722,7 @@
                                     {controller.state.approvalErrors.get(
                                       approval.event.ref.id,
                                     )}
-                                  </p>{/if}{/each}{:else if event.event.kind === "thinking.started"}<p
+                              </p>{/if}{/each}{:else if event.event.kind === "thinking.started"}<p
                                 class="event-summary"
                                 data-state={thinkingStatus(event)}
                               >
@@ -620,20 +747,20 @@
                                       "thinking.completed",
                                       "thinking.failed",
                                     )}</small>{/if}
-                              </p>{/if}{/each}{#if renderedActivityEvents(tree).length > 5 && controller.state.expandedActivity.has(tree.event.ref.id)}<p
+                              </p>{/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<p
                               class="event-more"
                             >
                               <span
-                                >({renderedActivityEvents(tree).length} steps)</span
+                                >({renderedActivityEvents(request).length} steps)</span
                                ><button
                                   class="primary inline"
                                   type="button"
-                                onclick={() => controller.toggleActivity(tree)}
-                                >Show less</button
+                                onclick={() => controller.toggleActivity(request)}
+                                 >Show less</button
                               >
                             </p>{/if}
-                        </div>{/if}
-                    </section>{/if}{#each finalReplies(tree) as reply (reply.event.ref.id)}<article
+                          </div>{/if}
+                    </section>{#each finalReplies(request) as reply (reply.event.ref.id)}<article
                       class="conversation-message card"
                     >
                       <header>
@@ -681,7 +808,7 @@
                               ></a
                             >{/each}
                         </div>{/if}
-                    </article>{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<button
+                    </article>{/each}{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<button
                 class="primary small conversation-jump"
                 type="button"
                 onclick={() => void controller.jumpToLatest()}
@@ -697,7 +824,7 @@
             autocomplete="off"
             onsubmit={(event) => {
               event.preventDefault()
-              void controller.sendMessage()
+              void controller.sendMessage(delivery)
             }}
           >
             <label class="visually-hidden" for="message">Message</label><input
@@ -755,21 +882,16 @@
                   aria-hidden="true"
                 /></button
               >
-              <div
-                data-select
-                data-selected={controller.state.selectedAgent !== "" || undefined}
-                title="Select agent"
+              <button
+                class="icon"
+                type="button"
+                aria-label={deliveryTitle}
+                title={deliveryTitle}
+                data-selected={deliveryMode === "direct" || undefined}
+                disabled={controller.state.sendingMessage}
+                onclick={openDelivery}
+                ><Bot size={20} strokeWidth={2.25} aria-hidden="true" /></button
               >
-                <Bot size={20} strokeWidth={2.25} aria-hidden="true" /><select
-                  id="agent"
-                  aria-label="Agent"
-                  bind:value={controller.state.selectedAgent}
-                  ><option value="">Automatic</option
-                  >{#each controller.state.agents as agent}<option
-                      value={agent.id}>{agent.label ?? agent.id}</option
-                    >{/each}</select
-                >
-              </div>
               <textarea
                 id="message"
                 rows="1"
@@ -779,11 +901,14 @@
                 bind:value={controller.state.messageText}
                 disabled={controller.state.sendingMessage}
                 onkeydown={(event) => {
+                  handleMentionKeydown(event)
+                  if (event.isComposing) return
                   if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
-                    void controller.sendMessage()
+                    void controller.sendMessage(delivery)
                   }
-                }}></textarea><button
+                }}
+                oninput={openMentionAfterInput}></textarea><button
                 class="icon primary"
                 type="submit"
                 aria-label="Send message"
@@ -796,7 +921,7 @@
                   strokeWidth={2.25}
                   aria-hidden="true"
                 /></button
-              >
+                >
             </div>
             {#if controller.state.messageError !== ""}<p
                 class="field-help"
@@ -805,6 +930,141 @@
               >
                 {controller.state.messageError}
               </p>{/if}
+            <Dialog.Root bind:open={mentionOpen}>
+              <Dialog.Portal>
+                <Dialog.Overlay
+                  class="modal-overlay"
+                  onclick={() => (mentionOpen = false)}
+                />
+                <Dialog.Content
+                  class="modal mention-command"
+                  preventScroll={false}
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault()
+                    requestAnimationFrame(() =>
+                      mentionSearchInputElement?.focus({ preventScroll: true }),
+                    )
+                  }}
+                  onCloseAutoFocus={(event) => {
+                    event.preventDefault()
+                    focusComposer()
+                  }}
+                  onkeydown={(event) => {
+                    if (event.key !== "Escape") return
+                    event.preventDefault()
+                    mentionOpen = false
+                    focusComposer()
+                  }}
+                >
+                  <Dialog.Title class="visually-hidden"
+                    >Choose an agent</Dialog.Title
+                  >
+                  <Command.Root label="Choose an agent" shouldFilter={false}>
+                    <Command.Input
+                      bind:this={mentionSearchInputElement}
+                      bind:value={mentionQuery}
+                      autofocus
+                      placeholder="Search agents"
+                    />
+                    <Command.List>
+                      <Command.Viewport>
+                        {#if filteredMentionAgents.length === 0}<p
+                            class="mention-command-empty"
+                          >No agents found.</p
+                        >{:else}<Command.Group>
+                          <Command.GroupHeading>Agents</Command.GroupHeading>
+                          <Command.GroupItems>
+                            {#each filteredMentionAgents as agent (agent.id)}
+                              <Command.Item
+                                value={agent.id}
+                                keywords={[
+                                  agent.alias,
+                                  ...(agent.label === undefined
+                                    ? []
+                                    : [agent.label]),
+                                ]}
+                                onSelect={() => selectMention(agent)}
+                                onclick={() => selectMention(agent)}
+                              >
+                                <strong>@{agent.alias}</strong>
+                                {#if agent.label !== undefined}<small
+                                    >{agent.label}</small
+                                  >{/if}
+                              </Command.Item>
+                            {/each}
+                          </Command.GroupItems>
+                        </Command.Group>{/if}
+                      </Command.Viewport>
+                    </Command.List>
+                  </Command.Root>
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
+            <Dialog.Root bind:open={deliveryOpen}>
+              <Dialog.Portal>
+                <Dialog.Overlay
+                  class="modal-overlay"
+                  onclick={() => (deliveryOpen = false)}
+                />
+                <Dialog.Content
+                  class="modal mention-command delivery-command"
+                  preventScroll={false}
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault()
+                    requestAnimationFrame(() =>
+                      deliverySearchInputElement?.focus({ preventScroll: true }),
+                    )
+                  }}
+                  onkeydown={(event) => {
+                    if (event.key === "Escape") deliveryOpen = false
+                  }}
+                >
+                  <Dialog.Title class="visually-hidden"
+                    >Message delivery</Dialog.Title
+                  >
+                  <Command.Root label="Choose message delivery" shouldFilter={false}>
+                    <Command.Input
+                      bind:this={deliverySearchInputElement}
+                      bind:value={deliveryQuery}
+                      autofocus
+                      placeholder="Search chat modes"
+                    />
+                    <Command.List>
+                      <Command.Viewport>
+                        {#if groupDeliveryVisible || filteredDeliveryAgents.length > 0}<Command.Group>
+                            <Command.GroupItems>
+                              {#if groupDeliveryVisible}<Command.Item
+                                  value="group"
+                                  keywords={["group", "human", "explicit"]}
+                                  onSelect={setGroupDelivery}
+                                >
+                                  <strong>Group chat</strong>
+                                  <small
+                                    >Only explicit @mentions receive a message.</small
+                                  >
+                                </Command.Item>{/if}{#each filteredDeliveryAgents as agent (agent.id)}<Command.Item
+                                  value={`direct-${agent.id}`}
+                                  keywords={[agent.alias, ...(agent.label === undefined ? [] : [agent.label]) ]}
+                                  onSelect={() => setDirectDelivery(agent.id)}
+                                >
+                                  <strong>Direct chat</strong>
+                                  <small
+                                    >@{agent.alias}{agent.label === undefined
+                                      ? ""
+                                      : ` · ${agent.label}`}</small
+                                  >
+                                </Command.Item
+                              >{/each}
+                            </Command.GroupItems>
+                          </Command.Group>{:else}<p class="mention-command-empty"
+                            >No chat modes found.</p
+                          >{/if}
+                      </Command.Viewport>
+                    </Command.List>
+                  </Command.Root>
+                </Dialog.Content>
+              </Dialog.Portal>
+            </Dialog.Root>
           </form></SidebarPage.Footer
         >{/if}
     </SidebarPage.Page>

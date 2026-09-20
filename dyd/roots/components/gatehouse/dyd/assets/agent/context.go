@@ -5,18 +5,15 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"sort"
-
-	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
 	"gatehouse/database"
 	"gatehouse/model"
 )
 
 const (
-	contextMaximumBytes  = 96 * 1024
-	contextBufferBytes   = 48 * 1024
-	contextEventPageSize = 128
+	contextMaximumBytes   = 96 * 1024
+	contextBufferBytes    = 48 * 1024
+	contextEventPageSize  = 128
 	mcmtrAlgorithmVersion = "mcmtr-v3"
 )
 
@@ -37,123 +34,120 @@ func mcmtrProfileFingerprint(selected *database.WorkspaceAgentModel) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
-func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx dbos.Context, root model.SessionEventRef, selected *database.WorkspaceAgentModel) error {
+func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx context.Context, root model.SessionEventRef, selected *database.WorkspaceAgentModel) error {
 	_, err := selectedMCMTRProfile(selected)
 	if err != nil {
 		return err
 	}
 	fingerprint := mcmtrProfileFingerprint(selected)
-	_, stepErr := dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-		err, stored := runtime.store.AgentContextGet(step, root)
+	err, stored := runtime.store.AgentContextGet(ctx, root)
+	if err != nil {
+		return err
+	}
+	if stored != nil && stored.Model == selected.Ref {
+		return nil
+	}
+	state := json.RawMessage(nil)
+	err, inherited := runtime.store.AgentContextPreviousGet(ctx, root.Session, selected.Ref, root.Id)
+	if err != nil {
+		return err
+	}
+	if inherited != nil && mcmtrContextStateBefore(inherited.State, root.Id) {
+		state = inherited.State
+	} else {
+		state, err = json.Marshal(mcmtrContextState{})
 		if err != nil {
-			return false, err
+			return err
 		}
-		if stored != nil && stored.Model == selected.Ref && stored.Profile == fingerprint {
-			return true, nil
-		}
-		state := json.RawMessage(nil)
-		err, inherited := runtime.store.AgentContextLatestGet(step, root.Session, selected.Ref, fingerprint)
-		if err != nil {
-			return false, err
-		}
-		if inherited != nil {
-			state = inherited.State
-		} else {
-			state, err = json.Marshal(mcmtrContextState{})
-			if err != nil {
-				return false, err
-			}
-		}
-		return true, runtime.store.AgentContextSet(step, database.AgentContext{Root: root, Model: selected.Ref, Profile: fingerprint, State: state})
-	}, dbos.WithStepName("gatehouse.session-event-context-start"))
-	return stepErr
+	}
+	return runtime.store.AgentContextSet(ctx, database.AgentContext{Root: root, Model: selected.Ref, Profile: fingerprint, State: state})
 }
 
-func (runtime *SessionEventReplyRuntime) agentContext(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, []openAICompatibleMessage) {
+func (runtime *SessionEventReplyRuntime) agentContext(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, []openAICompatibleMessage) {
 	profile, err := selectedMCMTRProfile(selected)
 	if err != nil {
 		return err, nil
 	}
 	state := mcmtrContextState{}
-	events, err := dbos.RunAsStep(ctx, func(step context.Context) ([]model.SessionEvent, error) {
-		err, stored := runtime.store.AgentContextGet(step, parent)
-		if err != nil {
-			return nil, err
-		}
-		if stored != nil && stored.Model == selected.Ref && stored.Profile == mcmtrProfileFingerprint(selected) {
-			if err := json.Unmarshal(stored.State, &state); err != nil {
-				return nil, fmt.Errorf("decode MCMTR state for session event %q: %w", parent.Id, err)
-			}
-		}
-		return runtime.mcmtrContextEvents(step, parent, profile, state)
-	}, dbos.WithStepName("gatehouse.session-event-context-load"))
+	err, stored := runtime.store.AgentContextGet(ctx, parent)
 	if err != nil {
 		return err, nil
 	}
-	messages, next, err := compileMCMTRContext(events, parent, profile, state)
+	if stored != nil && stored.Model == selected.Ref {
+		if err := json.Unmarshal(stored.State, &state); err != nil {
+			return fmt.Errorf("decode MCMTR state for session event %q: %w", parent.Id, err), nil
+		}
+	}
+	err, events := runtime.mcmtrContextEvents(ctx, parent, selected.Ref)
 	if err != nil {
 		return err, nil
 	}
-	_, err = dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-		encoded, err := json.Marshal(next)
-		if err != nil {
-			return false, err
-		}
-		return true, runtime.store.AgentContextSet(step, database.AgentContext{Root: parent, Model: selected.Ref, Profile: mcmtrProfileFingerprint(selected), State: encoded})
-	}, dbos.WithStepName("gatehouse.session-event-context-checkpoint"))
+	err, active := mcmtrContextActive(events, parent)
+	if err != nil {
+		return err, nil
+	}
+	messages, next, err := compileMCMTRContext(events, active, profile, state)
+	if err != nil {
+		return err, nil
+	}
+	encoded, err := json.Marshal(next)
+	if err != nil {
+		return err, nil
+	}
+	err = runtime.store.AgentContextSet(ctx, database.AgentContext{Root: parent, Model: selected.Ref, Profile: mcmtrProfileFingerprint(selected), State: encoded})
 	if err != nil {
 		return err, nil
 	}
 	return nil, messages
 }
 
-func (runtime *SessionEventReplyRuntime) mcmtrContextEvents(ctx context.Context, parent model.SessionEventRef, profile mcmtrProfile, state mcmtrContextState) ([]model.SessionEvent, error) {
-	err, active := runtime.store.SessionEventGet(ctx, parent)
-	if err != nil {
-		return nil, err
+func mcmtrContextStateBefore(state json.RawMessage, before string) bool {
+	checkpoint := mcmtrContextState{}
+	if json.Unmarshal(state, &checkpoint) != nil {
+		return false
 	}
-	if active == nil {
-		return nil, fmt.Errorf("reply to session event %q: active user message is unavailable", parent.Id)
+	for _, id := range []string{checkpoint.UserHighFrom, checkpoint.AgentHighFrom, checkpoint.ToolHighFrom} {
+		if id != "" && id >= before {
+			return false
+		}
 	}
-	beforeID := ""
-	events := make([]model.SessionEvent, 0, contextEventPageSize)
-	for {
-		err, page := runtime.store.SessionEventsTailPageGet(ctx, parent.Session, beforeID, contextEventPageSize)
-		if err != nil {
-			return nil, err
-		}
-		if len(page) == 0 {
-			return mcmtrContextEventsWithActive(events, *active), nil
-		}
-		events = append(events, page...)
-		contextEvents := mcmtrContextEventsWithActive(events, *active)
-		_, _, shared, err := compileMCMTRContextWithShared(contextEvents, parent, profile, state)
-		if err != nil {
-			return nil, err
-		}
-		oldestID := page[0].Ref.Id
-		needOlder, err := mcmtrHighTiersNeedOlder(contextEvents, profile, state, oldestID)
-		if err != nil {
-			return nil, err
-		}
-		if len(page) < contextEventPageSize || (shared == 0 && !needOlder) {
-			return contextEvents, nil
-		}
-		beforeID = oldestID
-	}
+	return true
 }
 
-func mcmtrContextEventsWithActive(events []model.SessionEvent, active model.SessionEvent) []model.SessionEvent {
-	result := append([]model.SessionEvent(nil), events...)
-	for _, event := range result {
-		if event.Ref == active.Ref {
-			sort.Slice(result, func(left, right int) bool { return result[left].Ref.Id < result[right].Ref.Id })
-			return result
-		}
+func (runtime *SessionEventReplyRuntime) mcmtrContextEvents(ctx context.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef) (error, []model.SessionEvent) {
+	err, events := runtime.store.SessionAgentRequestEventsGet(ctx, parent, agent)
+	if err != nil {
+		return err, nil
 	}
-	result = append(result, active)
-	sort.Slice(result, func(left, right int) bool { return result[left].Ref.Id < result[right].Ref.Id })
-	return result
+	if len(events) == 0 {
+		return fmt.Errorf("reply to session event %q: active agent request is unavailable", parent.Id), nil
+	}
+	for index := range events {
+		if events[index].Kind != "message.text" || events[index].AuthorPrincipal == nil {
+			continue
+		}
+		payload := make(map[string]interface{}, len(events[index].Payload))
+		for key, value := range events[index].Payload {
+			if key != "agents" {
+				payload[key] = value
+			}
+		}
+		events[index].Payload = payload
+	}
+	return nil, events
+}
+
+func mcmtrContextActive(events []model.SessionEvent, request model.SessionEventRef) (error, model.SessionEventRef) {
+	for _, event := range events {
+		if event.Ref != request {
+			continue
+		}
+		if event.Kind != "agent.request" || event.Parent == nil {
+			return fmt.Errorf("reply to session event %q: active agent request is invalid", request.Id), model.SessionEventRef{}
+		}
+		return nil, *event.Parent
+	}
+	return fmt.Errorf("reply to session event %q: active agent request is unavailable", request.Id), model.SessionEventRef{}
 }
 
 func mcmtrHighTiersNeedOlder(events []model.SessionEvent, profile mcmtrProfile, state mcmtrContextState, oldestID string) (bool, error) {

@@ -227,7 +227,7 @@ type mcmtrText struct {
 
 const (
 	mcmtrToolResultContentMaximumBytes = 4 * 1024
-	mcmtrHighTierRetentionDivisor       = 4
+	mcmtrHighTierRetentionDivisor      = 4
 )
 
 var mcmtrStreams = []string{"user", "agent", "tool"}
@@ -608,12 +608,12 @@ func mcmtrSelectText(value string, schedule contextSchedule, used *int) mcmtrTex
 }
 
 func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
-	if strings.HasPrefix(event.Kind, "thinking.") || strings.HasPrefix(event.Kind, "approval.") {
+	if event.Kind == "agent.request" || strings.HasPrefix(event.Kind, "thinking.") || strings.HasPrefix(event.Kind, "approval.") {
 		return mcmtrRecord{}, false, nil
 	}
 	record := mcmtrRecord{event: event, kind: event.Kind, channel: agentContextSchedule}
 	switch event.Kind {
-	case "message.text":
+	case "message.text", "agent.reply":
 		record.kind = "message"
 		record.contents.value, _ = event.Payload["text"].(string)
 		if event.AuthorPrincipal != nil {

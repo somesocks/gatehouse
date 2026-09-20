@@ -14,6 +14,7 @@ import (
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
+	"gatehouse/typed_id"
 )
 
 var defaultAgentModelCompaction = config.AgentModelCompaction{
@@ -68,11 +69,19 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	message := model.SessionEvent{
+	if err, _ := store.SessionMessagesCreate(ctx, model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
-		Payload:         map[string]interface{}{"text": "hello", "agent": requestedID},
+		Payload:         map[string]interface{}{"text": "human-only context"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	message := model.SessionEvent{
+		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"},
+		Kind:            "message.text",
+		AuthorPrincipal: &alicePrincipal,
+		Payload:         map[string]interface{}{"text": "hello", "agents": []string{requestedID}},
 	}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 		t.Fatal(err)
@@ -103,23 +112,27 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(events) == 4 {
-			started := events[1]
-			completed := events[2]
-			reply := events[3]
-			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != message.Ref || started.AuthorAgent == nil || started.AuthorAgent.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
+		if len(events) == 6 {
+			request := events[2]
+			started := events[3]
+			completed := events[4]
+			reply := events[5]
+			if request.Kind != "agent.request" || request.Parent == nil || *request.Parent != message.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice || request.Payload["agent"] != requestedID {
+				t.Fatalf("agent request event = %#v", request)
+			}
+			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != request.Ref || started.AuthorAgent == nil || started.AuthorAgent.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
 				t.Fatalf("thinking start event = %#v", started)
 			}
 			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Id != requestedID || completed.Ref.Id == "" {
 				t.Fatalf("thinking completion event = %#v", completed)
 			}
-			if reply.Kind != "message.text" || reply.Parent == nil || *reply.Parent != message.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
+			if reply.Kind != "agent.reply" || reply.Parent == nil || *reply.Parent != request.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
 				t.Fatalf("reply event = %#v", reply)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session events = %#v, want message, thinking lifecycle, and reply", events)
+			t.Fatalf("session events = %#v, want human-only message, targeted message, agent request, thinking lifecycle, and reply", events)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -146,6 +159,28 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	err, nameTasks := store.SessionNameTasksGet(ctx, 10)
 	if err != nil || len(nameTasks) != 0 {
 		t.Fatalf("SessionNameTasksGet() = (%#v, %v)", nameTasks, err)
+	}
+	rows, err := store.QueryContext(ctx, `
+		SELECT function_name, length(COALESCE(output, ''))
+		FROM operation_outputs
+		WHERE function_name = 'gatehouse.session-event-agent-persist'
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		var length int
+		if err := rows.Scan(&name, &length); err != nil {
+			t.Fatal(err)
+		}
+		if length > 512 {
+			t.Fatalf("DBOS operation %q stored %d bytes, want only a small event reference", name, length)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -181,6 +216,10 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	}
 
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	var agentID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'fallback'`).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
 	alice := principalRef(t, ctx, store, "alice")
 	alicePrincipal := model.Principal{Ref: alice, Name: &aliceName, Enabled: true}
 	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
@@ -191,14 +230,23 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"},
 		Kind:            "message.text",
 		AuthorPrincipal: &alicePrincipal,
-		Payload:         map[string]interface{}{"text": "hello"},
+		Payload:         map[string]interface{}{"text": "hello", "agents": []string{agentID}},
 	}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 		t.Fatal(err)
 	}
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil || len(events) != 2 || events[1].Kind != "agent.request" {
+		t.Fatalf("created request events = (%#v, %v)", events, err)
+	}
+	request := events[1]
+	cancellationID, err := typed_id.New(typed_id.SessionEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
 	cancellation := model.SessionEvent{
-		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"},
-		Parent:          &message.Ref,
+		Ref:             model.SessionEventRef{Session: session, Id: cancellationID},
+		Parent:          &request.Ref,
 		Kind:            "cancel.request",
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
@@ -229,15 +277,15 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(events) == 3 {
-			success := events[2]
+		if len(events) == 4 {
+			success := events[3]
 			if success.Kind != "cancel.success" || success.Parent == nil || *success.Parent != cancellation.Ref || success.AuthorPrincipal == nil || success.AuthorPrincipal.Ref != alice || success.AuthorPrincipal.Name == nil || *success.AuthorPrincipal.Name != aliceName {
 				t.Fatalf("cancellation success = %#v", success)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session events = %#v, want message, cancellation request, and cancellation success", events)
+			t.Fatalf("session events = %#v, want message, agent request, cancellation request, and cancellation success", events)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

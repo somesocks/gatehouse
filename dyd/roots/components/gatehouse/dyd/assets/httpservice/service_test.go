@@ -25,7 +25,9 @@ import (
 
 func TestSessionEventTranscriptProject(t *testing.T) {
 	entries := []database.SessionEventTreeEntry{
-		{Event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "agent": "assistant", "reasoning": "hidden"}}},
+		{Event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "message", "attachments": []string{"sfi_00000000000000000000000000"}, "agents": []string{"assistant"}, "reasoning": "hidden"}}},
+		{Event: model.SessionEvent{Kind: "agent.request", Payload: map[string]interface{}{"agent": "assistant"}}},
+		{Event: model.SessionEvent{Kind: "agent.reply", Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "reasoning": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect source.", "code": "(read-all)"}}},
 		{Event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": "Allow access?", "scope": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "hidden"}}},
@@ -34,7 +36,9 @@ func TestSessionEventTranscriptProject(t *testing.T) {
 	sessionEventTranscriptProject(entries)
 
 	for index, want := range []map[string]interface{}{
-		{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "agent": "assistant"},
+		{"text": "message", "attachments": []string{"sfi_00000000000000000000000000"}, "agents": []string{"assistant"}},
+		{"agent": "assistant"},
+		{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}},
 		{"name": "lisp", "reason": "Inspect source."},
 		{"description": "Allow access?"},
 		{},
@@ -579,23 +583,12 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 		t.Fatalf("stored session events = %#v", events)
 	}
 	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
-		t.Fatalf("stored session reply tasks = (%#v, %v)", tasks, err)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("stored session reply tasks for human-only message = (%#v, %v)", tasks, err)
 	}
 	cancel := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages/"+event.Ref.Id+"/cancel", "")
-	if cancel.Code != http.StatusAccepted || cancel.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("POST cancel = status %d cache %q", cancel.Code, cancel.Header().Get("Cache-Control"))
-	}
-	var cancellation model.SessionEvent
-	if err := json.Unmarshal(cancel.Body.Bytes(), &cancellation); err != nil {
-		t.Fatal(err)
-	}
-	if cancellation.Ref.Id == "" || cancellation.Parent == nil || *cancellation.Parent != event.Ref || cancellation.Kind != "cancel.request" || cancellation.AuthorPrincipal == nil || cancellation.AuthorPrincipal.Ref != principal || cancellation.AuthorPrincipal.Name == nil || *cancellation.AuthorPrincipal.Name != "Alice" || cancellation.AuthorAgent != nil || cancellation.AuthorGateway != nil || len(cancellation.Payload) != 0 {
-		t.Fatalf("POST cancel response = %#v", cancellation)
-	}
-	err, tasks = store.SessionEventReplyTasksGet(context.Background(), 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Event != event.Ref {
-		t.Fatalf("cancelled session reply tasks = (%#v, %v)", tasks, err)
+	if cancel.Code != http.StatusNotFound {
+		t.Fatalf("POST cancel for human-only message = status %d", cancel.Code)
 	}
 }
 
@@ -1543,7 +1536,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 		return response
 	}
 	agents := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/agents", "")
-	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"`+assistantID+`","alias":"assistant","label":"Assistant"}]`+"\n" {
+	if agents.Code != http.StatusOK || agents.Body.String() != `[{"id":"`+assistantID+`","alias":"assistant","label":"Assistant","default":true}]`+"\n" {
 		t.Fatalf("GET agents = status %d body %q", agents.Code, agents.Body.String())
 	}
 	session := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", "{}")
@@ -1551,16 +1544,16 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	if err := json.Unmarshal(session.Body.Bytes(), &created); err != nil {
 		t.Fatal(err)
 	}
-	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"`+assistantID+`"}`)
+	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agents":["`+assistantID+`"]}`)
 	var event model.SessionEvent
-	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || event.Payload["agent"] != assistantID {
+	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || !reflect.DeepEqual(event.Payload["agents"], []interface{}{assistantID}) {
 		t.Fatalf("POST message = (%d, %#v, %v)", message.Code, event, err)
 	}
-	alias := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"assistant"}`)
+	alias := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agents":["assistant"]}`)
 	if alias.Code != http.StatusBadRequest {
 		t.Fatalf("POST message with agent alias = %d", alias.Code)
 	}
-	invalid := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agent":"missing"}`)
+	invalid := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agents":["missing"]}`)
 	if invalid.Code != http.StatusBadRequest {
 		t.Fatalf("POST message with missing agent = %d", invalid.Code)
 	}

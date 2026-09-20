@@ -114,6 +114,8 @@ describe("route owner", () => {
         kind: "session-chat",
         workspaceID: "wsp_a",
         sessionID: "ses_a",
+        mode: "group",
+        agent: null,
       }),
     ).toBe("session-chat")
     expect(

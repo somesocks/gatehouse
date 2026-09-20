@@ -1,6 +1,7 @@
 type WorkspaceRoute = { workspaceID: string }
 type SessionRoute = WorkspaceRoute & { sessionID: string }
 type ProjectRoute = WorkspaceRoute & { projectID: string }
+type ChatMode = "direct" | "group"
 
 export type Route =
   | { kind: "app-home" }
@@ -36,7 +37,7 @@ export type Route =
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "group-collection" } & WorkspaceRoute)
-  | ({ kind: "session-chat" } & SessionRoute)
+  | ({ kind: "session-chat"; mode: ChatMode; agent: string | null } & SessionRoute)
   | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
   | ({ kind: "session-note-new" } & SessionRoute)
@@ -106,6 +107,12 @@ function pathSegments(pathname: string): string[] | null {
 
 function collectionSearch(url: URL): string {
   return url.searchParams.get("name") ?? ""
+}
+
+function chatDelivery(url: URL): { mode: ChatMode; agent: string | null } {
+  if (url.searchParams.get("mode") !== "direct")
+    return { mode: "group", agent: null }
+  return { mode: "direct", agent: url.searchParams.get("agent") }
 }
 
 export function parseRoute(url: URL): Route {
@@ -283,7 +290,12 @@ export function parseRoute(url: URL): Route {
   }
   if (collection === "ses") {
     if (segments.length === 5) {
-      return { kind: "session-chat", workspaceID, sessionID: resourceID }
+      return {
+        kind: "session-chat",
+        workspaceID,
+        sessionID: resourceID,
+        ...chatDelivery(url),
+      }
     }
     const section = segments[5]
     if (segments.length === 6 && section === "files") {
@@ -551,7 +563,13 @@ export function routePath(route: NavigableRoute): string {
     case "group-collection":
       return `/app/wsp/${segment(route.workspaceID)}/grp`
     case "session-chat":
-      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
+      if (route.mode !== "direct")
+        return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}?${new URLSearchParams(
+        route.agent === null
+          ? { mode: "direct" }
+          : { mode: "direct", agent: route.agent },
+      )}`
     case "session-files":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/files`
     case "session-notes":

@@ -432,7 +432,8 @@ func (runtime *SessionEventReplyRuntime) sessionSecretsModule(ctx dbos.Context, 
 	}}
 }
 
-func (runtime *SessionEventReplyRuntime) sessionEventsModule(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) lisp.HostModule {
+func (runtime *SessionEventReplyRuntime) sessionEventsModule(ctx dbos.Context, agentRequest model.SessionEventRef, agent model.WorkspaceAgentRef, principal model.PrincipalRef) lisp.HostModule {
+	session := agentRequest.Session
 	read := sessionEventReadFunction(func(id string, offset, length int64) (error, []byte) {
 		err, available := runtime.store.SessionGet(ctx, session, principal)
 		if err != nil || available == nil {
@@ -441,14 +442,16 @@ func (runtime *SessionEventReplyRuntime) sessionEventsModule(ctx dbos.Context, s
 			}
 			return fmt.Errorf("read session event: unavailable"), nil
 		}
-		err, event := runtime.store.SessionEventGet(ctx, model.SessionEventRef{Session: session, Id: id})
-		if err != nil || event == nil {
-			if err != nil {
-				return err, nil
-			}
-			return fmt.Errorf("read session event: unavailable"), nil
+		err, events := runtime.store.SessionAgentRequestEventsGet(ctx, agentRequest, agent)
+		if err != nil {
+			return err, nil
 		}
-		return sessionEventReadRange(*event, offset, length)
+		for _, event := range events {
+			if event.Ref.Id == id {
+				return sessionEventReadRange(event, offset, length)
+			}
+		}
+		return fmt.Errorf("read session event: unavailable"), nil
 	}, "session/events/read")
 	search := sessionEventSearchFunction(func(source, cursor string) (error, SessionEventSearchResult) {
 		err, available := runtime.store.SessionGet(ctx, session, principal)
@@ -466,19 +469,28 @@ func (runtime *SessionEventReplyRuntime) sessionEventsModule(ctx dbos.Context, s
 		if err != nil {
 			return err, SessionEventSearchResult{}
 		}
-		err, events, more := runtime.store.SessionEventsSearch(ctx, session, expression, beforeID, 8)
+		err, events := runtime.store.SessionAgentRequestEventsGet(ctx, agentRequest, agent)
 		if err != nil {
 			return err, SessionEventSearchResult{}
 		}
-		result := SessionEventSearchResult{Events: make([]sessionsearch.EventResult, 0, len(events))}
-		for _, event := range events {
+		result := SessionEventSearchResult{Events: make([]sessionsearch.EventResult, 0, 8)}
+		more := false
+		for index := len(events) - 1; index >= 0; index-- {
+			event := events[index]
+			if beforeID != "" && event.Ref.Id >= beforeID {
+				continue
+			}
 			entry, matches := sessionsearch.Result(event, expression)
 			if matches {
+				if len(result.Events) == 8 {
+					more = true
+					break
+				}
 				result.Events = append(result.Events, entry)
 			}
 		}
-		if more && len(events) > 0 {
-			result.NextCursor = sessionsearch.NextCursor(source, events[len(events)-1].Ref.Id)
+		if more && len(result.Events) > 0 {
+			result.NextCursor = sessionsearch.NextCursor(source, result.Events[len(result.Events)-1].ID)
 		}
 		return nil, result
 	}, "session/events/search")

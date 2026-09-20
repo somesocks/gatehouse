@@ -28,7 +28,7 @@ describe("chat transport", () => {
     await fetchChatAgents("wsp/test")
     await sendChatMessage("wsp/test", "ses/test", {
       text: "Hello",
-      agent: "agt/test",
+      agents: ["agt/test"],
       attachments: ["fil/test"],
     })
     await cancelChatReply("wsp/test", "ses/test", "msg/test")

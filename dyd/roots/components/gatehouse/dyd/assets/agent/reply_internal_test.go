@@ -35,6 +35,23 @@ func TestWatchCancellation(t *testing.T) {
 	}
 }
 
+func TestSessionToolCallInputContainsOnlyRequestReference(t *testing.T) {
+	encoded, err := json.Marshal(SessionToolCallInput{Request: model.SessionEventRef{
+		Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: "wsp_00000000000000000000000000"}, Id: "ses_00000000000000000000000000"},
+		Id:      "sev_00000000000000000000000000",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var value map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &value); err != nil {
+		t.Fatal(err)
+	}
+	if len(value) != 1 || value["Request"] == nil {
+		t.Fatalf("tool workflow input = %s, want only Request", encoded)
+	}
+}
+
 func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."
 	emptyPrompt := ""
@@ -156,7 +173,7 @@ func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
 		runtime.sessionNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionSecretsModule(nil, session, principal),
-		runtime.sessionEventsModule(nil, session, principal),
+		runtime.sessionEventsModule(nil, model.SessionEventRef{Session: session}, model.WorkspaceAgentRef{}, principal),
 		NewPolicyModule(nil),
 		NewWebModule(),
 	}

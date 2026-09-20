@@ -1,4 +1,9 @@
-export type ChatAgent = { id: string; label?: string }
+export type ChatAgent = {
+  id: string
+  alias: string
+  label?: string
+  default: boolean
+}
 
 export type ChatFile = {
   id: string
@@ -13,6 +18,7 @@ export type ChatEvent = {
   kind: string
   payload: {
     agent?: string
+    agents?: string[]
     text?: string
     name?: string
     reason?: string
@@ -109,7 +115,7 @@ export async function fetchChatAgents(
 export async function sendChatMessage(
   workspaceID: string,
   sessionID: string,
-  input: { text?: string; agent?: string; attachments?: string[] },
+  input: { text?: string; agents?: string[]; attachments?: string[] },
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, {

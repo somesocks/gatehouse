@@ -272,9 +272,10 @@ type groupResponse struct {
 }
 
 type workspaceAgentResponse struct {
-	ID    string  `json:"id"`
-	Alias string  `json:"alias"`
-	Label *string `json:"label,omitempty"`
+	ID      string  `json:"id"`
+	Alias   string  `json:"alias"`
+	Label   *string `json:"label,omitempty"`
+	Default bool    `json:"default"`
 }
 
 type sessionResponse struct {
@@ -370,7 +371,7 @@ type sessionProjectRequest struct {
 
 type sessionMessageRequest struct {
 	Text        string   `json:"text"`
-	Agent       string   `json:"agent"`
+	Agents      []string `json:"agents"`
 	Attachments []string `json:"attachments"`
 }
 
@@ -758,7 +759,7 @@ func workspaceAgents(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		}
 		result := make([]workspaceAgentResponse, len(agents))
 		for index, agent := range agents {
-			result[index] = workspaceAgentResponse{ID: agent.ID, Alias: agent.Alias, Label: agent.Label}
+			result[index] = workspaceAgentResponse{ID: agent.ID, Alias: agent.Alias, Label: agent.Label, Default: agent.Default}
 		}
 		writeJSON(response, result)
 	}
@@ -1771,13 +1772,18 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
-		if message.Agent != "" {
-			err, selected := store.WorkspaceAgentModelSelect(request.Context(), session.Workspace, message.Agent)
+		seenAgents := make(map[string]struct{}, len(message.Agents))
+		for _, agent := range message.Agents {
+			if _, exists := seenAgents[agent]; exists {
+				continue
+			}
+			seenAgents[agent] = struct{}{}
+			err, selected := store.WorkspaceAgentModelGet(request.Context(), session.Workspace, agent)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			if selected == nil || selected.Ref.Id != message.Agent {
+			if selected == nil || selected.Ref.Id != agent {
 				http.Error(response, "invalid agent", http.StatusBadRequest)
 				return
 			}
@@ -3216,8 +3222,8 @@ func messagePayload(message sessionMessageRequest) map[string]interface{} {
 	if strings.TrimSpace(message.Text) != "" {
 		payload["text"] = message.Text
 	}
-	if message.Agent != "" {
-		payload["agent"] = message.Agent
+	if len(message.Agents) > 0 {
+		payload["agents"] = message.Agents
 	}
 	if len(message.Attachments) > 0 {
 		payload["attachments"] = message.Attachments
@@ -3261,7 +3267,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if message == nil || message.Parent != nil || message.Kind != "message.text" || message.AuthorPrincipal == nil {
+		if message == nil || message.Kind != "agent.request" || message.Parent == nil || message.AuthorPrincipal == nil {
 			http.NotFound(response, request)
 			return
 		}
@@ -3450,7 +3456,11 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		var keys []string
 		switch event.Kind {
 		case "message.text":
-			keys = []string{"text", "attachments", "agent"}
+			keys = []string{"text", "attachments", "agents"}
+		case "agent.request":
+			keys = []string{"agent"}
+		case "agent.reply":
+			keys = []string{"text", "attachments"}
 		case "tool.request":
 			keys = []string{"name", "reason"}
 		case "approval.request":

@@ -376,6 +376,11 @@ a.attachment-chip:focus-visible {
   inline-size: 2.5rem;
 }
 
+.input-group-controls > button.icon[data-selected] {
+  background-color: var(--primary-500);
+  color: var(--secondary-50);
+}
+
 .input-group-controls > textarea {
   field-sizing: content;
   flex: 1;
@@ -407,6 +412,58 @@ a.attachment-chip:focus-visible {
   opacity: 0;
   position: absolute;
   inline-size: 100%;
+}
+
+.mention-command {
+  @extend %surface;
+
+  inline-size: min(20rem, calc(100dvi - (var(--space) * 2)));
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+}
+
+.mention-command [data-command-input] {
+  border: 0;
+  border-block-end: var(--border);
+  border-radius: 0;
+  inline-size: 100%;
+}
+
+.mention-command [data-command-list] {
+  max-block-size: 16rem;
+  overflow-y: auto;
+}
+
+.mention-command [data-command-group-heading],
+.mention-command [data-command-empty],
+.mention-command-empty {
+  color: var(--text-muted);
+  display: block;
+  font-size: 0.875rem;
+  padding: calc(var(--space) / 2) var(--space);
+}
+
+.mention-command [data-command-item] {
+  align-items: baseline;
+  cursor: pointer;
+  display: flex;
+  gap: calc(var(--space) / 2);
+  padding: calc(var(--space) / 2) var(--space);
+}
+
+.mention-command [data-command-item][data-selected] {
+  background-color: var(--surface-1);
+}
+
+.mention-command [data-command-item] small {
+  color: var(--text-muted);
+}
+
+.delivery-command [data-command-item] {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0;
 }
 
 .modal-overlay {

@@ -48,13 +48,7 @@ type SessionNameInput struct {
 }
 
 type SessionToolCallInput struct {
-	Request   model.SessionEvent
-	Agent     model.WorkspaceAgentRef
-	Principal model.PrincipalRef
-	CallID    string
-	Code      string
-	Reason    string
-	Prelude   string
+	Request model.SessionEventRef
 }
 
 type SessionApprovalInput struct {
@@ -73,18 +67,18 @@ type sessionToolCallExecution struct {
 	Output string
 }
 
-type sessionReplyPreparation struct {
-	Selected *database.WorkspaceAgentModel
-	Message  *model.SessionEvent
-}
-
 type agentFinalReply struct {
 	Text        string
 	Attachments []string
 }
 
+type agentProviderTurn struct {
+	Final   *agentFinalReply
+	Calls   []openAICompatibleToolCall
+	Metrics *model.SessionEventMetrics
+}
+
 type sessionNamePreparation struct {
-	Existing *string
 	Selected *database.WorkspaceAgentModel
 	Text     string
 }
@@ -203,57 +197,54 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 	return nil
 }
 
-func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input SessionNameInput) (string, error) {
-	preparation, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionNamePreparation, error) {
-		err, existing := runtime.store.SessionNameGet(step, input.Session)
-		if err != nil || existing != nil {
-			return sessionNamePreparation{Existing: existing}, err
-		}
-		err, events := runtime.store.SessionEventsGet(step, input.Session)
-		if err != nil {
-			return sessionNamePreparation{}, err
-		}
-		for _, event := range events {
-			if event.Parent != nil || event.Kind != "message.text" || event.AuthorPrincipal == nil {
-				continue
-			}
-			text, ok := event.Payload["text"].(string)
-			if !ok || strings.TrimSpace(text) == "" {
-				continue
-			}
-			preferred, _ := event.Payload["agent"].(string)
-			err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Session.Workspace, preferred)
-			if err != nil {
-				return sessionNamePreparation{}, err
-			}
-			if selected == nil {
-				return sessionNamePreparation{}, nil
-			}
-			return sessionNamePreparation{Selected: selected, Text: text}, nil
-		}
-		return sessionNamePreparation{}, nil
-	}, dbos.WithStepName("gatehouse.session-name-generate"))
+func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input SessionNameInput) (bool, error) {
+	err, existing := runtime.store.SessionNameGet(ctx, input.Session)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	if preparation.Existing != nil {
-		return *preparation.Existing, nil
+	if existing != nil {
+		return true, nil
+	}
+	err, events := runtime.store.SessionEventsGet(ctx, input.Session)
+	if err != nil {
+		return false, err
+	}
+	preparation := sessionNamePreparation{}
+	for _, event := range events {
+		if event.Parent != nil || event.Kind != "message.text" || event.AuthorPrincipal == nil {
+			continue
+		}
+		text, ok := event.Payload["text"].(string)
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
+		}
+		values, ok := event.Payload["agents"].([]interface{})
+		if !ok || len(values) == 0 {
+			continue
+		}
+		preferred, _ := values[0].(string)
+		if preferred == "" {
+			continue
+		}
+		err, selected := runtime.store.WorkspaceAgentModelGet(ctx, input.Session.Workspace, preferred)
+		if err != nil {
+			return false, err
+		}
+		if selected == nil {
+			return false, nil
+		}
+		preparation = sessionNamePreparation{Selected: selected, Text: text}
+		break
 	}
 	if preparation.Selected == nil {
-		return "", nil
+		return false, nil
 	}
 	err, name := runtime.sessionNameCompletion(ctx, preparation.Selected, preparation.Text)
 	if err != nil {
-		return "", err
+		return false, err
 	}
-	_, err = dbos.RunAsStep(ctx, func(step context.Context) (bool, error) {
-		err, updated := runtime.store.SessionNameSet(step, input.Session, name)
-		return updated, err
-	}, dbos.WithStepName("gatehouse.session-name-persist"))
-	if err != nil {
-		return "", err
-	}
-	return name, nil
+	err, updated := runtime.store.SessionNameSet(ctx, input.Session, name)
+	return updated, err
 }
 
 func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context, selected *database.WorkspaceAgentModel, text string) (error, string) {
@@ -312,59 +303,58 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEvent, error) {
-	preparation, err := dbos.RunAsStep(ctx, func(step context.Context) (sessionReplyPreparation, error) {
-		err, message := runtime.store.SessionEventGet(step, input.Event)
-		if err != nil {
-			return sessionReplyPreparation{}, err
-		}
-		preferred := ""
-		if message != nil && message.Kind == "message.text" && message.AuthorPrincipal != nil {
-			preferred, _ = message.Payload["agent"].(string)
-		}
-		err, selected := runtime.store.WorkspaceAgentModelSelect(step, input.Event.Session.Workspace, preferred)
-		if err != nil {
-			return sessionReplyPreparation{}, err
-		}
-		return sessionReplyPreparation{Selected: selected, Message: message}, nil
-	}, dbos.WithStepName("gatehouse.session-event-reply-prepare"))
+func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEventRef, error) {
+	err, request := runtime.store.SessionEventGet(ctx, input.Event)
 	if err != nil {
-		return model.SessionEvent{}, err
+		return model.SessionEventRef{}, err
+	}
+	if request == nil {
+		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: event not found", input.Event.Id)
+	}
+	if request.Kind != "agent.request" || request.Parent == nil || request.AuthorPrincipal == nil {
+		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: request is invalid", input.Event.Id)
+	}
+	err, message := runtime.store.SessionEventGet(ctx, *request.Parent)
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	if message == nil || message.Kind != "message.text" || message.AuthorPrincipal == nil || message.Ref.Session != request.Ref.Session {
+		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: parent message is invalid", input.Event.Id)
+	}
+	preferred, _ := request.Payload["agent"].(string)
+	if preferred == "" {
+		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: target agent is unavailable", input.Event.Id)
+	}
+	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, input.Event.Session.Workspace, preferred)
+	if err != nil {
+		return model.SessionEventRef{}, err
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			return model.SessionEvent{}, nil
+			return model.SessionEventRef{}, nil
 		}
-		return model.SessionEvent{}, err
+		return model.SessionEventRef{}, err
 	}
-	selected := preparation.Selected
 	if selected == nil {
-		return model.SessionEvent{}, nil
-	}
-	message := preparation.Message
-	if message == nil {
-		return model.SessionEvent{}, fmt.Errorf("reply to session event %q: event not found", input.Event.Id)
+		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: target agent is unavailable", input.Event.Id)
 	}
 	final := agentFinalReply{}
 	switch selected.Protocol {
 	case "builtin":
 		err, thinking := runtime.thinkingStart(ctx, input.Event, selected.Ref, 0)
 		if err != nil {
-			return model.SessionEvent{}, err
+			return model.SessionEventRef{}, err
 		}
-		final.Text, err = dbos.RunAsStep(ctx, func(context.Context) (string, error) {
-			err, text := BuiltinReply(selected.Model, selected.Parameters)
-			return text, err
-		}, dbos.WithStepName("gatehouse.session-event-reply-builtin"))
+		err, final.Text = BuiltinReply(selected.Model, selected.Parameters)
 		if err != nil {
-			return model.SessionEvent{}, runtime.thinkingFinish(ctx, thinking, "thinking.failed", err)
+			return model.SessionEventRef{}, runtime.thinkingFinish(ctx, thinking, "thinking.failed", err)
 		}
 		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
-			return model.SessionEvent{}, err
+			return model.SessionEventRef{}, err
 		}
 	case "openai-chat-completions", "openai-responses":
 		if message.AuthorPrincipal == nil {
-			return model.SessionEvent{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
+			return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
 		}
 		err, final = runtime.openAIReply(ctx, input.Event, selected, message.AuthorPrincipal.Ref)
 	default:
@@ -372,36 +362,32 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	if err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			return model.SessionEvent{}, nil
+			return model.SessionEventRef{}, nil
 		}
-		return model.SessionEvent{}, err
+		return model.SessionEventRef{}, err
 	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			return model.SessionEvent{}, nil
+			return model.SessionEventRef{}, nil
 		}
-		return model.SessionEvent{}, err
+		return model.SessionEventRef{}, err
 	}
 	if len(final.Attachments) > 0 {
-		final.Attachments, err = dbos.RunAsStep(ctx, func(step context.Context) ([]string, error) {
-			err, references := runtime.store.SessionFileReferencesFilter(step, input.Event.Session, final.Attachments)
-			if err != nil {
-				return nil, err
-			}
-			attachments := make([]string, len(references))
+		err, references := runtime.store.SessionFileReferencesFilter(ctx, input.Event.Session, final.Attachments)
+		if err == nil {
+			final.Attachments = make([]string, len(references))
 			for index, reference := range references {
-				attachments[index] = reference.ID
+				final.Attachments[index] = reference.ID
 			}
-			return attachments, nil
-		}, dbos.WithStepName("gatehouse.session-event-reply-attachments"))
+		}
 		if err != nil {
-			return model.SessionEvent{}, fmt.Errorf("filter agent reply attachments: %w", err)
+			return model.SessionEventRef{}, fmt.Errorf("filter agent reply attachments: %w", err)
 		}
 	}
 	event := model.SessionEvent{
 		Ref:         model.SessionEventRef{Session: input.Event.Session},
-		Parent:      &input.Event,
-		Kind:        "message.text",
+		Parent:      &request.Ref,
+		Kind:        "agent.reply",
 		AuthorAgent: &selected.Ref,
 		Payload:     map[string]interface{}{"text": final.Text},
 	}
@@ -410,129 +396,201 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	}
 	err, stored := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
-		return model.SessionEvent{}, err
+		return model.SessionEventRef{}, err
 	}
 	return stored, nil
 }
 
 func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentFinalReply) {
-	if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
-		return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentFinalReply{}
-	}
-	if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
-		return err, agentFinalReply{}
-	}
-	profile, err := selectedMCMTRProfile(selected)
-	if err != nil {
-		return err, agentFinalReply{}
-	}
-	err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
-	if err != nil {
-		return err, agentFinalReply{}
-	}
-	if selected.Protocol == "openai-responses" {
-		return runtime.openAIResponsesReply(ctx, parent, selected, principal, reasoningEffort)
-	}
+	agent := selected.Ref
 	callCount := 0
-	for round := 0; ; round++ {
+	for round := 0; ; {
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
 			return err, agentFinalReply{}
 		}
-		err, messages := runtime.agentContext(ctx, parent, selected)
+		err, selected := runtime.currentWorkspaceAgentModel(ctx, agent)
 		if err != nil {
 			return err, agentFinalReply{}
 		}
-		requestMessages := openAIRequestMessages(selected, messages)
 		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
 		if err != nil {
 			return err, agentFinalReply{}
 		}
-		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
-			Model: selected.Model, Messages: requestMessages, Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
-		})
-		if err != nil {
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
-		}
-		reply := completion.Message
-		if len(reply.ToolCalls) == 0 {
-			final, err := openAIFinalReply(reply.Content)
+		turn := agentProviderTurn{}
+		for {
+			err, selected = runtime.currentWorkspaceAgentModel(ctx, agent)
 			if err != nil {
-				logInvalidOpenAIFinalReply(selected.ProviderID, parent, reply.Content)
-				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, completion.Metrics), agentFinalReply{}
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
-			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, completion.Metrics); err != nil {
+			err, turn = runtime.agentProviderTurn(ctx, parent, selected)
+			if err == nil {
+				break
+			}
+			var retryable *openAIRetryableError
+			if !errors.As(err, &retryable) {
+				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, turn.Metrics), agentFinalReply{}
+			}
+			if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
+				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+			}
+		}
+		if turn.Final != nil {
+			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, turn.Metrics); err != nil {
 				return err, agentFinalReply{}
 			}
-			return nil, final
+			return nil, *turn.Final
 		}
 		if round >= selected.MaxTurns {
-			err := fmt.Errorf("OpenAI-compatible completion exceeded turn limit")
-			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, completion.Metrics), agentFinalReply{}
+			err := fmt.Errorf("agent provider completion exceeded turn limit")
+			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, turn.Metrics), agentFinalReply{}
 		}
-		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, completion.Metrics); err != nil {
+		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, turn.Metrics); err != nil {
 			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
 			return err, agentFinalReply{}
 		}
-		if !mcmtrNativeCallsFit(reply.ToolCalls, profile.BufferBytes) {
-			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
-		}
-		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, reply.ToolCalls)
+		profile, err := selectedMCMTRProfile(selected)
 		if err != nil {
 			return err, agentFinalReply{}
 		}
-		callCount += len(reply.ToolCalls)
+		if !mcmtrNativeCallsFit(turn.Calls, profile.BufferBytes) {
+			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
+			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+		}
+		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, turn.Calls)
+		if err != nil {
+			return err, agentFinalReply{}
+		}
+		callCount += len(turn.Calls)
+		round++
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) currentWorkspaceAgentModel(ctx context.Context, agent model.WorkspaceAgentRef) (error, *database.WorkspaceAgentModel) {
+	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, agent.Workspace, agent.Id)
+	if err != nil {
+		return err, nil
+	}
+	if selected == nil {
+		return fmt.Errorf("workspace agent %q is unavailable", agent.Id), nil
+	}
+	return nil, selected
+}
+
+func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, agentProviderTurn) {
+	switch selected.Protocol {
+	case "builtin":
+		err, text := BuiltinReply(selected.Model, selected.Parameters)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}}
+	case "openai-chat-completions":
+		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
+		}
+		if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
+			return err, agentProviderTurn{}
+		}
+		err, messages := runtime.agentContext(ctx, parent, selected)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+			Model: selected.Model, Messages: openAIRequestMessages(selected, messages), Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
+		})
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		if len(completion.Message.ToolCalls) > 0 {
+			return nil, agentProviderTurn{Calls: completion.Message.ToolCalls, Metrics: completion.Metrics}
+		}
+		final, err := openAIFinalReply(completion.Message.Content)
+		if err != nil {
+			logInvalidOpenAIFinalReply(selected.ProviderID, parent, completion.Message.Content)
+			return err, agentProviderTurn{Metrics: completion.Metrics}
+		}
+		return nil, agentProviderTurn{Final: &final, Metrics: completion.Metrics}
+	case "openai-responses":
+		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
+		}
+		if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
+			return err, agentProviderTurn{}
+		}
+		err, messages := runtime.agentContext(ctx, parent, selected)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		var reasoning *openAIResponsesReasoning
+		if reasoningEffort != "" {
+			reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
+		}
+		input := openAIResponsesInput(messages)
+		response, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
+			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
+		})
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		outputs := make([]openAIResponsesOutput, len(response.Output))
+		calls := make([]openAICompatibleToolCall, 0, 1)
+		for index, raw := range response.Output {
+			var output openAIResponsesOutput
+			if err := json.Unmarshal(raw, &output); err != nil {
+				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
+				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, response.Output)
+				return err, agentProviderTurn{Metrics: response.Metrics}
+			}
+			outputs[index] = output
+			if output.Type == "function_call" {
+				call := openAICompatibleToolCall{ID: output.CallID, Type: "function"}
+				call.Function.Name = output.Name
+				call.Function.Arguments = output.Arguments
+				calls = append(calls, call)
+			}
+		}
+		if len(calls) > 0 {
+			return nil, agentProviderTurn{Calls: calls, Metrics: response.Metrics}
+		}
+		final, err := openAIResponsesFinalReply(outputs)
+		if err != nil {
+			logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, response.Output)
+			return err, agentProviderTurn{Metrics: response.Metrics}
+		}
+		return nil, agentProviderTurn{Final: &final, Metrics: response.Metrics}
+	default:
+		return fmt.Errorf("unsupported provider protocol %q", selected.Protocol), agentProviderTurn{}
 	}
 }
 
 func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleCompletion, error) {
-	for {
-		reply, err := dbos.RunAsStep(ctx, func(step context.Context) (openAICompatibleCompletion, error) {
-			err, apiKey := runtime.openAIAPIKey(step, selected)
-			if err != nil {
-				return openAICompatibleCompletion{}, err
-			}
-			defer clear(apiKey)
-			err, reply := OpenAICompatibleComplete(step, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
-			return reply, err
-		}, dbos.WithStepName("gatehouse.session-event-reply-completion"))
-		if err == nil {
-			return reply, err
-		}
-		var retryable *openAIRetryableError
-		if !errors.As(err, &retryable) {
-			return reply, err
-		}
-		if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
-			return openAICompatibleCompletion{}, err
-		}
+	err, apiKey := runtime.openAIAPIKey(ctx, selected)
+	if err != nil {
+		return openAICompatibleCompletion{}, err
 	}
+	replyErr, reply := OpenAICompatibleComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+	clear(apiKey)
+	return reply, replyErr
 }
 
 func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAIResponsesRequest) (openAIResponsesResponse, error) {
-	for {
-		reply, err := dbos.RunAsStep(ctx, func(step context.Context) (openAIResponsesResponse, error) {
-			err, apiKey := runtime.openAIAPIKey(step, selected)
-			if err != nil {
-				return openAIResponsesResponse{}, err
-			}
-			defer clear(apiKey)
-			err, reply := OpenAIResponsesComplete(step, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
-			return reply, err
-		}, dbos.WithStepName("gatehouse.session-event-reply-responses"))
-		if err == nil {
-			return reply, err
-		}
-		var retryable *openAIRetryableError
-		if !errors.As(err, &retryable) {
-			return reply, err
-		}
-		if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
-			return openAIResponsesResponse{}, err
-		}
+	err, apiKey := runtime.openAIAPIKey(ctx, selected)
+	if err != nil {
+		return openAIResponsesResponse{}, err
 	}
+	replyErr, reply := OpenAIResponsesComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+	clear(apiKey)
+	return reply, replyErr
 }
 
 func (runtime *SessionEventReplyRuntime) openAIAPIKey(ctx context.Context, selected *database.WorkspaceAgentModel) (error, []byte) {
@@ -574,31 +632,60 @@ func agentProviderAssociatedData(id string, alias *string, selector string) (err
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (string, error) {
+func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (model.SessionEventRef, error) {
+	err, request := runtime.store.SessionEventGet(ctx, input.Request)
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	if request == nil || request.Kind != "tool.request" || request.Parent == nil || request.AuthorAgent == nil {
+		return model.SessionEventRef{}, fmt.Errorf("session tool call request is invalid")
+	}
+	err, parent := runtime.store.SessionEventGet(ctx, *request.Parent)
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	if parent == nil || parent.AuthorPrincipal == nil {
+		return model.SessionEventRef{}, fmt.Errorf("session tool call principal is unavailable")
+	}
+	callID, callIDOK := request.Payload["call_id"].(string)
+	code, codeOK := request.Payload["code"].(string)
+	name, nameOK := request.Payload["name"].(string)
+	if !callIDOK || !codeOK || !nameOK || name != "lisp" {
+		return model.SessionEventRef{}, fmt.Errorf("session tool call payload is invalid")
+	}
+	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, request.Ref.Session.Workspace, request.AuthorAgent.Id)
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	if selected == nil || selected.Ref != *request.AuthorAgent {
+		return model.SessionEventRef{}, fmt.Errorf("session tool call agent is unavailable")
+	}
+	agent := *request.AuthorAgent
+	principal := parent.AuthorPrincipal.Ref
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
-		return runtime.toolCallFinish(ctx, input, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+		return runtime.toolCallFinish(ctx, *request, agent, callID, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
 	}
 	modules := []lisp.HostModule{
-		runtime.projectInfoModule(ctx, input.Request.Ref.Session, input.Principal),
-		runtime.projectFilesModule(ctx, input.Request.Ref.Session, input.Principal),
-		runtime.projectNotesModule(ctx, input.Request.Ref.Session, input.Principal, input.Agent),
-		runtime.projectTasksModule(ctx, input.Request.Ref.Session, input.Principal, input.Agent),
-		runtime.projectSecretsModule(ctx, input.Request.Ref.Session, input.Principal),
-		runtime.projectRecordsModule(ctx, input.Request.Ref.Session, input.Principal, input.Agent),
-		runtime.sessionFilesModule(ctx, input.Request.Ref.Session, input.Principal),
-		runtime.sessionNotesModule(ctx, input.Request.Ref.Session, input.Principal, input.Agent),
-		runtime.sessionTasksModule(ctx, input.Request.Ref.Session, input.Principal, input.Agent),
-		runtime.sessionSecretsModule(ctx, input.Request.Ref.Session, input.Principal),
-		runtime.sessionEventsModule(ctx, input.Request.Ref.Session, input.Principal),
-		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, input, description) }),
+		runtime.projectInfoModule(ctx, request.Ref.Session, principal),
+		runtime.projectFilesModule(ctx, request.Ref.Session, principal),
+		runtime.projectNotesModule(ctx, request.Ref.Session, principal, agent),
+		runtime.projectTasksModule(ctx, request.Ref.Session, principal, agent),
+		runtime.projectSecretsModule(ctx, request.Ref.Session, principal),
+		runtime.projectRecordsModule(ctx, request.Ref.Session, principal, agent),
+		runtime.sessionFilesModule(ctx, request.Ref.Session, principal),
+		runtime.sessionNotesModule(ctx, request.Ref.Session, principal, agent),
+		runtime.sessionTasksModule(ctx, request.Ref.Session, principal, agent),
+		runtime.sessionSecretsModule(ctx, request.Ref.Session, principal),
+		runtime.sessionEventsModule(ctx, *request.Parent, agent, principal),
+		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, *request, agent, description) }),
 		NewWebModule(),
 	}
 	evaluationContext, cancelEvaluation := context.WithCancel(ctx)
-	stopCancellationWatch := runtime.watchToolCallCancellation(input.Request.Parent, cancelEvaluation)
+	stopCancellationWatch := runtime.watchToolCallCancellation(request.Parent, cancelEvaluation)
 	defer stopCancellationWatch()
 	defer cancelEvaluation()
-	evalErr, result := lisp.Evaluate(input.Code, lisp.EvalOptions{Context: evaluationContext, Prelude: input.Prelude, HostModules: modules})
+	evalErr, result := lisp.Evaluate(code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPreludeFor(selected), HostModules: modules})
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
 	if errors.Is(evalErr, lisp.ErrInterrupted) {
@@ -608,7 +695,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	} else {
 		execution = sessionToolCallExecution{Kind: "tool.success", Output: result.String()}
 	}
-	return runtime.toolCallFinish(ctx, input, execution)
+	return runtime.toolCallFinish(ctx, *request, agent, callID, execution)
 }
 
 func (runtime *SessionEventReplyRuntime) watchToolCallCancellation(parent *model.SessionEventRef, cancel context.CancelFunc) func() {
@@ -662,16 +749,16 @@ func sessionEventReadRange(event model.SessionEvent, offset, length int64) (erro
 	return nil, append([]byte(nil), contents[offset:end]...)
 }
 
-func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, input SessionToolCallInput, execution sessionToolCallExecution) (string, error) {
+func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, request model.SessionEvent, agent model.WorkspaceAgentRef, callID string, execution sessionToolCallExecution) (model.SessionEventRef, error) {
 	resultEvent := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: execution.Kind, AuthorAgent: &input.Agent,
-		Payload: map[string]interface{}{"name": "lisp", "call_id": input.CallID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(input.Request.CreatedAt),
+		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref, Kind: execution.Kind, AuthorAgent: &agent,
+		Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(request.CreatedAt),
 	}
-	err, _ := runtime.persistAgentEvent(ctx, resultEvent)
+	err, reference := runtime.persistAgentEvent(ctx, resultEvent)
 	if err != nil {
-		return "", err
+		return model.SessionEventRef{}, err
 	}
-	return execution.Output, nil
+	return reference, nil
 }
 
 func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) SessionNoteCreate {
@@ -1499,23 +1586,23 @@ func projectRecordValueFromModel(value model.ProjectRecordValue) ProjectRecordVa
 	return ProjectRecordValue{ID: value.Ref.Id, Attribute: value.Attribute.Id, Value: value.Value, Sensitive: value.Sensitive, AuthorID: projectRecordAuthorID(value.AuthorPrincipal, value.AuthorAgent), CreatedAt: value.CreatedAt}
 }
 
-func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input SessionToolCallInput, description string) error {
+func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, description string) error {
 	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
-		Ref: model.SessionEventRef{Session: input.Request.Ref.Session}, Parent: &input.Request.Ref, Kind: "approval.request", AuthorAgent: &input.Agent, Payload: map[string]interface{}{"description": description},
+		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: "approval.request", AuthorAgent: &agent, Payload: map[string]interface{}{"description": description},
 	})
 	if err != nil {
 		return err
 	}
-	handle, err := dbos.RunWorkflow(ctx, runtime.approval, SessionApprovalInput{Request: request.Ref},
+	handle, err := dbos.RunWorkflow(ctx, runtime.approval, SessionApprovalInput{Request: request},
 		dbos.WithRunInstance(runtime),
-		dbos.WithWorkflowID(sessionApprovalWorkflowID(request.Ref)),
+		dbos.WithWorkflowID(sessionApprovalWorkflowID(request)),
 	)
 	if err != nil {
-		return fmt.Errorf("start approval %q: %w", request.Ref.Id, err)
+		return fmt.Errorf("start approval %q: %w", request.Id, err)
 	}
 	outcome, err := handle.GetResult()
 	if err != nil {
-		return fmt.Errorf("await approval %q: %w", request.Ref.Id, err)
+		return fmt.Errorf("await approval %q: %w", request.Id, err)
 	}
 	if outcome == ApprovalGranted {
 		return nil
@@ -1523,7 +1610,7 @@ func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, input S
 	if outcome == ApprovalRejected {
 		return lisp.Errorf("approval rejected")
 	}
-	return fmt.Errorf("approval %q returned invalid outcome %q", request.Ref.Id, outcome)
+	return fmt.Errorf("approval %q returned invalid outcome %q", request.Id, outcome)
 }
 
 func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input SessionApprovalInput) (ApprovalOutcome, error) {
@@ -1550,9 +1637,8 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 	}, dbos.WithStepName("gatehouse.session-approval-response"))
 }
 
-func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]string, error) {
+func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]model.SessionEventRef, error) {
 	agent := selected.Ref
-	prelude := agentPreludeFor(selected)
 	inputs := make([]SessionToolCallInput, len(calls))
 	seen := make(map[string]bool, len(calls))
 	for index, call := range calls {
@@ -1575,25 +1661,26 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent m
 		if err != nil {
 			return nil, err
 		}
-		inputs[index] = SessionToolCallInput{Request: stored, Agent: agent, Principal: principal, CallID: call.ID, Code: code, Reason: reason, Prelude: prelude}
+		request.Ref = stored
+		inputs[index] = SessionToolCallInput{Request: request.Ref}
 	}
-	handles := make([]dbos.WorkflowHandle[string], len(inputs))
+	handles := make([]dbos.WorkflowHandle[model.SessionEventRef], len(inputs))
 	for index, input := range inputs {
 		handle, err := dbos.RunWorkflow(ctx, runtime.toolCall, input,
 			dbos.WithRunInstance(runtime),
-			dbos.WithWorkflowID(sessionToolCallWorkflowID(input.Request.Ref)),
+			dbos.WithWorkflowID(sessionToolCallWorkflowID(input.Request)),
 			dbos.WithQueue(runtime.toolQueue),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("start session tool call %q: %w", input.CallID, err)
+			return nil, fmt.Errorf("start session tool call %q: %w", calls[index].ID, err)
 		}
 		handles[index] = handle
 	}
-	outputs := make([]string, len(handles))
+	outputs := make([]model.SessionEventRef, len(handles))
 	for index, handle := range handles {
 		output, err := handle.GetResult()
 		if err != nil {
-			return nil, fmt.Errorf("await session tool call %q: %w", inputs[index].CallID, err)
+			return nil, fmt.Errorf("await session tool call %q: %w", calls[index].ID, err)
 		}
 		outputs[index] = output
 	}
@@ -1677,86 +1764,6 @@ func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []op
 	return append([]openAICompatibleMessage{{Role: "system", Content: prompt}}, messages...)
 }
 
-func (runtime *SessionEventReplyRuntime) openAIResponsesReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, reasoningEffort string) (error, agentFinalReply) {
-	profile, err := selectedMCMTRProfile(selected)
-	if err != nil {
-		return err, agentFinalReply{}
-	}
-	var reasoning *openAIResponsesReasoning
-	if reasoningEffort != "" {
-		reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
-	}
-	callCount := 0
-	for round := 0; ; round++ {
-		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, agentFinalReply{}
-		}
-		err, messages := runtime.agentContext(ctx, parent, selected)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		input := openAIResponsesInput(messages)
-		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
-			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
-		})
-		if err != nil {
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
-		}
-		calls := make([]openAICompatibleToolCall, 0, 1)
-		outputs := make([]openAIResponsesOutput, len(reply.Output))
-		for index, raw := range reply.Output {
-			var output openAIResponsesOutput
-			if err := json.Unmarshal(raw, &output); err != nil {
-				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
-				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
-				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
-			}
-			outputs[index] = output
-			switch output.Type {
-			case "function_call":
-				call := openAICompatibleToolCall{ID: output.CallID, Type: "function"}
-				call.Function.Name = output.Name
-				call.Function.Arguments = output.Arguments
-				calls = append(calls, call)
-			}
-		}
-		if len(calls) == 0 {
-			final, err := openAIResponsesFinalReply(outputs)
-			if err != nil {
-				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, reply.Output)
-				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
-			}
-			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, reply.Metrics); err != nil {
-				return err, agentFinalReply{}
-			}
-			return nil, final
-		}
-		if round >= selected.MaxTurns {
-			err := fmt.Errorf("OpenAI Responses exceeded turn limit")
-			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, reply.Metrics), agentFinalReply{}
-		}
-		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, reply.Metrics); err != nil {
-			return err, agentFinalReply{}
-		}
-		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, agentFinalReply{}
-		}
-		if !mcmtrNativeCallsFit(calls, profile.BufferBytes) {
-			err := fmt.Errorf("OpenAI Responses requested a tool batch that exceeds the MCMTR tool high-tier buffer")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
-		}
-		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, calls)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		callCount += len(calls)
-	}
-}
-
 func openAICompatibleReasoningEffort(parameters string) (error, string) {
 	var configured struct {
 		ReasoningEffort string `json:"reasoning_effort"`
@@ -1775,17 +1782,17 @@ func openAICompatibleReasoningEffort(parameters string) (error, string) {
 	return fmt.Errorf("OpenAI-compatible reasoning_effort %q is invalid", configured.ReasoningEffort), ""
 }
 
-func (runtime *SessionEventReplyRuntime) persistAgentEvent(ctx dbos.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	stored, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEvent, error) {
+func (runtime *SessionEventReplyRuntime) persistAgentEvent(ctx dbos.Context, event model.SessionEvent) (error, model.SessionEventRef) {
+	reference, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEventRef, error) {
 		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
-			return model.SessionEvent{}, fmt.Errorf("generate session event ID: %w", err)
+			return model.SessionEventRef{}, fmt.Errorf("generate session event ID: %w", err)
 		}
 		event.Ref.Id = id
-		err, stored := runtime.store.SessionEventCreateInTransaction(step, transaction, event)
-		return stored, err
+		err, _ = runtime.store.SessionEventCreateInTransaction(step, transaction, event)
+		return event.Ref, err
 	}, dbos.WithStepName("gatehouse.session-event-agent-persist"))
-	return err, stored
+	return err, reference
 }
 
 func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.Context, parent model.SessionEventRef) (error, *model.SessionEvent) {
@@ -1804,10 +1811,7 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 }
 
 func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx dbos.Context, parent model.SessionEventRef) (error, bool) {
-	request, err := dbos.RunAsStep(ctx, func(step context.Context) (*model.SessionEvent, error) {
-		err, request := runtime.replyCancellationRequested(step, parent)
-		return request, err
-	}, dbos.WithStepName("gatehouse.session-event-reply-cancellation-check"))
+	err, request := runtime.replyCancellationRequested(ctx, parent)
 	if err != nil {
 		return err, false
 	}
@@ -1827,7 +1831,17 @@ func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent 
 		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent, Kind: "thinking.started", AuthorAgent: &agent,
 		Payload: map[string]interface{}{"turn": turn},
 	}
-	return runtime.persistAgentEvent(ctx, event)
+	err, reference := runtime.persistAgentEvent(ctx, event)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, reference.Id)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	event.Ref = reference
+	event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
+	return nil, event
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error) error {

@@ -238,8 +238,14 @@ func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{
+			{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Enabled: true},
+		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -874,7 +880,7 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 	}
 }
 
-func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T) {
+func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesKeyset(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -883,8 +889,14 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 	defer store.Close()
 	state := config.State{
-		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
-		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
+		Workspaces:     []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:     []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{
+			{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Enabled: true},
+		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -897,6 +909,14 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
+	var agentID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	var secondAgentID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant-two'`).Scan(&secondAgentID); err != nil {
+		t.Fatal(err)
+	}
 	message := model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"},
 		Kind:            "message.text",
@@ -907,8 +927,34 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 		t.Fatal(err)
 	}
 	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Event != message.Ref {
-		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
+	if err != nil || len(tasks) != 0 {
+		t.Fatalf("SessionEventReplyTasksGet() for human-only message = (%#v, %v)", tasks, err)
+	}
+	targeted := message
+	targeted.Ref.Id = "sev_00000000000000000000000004"
+	targeted.Payload = map[string]interface{}{"text": "ask assistants", "agents": []string{agentID, agentID, secondAgentID}}
+	if err, _ := store.SessionMessagesCreate(ctx, targeted); err != nil {
+		t.Fatal(err)
+	}
+	err, tasks = store.SessionEventReplyTasksGet(ctx, 10)
+	if err != nil || len(tasks) != 2 || tasks[0].Event == targeted.Ref || tasks[1].Event == targeted.Ref {
+		t.Fatalf("SessionEventReplyTasksGet() for targeted message = (%#v, %v)", tasks, err)
+	}
+	targets := map[string]bool{}
+	for _, task := range tasks {
+		err, request := store.SessionEventGet(ctx, task.Event)
+		if err != nil || request == nil || request.Kind != "agent.request" || request.Parent == nil || *request.Parent != targeted.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice {
+			t.Fatalf("created agent request = (%#v, %v)", request, err)
+		}
+		target, _ := request.Payload["agent"].(string)
+		targets[target] = true
+	}
+	if !targets[agentID] || !targets[secondAgentID] || len(targets) != 2 {
+		t.Fatalf("agent request targets = %#v", targets)
+	}
+	err, nameTasks := store.SessionNameTasksGet(ctx, 10)
+	if err != nil || len(nameTasks) != 1 || nameTasks[0].Session != session {
+		t.Fatalf("SessionNameTasksGet() for targeted message = (%#v, %v)", nameTasks, err)
 	}
 
 	if _, err := store.ExecContext(ctx, `
@@ -925,6 +971,114 @@ func TestSessionMessagesCreateAddsReplyTaskAndEventsPageUsesKeyset(t *testing.T)
 	}
 	if len(events) != 2 || events[0].Ref.Id != "sev_00000000000000000000000002" || events[1].Ref.Id != "sev_00000000000000000000000003" {
 		t.Fatalf("SessionEventsPageGet() = %#v", events)
+	}
+}
+
+func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{
+		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
+		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+	var agentID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&agentID); err != nil {
+		t.Fatal(err)
+	}
+	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
+	alice := principalRef(t, ctx, store, "alice")
+	alicePrincipal := model.Principal{Ref: alice, Enabled: true}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	create := func(text string) model.SessionEvent {
+		id, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err, message := store.SessionMessagesCreate(ctx, model.SessionEvent{
+			Ref:             model.SessionEventRef{Session: session, Id: id},
+			Kind:            "message.text",
+			AuthorPrincipal: &alicePrincipal,
+			Payload:         map[string]interface{}{"text": text, "agents": []string{agentID}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return message
+	}
+	first := create("first")
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("first request events = (%#v, %v)", events, err)
+	}
+	firstRequest := model.SessionEvent{}
+	for _, event := range events {
+		if event.Kind == "agent.request" && event.Parent != nil && *event.Parent == first.Ref {
+			firstRequest = event
+		}
+	}
+	if firstRequest.Ref.Id == "" {
+		t.Fatalf("first agent request = %#v", events)
+	}
+	time.Sleep(time.Millisecond)
+	second := create("second")
+	err, events = store.SessionEventsGet(ctx, session)
+	if err != nil || len(events) != 4 {
+		t.Fatalf("second request events = (%#v, %v)", events, err)
+	}
+	secondRequest := model.SessionEvent{}
+	for _, event := range events {
+		if event.Kind == "agent.request" && event.Parent != nil && *event.Parent == second.Ref {
+			secondRequest = event
+		}
+	}
+	if secondRequest.Ref.Id == "" {
+		t.Fatalf("second agent request = %#v", events)
+	}
+	lateID, err := typed_id.New(typed_id.SessionEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{
+		Ref:         model.SessionEventRef{Session: session, Id: lateID},
+		Parent:      &firstRequest.Ref,
+		Kind:        "agent.reply",
+		AuthorAgent: &agent,
+		Payload:     map[string]interface{}{"text": "late"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	err, visible := store.SessionAgentRequestEventsGet(ctx, secondRequest.Ref, agent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	var firstVisible *model.SessionEvent
+	for _, event := range visible {
+		ids[event.Ref.Id] = true
+		if event.Ref == first.Ref {
+			firstVisible = &event
+		}
+	}
+	if !ids[first.Ref.Id] || !ids[firstRequest.Ref.Id] || !ids[second.Ref.Id] || !ids[secondRequest.Ref.Id] || ids[lateID] {
+		t.Fatalf("snapshot IDs = %#v", ids)
+	}
+	if firstVisible == nil || firstVisible.AuthorPrincipal == nil || firstVisible.AuthorPrincipal.Ref != alice || firstVisible.Payload["text"] != "first" {
+		t.Fatalf("hydrated snapshot event = %#v", firstVisible)
 	}
 }
 
@@ -984,7 +1138,7 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 	}
 }
 
-func TestWorkspaceAgentModelSelectUsesConfiguredDefault(t *testing.T) {
+func TestWorkspaceAgentModelGetUsesRequestedBinding(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	firstPrompt := "First prompt."
@@ -1017,22 +1171,26 @@ func TestWorkspaceAgentModelSelectUsesConfiguredDefault(t *testing.T) {
 	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'first'`).Scan(&firstID); err != nil {
 		t.Fatal(err)
 	}
-	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, "")
-	if err != nil || selected == nil || selected.AgentModel.Id != firstID {
-		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want configured default", selected, err)
+	var bindingID string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'first'`).Scan(&bindingID); err != nil {
+		t.Fatal(err)
+	}
+	err, selected := store.WorkspaceAgentModelGet(ctx, workspace, bindingID)
+	if err != nil || selected == nil || selected.AgentModel.Id != firstID || selected.Ref.Id != bindingID {
+		t.Fatalf("WorkspaceAgentModelGet() = (%#v, %v), want requested binding", selected, err)
 	}
 	if selected.MaxTurns != 3 || selected.MaxOutputTokens != 2000 {
-		t.Fatalf("WorkspaceAgentModelSelect() limits = (%d, %d)", selected.MaxTurns, selected.MaxOutputTokens)
+		t.Fatalf("WorkspaceAgentModelGet() limits = (%d, %d)", selected.MaxTurns, selected.MaxOutputTokens)
 	}
 	if selected.SystemPrompt == nil || *selected.SystemPrompt != "First prompt." {
-		t.Fatalf("WorkspaceAgentModelSelect() system prompt = %#v, want first prompt", selected.SystemPrompt)
+		t.Fatalf("WorkspaceAgentModelGet() system prompt = %#v, want first prompt", selected.SystemPrompt)
 	}
 	if selected.Prelude == nil || *selected.Prelude != prelude {
-		t.Fatalf("WorkspaceAgentModelSelect() prelude = %#v", selected.Prelude)
+		t.Fatalf("WorkspaceAgentModelGet() prelude = %#v", selected.Prelude)
 	}
 }
 
-func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
+func TestWorkspaceAgentModelGetRequiresEligibleRequestedAgent(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -1056,29 +1214,26 @@ func TestWorkspaceAgentModelSelectPrefersEligibleRequestedAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
-	var requestedID, automaticID string
+	var requestedID string
 	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'requested'`).Scan(&requestedID); err != nil {
 		t.Fatal(err)
 	}
-	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'automatic'`).Scan(&automaticID); err != nil {
-		t.Fatal(err)
-	}
-	err, selected := store.WorkspaceAgentModelSelect(ctx, workspace, requestedID)
+	err, selected := store.WorkspaceAgentModelGet(ctx, workspace, requestedID)
 	if err != nil || selected == nil || selected.Ref.Id != requestedID {
-		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want requested agent", selected, err)
+		t.Fatalf("WorkspaceAgentModelGet() = (%#v, %v), want requested agent", selected, err)
 	}
-	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "missing")
-	if err != nil || selected == nil || selected.Ref.Id != automaticID {
-		t.Fatalf("WorkspaceAgentModelSelect() = (%#v, %v), want automatic agent", selected, err)
+	err, selected = store.WorkspaceAgentModelGet(ctx, workspace, "wag_00000000000000000000000000")
+	if err != nil || selected != nil {
+		t.Fatalf("WorkspaceAgentModelGet() with missing binding = (%#v, %v)", selected, err)
 	}
-	state.WorkspaceAgents[0].Default = false
-	state.WorkspaceAgents[0].Revision = 2
+	state.WorkspaceAgents[1].Enabled = false
+	state.WorkspaceAgents[1].Revision = 2
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
-	err, selected = store.WorkspaceAgentModelSelect(ctx, workspace, "")
+	err, selected = store.WorkspaceAgentModelGet(ctx, workspace, requestedID)
 	if err != nil || selected != nil {
-		t.Fatalf("WorkspaceAgentModelSelect() with no default = (%#v, %v)", selected, err)
+		t.Fatalf("WorkspaceAgentModelGet() with disabled binding = (%#v, %v)", selected, err)
 	}
 }
 
