@@ -1008,7 +1008,7 @@ func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.
 	placeholder := keychainPlaceholder(store.kind)
 	query := `
 		WITH tail AS (
-			SELECT id
+			SELECT workspace, session, id
 			FROM gatehouse_session_events
 			WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + `
 	`
@@ -1023,9 +1023,8 @@ func (store *Store) SessionEventsTailPageGet(ctx context.Context, session model.
 		)
 		SELECT ` + sessionEventColumns + `
 		FROM tail
-		JOIN gatehouse_session_events AS events ON events.id = tail.id
+		JOIN gatehouse_session_events AS events ON events.workspace = tail.workspace AND events.session = tail.session AND events.id = tail.id
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
-		WHERE events.workspace = ` + placeholder(1) + ` AND events.session = ` + placeholder(2) + `
 		ORDER BY events.id
 	`
 	arguments = append(arguments, limit)

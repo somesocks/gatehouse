@@ -98,7 +98,7 @@ func sessionEventSearchSQLiteTextPredicate(text string, placeholder func(int) st
 	output := contains(outputValue)
 	request := contains(codeValue + " || char(10) || " + reasonValue)
 	approval := contains(descriptionValue)
-	return "((events.kind = 'message.text' AND json_type(events.payload, '$.text') = 'text' AND " + message + ") OR " +
+	return "((events.kind IN ('message.text', 'agent.reply') AND json_type(events.payload, '$.text') = 'text' AND " + message + ") OR " +
 		"(events.kind IN ('tool.success', 'tool.failure') AND json_type(events.payload, '$.output') = 'text' AND " + output + ") OR " +
 		"(events.kind = 'tool.request' AND json_type(events.payload, '$.name') = 'text' AND " +
 		"json_extract(events.payload, '$.name') = 'lisp' AND json_type(events.payload, '$.call_id') = 'text' AND " +
@@ -121,7 +121,7 @@ func sessionEventSearchTextPredicate(parameter string) string {
 	output := contains(outputValue)
 	request := contains(codeValue + " || E'\\n' || " + reasonValue)
 	approval := contains(descriptionValue)
-	return "((events.kind = 'message.text' AND jsonb_typeof(events.payload -> 'text') = 'string' AND " + message + ") OR " +
+	return "((events.kind IN ('message.text', 'agent.reply') AND jsonb_typeof(events.payload -> 'text') = 'string' AND " + message + ") OR " +
 		"(events.kind IN ('tool.success', 'tool.failure') AND jsonb_typeof(events.payload -> 'output') = 'string' AND " + output + ") OR " +
 		"(events.kind = 'tool.request' AND jsonb_typeof(events.payload -> 'name') = 'string' AND " +
 		"(events.payload ->> 'name') = 'lisp' AND jsonb_typeof(events.payload -> 'call_id') = 'string' AND " +

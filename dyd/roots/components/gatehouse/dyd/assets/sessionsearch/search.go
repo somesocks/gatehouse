@@ -139,7 +139,7 @@ func Cursor(source, value string) (error, string) {
 // EventReadableBody returns the exact bytes exposed by session/events/read.
 func EventReadableBody(event model.SessionEvent) (string, bool) {
 	switch event.Kind {
-	case "message.text":
+	case "message.text", "agent.reply":
 		output, ok := event.Payload["text"].(string)
 		return output, ok
 	case "tool.request":
@@ -169,7 +169,7 @@ func EventReadableBody(event model.SessionEvent) (string, bool) {
 // EventSearchBody returns explicitly searchable current-session event text.
 func EventSearchBody(event model.SessionEvent) (string, bool) {
 	switch event.Kind {
-	case "message.text", "tool.request", "tool.success", "tool.failure", "approval.request":
+	case "message.text", "agent.reply", "tool.request", "tool.success", "tool.failure", "approval.request":
 		return EventReadableBody(event)
 	default:
 		return "", false

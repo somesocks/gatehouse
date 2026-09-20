@@ -1453,6 +1453,7 @@ func TestSessionEventsSearch(t *testing.T) {
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Kind: "approval.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"description": "Approve Conroe ordinance"}},
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Kind: "tool.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": `say "Conroe"`, "reason": "Explain the quote."}},
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000005"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": float64(42)}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000006"}, Kind: "agent.reply", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "Irving response"}},
 	} {
 		if err, _ := store.SessionEventsCreate(ctx, event); err != nil {
 			t.Fatal(err)
@@ -1485,6 +1486,14 @@ func TestSessionEventsSearch(t *testing.T) {
 	err, events, more = store.SessionEventsSearch(ctx, session, expression, "", 2)
 	if err != nil || more || len(events) != 0 {
 		t.Fatalf("SessionEventsSearch() malformed text = (%#v, %t, %v)", events, more, err)
+	}
+	err, expression = sessionsearch.Parse(`"Irving"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, events, more = store.SessionEventsSearch(ctx, session, expression, "", 2)
+	if err != nil || more || len(events) != 1 || events[0].Ref.Id != "sev_00000000000000000000000006" {
+		t.Fatalf("SessionEventsSearch() agent reply = (%#v, %t, %v)", events, more, err)
 	}
 }
 
