@@ -55,6 +55,24 @@ workspaces:
         model: openai-luna-high
         revision: 1
         label: GPT 5.6 Luna High
+      - alias: luna-high-rate-limit-test
+        model: openai-luna-high
+        revision: 2
+        label: GPT 5.6 Luna High Rate-Limit Test
+        rate_limits:
+          workspace_output:
+            minimum_balance: -1000000000
+            maximum_balance: 8000
+            refill_per_minute: 96000
+      - alias: luna-high-input-rate-limit-test
+        model: openai-luna-high
+        revision: 2
+        label: GPT 5.6 Luna High Input Rate-Limit Test
+        rate_limits:
+          workspace_input:
+            minimum_balance: -1000000000
+            maximum_balance: 1
+            refill_per_minute: 60000
       - alias: luna-medium
         model: openai-luna-medium
         revision: 1

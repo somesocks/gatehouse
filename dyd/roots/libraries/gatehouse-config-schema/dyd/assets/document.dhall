@@ -151,6 +151,31 @@ let WorkspaceGrants =
         s.list.props::{ values = WorkspaceGrant }
         s.list.meta::{ description = Some "configured workspace grants" }
 
+let TokenBucket =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { minimum_balance = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "minimum token credit allowed for delayed reservations" }
+			, maximum_balance = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum accumulated token credit" }
+            , refill_per_minute = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "token credit added per minute" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "TokenBucket" }
+
+let WorkspaceAgentRateLimits =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = toMap
+            { workspace_input = TokenBucket
+            , workspace_output = TokenBucket
+            , user_input = TokenBucket
+            , user_output = TokenBucket
+            }
+        }
+        s.record.meta::{ name = Some "WorkspaceAgentRateLimits" }
+
 let WorkspaceAgent =
       s.record.from
         s.record.props::{
@@ -165,7 +190,8 @@ let WorkspaceAgent =
 				, system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "custom instructions appended to the standard system prompt" }
 			   , prelude = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Lisp prelude that replaces the standard agent prelude" }
 			   , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this agent receives automatic replies" }
-             }
+			   , rate_limits = WorkspaceAgentRateLimits
+              }
         }
         s.record.meta::{ name = Some "WorkspaceAgent" }
 
@@ -417,11 +443,11 @@ let AgentModel =
             , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
             }
         , optional = toMap
-            { compaction = AgentModelCompaction
-            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
-            , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum model output tokens per request" }
-            , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
-            }
+             { compaction = AgentModelCompaction
+             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
+             , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum model output tokens per request" }
+             , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+             }
         }
         s.record.meta::{ name = Some "AgentModel" }
 

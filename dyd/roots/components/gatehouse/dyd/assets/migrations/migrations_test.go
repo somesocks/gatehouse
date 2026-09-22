@@ -260,7 +260,7 @@ func TestSQLiteBaselineMatchesVersionedSchema(t *testing.T) {
 	legacyRegistry.Repeatable = nil
 	baselineRegistry.Repeatable = nil
 	versioned := VersionedMigration{
-		Index:       50,
+		Index:       51,
 		Description: "baseline_follow_up",
 		Builder:     staticMigrationBuilder(`CREATE TABLE gatehouse_baseline_follow_up (id TEXT PRIMARY KEY) STRICT;`),
 	}
@@ -293,8 +293,8 @@ func TestSQLiteBaselineMatchesVersionedSchema(t *testing.T) {
 	if got := historyIndexes(t, baseline, migrationTypeBaseline); !reflect.DeepEqual(got, []int64{49}) {
 		t.Fatalf("baseline migration indexes = %#v, want [49]", got)
 	}
-	if got := historyIndexes(t, baseline, migrationTypeVersioned); !reflect.DeepEqual(got, []int64{50}) {
-		t.Fatalf("baseline versioned migration indexes = %#v, want [50]", got)
+	if got := historyIndexes(t, baseline, migrationTypeVersioned); !reflect.DeepEqual(got, []int64{50, 51}) {
+		t.Fatalf("baseline versioned migration indexes = %#v, want [50 51]", got)
 	}
 }
 

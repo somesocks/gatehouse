@@ -50,6 +50,17 @@ export type SystemStorageProvider = {
   credential_configured: boolean
   enabled: boolean
 }
+export type TokenBucket = {
+  minimum_balance: number
+  maximum_balance: number
+  refill_per_minute: number
+}
+export type WorkspaceAgentRateLimits = {
+  workspace_input?: TokenBucket
+  workspace_output?: TokenBucket
+  user_input?: TokenBucket
+  user_output?: TokenBucket
+}
 export type SystemWorkspaceAgent = {
   id: string
   workspace: string
@@ -59,6 +70,7 @@ export type SystemWorkspaceAgent = {
 	label?: string
 	system_prompt?: string
 	prelude?: string
+	rate_limits?: WorkspaceAgentRateLimits
 	default: boolean
 	enabled: boolean
 }

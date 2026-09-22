@@ -566,6 +566,23 @@ export function thinkingStatus(
 ): "working" | "succeeded" | "failed" {
   return activityStatus(tree, "thinking.completed", "thinking.failed")
 }
+export function thinkingRateLimitDelayUntil(
+  tree: ChatEventTree,
+  now: number,
+): string | undefined {
+  for (let index = tree.children.length - 1; index >= 0; index -= 1) {
+    const delay = tree.children[index].event
+    if (
+      delay.kind !== "thinking.delay" ||
+      delay.payload.reason !== "rate_limit" ||
+      typeof delay.payload.until !== "string"
+    )
+      continue
+    const until = new Date(delay.payload.until).getTime()
+    if (Number.isFinite(until) && until > now) return delay.payload.until
+  }
+  return undefined
+}
 export function approvalRequests(tree: ChatEventTree): ChatEventTree[] {
   return tree.children.filter(
     (child) => child.event.kind === "approval.request",

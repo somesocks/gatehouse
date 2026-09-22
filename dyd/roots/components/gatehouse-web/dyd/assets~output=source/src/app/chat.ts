@@ -22,6 +22,7 @@ export type ChatEvent = {
     text?: string
     name?: string
     reason?: string
+    until?: string
     code?: string
     description?: string
     output?: string

@@ -56,8 +56,48 @@ type WorkspaceAgent struct {
 	Label        *string
 	SystemPrompt *string
 	Prelude      *string
+	RateLimits   *WorkspaceAgentRateLimits
 	Default      bool
 	Enabled      bool
+}
+
+// TokenBucket configures a bounded token credit balance and refill rate.
+type TokenBucket struct {
+	MinimumBalance  int `json:"minimum_balance"`
+	MaximumBalance  int `json:"maximum_balance"`
+	RefillPerMinute int `json:"refill_per_minute"`
+}
+
+// WorkspaceAgentRateLimits defines optional workspace-global and per-user token buckets.
+type WorkspaceAgentRateLimits struct {
+	WorkspaceInput  *TokenBucket `json:"workspace_input,omitempty"`
+	WorkspaceOutput *TokenBucket `json:"workspace_output,omitempty"`
+	UserInput       *TokenBucket `json:"user_input,omitempty"`
+	UserOutput      *TokenBucket `json:"user_output,omitempty"`
+}
+
+func (limits *WorkspaceAgentRateLimits) Empty() bool {
+	return limits == nil || (limits.WorkspaceInput == nil && limits.WorkspaceOutput == nil && limits.UserInput == nil && limits.UserOutput == nil)
+}
+
+func ValidateWorkspaceAgentRateLimits(limits *WorkspaceAgentRateLimits) error {
+	if limits == nil {
+		return nil
+	}
+	for _, bucket := range []struct {
+		name  string
+		value *TokenBucket
+	}{
+		{name: "workspace_input", value: limits.WorkspaceInput},
+		{name: "workspace_output", value: limits.WorkspaceOutput},
+		{name: "user_input", value: limits.UserInput},
+		{name: "user_output", value: limits.UserOutput},
+	} {
+		if bucket.value != nil && (bucket.value.MinimumBalance > 0 || bucket.value.MaximumBalance <= 0 || bucket.value.RefillPerMinute <= 0) {
+			return fmt.Errorf("%s minimum_balance must not be positive and maximum_balance and refill_per_minute must be positive", bucket.name)
+		}
+	}
+	return nil
 }
 
 var workspaceAgentAlias = regexp.MustCompile(`^[a-z0-9_-]+(/[a-z0-9_-]+)*$`)
@@ -298,8 +338,12 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if enabled && isDefault {
 				defaults++
 			}
+			rateLimits, err := resolveWorkspaceAgentRateLimits(configured.RateLimits)
+			if err != nil {
+				return fmt.Errorf("workspaces[%d].agents[%d].rate_limits: %w", workspaceIndex, agentIndex, err), nil
+			}
 			seen[configured.Alias] = struct{}{}
-			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Prelude: configured.Prelude, Default: isDefault, Enabled: enabled})
+			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Prelude: configured.Prelude, RateLimits: rateLimits, Default: isDefault, Enabled: enabled})
 		}
 		if defaults > 1 {
 			return fmt.Errorf("workspaces[%d].agents configures multiple defaults", workspaceIndex), nil
@@ -312,4 +356,25 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 		return agents[left].WorkspaceID < agents[right].WorkspaceID
 	})
 	return nil, agents
+}
+
+func resolveWorkspaceAgentRateLimits(value any) (*WorkspaceAgentRateLimits, error) {
+	if value == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode rate limits: %w", err)
+	}
+	limits := WorkspaceAgentRateLimits{}
+	if err := json.Unmarshal(encoded, &limits); err != nil {
+		return nil, fmt.Errorf("decode rate limits: %w", err)
+	}
+	if limits.Empty() {
+		return nil, nil
+	}
+	if err := ValidateWorkspaceAgentRateLimits(&limits); err != nil {
+		return nil, err
+	}
+	return &limits, nil
 }

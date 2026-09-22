@@ -3,6 +3,7 @@ package migrations
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 
 	"gatehouse/config"
@@ -34,6 +35,7 @@ type postgresMigrationR011StoredWorkspaceAgent struct {
 type postgresMigrationR011WorkspaceAgentValue struct {
 	ID string
 	config.WorkspaceAgent
+	RateLimits *string
 }
 
 func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.WorkspaceAgent) MigrationBuilder {
@@ -80,7 +82,16 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 					return fmt.Errorf("create workspace agent binding ID: %w", err), ""
 				}
 			}
-			desired = append(desired, postgresMigrationR011WorkspaceAgentValue{ID: bindingID, WorkspaceAgent: agent})
+			value := postgresMigrationR011WorkspaceAgentValue{ID: bindingID, WorkspaceAgent: agent}
+			if agent.RateLimits != nil {
+				encoded, err := json.Marshal(agent.RateLimits)
+				if err != nil {
+					return fmt.Errorf("encode workspace agent rate limits %q: %w", agent.Alias, err), ""
+				}
+				text := string(encoded)
+				value.RateLimits = &text
+			}
+			desired = append(desired, value)
 			event, err := newActivityMigrationEvent(agent.WorkspaceID, eventName, "workspace_agent", "", "", bindingID, workspaceID)
 			if err != nil {
 				return err, ""
@@ -93,9 +104,9 @@ func postgresMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Worksp
 			{{ range .Agents }}
 			UPDATE gatehouse_workspace_agents SET "default" = FALSE
 			WHERE "default" = TRUE AND workspace_id = (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}) AND {{ sqlBool .Default }};
-			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled)
-				VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Alias }}, (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlBool .Default }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET model_id = excluded.model_id, revision = excluded.revision, label = excluded.label, system_prompt = excluded.system_prompt, prelude = excluded.prelude, "default" = excluded."default", enabled = excluded.enabled
+			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled)
+				VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Alias }}, (SELECT id FROM gatehouse_agent_models WHERE alias = {{ sqlLiteral .ModelAlias }}), {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlOptionalString .RateLimits }}::jsonb, {{ sqlBool .Default }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (workspace_id, alias) DO UPDATE SET model_id = excluded.model_id, revision = excluded.revision, label = excluded.label, system_prompt = excluded.system_prompt, prelude = excluded.prelude, rate_limits = excluded.rate_limits, "default" = excluded."default", enabled = excluded.enabled
 			WHERE gatehouse_workspace_agents.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}

@@ -422,7 +422,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			if err != nil {
 				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
 			}
-			err, turn = runtime.agentProviderTurn(ctx, parent, selected)
+			err, turn = runtime.agentProviderTurn(ctx, parent, thinking, selected, principal)
 			if err == nil {
 				break
 			}
@@ -478,7 +478,7 @@ func (runtime *SessionEventReplyRuntime) currentWorkspaceAgentModel(ctx context.
 	return nil, selected
 }
 
-func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, agentProviderTurn) {
+func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn) {
 	switch selected.Protocol {
 	case "builtin":
 		err, text := BuiltinReply(selected.Model, selected.Parameters)
@@ -501,9 +501,18 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
-		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
+		request := openAICompatibleRequest{
 			Model: selected.Model, Messages: openAIRequestMessages(selected, messages), Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
-		})
+		}
+		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		completion, err := runtime.openAICompatibleComplete(ctx, selected, request)
+		inputTokens, outputTokens := agentUsageTokens(err, completion.Metrics)
+		if settleErr := runtime.agentRateLimitSettle(ctx, claim, inputTokens, outputTokens); settleErr != nil {
+			return settleErr, agentProviderTurn{}
+		}
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
@@ -536,9 +545,18 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
 		}
 		input := openAIResponsesInput(messages)
-		response, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
+		request := openAIResponsesRequest{
 			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
-		})
+		}
+		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
+		if err != nil {
+			return err, agentProviderTurn{}
+		}
+		response, err := runtime.openAIResponsesComplete(ctx, selected, request)
+		inputTokens, outputTokens := agentUsageTokens(err, response.Metrics)
+		if settleErr := runtime.agentRateLimitSettle(ctx, claim, inputTokens, outputTokens); settleErr != nil {
+			return settleErr, agentProviderTurn{}
+		}
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
@@ -1842,6 +1860,15 @@ func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent 
 	event.Ref = reference
 	event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 	return nil, event
+}
+
+func (runtime *SessionEventReplyRuntime) thinkingDelay(ctx dbos.Context, started model.SessionEvent, until time.Time) error {
+	event := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: "thinking.delay", AuthorAgent: started.AuthorAgent,
+		Payload: map[string]interface{}{"reason": "rate_limit", "until": until.UTC().Format(time.RFC3339Nano)},
+	}
+	err, _ := runtime.persistAgentEvent(ctx, event)
+	return err
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error) error {

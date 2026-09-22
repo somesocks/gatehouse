@@ -26,6 +26,7 @@ export function createWorkspaceAgentBindingsController({
 		label: "",
 		systemPrompt: "",
 		prelude: "",
+		rateLimits: "",
 		default: false,
     },
   })
@@ -33,6 +34,9 @@ export function createWorkspaceAgentBindingsController({
 
   const optional = (value: string): string | undefined =>
     value.trim() === "" ? undefined : value.trim()
+
+  const rateLimits = (value: string): unknown =>
+    value.trim() === "" ? undefined : JSON.parse(value)
 
   async function load(): Promise<void> {
     state.error = ""
@@ -95,6 +99,13 @@ export function createWorkspaceAgentBindingsController({
 
   async function create(): Promise<void> {
     const { form } = state
+    let limits: unknown
+    try {
+      limits = rateLimits(form.rateLimits)
+    } catch {
+      state.error = "Rate limits must be valid JSON."
+      return
+    }
     if (
       !(await save(
         `workspace-agents/${encodeURIComponent(form.workspace)}`,
@@ -105,6 +116,7 @@ export function createWorkspaceAgentBindingsController({
 			label: optional(form.label),
 			system_prompt: optional(form.systemPrompt),
 			prelude: optional(form.prelude),
+			rate_limits: limits,
 			default: form.default,
           enabled: true,
         },
@@ -118,6 +130,7 @@ export function createWorkspaceAgentBindingsController({
 		label: "",
 		systemPrompt: "",
 		prelude: "",
+		rateLimits: "",
 		default: false,
     }
   }
@@ -134,6 +147,7 @@ export function createWorkspaceAgentBindingsController({
 		label: binding.label,
 		system_prompt: binding.system_prompt,
 		prelude: binding.prelude,
+		rate_limits: binding.rate_limits,
 		default: enabled && binding.default,
         enabled,
         expected_revision: binding.revision,

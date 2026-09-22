@@ -42,6 +42,7 @@
     hasCancellationSuccess,
     renderedActivityEvents,
     replyCanBeCancelled,
+    thinkingRateLimitDelayUntil,
     thinkingStatus,
     toolStatus,
   } from "./chat-controller.svelte"
@@ -375,6 +376,18 @@
       tree.event.created_at,
       controller.state.activityTimestamp,
     )
+  }
+  function thinkingSummary(tree: ChatEventTree): string {
+    const status = thinkingStatus(tree)
+    if (status === "succeeded") return "Thought"
+    if (status === "failed") return "Thinking failed after"
+    const until = thinkingRateLimitDelayUntil(
+      tree,
+      controller.state.activityTimestamp,
+    )
+    return until === undefined
+      ? "Thinking"
+      : `Waiting for rate limit until ${new Date(until).toLocaleTimeString()}`
   }
   function activityAgentLabel(tree: ChatEventTree): string {
     const request = agentRequests(tree)[0]
@@ -738,11 +751,7 @@
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
-                                  />{/if}{thinkingStatus(event) === "working"
-                                  ? "Thinking"
-                                  : thinkingStatus(event) === "succeeded"
-                                    ? "Thought"
-                                    : "Thinking failed after"}{#if activityDuration(event, "thinking.completed", "thinking.failed") !== ""}<small>{activityDuration(
+                                  />{/if}{thinkingSummary(event)}{#if activityDuration(event, "thinking.completed", "thinking.failed") !== ""}<small>{activityDuration(
                                       event,
                                       "thinking.completed",
                                       "thinking.failed",

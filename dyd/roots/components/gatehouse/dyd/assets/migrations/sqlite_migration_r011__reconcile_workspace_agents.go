@@ -2,6 +2,8 @@ package migrations
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"gatehouse/config"
 )
 
@@ -15,6 +17,19 @@ func sqliteMigrationR011ReconcileWorkspaceAgents(agents []config.WorkspaceAgent)
 
 func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.WorkspaceAgent) MigrationBuilder {
 	return func(_ context.Context, session *MigrationSession) (error, string) {
+		values := make([]sqliteMigrationR011WorkspaceAgentValue, 0, len(agents))
+		for _, agent := range agents {
+			value := sqliteMigrationR011WorkspaceAgentValue{WorkspaceAgent: agent}
+			if agent.RateLimits != nil {
+				encoded, err := json.Marshal(agent.RateLimits)
+				if err != nil {
+					return fmt.Errorf("encode workspace agent rate limits %q: %w", agent.Alias, err), ""
+				}
+				text := string(encoded)
+				value.RateLimits = &text
+			}
+			values = append(values, value)
+		}
 		return session.RenderTemplate(`
 			DROP TABLE IF EXISTS gatehouse_migration_workspace_agents_desired;
 			DROP TABLE IF EXISTS gatehouse_migration_workspace_agents_state;
@@ -28,13 +43,14 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				label TEXT,
 				system_prompt TEXT,
 				prelude TEXT,
+				rate_limits TEXT,
 				"default" INTEGER NOT NULL,
 				enabled INTEGER NOT NULL,
 				PRIMARY KEY (workspace_alias, alias)
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, alias, model_alias, revision, label, system_prompt, prelude, "default", enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlBool .Default }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_workspace_agents_desired (workspace_alias, alias, model_alias, revision, label, system_prompt, prelude, rate_limits, "default", enabled)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .ModelAlias }}, {{ sqlLiteral .Revision }}, {{ sqlOptionalString .Label }}, {{ sqlOptionalString .SystemPrompt }}, {{ sqlOptionalString .Prelude }}, {{ sqlOptionalString .RateLimits }}, {{ sqlBool .Default }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_workspace_agents_state AS
@@ -54,6 +70,8 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				agents.system_prompt AS existing_system_prompt,
 				desired.prelude,
 				agents.prelude AS existing_prelude,
+				desired.rate_limits,
+				agents.rate_limits AS existing_rate_limits,
 				desired."default",
 				agents."default" AS existing_default,
 				desired.enabled,
@@ -80,8 +98,8 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 
 			UPDATE gatehouse_workspace_agents SET "default" = FALSE
 			WHERE "default" = TRUE AND workspace_id IN (SELECT workspace_id FROM gatehouse_migration_workspace_agents_state WHERE "default" = TRUE AND (existing_id IS NULL OR existing_revision < revision));
-			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled)
-			SELECT binding_id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled
+			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled)
+			SELECT binding_id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled
 			FROM gatehouse_migration_workspace_agents_state
 			WHERE TRUE
 			ON CONFLICT (workspace_id, alias) DO UPDATE SET
@@ -90,6 +108,7 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 				label = excluded.label,
 				system_prompt = excluded.system_prompt,
 				prelude = excluded.prelude,
+				rate_limits = excluded.rate_limits,
 				"default" = excluded."default",
 				enabled = excluded.enabled
 			WHERE gatehouse_workspace_agents.revision < excluded.revision;
@@ -106,6 +125,11 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 			DROP TABLE gatehouse_migration_workspace_agent_activities;
 			DROP TABLE gatehouse_migration_workspace_agents_state;
 			DROP TABLE gatehouse_migration_workspace_agents_desired;
-		`, agents)
+		`, values)
 	}
+}
+
+type sqliteMigrationR011WorkspaceAgentValue struct {
+	config.WorkspaceAgent
+	RateLimits *string
 }

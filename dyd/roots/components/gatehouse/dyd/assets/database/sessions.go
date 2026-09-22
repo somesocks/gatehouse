@@ -1563,6 +1563,7 @@ func (store *Store) SessionNameUpdate(ctx context.Context, session model.Session
 
 type WorkspaceAgentModel struct {
 	Ref             model.WorkspaceAgentRef
+	Revision        int
 	AgentModel      model.AgentModelRef
 	ProviderID      string
 	ProviderAlias   *string
@@ -1577,6 +1578,7 @@ type WorkspaceAgentModel struct {
 	MaxOutputTokens int
 	SystemPrompt    *string
 	Prelude         *string
+	RateLimits      *config.WorkspaceAgentRateLimits
 }
 
 type WorkspaceAgent struct {
@@ -1628,7 +1630,7 @@ func (store *Store) WorkspaceAgentModelGet(ctx context.Context, workspace model.
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT bindings.id, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude
+		SELECT bindings.id, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude, bindings.rate_limits
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1644,9 +1646,9 @@ func (store *Store) WorkspaceAgentModelGet(ctx context.Context, workspace model.
 func scanWorkspaceAgentModel(row *sql.Row, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude sql.NullString
+	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude, rateLimits sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Id, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude); err != nil {
+	if err := row.Scan(&selected.Ref.Id, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude, &rateLimits); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -1668,6 +1670,13 @@ func scanWorkspaceAgentModel(row *sql.Row, workspace model.WorkspaceRef) (error,
 	}
 	if prelude.Valid {
 		selected.Prelude = &prelude.String
+	}
+	if rateLimits.Valid {
+		limits := config.WorkspaceAgentRateLimits{}
+		if err := json.Unmarshal([]byte(rateLimits.String), &limits); err != nil {
+			return fmt.Errorf("select workspace agent model: decode rate limits: %w", err), nil
+		}
+		selected.RateLimits = &limits
 	}
 	return nil, &selected
 }

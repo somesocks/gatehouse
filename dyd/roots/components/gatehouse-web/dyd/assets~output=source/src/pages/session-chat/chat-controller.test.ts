@@ -5,14 +5,19 @@ import {
   deliveredAgentIDs,
   finalReplies,
   replyCanBeCancelled,
+  thinkingRateLimitDelayUntil,
 } from "./chat-controller.svelte"
 
-function tree(kind: string, children: ChatEventTree[] = []): ChatEventTree {
+function tree(
+  kind: string,
+  children: ChatEventTree[] = [],
+  payload: ChatEventTree["event"]["payload"] = {},
+): ChatEventTree {
   return {
     event: {
       created_at: "2026-01-01T00:00:00.000Z",
       kind,
-      payload: kind === "agent.reply" ? { text: "Reply" } : {},
+      payload: kind === "agent.reply" ? { text: "Reply", ...payload } : payload,
       ref: { id: kind },
       ...(kind === "agent.reply"
         ? { author_agent: { id: "wag_test", workspace: { id: "wsp_test" } } }
@@ -51,6 +56,42 @@ describe("chat request activity", () => {
 
     expect(finalReplies(agentRequests(message)[0])).toEqual([firstReply])
     expect(finalReplies(agentRequests(message)[1])).toEqual([secondReply])
+  })
+})
+
+describe("thinking rate-limit delay", () => {
+  it("returns a future rate-limit delay deadline", () => {
+    const until = "2026-01-01T00:00:30.000Z"
+    const thinking = tree("thinking.started", [
+      tree("thinking.delay", [], { reason: "rate_limit", until }),
+    ])
+
+    expect(
+      thinkingRateLimitDelayUntil(
+        thinking,
+        Date.parse("2026-01-01T00:00:00.000Z"),
+      ),
+    ).toBe(until)
+  })
+
+  it("ignores elapsed and malformed delay deadlines", () => {
+    const thinking = tree("thinking.started", [
+      tree("thinking.delay", [], {
+        reason: "rate_limit",
+        until: "not-a-timestamp",
+      }),
+      tree("thinking.delay", [], {
+        reason: "rate_limit",
+        until: "2026-01-01T00:00:00.000Z",
+      }),
+    ])
+
+    expect(
+      thinkingRateLimitDelayUntil(
+        thinking,
+        Date.parse("2026-01-01T00:00:01.000Z"),
+      ),
+    ).toBeUndefined()
   })
 })
 

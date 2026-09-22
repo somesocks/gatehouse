@@ -30,6 +30,7 @@ func TestSessionEventTranscriptProject(t *testing.T) {
 		{Event: model.SessionEvent{Kind: "agent.reply", Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "reasoning": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect source.", "code": "(read-all)"}}},
 		{Event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": "Allow access?", "scope": "hidden"}}},
+		{Event: model.SessionEvent{Kind: "thinking.delay", Payload: map[string]interface{}{"reason": "rate_limit", "until": "2026-09-21T12:50:00.000Z", "hidden": "value"}}},
 		{Event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "hidden"}}},
 	}
 
@@ -41,6 +42,7 @@ func TestSessionEventTranscriptProject(t *testing.T) {
 		{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}},
 		{"name": "lisp", "reason": "Inspect source."},
 		{"description": "Allow access?"},
+		{"reason": "rate_limit", "until": "2026-09-21T12:50:00.000Z"},
 		{},
 	} {
 		if got := entries[index].Event.Payload; !reflect.DeepEqual(got, want) {

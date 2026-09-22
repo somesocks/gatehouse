@@ -62,6 +62,10 @@
 			<dt>Lisp prelude</dt>
 			<dd>{controller.state.binding.prelude ?? "Standard prelude"}</dd>
 		</div>
+		<div class="field">
+			<dt>Token rate limits</dt>
+			<dd>{controller.state.binding.rate_limits === undefined ? "Not configured" : JSON.stringify(controller.state.binding.rate_limits)}</dd>
+		</div>
         <div class="field">
           <dt>Status</dt>
           <dd>{controller.state.binding.enabled ? "Enabled" : "Disabled"}</dd>
@@ -139,6 +143,17 @@
               rows="4"
               bind:value={controller.state.form.prelude}></textarea>
           </div>
+        </div>
+        <div class="field">
+          <label for="agent-binding-rate-limits">Token rate limits</label>
+          <div>
+            <textarea
+              id="agent-binding-rate-limits"
+              rows="10"
+              placeholder={'{"workspace_input":{"minimum_balance":-60000,"maximum_balance":120000,"refill_per_minute":60000}}'}
+              bind:value={controller.state.form.rateLimits}></textarea>
+          </div>
+          <p class="field-help">Optional JSON with workspace/user input/output buckets.</p>
         </div>
 		<div class="field">
 			<label class="choice"

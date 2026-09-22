@@ -3465,6 +3465,8 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 			keys = []string{"name", "reason"}
 		case "approval.request":
 			keys = []string{"description"}
+		case "thinking.delay":
+			keys = []string{"reason", "until"}
 		}
 		for _, key := range keys {
 			if value, exists := event.Payload[key]; exists {

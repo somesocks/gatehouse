@@ -58,6 +58,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationV047DropWorkspaceAgentMaxInputTokens(),
 			postgresMigrationV048AddProjectRecordFileReferences(),
 			postgresMigrationV049WorkspaceAgentDefaults(),
+			postgresMigrationV050AddAgentRateLimits(),
 		},
 		Repeatable: []RepeatableMigration{
 			postgresMigrationR001PrepareKeychains(keyring),

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"gatehouse/config"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -46,16 +47,16 @@ type SystemAgentProviderInput struct {
 }
 
 type SystemAgentModel struct {
-	ID              string `json:"id"`
-	Alias           string `json:"alias"`
-	Revision        int    `json:"revision"`
-	ProviderID      string `json:"provider"`
-	Model           string `json:"model"`
-	Parameters      string `json:"parameters"`
-	Compaction      string `json:"compaction"`
-	MaxTurns        int    `json:"max_turns"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
-	Enabled         bool   `json:"enabled"`
+	ID              string  `json:"id"`
+	Alias           string  `json:"alias"`
+	Revision        int     `json:"revision"`
+	ProviderID      string  `json:"provider"`
+	Model           string  `json:"model"`
+	Parameters      string  `json:"parameters"`
+	Compaction      string  `json:"compaction"`
+	MaxTurns        int     `json:"max_turns"`
+	MaxOutputTokens int     `json:"max_output_tokens"`
+	Enabled         bool    `json:"enabled"`
 }
 
 type SystemAgentModelInput struct {
@@ -70,16 +71,17 @@ type SystemAgentModelInput struct {
 }
 
 type SystemWorkspaceAgent struct {
-	ID           string  `json:"id"`
-	WorkspaceID  string  `json:"workspace"`
-	Alias        string  `json:"alias"`
-	ModelID      string  `json:"model"`
-	Revision     int     `json:"revision"`
-	Label        *string `json:"label,omitempty"`
-	SystemPrompt *string `json:"system_prompt,omitempty"`
-	Prelude      *string `json:"prelude,omitempty"`
-	Default      bool    `json:"default"`
-	Enabled      bool    `json:"enabled"`
+	ID           string                           `json:"id"`
+	WorkspaceID  string                           `json:"workspace"`
+	Alias        string                           `json:"alias"`
+	ModelID      string                           `json:"model"`
+	Revision     int                              `json:"revision"`
+	Label        *string                          `json:"label,omitempty"`
+	SystemPrompt *string                          `json:"system_prompt,omitempty"`
+	Prelude      *string                          `json:"prelude,omitempty"`
+	RateLimits   *config.WorkspaceAgentRateLimits `json:"rate_limits,omitempty"`
+	Default      bool                             `json:"default"`
+	Enabled      bool                             `json:"enabled"`
 }
 
 type SystemWorkspaceAgentInput struct {
@@ -88,6 +90,7 @@ type SystemWorkspaceAgentInput struct {
 	Label        *string
 	SystemPrompt *string
 	Prelude      *string
+	RateLimits   *config.WorkspaceAgentRateLimits
 	Default      bool
 	Enabled      bool
 }
@@ -367,7 +370,7 @@ func (store *Store) SystemAgentModelUpdate(ctx context.Context, id string, expec
 }
 
 func (store *Store) SystemWorkspaceAgentsGet(ctx context.Context) (error, []SystemWorkspaceAgent) {
-	rows, err := store.QueryContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled FROM gatehouse_workspace_agents ORDER BY workspace_id, id`)
+	rows, err := store.QueryContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled FROM gatehouse_workspace_agents ORDER BY workspace_id, id`)
 	if err != nil {
 		return fmt.Errorf("list system workspace agents: %w", err), nil
 	}
@@ -390,7 +393,7 @@ func (store *Store) SystemWorkspaceAgentGet(ctx context.Context, workspaceID, bi
 	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) {
 		return nil, nil
 	}
-	binding, err := scanSystemWorkspaceAgent(store.QueryRowContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled FROM gatehouse_workspace_agents WHERE workspace_id = `+keychainPlaceholder(store.kind)(1)+` AND id = `+keychainPlaceholder(store.kind)(2), workspaceID, bindingID))
+	binding, err := scanSystemWorkspaceAgent(store.QueryRowContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled FROM gatehouse_workspace_agents WHERE workspace_id = `+keychainPlaceholder(store.kind)(1)+` AND id = `+keychainPlaceholder(store.kind)(2), workspaceID, bindingID))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -403,6 +406,10 @@ func (store *Store) SystemWorkspaceAgentGet(ctx context.Context, workspaceID, bi
 func (store *Store) SystemWorkspaceAgentCreate(ctx context.Context, workspaceID string, input SystemWorkspaceAgentInput) (error, *SystemWorkspaceAgent) {
 	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.AgentModel, input.ModelID) || !workspaceAgentAlias.MatchString(input.Alias) {
 		return nil, nil
+	}
+	rateLimits, err := workspaceAgentRateLimitsValue(input.RateLimits)
+	if err != nil {
+		return err, nil
 	}
 	id, err := typed_id.New(typed_id.WorkspaceAgent)
 	if err != nil {
@@ -423,7 +430,7 @@ func (store *Store) SystemWorkspaceAgentCreate(ctx context.Context, workspaceID 
 			return fmt.Errorf("clear system workspace agent default: %w", err), nil
 		}
 	}
-	result, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, "default", enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, 1, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`) ON CONFLICT (workspace_id, alias) DO NOTHING`, id, workspaceID, input.Alias, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), isDefault, input.Enabled)
+	result, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, 1, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`) ON CONFLICT (workspace_id, alias) DO NOTHING`, id, workspaceID, input.Alias, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), rateLimits, isDefault, input.Enabled)
 	if err != nil {
 		return fmt.Errorf("insert system workspace agent: %w", err), nil
 	}
@@ -449,6 +456,10 @@ func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID,
 	}
 	if input.Alias != "" {
 		return fmt.Errorf("update system workspace agent: alias is immutable"), nil
+	}
+	rateLimits, err := workspaceAgentRateLimitsValue(input.RateLimits)
+	if err != nil {
+		return err, nil
 	}
 	transaction, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -476,7 +487,7 @@ func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID,
 			return fmt.Errorf("clear system workspace agent default: %w", err), nil
 		}
 	}
-	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET revision = `+placeholder(1)+`, model_id = `+placeholder(2)+`, label = `+placeholder(3)+`, system_prompt = `+placeholder(4)+`, prelude = `+placeholder(5)+`, "default" = `+placeholder(6)+`, enabled = `+placeholder(7)+` WHERE workspace_id = `+placeholder(8)+` AND id = `+placeholder(9)+` AND revision = `+placeholder(10), revision+1, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), isDefault, input.Enabled, workspaceID, bindingID, revision)
+	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET revision = `+placeholder(1)+`, model_id = `+placeholder(2)+`, label = `+placeholder(3)+`, system_prompt = `+placeholder(4)+`, prelude = `+placeholder(5)+`, rate_limits = `+placeholder(6)+`, "default" = `+placeholder(7)+`, enabled = `+placeholder(8)+` WHERE workspace_id = `+placeholder(9)+` AND id = `+placeholder(10)+` AND revision = `+placeholder(11), revision+1, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), rateLimits, isDefault, input.Enabled, workspaceID, bindingID, revision)
 	if err != nil {
 		return fmt.Errorf("update system workspace agent: %w", err), nil
 	}
@@ -522,8 +533,8 @@ func scanSystemAgentModel(row interface{ Scan(...any) error }) (SystemAgentModel
 
 func scanSystemWorkspaceAgent(row interface{ Scan(...any) error }) (SystemWorkspaceAgent, error) {
 	var value SystemWorkspaceAgent
-	var label, prompt, prelude sql.NullString
-	if err := row.Scan(&value.ID, &value.WorkspaceID, &value.Alias, &value.ModelID, &value.Revision, &label, &prompt, &prelude, &value.Default, &value.Enabled); err != nil {
+	var label, prompt, prelude, rateLimits sql.NullString
+	if err := row.Scan(&value.ID, &value.WorkspaceID, &value.Alias, &value.ModelID, &value.Revision, &label, &prompt, &prelude, &rateLimits, &value.Default, &value.Enabled); err != nil {
 		return SystemWorkspaceAgent{}, err
 	}
 	if label.Valid {
@@ -534,6 +545,13 @@ func scanSystemWorkspaceAgent(row interface{ Scan(...any) error }) (SystemWorksp
 	}
 	if prelude.Valid {
 		value.Prelude = &prelude.String
+	}
+	if rateLimits.Valid {
+		limits := config.WorkspaceAgentRateLimits{}
+		if err := json.Unmarshal([]byte(rateLimits.String), &limits); err != nil {
+			return SystemWorkspaceAgent{}, fmt.Errorf("decode workspace agent rate limits: %w", err)
+		}
+		value.RateLimits = &limits
 	}
 	return value, nil
 }
@@ -584,6 +602,20 @@ func validateSystemAgentModelInput(input SystemAgentModelInput) error {
 		return fmt.Errorf("system agent model compaction is invalid")
 	}
 	return nil
+}
+
+func workspaceAgentRateLimitsValue(limits *config.WorkspaceAgentRateLimits) (any, error) {
+	if limits == nil || limits.Empty() {
+		return nil, nil
+	}
+	if err := config.ValidateWorkspaceAgentRateLimits(limits); err != nil {
+		return nil, fmt.Errorf("system workspace agent rate limits are invalid: %w", err)
+	}
+	encoded, err := json.Marshal(limits)
+	if err != nil {
+		return nil, fmt.Errorf("encode system workspace agent rate limits: %w", err)
+	}
+	return string(encoded), nil
 }
 
 func validateSystemAgentModelProtocol(input SystemAgentModelInput, protocol string) error {

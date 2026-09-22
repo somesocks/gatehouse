@@ -6,6 +6,9 @@ import {
 const optional = (value: string) =>
   value.trim() === "" ? undefined : value.trim()
 
+const rateLimits = (value: string) =>
+  value.trim() === "" ? undefined : (JSON.parse(value) as unknown)
+
 export function createWorkspaceAgentBindingController({
   onAuthenticationLost,
   onSystemAccessChange,
@@ -22,6 +25,7 @@ export function createWorkspaceAgentBindingController({
 		label: "",
 		systemPrompt: "",
 		prelude: "",
+		rateLimits: "",
 		default: false,
 		enabled: true,
     },
@@ -61,6 +65,7 @@ export function createWorkspaceAgentBindingController({
 		label: state.binding.label ?? "",
 		systemPrompt: state.binding.system_prompt ?? "",
 		prelude: state.binding.prelude ?? "",
+		rateLimits: state.binding.rate_limits === undefined ? "" : JSON.stringify(state.binding.rate_limits, null, 2),
 		default: state.binding.default,
       enabled: state.binding.enabled,
     }
@@ -80,6 +85,7 @@ export function createWorkspaceAgentBindingController({
 			label: optional(form.label),
 			system_prompt: optional(form.systemPrompt),
 			prelude: optional(form.prelude),
+			rate_limits: rateLimits(form.rateLimits),
 			default: form.default,
           enabled: form.enabled,
           expected_revision: state.binding.revision,
