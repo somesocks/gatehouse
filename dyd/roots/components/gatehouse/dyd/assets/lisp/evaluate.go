@@ -121,6 +121,7 @@ func Evaluate(source string, options EvalOptions) (error, Expr) {
 }
 
 func String(value string) Expr { return stringValue(value) }
+func Symbol(value string) Expr { return symbol(value) }
 func Bytes(value []byte) Expr  { return bytesValue(string(value)) }
 func Boolean(value bool) Expr  { return boolean(value) }
 func Integer(value int64) Expr { return integer(value) }
@@ -196,6 +197,7 @@ func Document(expression Expr, signature, description, example, result string) E
 	return withHelp(expression, doc(signature, description, example, result).text())
 }
 func RequireString(expression Expr) (error, string) { return requireString(expression) }
+func RequireList(expression Expr) (error, []Expr)   { return expressions(expression) }
 func RequireSymbol(expression Expr) (error, string) {
 	base, _ := unwrap(expression)
 	symbol, ok := base.(*symbolExpr)
