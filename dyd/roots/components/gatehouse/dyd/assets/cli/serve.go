@@ -103,20 +103,9 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "migrate database: %v\n", err)
 			return 1
 		}
-		dbosConfig := dbos.Config{AppName: "gatehouse"}
-		if databaseConfig.Kind == config.DatabaseKindPostgres {
-			dbosConfig.DatabaseURL = store.DatabaseURL()
-		} else {
-			dbosConfig.SQLiteSystemDB = store.DB
-		}
-		dbosContext, err := dbos.NewContext(ctx, dbosConfig)
+		dbosContext, err := newServeDBOSContext(ctx, databaseConfig, store)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start DBOS: %v\n", err)
-			return 1
-		}
-		err, replies := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "prepare agent replies: %v\n", err)
 			return 1
 		}
 		defer func() {
@@ -124,6 +113,11 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 				fmt.Fprintf(os.Stderr, "stop DBOS: %v\n", err)
 			}
 		}()
+		err, replies := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare agent replies: %v\n", err)
+			return 1
+		}
 		if err := dbos.Launch(dbosContext); err != nil {
 			fmt.Fprintf(os.Stderr, "launch DBOS: %v\n", err)
 			return 1
@@ -187,3 +181,22 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		}
 		return 0
 	})
+
+// Keep this recovery cohort stable across compatible builds. Version individual
+// workflow registrations when their durable steps become incompatible; change
+// this only for a deliberate runtime-wide transition. DBOS otherwise uses a
+// binary hash that changes on every rebuild.
+const serveDBOSApplicationVersion = "gatehouse-workflows-v1"
+
+func newServeDBOSContext(ctx context.Context, databaseConfig config.DatabaseConfig, store *database.Store) (dbos.Context, error) {
+	dbosConfig := dbos.Config{AppName: "gatehouse", ApplicationVersion: serveDBOSApplicationVersion}
+	if databaseConfig.Kind == config.DatabaseKindPostgres {
+		dbosConfig.DatabaseURL = store.DatabaseURL()
+	} else {
+		dbosConfig.SQLiteSystemDB = store.DB
+	}
+	// The signal context stops HTTP and reconciliation. Cancelling the DBOS
+	// parent directly would durably cancel waiting workflows before Shutdown
+	// can interrupt them without changing their PENDING status.
+	return dbos.NewContext(context.WithoutCancel(ctx), dbosConfig)
+}
