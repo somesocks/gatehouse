@@ -529,6 +529,10 @@ let HTTPService =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
                      s.text.meta::{ description = Some "TCP listener address" }
+               , public_base_url =
+                   s.text.from
+                     s.text.props::{ variant = s.text.variants.none }
+                     s.text.meta::{ description = Some "public Gatehouse origin for input launch links; required when the listener has no fixed loopback origin" }
                , keychain =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }

@@ -148,6 +148,76 @@ func (form Form) ValidateResult(source json.RawMessage) error {
 	return validateObject(form.Fields, source)
 }
 
+// FieldAtPath resolves a named field through objects. Lists must be replaced
+// as a whole rather than patched by array index.
+func (form Form) FieldAtPath(path []string) (Field, bool) {
+	if len(path) == 0 {
+		return Field{}, false
+	}
+	fields := form.Fields
+	for index, segment := range path {
+		found := false
+		for _, field := range fields {
+			if field.ID != segment {
+				continue
+			}
+			if index == len(path)-1 {
+				return field, true
+			}
+			if field.Type != "object" {
+				return Field{}, false
+			}
+			fields = field.Fields
+			found = true
+			break
+		}
+		if !found {
+			return Field{}, false
+		}
+	}
+	return Field{}, false
+}
+
+// ValidateDraftValue checks every supplied value without requiring fields
+// omitted from an unfinished object or list entry. ValidateResult performs
+// the complete required-field check on Submit.
+func ValidateDraftValue(field Field, source json.RawMessage) error {
+	switch field.Type {
+	case "object":
+		var object map[string]json.RawMessage
+		if err := json.Unmarshal(source, &object); err != nil || object == nil {
+			return fmt.Errorf("requires a JSON object")
+		}
+		allowed := make(map[string]Field, len(field.Fields))
+		for _, child := range field.Fields {
+			allowed[child.ID] = child
+		}
+		for key, value := range object {
+			child, ok := allowed[key]
+			if !ok {
+				return fmt.Errorf("input form field %q is unknown", key)
+			}
+			if err := ValidateDraftValue(child, value); err != nil {
+				return fmt.Errorf("input form field %q: %w", key, err)
+			}
+		}
+		return nil
+	case "list":
+		var items []json.RawMessage
+		if err := json.Unmarshal(source, &items); err != nil || items == nil {
+			return fmt.Errorf("requires a JSON array")
+		}
+		for _, item := range items {
+			if err := ValidateDraftValue(*field.Item, item); err != nil {
+				return fmt.Errorf("invalid list item: %w", err)
+			}
+		}
+		return nil
+	default:
+		return validateValue(field, source)
+	}
+}
+
 func validateObject(fields []Field, source json.RawMessage) error {
 	var object map[string]json.RawMessage
 	if err := json.Unmarshal(source, &object); err != nil || object == nil {

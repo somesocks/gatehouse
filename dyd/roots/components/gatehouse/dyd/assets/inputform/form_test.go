@@ -88,3 +88,37 @@ func TestFormValidatesNestedLists(t *testing.T) {
 		t.Fatalf("invalid nested list item error = %v", err)
 	}
 }
+
+func TestFormDraftValueAllowsIncompleteObjectsButRejectsInvalidValues(t *testing.T) {
+	minimum := int64(9007199254740993)
+	form := Form{Version: Version, Type: "form", Title: "Review", Fields: []Field{{
+		ID: "profile", Label: "Profile", Type: "object", Fields: []Field{
+			{ID: "name", Label: "Name", Type: "text"},
+			{ID: "entries", Label: "Entries", Type: "list", Item: &Field{Type: "object", Fields: []Field{
+				{ID: "count", Label: "Count", Type: "number", Min: &minimum},
+			}}},
+		},
+	}}}
+	for _, path := range [][]string{nil, {"missing"}, {"profile", "entries", "0"}, {"profile", "name", "child"}} {
+		if field, ok := form.FieldAtPath(path); ok {
+			t.Fatalf("FieldAtPath(%q) = %#v", path, field)
+		}
+	}
+	profile, ok := form.FieldAtPath([]string{"profile"})
+	if !ok {
+		t.Fatal("missing profile field")
+	}
+	for _, value := range []string{`{}`, `{"entries":[{}, {"count":9007199254740993}]}`} {
+		if err := ValidateDraftValue(profile, json.RawMessage(value)); err != nil {
+			t.Fatalf("ValidateDraftValue(%s): %v", value, err)
+		}
+	}
+	for _, value := range []string{`{"entries":[{"count":9007199254740992}]}`, `{"entries":[null]}`, `{"extra":true}`} {
+		if err := ValidateDraftValue(profile, json.RawMessage(value)); err == nil {
+			t.Fatalf("ValidateDraftValue(%s) accepted invalid value", value)
+		}
+	}
+	if err := form.ValidateResult(json.RawMessage(`{"profile":{"entries":[{}]}}`)); err == nil || !strings.Contains(err.Error(), `"name" is required`) {
+		t.Fatalf("ValidateResult(incomplete draft) = %v", err)
+	}
+}

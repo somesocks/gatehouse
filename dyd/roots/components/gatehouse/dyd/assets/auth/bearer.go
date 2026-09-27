@@ -133,32 +133,9 @@ func (tokens *BearerTokens) Authenticate(ctx context.Context, authorization stri
 	if !strings.HasPrefix(authorization, prefix) || strings.Contains(authorization[len(prefix):], " ") {
 		return fmt.Errorf("%w: invalid bearer authorization", ErrUnauthenticated), Claims{}
 	}
-	err, encrypted := keychain.ParseResource(strings.TrimPrefix(authorization, prefix))
-	if err != nil {
-		return fmt.Errorf("%w: parse bearer token: %v", ErrUnauthenticated, err), Claims{}
-	}
-	if encrypted.Key == nil || encrypted.Key.Id != tokens.keychainID {
-		return fmt.Errorf("%w: bearer token uses another keychain", ErrUnauthenticated), Claims{}
-	}
-	err, stored := tokens.store.KeychainsGet(ctx, []model.KeychainRef{*encrypted.Key})
+	err, payload := tokens.open(ctx, bearerAssociatedData, strings.TrimPrefix(authorization, prefix))
 	if err != nil {
 		return err, Claims{}
-	}
-	if len(stored) != 1 || !stored[0].Enabled {
-		return fmt.Errorf("%w: bearer token uses an unavailable keychain version", ErrUnauthenticated), Claims{}
-	}
-	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
-	if err != nil {
-		return err, Claims{}
-	}
-	key, ok := keys[*encrypted.Key]
-	if !ok {
-		return fmt.Errorf("get bearer keychain %q version %d: unavailable", encrypted.Key.Id, encrypted.Key.Version), Claims{}
-	}
-	defer clear(key)
-	err, payload := keychain.Open(key, bearerAssociatedData, encrypted)
-	if err != nil {
-		return fmt.Errorf("%w: open bearer token: %v", ErrUnauthenticated, err), Claims{}
 	}
 	var claims Claims
 	if err := json.Unmarshal(payload, &claims); err != nil {
@@ -175,6 +152,37 @@ func (tokens *BearerTokens) Authenticate(ctx context.Context, authorization stri
 		return fmt.Errorf("%w: bearer token identity is no longer active", ErrUnauthenticated), Claims{}
 	}
 	return nil, claims
+}
+
+func (tokens *BearerTokens) open(ctx context.Context, associatedData []byte, encoded string) (error, []byte) {
+	err, encrypted := keychain.ParseResource(encoded)
+	if err != nil {
+		return fmt.Errorf("%w: parse sealed token: %v", ErrUnauthenticated, err), nil
+	}
+	if encrypted.Key == nil || encrypted.Key.Id != tokens.keychainID {
+		return fmt.Errorf("%w: sealed token uses another keychain", ErrUnauthenticated), nil
+	}
+	err, stored := tokens.store.KeychainsGet(ctx, []model.KeychainRef{*encrypted.Key})
+	if err != nil {
+		return err, nil
+	}
+	if len(stored) != 1 || !stored[0].Enabled {
+		return fmt.Errorf("%w: sealed token uses an unavailable keychain version", ErrUnauthenticated), nil
+	}
+	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
+	if err != nil {
+		return err, nil
+	}
+	key, ok := keys[*encrypted.Key]
+	if !ok {
+		return fmt.Errorf("get bearer keychain %q version %d: unavailable", encrypted.Key.Id, encrypted.Key.Version), nil
+	}
+	defer clear(key)
+	err, payload := keychain.Open(key, associatedData, encrypted)
+	if err != nil {
+		return fmt.Errorf("%w: open sealed token: %v", ErrUnauthenticated, err), nil
+	}
+	return nil, payload
 }
 
 func (tokens *BearerTokens) MintStorageToken(ctx context.Context, token StorageToken) (error, string) {

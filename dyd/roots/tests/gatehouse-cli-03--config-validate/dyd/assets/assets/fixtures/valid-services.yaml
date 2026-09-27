@@ -2,5 +2,6 @@ api_version: v1
 services:
   http:
     listen: localhost:7183
+    public_base_url: https://gatehouse.example.test
     web:
       enabled: false

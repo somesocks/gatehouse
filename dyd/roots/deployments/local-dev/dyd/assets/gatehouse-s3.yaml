@@ -109,6 +109,7 @@ workspaces:
 services:
   http:
     listen: 0.0.0.0:4283
+    public_base_url: http://localhost:4283
     web:
       enabled: true
     api:

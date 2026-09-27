@@ -184,6 +184,11 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events/search", workspaceSessionEventSearch(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/inputs/{input}/open", workspaceSessionInputOpen(store, tokens[0], configuration.PublicBaseURL))
+		mux.HandleFunc("/api/v1/input", sessionInputRead(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/draft", sessionInputPatch(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/submit", sessionInputTerminal(store, tokens[0], dispatcher, "input.success"))
+		mux.HandleFunc("/api/v1/input/cancel", sessionInputTerminal(store, tokens[0], dispatcher, "input.failure"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
@@ -3444,6 +3449,9 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		}
 		for index := range entries {
 			entries[index].Event = hydrated[index]
+			if view != "transcript" {
+				sessionInputEventProject(&entries[index].Event)
+			}
 		}
 		writeJSON(response, sessionEventTrees(entries))
 	}
@@ -3452,6 +3460,9 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 	for index := range entries {
 		event := &entries[index].Event
+		if sessionInputEventProject(event) {
+			continue
+		}
 		payload := map[string]interface{}{}
 		var keys []string
 		switch event.Kind {
@@ -3475,6 +3486,30 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		}
 		event.Payload = payload
 	}
+}
+
+// Input form schemas and completed results remain private even when callers
+// request the otherwise unprojected session-event tree. The scoped input API
+// is the only HTTP entry point for form content while the request is pending.
+func sessionInputEventProject(event *model.SessionEvent) bool {
+	var allowed string
+	switch event.Kind {
+	case "input.request":
+		allowed = "description"
+	case "input.failure":
+		allowed = "code"
+	case "input.success":
+	default:
+		return false
+	}
+	payload := map[string]interface{}{}
+	if allowed != "" {
+		if value, exists := event.Payload[allowed]; exists {
+			payload[allowed] = value
+		}
+	}
+	event.Payload = payload
+	return true
 }
 
 func workspaceSessionEventSearch(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {

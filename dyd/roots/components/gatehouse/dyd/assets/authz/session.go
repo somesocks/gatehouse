@@ -20,6 +20,7 @@ const (
 	SessionSecretEdit      SessionAction = "session.secret.edit"
 	SessionSecretRemove    SessionAction = "session.secret.remove"
 	SessionApprovalRespond SessionAction = "session.approval.respond"
+	SessionInputRespond    SessionAction = "session.input.respond"
 	SessionProjectSet      SessionAction = "session.project.set"
 	SessionGrantManage     SessionAction = "session.grant.manage"
 )
@@ -39,7 +40,7 @@ func SessionAllows(roles []Role, action SessionAction) bool {
 				SessionTaskCreate, SessionTaskEdit, SessionTaskRemove,
 				SessionFileCreate, SessionFileFinish, SessionFileUpdate, SessionFileRemove,
 				SessionSecretCreate, SessionSecretEdit, SessionSecretRemove,
-				SessionApprovalRespond:
+				SessionApprovalRespond, SessionInputRespond:
 				return true
 			}
 		}
@@ -54,7 +55,7 @@ func validSessionAction(action SessionAction) bool {
 		SessionTaskCreate, SessionTaskEdit, SessionTaskRemove,
 		SessionFileCreate, SessionFileFinish, SessionFileUpdate, SessionFileRemove,
 		SessionSecretCreate, SessionSecretEdit, SessionSecretRemove,
-		SessionApprovalRespond, SessionProjectSet, SessionGrantManage:
+		SessionApprovalRespond, SessionInputRespond, SessionProjectSet, SessionGrantManage:
 		return true
 	default:
 		return false

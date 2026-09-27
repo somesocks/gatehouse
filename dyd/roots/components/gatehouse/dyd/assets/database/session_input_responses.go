@@ -14,6 +14,7 @@ import (
 )
 
 var ErrSessionInputResolved = errors.New("session input is already resolved")
+var ErrSessionInputInvalidDraft = errors.New("invalid session input draft")
 
 type SessionInputResponseTask struct {
 	Input    model.SessionEventRef
@@ -88,7 +89,7 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 			return fmt.Errorf("validate session input form: %w", err), model.SessionEvent{}
 		}
 		if err := form.ValidateResult(json.RawMessage(draft)); err != nil {
-			return fmt.Errorf("validate session input draft: %w", err), model.SessionEvent{}
+			return fmt.Errorf("%w: %w", ErrSessionInputInvalidDraft, err), model.SessionEvent{}
 		}
 		event.Payload = map[string]interface{}{"result": json.RawMessage(draft)}
 	}
@@ -132,6 +133,12 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 	}
 	if inserted != 1 {
 		return ErrSessionInputResolved, model.SessionEvent{}
+	}
+	if _, err := transaction.ExecContext(ctx, `
+		DELETE FROM gatehouse_session_input_drafts
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND input = `+placeholder(3)+`
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Parent.Id); err != nil {
+		return fmt.Errorf("delete resolved session input draft: %w", err), model.SessionEvent{}
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit session input response: %w", err), model.SessionEvent{}
