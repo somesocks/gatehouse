@@ -16,6 +16,7 @@ describe("routes", () => {
       route: { kind: "login", next: "/app/wsp/wsp_a" },
     },
     { path: "/app/no-access", route: { kind: "no-access" } },
+    { path: "/app/input", route: { kind: "input-form" } },
     { path: "/app/system", route: { kind: "system" } },
     { path: "/app/system/grants", route: { kind: "system-grants" } },
     { path: "/app/system/principals", route: { kind: "system-principals" } },

@@ -3,6 +3,7 @@ import {
   signIn as submitCredentials,
   type Claims,
 } from "./auth"
+import { clearAccessToken } from "./api"
 
 export type AuthenticationStatus =
   | "checking"
@@ -63,6 +64,7 @@ export function createAuth(
 
   function clear(): void {
     generation += 1
+    clearAccessToken()
     state.claims = null
     state.status = "anonymous"
   }

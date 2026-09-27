@@ -3,6 +3,7 @@
   import { useRuntime } from "../../../app/runtime.svelte"
   import SystemFrame from "../../../components/SystemFrame.svelte"
   import RouterLink from "../../../components/RouterLink.svelte"
+  import SelectControl from "../../../components/SelectControl.svelte"
   import { createAgentProviderFormController } from "./agent-provider-form-controller.svelte"
 
   let { providerID }: { providerID: string } = $props()
@@ -111,15 +112,17 @@
           <label for="agent-provider-protocol">Protocol</label>
           <div>
             <div>
-              <select
-                id="agent-provider-protocol"
-                bind:value={controller.state.form.protocol}
-                ><option value="builtin">Built-in</option><option
-                  value="openai-chat-completions"
-                  >OpenAI chat completions</option
-                ><option value="openai-responses">OpenAI responses</option
-                ></select
-              >
+              <SelectControl>
+                <select
+                  id="agent-provider-protocol"
+                  bind:value={controller.state.form.protocol}
+                  ><option value="builtin">Built-in</option><option
+                    value="openai-chat-completions"
+                    >OpenAI chat completions</option
+                  ><option value="openai-responses">OpenAI responses</option
+                  ></select
+                >
+              </SelectControl>
             </div>
           </div>
         </div>
@@ -137,16 +140,18 @@
             <label for="agent-provider-keychain">Keychain</label>
             <div>
               <div>
-                <select
-                  id="agent-provider-keychain"
-                  required
-                  bind:value={controller.state.form.keychain}
-                  ><option value="">Select keychain</option
-                  >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<option
-                      value={keychain.id}
-                      >{keychain.id} / version {keychain.version}</option
-                    >{/each}</select
-                >
+                <SelectControl>
+                  <select
+                    id="agent-provider-keychain"
+                    required
+                    bind:value={controller.state.form.keychain}
+                    ><option value="">Select keychain</option
+                    >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<option
+                        value={keychain.id}
+                        >{keychain.id} / version {keychain.version}</option
+                      >{/each}</select
+                  >
+                </SelectControl>
               </div>
             </div>
           </div>

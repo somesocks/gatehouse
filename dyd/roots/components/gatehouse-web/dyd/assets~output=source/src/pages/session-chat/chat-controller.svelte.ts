@@ -597,6 +597,19 @@ export function approvalResponse(
       child.event.kind === "approval.rejected",
   )
 }
+
+export function inputRequests(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter((child) => child.event.kind === "input.request")
+}
+
+export function inputResponse(tree: ChatEventTree): ChatEventTree | undefined {
+  return tree.children.find(
+    (child) =>
+      child.event.kind === "input.success" ||
+      child.event.kind === "input.failure",
+  )
+}
+
 export function elapsedDuration(
   startedAt: string,
   completedAt: string | number,

@@ -29,6 +29,7 @@
   import PageBody from "../../components/PageBody.svelte"
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import SelectControl from "../../components/SelectControl.svelte"
   import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
@@ -1178,7 +1179,7 @@
                                   value: event.currentTarget.checked,
                                 })}
                             /> Yes</label
-                          >{:else if attribute.type === "file"}<select
+                           >{:else if attribute.type === "file"}<SelectControl><select
                               required
                               value={valueLabel(draft.value)}
                               onchange={(event) =>
@@ -1189,8 +1190,8 @@
                                 >Select project file</option
                               >{#each projectFiles as file (file.id)}<option
                                   value={file.id}>{file.name}</option
-                                >{/each}</select
-                            >
+                                 >{/each}</select
+                             ></SelectControl>
                           {:else}<input
                             required
                             value={valueLabel(draft.value)}
@@ -1405,7 +1406,7 @@
                   </div>
                   <div class="field">
                     <label for="attribute-type">Type</label>
-                      <select
+                      <SelectControl><select
                         id="attribute-type"
                         bind:value={attributeForm.type}
                         ><option value="text">Text</option><option
@@ -1414,58 +1415,58 @@
                           value="datetime">Date and time</option
                         ><option value="record">Record reference</option><option
                           value="file">Project file reference</option
-                        ></select
-                      >
+                         ></select
+                      ></SelectControl>
                   </div>
                   {#if attributeForm.type === "record"}<div class="field">
                       <label for="attribute-target"
                         >Target record type</label
                       >
-                        <select
+                         <SelectControl><select
                           id="attribute-target"
                           required
                           bind:value={attributeForm.target_schema}
                           ><option value="" disabled>Select record type</option
                           >{#each schemas as item (item.id)}<option
                               value={item.id}>{item.label}</option
-                            >{/each}</select
-                        >
+                             >{/each}</select
+                         ></SelectControl>
                     </div>{/if}
                   <div class="field">
                     <label for="attribute-cardinality"
                       >Values</label
                     >
-                      <select
+                       <SelectControl><select
                         id="attribute-cardinality"
                         bind:value={attributeForm.cardinality}
                         ><option value="one">One</option><option value="many"
                           >Many</option
-                        ></select
-                      >
+                         ></select
+                       ></SelectControl>
                   </div>
                   <div class="field">
                     <label for="attribute-uniqueness"
                       >Uniqueness</label
                     >
-                      <select
+                       <SelectControl><select
                         id="attribute-uniqueness"
                         bind:value={attributeForm.uniqueness}
                         ><option value="none">None</option><option
                           value="record">Within record</option
-                        ><option value="global">Across records</option></select
-                      >
+                         ><option value="global">Across records</option></select
+                       ></SelectControl>
                   </div>
                   <div class="field">
                     <label for="attribute-display"
                       >Card display</label
                     >
-                      <select
+                       <SelectControl><select
                         id="attribute-display"
                         bind:value={attributeForm.display}
                         ><option value="none">Hidden</option><option
                           value="primary">Primary</option
-                        ><option value="secondary">Secondary</option></select
-                      >
+                         ><option value="secondary">Secondary</option></select
+                       ></SelectControl>
                   </div>
                   <div class="field">
                     <label for="attribute-display-order"

@@ -1,3 +1,5 @@
+import { clearAccessToken, fetchGatehouse, setAccessToken } from "./api"
+
 export type Claims = {
   principal: {
     ref: { id: string }
@@ -7,7 +9,7 @@ export type Claims = {
 }
 
 export async function checkAuthentication(): Promise<Claims | null> {
-  const response = await fetch("/api/v1/auth/me", {
+  const response = await fetchGatehouse("/api/v1/auth/me", {
     credentials: "same-origin",
   })
   if (response.status === 401) {
@@ -35,12 +37,20 @@ export async function signIn(
   if (!response.ok) {
     throw new Error(`login returned ${response.status}`)
   }
+  const credentials = (await response.json()) as { access_token: string }
+  if (typeof credentials.access_token !== "string" || credentials.access_token === "")
+    throw new Error("login did not return an access token")
+  setAccessToken(credentials.access_token)
   return true
 }
 
 export async function signOut(): Promise<void> {
-  await fetch("/api/v1/auth/logout", {
-    method: "POST",
-    credentials: "same-origin",
-  })
+  try {
+    await fetchGatehouse("/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    })
+  } finally {
+    clearAccessToken()
+  }
 }

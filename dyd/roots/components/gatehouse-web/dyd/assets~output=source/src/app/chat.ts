@@ -1,3 +1,5 @@
+import { fetchGatehouse as fetch } from "./api"
+
 export type ChatAgent = {
   id: string
   alias: string
@@ -163,6 +165,18 @@ export async function respondToChatApproval(
   )
 }
 
+export async function fetchChatInputLaunch(
+  workspaceID: string,
+  sessionID: string,
+  inputID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${chatAPIPath(workspaceID, sessionID)}/inputs/${encodeURIComponent(inputID)}/open?redirect=false`,
+    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
+  )
+}
+
 export async function startChatFileUpload(
   workspaceID: string,
   sessionID: string,
@@ -186,7 +200,7 @@ export async function uploadChatFile(
   file: File,
   signal?: AbortSignal,
 ): Promise<Response> {
-  return await fetch(uploadURL, {
+  return await globalThis.fetch(uploadURL, {
     method: "PUT",
     body: file,
     ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }),

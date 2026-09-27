@@ -23,6 +23,7 @@
   import PageBody from "../../components/PageBody.svelte"
   import PageHeading from "../../components/PageHeading.svelte"
   import RouterLink from "../../components/RouterLink.svelte"
+  import SelectControl from "../../components/SelectControl.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
   import StatusPage from "../../components/StatusPage.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
@@ -567,11 +568,13 @@
               </div>
               <div class="field">
                 <label for="task-status">Status</label>
-                <select id="task-status" bind:value={status}
-                  >{#each statuses as option}<option value={option.value}
-                      >{option.label}</option
-                    >{/each}</select
-                >
+                <SelectControl>
+                  <select id="task-status" bind:value={status}
+                    >{#each statuses as option}<option value={option.value}
+                        >{option.label}</option
+                      >{/each}</select
+                  >
+                </SelectControl>
               </div>
               <div class="field">
                 <label for="task-description"

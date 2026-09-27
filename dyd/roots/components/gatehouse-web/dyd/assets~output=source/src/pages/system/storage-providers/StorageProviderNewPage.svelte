@@ -3,6 +3,7 @@
   import { useRuntime } from "../../../app/runtime.svelte"
   import SystemFrame from "../../../components/SystemFrame.svelte"
   import RouterLink from "../../../components/RouterLink.svelte"
+  import SelectControl from "../../../components/SelectControl.svelte"
   import { createStorageProviderFormController } from "./storage-provider-form-controller.svelte"
 
   const runtime = useRuntime()
@@ -58,13 +59,15 @@
         <label for="storage-provider-protocol">Protocol</label>
         <div>
           <div>
-            <select
-              id="storage-provider-protocol"
-              bind:value={controller.state.form.protocol}
-              ><option value="embedded">Embedded</option><option value="s3"
-                >S3</option
-              ></select
-            >
+            <SelectControl>
+              <select
+                id="storage-provider-protocol"
+                bind:value={controller.state.form.protocol}
+                ><option value="embedded">Embedded</option><option value="s3"
+                  >S3</option
+                ></select
+              >
+            </SelectControl>
           </div>
         </div>
       </div>
@@ -111,16 +114,18 @@
           <label for="storage-provider-keychain">Keychain</label>
           <div>
             <div>
-              <select
-                id="storage-provider-keychain"
-                required
-                bind:value={controller.state.form.keychain}
-                ><option value="">Select keychain</option
-                >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<option
-                    value={keychain.id}
-                    >{keychain.id} / version {keychain.version}</option
-                  >{/each}</select
-              >
+              <SelectControl>
+                <select
+                  id="storage-provider-keychain"
+                  required
+                  bind:value={controller.state.form.keychain}
+                  ><option value="">Select keychain</option
+                  >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<option
+                      value={keychain.id}
+                      >{keychain.id} / version {keychain.version}</option
+                    >{/each}</select
+                >
+              </SelectControl>
             </div>
           </div>
         </div>

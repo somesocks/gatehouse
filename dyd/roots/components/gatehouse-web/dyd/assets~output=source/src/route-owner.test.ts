@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import { routeOwner } from "./route-owner"
 
 describe("route owner", () => {
+  it("routes capability-backed input outside the login-gated app", () => {
+    expect(routeOwner({ kind: "input-form" })).toBe("input-form")
+  })
   it("assigns the project dashboard URL to its route owner", () => {
     expect(
       routeOwner({ kind: "project", workspaceID: "wsp_a", projectID: "prj_a" }),

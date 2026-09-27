@@ -4,6 +4,7 @@ import {
   type ActivitySelector,
   type ActivityTopicCheckpoint,
 } from "../utils/activity-poller"
+import { fetchGatehouse } from "./api"
 
 export type { ActivityRefresh, ActivitySelector }
 export type ActivityClient = ReturnType<typeof createActivityClient>
@@ -17,7 +18,7 @@ type ActivityClientOptions = {
 export function createActivityClient({
   onAuthenticationLost,
   onPollComplete,
-  fetch: request = globalThis.fetch,
+  fetch: request = fetchGatehouse,
 }: ActivityClientOptions) {
   const poller = new ActivityTopicPoller(
     async (topics, signal) => {

@@ -3,6 +3,7 @@
   import { useRuntime } from "../../../app/runtime.svelte"
   import SystemFrame from "../../../components/SystemFrame.svelte"
   import RouterLink from "../../../components/RouterLink.svelte"
+  import SelectControl from "../../../components/SelectControl.svelte"
   import { createAgentProviderFormController } from "./agent-provider-form-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -48,18 +49,18 @@
           bind:value={controller.state.form.alias}
         /></label
       ><label class="field"
-        ><span>Protocol</span><select
+        ><span>Protocol</span><SelectControl><select
           bind:value={controller.state.form.protocol}
           ><option value="builtin">Built-in</option><option
             value="openai-chat-completions">OpenAI chat completions</option
           ><option value="openai-responses">OpenAI responses</option></select
-        ></label
+        ></SelectControl></label
       ><label class="field"
         ><span>Base URL</span><input
           bind:value={controller.state.form.baseURL}
         /></label
       >{#if controller.state.form.protocol !== "builtin"}<label class="field"
-          ><span>Keychain</span><select
+          ><span>Keychain</span><SelectControl><select
             required
             bind:value={controller.state.form.keychain}
             ><option value="">Select keychain</option
@@ -67,7 +68,7 @@
                 value={keychain.id}
                 >{keychain.id} / version {keychain.version}</option
               >{/each}</select
-          ></label
+          ></SelectControl></label
         ><label class="field"
           ><span>API key</span><input
             type="password"

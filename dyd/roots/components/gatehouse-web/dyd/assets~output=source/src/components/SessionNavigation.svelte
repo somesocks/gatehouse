@@ -65,7 +65,7 @@
 <nav aria-label="Session navigation" data-page-navigation>
   <ul>
     <li>
-      <button class="small" type="button" onclick={openEdit}>Edit</button>
+      <button class="primary inline" type="button" onclick={openEdit}>Edit</button>
     </li>
     <li>
       <RouterLink
@@ -100,7 +100,7 @@
   </ul>
   <DropdownMenu.Root>
     <DropdownMenu.Trigger
-      class="session-navigation-menu icon inline"
+      class="session-navigation-menu icon primary inline"
       aria-label="Session navigation"
       title="Session navigation"
       ><Menu size={18} strokeWidth={2} aria-hidden="true" /></DropdownMenu.Trigger
@@ -154,7 +154,7 @@
   >
     <header class="modal-header">
       <h2>Rename chat</h2>
-      <button class="icon" type="button" aria-label="Close" onclick={closeEdit}>
+      <button class="icon secondary" type="button" aria-label="Close" onclick={closeEdit}>
         <X size={16} />
       </button>
     </header>

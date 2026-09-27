@@ -1,3 +1,5 @@
+import { fetchGatehouse as fetch } from "./api"
+
 export type SystemGrant = {
   ref: { id: string }
   principal: { id: string }

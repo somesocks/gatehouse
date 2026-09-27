@@ -692,6 +692,7 @@ textarea {
 :is(button, a.primary, a.secondary) {
   @extend %control;
 
+  box-shadow: var(--surface-shadow);
   cursor: pointer;
   min-height: 2.25rem;
   min-inline-size: 0;
@@ -715,12 +716,12 @@ textarea {
   padding: 0.5rem 0.85rem;
 }
 
+// Unclassified buttons use secondary styling for now; keep the explicit variant.
 button,
 button.secondary,
 a.secondary {
   background-color: var(--secondary-500);
   color: var(--secondary-50);
-  filter: drop-shadow(0 0.0625rem 0.125rem rgb(from var(--secondary-950) r g b / 24%));
 }
 
 button:hover:not(:disabled),
@@ -733,7 +734,6 @@ button.primary,
 a.primary {
   background-color: var(--primary-500);
   color: var(--secondary-50);
-  filter: drop-shadow(0 0.0625rem 0.125rem rgb(from var(--primary-950) r g b / 24%));
 }
 
 button.primary:hover:not(:disabled),
@@ -744,8 +744,8 @@ a.primary:hover {
 button.inline {
   background-color: transparent;
   border: 0;
+  box-shadow: none;
   color: var(--foreground-muted);
-  filter: none;
   min-height: auto;
   padding: 0.125rem 0.25rem;
 }
@@ -791,13 +791,13 @@ button.icon.large {
 }
 
 :is(a.primary, a.secondary) {
-  filter: none;
+  box-shadow: none;
 }
 
 .dropdown > ul button {
   background-color: transparent;
+  box-shadow: none;
   color: var(--foreground);
-  filter: none;
 }
 
 fieldset {
@@ -839,16 +839,75 @@ legend {
   margin: 0;
 }
 
+input[type="checkbox"] {
+  appearance: none;
+  background-color: var(--floor);
+  border: 0;
+  border-radius: calc(var(--radius) / 2);
+  box-shadow: var(--surface-shadow);
+  display: grid;
+  place-content: center;
+}
+
+input[type="checkbox"]::before {
+  block-size: 0.375rem;
+  border-block-end: 0.125rem solid var(--secondary-50);
+  border-inline-start: 0.125rem solid var(--secondary-50);
+  content: "";
+  inline-size: 0.625rem;
+  transform: rotate(-45deg) scale(0);
+}
+
+input[type="checkbox"]:checked {
+  background-color: var(--primary-500);
+}
+
+input[type="checkbox"]:checked::before {
+  transform: rotate(-45deg) scale(1);
+}
+
 input:not([type="button"], [type="checkbox"], [type="color"], [type="file"], [type="hidden"], [type="image"], [type="radio"], [type="range"], [type="reset"], [type="submit"]),
 select,
 textarea {
   @extend %control;
 
   background: var(--floor);
-  border: 0.0625rem solid var(--border);
-  filter: drop-shadow(0 0.0625rem 0.125rem rgb(from var(--secondary-950) r g b / 24%));
+  box-shadow: var(--surface-shadow);
   min-height: 2.5rem;
   padding: 0.5rem 0.65rem;
+}
+
+.select-control {
+  display: block;
+  min-inline-size: 0;
+  position: relative;
+}
+
+.select-control > select {
+  appearance: none;
+  inline-size: 100%;
+  padding-inline-end: 2.5rem;
+}
+
+.select-control > svg {
+  color: var(--foreground-muted);
+  inset-block-start: 50%;
+  inset-inline-end: 0.75rem;
+  pointer-events: none;
+  position: absolute;
+  transform: translateY(-50%);
+}
+
+.select-control[data-clearable] > select {
+  padding-inline-end: 4.5rem;
+}
+
+.select-control[data-clearable] > svg {
+  inset-inline-end: 2.75rem;
+}
+
+.select-control:has(select:disabled) > svg {
+  opacity: 0.55;
 }
 
 :where(button, input, select, textarea):disabled {

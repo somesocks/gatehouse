@@ -3,6 +3,7 @@
   import { useRuntime } from "../../../app/runtime.svelte"
   import SystemFrame from "../../../components/SystemFrame.svelte"
   import RouterLink from "../../../components/RouterLink.svelte"
+  import SelectControl from "../../../components/SelectControl.svelte"
   import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -56,19 +57,21 @@
         <label for="agent-model-provider">Provider</label>
         <div>
           <div>
-            <select
-              id="agent-model-provider"
-              required
-              bind:value={controller.state.form.provider}
-              ><option value="">Select provider</option
-              >{#each controller.state.providers as provider (provider.id)}<option
-                  value={provider.id}
-                  disabled={!provider.enabled}
-                  >{provider.alias} / {provider.id}{provider.enabled
-                    ? ""
-                    : " / Disabled"}</option
-                >{/each}</select
-            >
+            <SelectControl>
+              <select
+                id="agent-model-provider"
+                required
+                bind:value={controller.state.form.provider}
+                ><option value="">Select provider</option
+                >{#each controller.state.providers as provider (provider.id)}<option
+                    value={provider.id}
+                    disabled={!provider.enabled}
+                    >{provider.alias} / {provider.id}{provider.enabled
+                      ? ""
+                      : " / Disabled"}</option
+                  >{/each}</select
+              >
+            </SelectControl>
           </div>
         </div>
       </div>

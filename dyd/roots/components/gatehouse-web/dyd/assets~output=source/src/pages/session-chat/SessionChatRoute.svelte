@@ -23,6 +23,7 @@
   import RouterLink from "../../components/RouterLink.svelte"
   import SessionNavigation from "../../components/SessionNavigation.svelte"
   import StatusPage from "../../components/StatusPage.svelte"
+  import InputRequestCard from "./InputRequestCard.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import { renderMarkdown } from "../../markdown"
@@ -40,6 +41,7 @@
     elapsedDuration,
     finalReplies,
     hasCancellationSuccess,
+    inputRequests,
     renderedActivityEvents,
     replyCanBeCancelled,
     thinkingRateLimitDelayUntil,
@@ -616,7 +618,7 @@
                               : activityAgentLabel(
                                   request,
                                 )}{#if finalReplies(request).length > 0 && replyDuration(request) !== ""}<small>{replyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request) && workingReplyDuration(request) !== ""}<small>{workingReplyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request)}<button
-                            class="inline"
+                             class="primary inline"
                             type="button"
                             disabled={controller.state.cancellingReplyFor.has(
                               request.event.ref.id,
@@ -735,7 +737,10 @@
                                     {controller.state.approvalErrors.get(
                                       approval.event.ref.id,
                                     )}
-                              </p>{/if}{/each}{:else if event.event.kind === "thinking.started"}<p
+                              </p>{/if}{/each}
+                              {#each inputRequests(event) as input (input.event.ref.id)}
+                                <InputRequestCard request={input} workspaceID={workspace.id} sessionID={session.id} onAuthenticationLost={runtime.requireLogin} />
+                              {/each}{:else if event.event.kind === "thinking.started"}<p
                                 class="event-summary"
                                 data-state={thinkingStatus(event)}
                               >
@@ -868,7 +873,7 @@
                             ? `${entry.file.size} bytes`
                             : "Ready"}</small
                     ><button
-                      class="icon"
+                      class="icon inline secondary"
                       type="button"
                       aria-label={`Remove ${entry.file.name}`}
                       disabled={controller.state.sendingMessage}
@@ -879,7 +884,7 @@
               </div>{/if}
             <div class="input-group-controls">
               <button
-                class="icon"
+                class="icon secondary"
                 type="button"
                 aria-label="Attach files"
                 title="Attach files"
@@ -892,7 +897,7 @@
                 /></button
               >
               <button
-                class="icon"
+                class={deliveryMode === "direct" ? "icon primary" : "icon secondary"}
                 type="button"
                 aria-label={deliveryTitle}
                 title={deliveryTitle}

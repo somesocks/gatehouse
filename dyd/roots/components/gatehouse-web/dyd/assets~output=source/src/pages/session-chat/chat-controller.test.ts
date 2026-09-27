@@ -4,6 +4,8 @@ import {
   agentRequests,
   deliveredAgentIDs,
   finalReplies,
+  inputRequests,
+  inputResponse,
   replyCanBeCancelled,
   thinkingRateLimitDelayUntil,
 } from "./chat-controller.svelte"
@@ -28,6 +30,14 @@ function tree(
 }
 
 describe("chat request activity", () => {
+  it("keeps input requests under their tool, like approvals", () => {
+    const input = tree("input.request", [tree("input.failure", [], { code: "cancelled" })], { description: "Review" })
+    const tool = tree("tool.request", [input])
+    const agent = tree("agent.request", [tool])
+    expect(inputRequests(agent)).toEqual([])
+    expect(inputRequests(tool)).toEqual([input])
+    expect(inputResponse(input)?.event.payload.code).toBe("cancelled")
+  })
   it("does not treat a human-only message as an active agent request", () => {
     const message = tree("message.text")
 
