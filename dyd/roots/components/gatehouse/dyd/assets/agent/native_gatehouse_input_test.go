@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"gatehouse/inputform"
 	"gatehouse/lisp"
 )
 
@@ -140,5 +142,66 @@ func TestInputFormModuleDocumentsConstructorsWithoutAsk(t *testing.T) {
 	err, result := evaluateInputForm(`(help input/form/text)`)
 	if err != nil || !strings.Contains(result.String(), "Creates a text field") {
 		t.Fatalf("help input/form/text = (%s, %v)", result, err)
+	}
+}
+
+func TestInputFormDescriptorUsesVersionedJSON(t *testing.T) {
+	err, value := evaluateInputForm(`(input/form "Review" (input/form/optional (input/form/list (input/form/object "contacts" "Contacts" (input/form/text "name" "Name" (input/form/text/min-length 1))))) (input/form/number "count" "Count" (input/form/number/min 0) (input/form/number/integer)))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, form := inputFormDescriptor(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(form)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"version":1,"type":"form","title":"Review","fields":[{"id":"contacts","label":"Contacts","type":"list","optional":true,"item":{"type":"object","fields":[{"id":"name","label":"Name","type":"text","min_length":1}]}},{"id":"count","label":"Count","type":"number","min":0,"integer":true}]}`
+	if string(encoded) != want {
+		t.Fatalf("form JSON = %s, want %s", encoded, want)
+	}
+	if err := form.ValidateResult(json.RawMessage(`{"contacts":[{"name":"Ada"}],"count":0}`)); err != nil {
+		t.Fatalf("validate serialized form result: %v", err)
+	}
+}
+
+func TestInputAskPreludeDecodesJSONAndHidesNativeHook(t *testing.T) {
+	called := false
+	modules := agentResourceModules([]lisp.HostModule{
+		NewProjectModule(nil, nil, nil), NewSessionModule(nil, nil, nil, nil), NewPolicyModule(nil), NewWebModule(),
+	})
+	for index := range modules {
+		if modules[index].ID == gatehouseInputModuleID {
+			modules[index] = NewInputModule(func(form inputform.Form) (error, string) {
+				called = true
+				if form.Title != "Review" || len(form.Fields) != 1 || form.Fields[0].ID != "name" {
+					t.Errorf("input form = %#v", form)
+				}
+				return nil, `{"name":"Ada"}`
+			})
+		}
+	}
+	err, result := lisp.Evaluate(`(list (json/string/value (json/object/get (input/ask (input/form "Review" (input/form/text "name" "Name"))) "name")) (error? (error/catch (input/ask-json (input/form "Review" (input/form/text "name" "Name"))))) )`, lisp.EvalOptions{
+		Prelude: agentPrelude, HostModules: modules,
+	})
+	if err != nil || result.String() != `("Ada" #t)` || !called {
+		t.Fatalf("input/ask prelude = (%s, %v), callback called = %t", result, err, called)
+	}
+}
+
+func TestInputAskRequiresAValidFormAndAvailableCallback(t *testing.T) {
+	for _, test := range []struct {
+		source, want string
+	}{
+		{`(input/ask-json)`, "input/ask requires one form"},
+		{`(input/ask-json "not a form")`, "input/form requires a title and at least one field"},
+		{`(input/ask-json (input/form "Review" (input/form/text "name" "Name")))`, "input/ask is unavailable"},
+	} {
+		err, _ := evaluateInputForm(test.source)
+		if err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Fatalf("Evaluate(%s) error = %v, want %q", test.source, err, test.want)
+		}
 	}
 }

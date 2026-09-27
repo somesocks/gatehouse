@@ -18,6 +18,7 @@ import (
 	"gatehouse/authz"
 	"gatehouse/database"
 	"gatehouse/diagnostics"
+	"gatehouse/inputform"
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/model"
@@ -53,6 +54,15 @@ type SessionToolCallInput struct {
 
 type SessionApprovalInput struct {
 	Request model.SessionEventRef
+}
+
+type SessionInputWaitInput struct {
+	Request model.SessionEventRef
+}
+
+type InputOutcome struct {
+	Result  string
+	Failure string
 }
 
 type ApprovalOutcome string
@@ -133,6 +143,10 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-approval"),
 	)
+	dbos.RegisterWorkflow(ctx, runtime.input,
+		dbos.WithInstance(runtime),
+		dbos.WithWorkflowName("gatehouse.session-input"),
+	)
 	dbos.RegisterWorkflow(ctx, runtime.nameSession,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-name"),
@@ -191,6 +205,18 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 			return fmt.Errorf("send approval response %q: %w", task.Response.Id, err)
 		}
 		if err := runtime.store.SessionApprovalDecisionTaskDelivered(runtime.dbos, task.Approval); err != nil {
+			return err
+		}
+	}
+	err, inputTasks := runtime.store.SessionInputResponseTasksGet(runtime.dbos, 100)
+	if err != nil {
+		return err
+	}
+	for _, task := range inputTasks {
+		if err := dbos.Send(runtime.dbos, sessionInputWorkflowID(task.Input), task.Response, "response", dbos.WithIdempotencyKey(task.Response.Id)); err != nil {
+			return fmt.Errorf("send input response %q: %w", task.Response.Id, err)
+		}
+		if err := runtime.store.SessionInputResponseTaskDelivered(runtime.dbos, task.Input); err != nil {
 			return err
 		}
 	}
@@ -696,6 +722,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 		runtime.sessionTasksModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionSecretsModule(ctx, request.Ref.Session, principal),
 		runtime.sessionEventsModule(ctx, *request.Parent, agent, principal),
+		NewInputModule(func(form inputform.Form) (error, string) { return runtime.awaitInput(ctx, *request, agent, form) }),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, *request, agent, description) }),
 		NewWebModule(),
 	}
@@ -1655,6 +1682,64 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 	}, dbos.WithStepName("gatehouse.session-approval-response"))
 }
 
+func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, form inputform.Form) (error, string) {
+	if err := form.Validate(); err != nil {
+		return err, ""
+	}
+	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
+		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: "input.request", AuthorAgent: &agent,
+		Payload: map[string]interface{}{"description": form.Title, "form": form},
+	})
+	if err != nil {
+		return err, ""
+	}
+	handle, err := dbos.RunWorkflow(ctx, runtime.input, SessionInputWaitInput{Request: request},
+		dbos.WithRunInstance(runtime), dbos.WithWorkflowID(sessionInputWorkflowID(request)))
+	if err != nil {
+		return fmt.Errorf("start input %q: %w", request.Id, err), ""
+	}
+	outcome, err := handle.GetResult()
+	if err != nil {
+		return fmt.Errorf("await input %q: %w", request.Id, err), ""
+	}
+	if outcome.Failure != "" {
+		return lisp.Errorf("input failed: %s", outcome.Failure), ""
+	}
+	if outcome.Result == "" {
+		return fmt.Errorf("input %q returned an empty result", request.Id), ""
+	}
+	return nil, outcome.Result
+}
+
+func (runtime *SessionEventReplyRuntime) input(ctx dbos.Context, input SessionInputWaitInput) (InputOutcome, error) {
+	response, err := dbos.Recv[model.SessionEventRef](ctx, "response", sessionApprovalWait)
+	if err != nil {
+		return InputOutcome{}, err
+	}
+	return dbos.RunAsStep(ctx, func(step context.Context) (InputOutcome, error) {
+		err, event := runtime.store.SessionEventGet(step, response)
+		if err != nil {
+			return InputOutcome{}, err
+		}
+		if event == nil || event.Parent == nil || *event.Parent != input.Request || event.AuthorPrincipal == nil {
+			return InputOutcome{}, fmt.Errorf("input response is invalid")
+		}
+		switch event.Kind {
+		case "input.success":
+			err, result := runtime.store.SessionInputResponseResultGet(step, response)
+			return InputOutcome{Result: result}, err
+		case "input.failure":
+			code, ok := event.Payload["code"].(string)
+			if !ok || code == "" {
+				return InputOutcome{}, fmt.Errorf("input response has an invalid failure code")
+			}
+			return InputOutcome{Failure: code}, nil
+		default:
+			return InputOutcome{}, fmt.Errorf("input response has invalid kind %q", event.Kind)
+		}
+	}, dbos.WithStepName("gatehouse.session-input-response"))
+}
+
 func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]model.SessionEventRef, error) {
 	agent := selected.Ref
 	inputs := make([]SessionToolCallInput, len(calls))
@@ -2132,6 +2217,10 @@ func sessionToolCallWorkflowID(request model.SessionEventRef) string {
 
 func sessionApprovalWorkflowID(request model.SessionEventRef) string {
 	return "session-approval:" + request.Id
+}
+
+func sessionInputWorkflowID(request model.SessionEventRef) string {
+	return "session-input:" + request.Id
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {

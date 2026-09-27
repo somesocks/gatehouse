@@ -31,6 +31,7 @@ const agentPrelude = `(let
         (session/tasks @native:gatehouse/session/tasks/v1)
         (session/secrets @native:gatehouse/session/secrets/v1)
         (session/events @native:gatehouse/session/events/v1)
+        (input @native:gatehouse/input/v1)
         (policy @native:gatehouse/policy/v1)
         (web @native:gatehouse/web/v1)
 
@@ -46,15 +47,21 @@ const agentPrelude = `(let
                   (policy/require-approval
                     (head (tail operation))
                     (head (tail (tail operation)))))))
+            (prelude/input-ask
+              (fn (form) (json/decode (input/ask-json form))))
           )
           (fn/apply let
             (list
-              (list/map prelude/operation-binding prelude/operations)
+              (list/concat
+                (list (list 'input/ask prelude/input-ask))
+                (list/map prelude/operation-binding prelude/operations))
               '(let
-                 ((import null)
-                  (import/restrict null)
-                  (import/search null)
-                  (policy/await-approval null)
+                  ((import null)
+                   (import/restrict null)
+                   (import/search null)
+                   (input/ask-json null)
+                   (prelude/input-ask null)
+                   (policy/await-approval null)
                   (policy/require-approval null)
                   (prelude/imports null)
                   (prelude/operations null)

@@ -3,14 +3,15 @@ package agent
 import (
 	"strings"
 
+	"gatehouse/inputform"
 	"gatehouse/lisp"
 )
 
 const gatehouseInputModuleID = "native:gatehouse/input/v1"
 
-// NewInputModule exposes the pure input form constructors. The effectful
-// input/ask operation will be added when input requests can be persisted.
-func NewInputModule() lisp.HostModule {
+// NewInputModule exposes form constructors and a narrow JSON-text wait hook.
+// The default agent prelude wraps ask-json with json/decode as input/ask.
+func NewInputModule(requestInput ...func(inputform.Form) (error, string)) lisp.HostModule {
 	exports := []lisp.HostExport{
 		inputConstructor("form", "(input/form title fields...) -> Input Form", "Creates a form with a non-blank title and at least one field.", `(input/form "Review" (input/form/text "name" "Name"))`, `(input/form "Review" (input/form/text "name" "Name"))`, inputForm),
 		inputConstructor("form/boolean", "(input/form/boolean id label) -> Input Field", "Creates a boolean field.", `(input/form/boolean "updates" "Receive updates")`, `(input/form/boolean "updates" "Receive updates")`, inputSimpleField("boolean")),
@@ -26,6 +27,27 @@ func NewInputModule() lisp.HostModule {
 		inputConstructor("form/text/min-length", "(input/form/text/min-length integer) -> Input Constraint", "Sets the minimum text length in Unicode code points.", `(input/form/text/min-length 1)`, `(input/form/text/min-length 1)`, inputBound("text", "min-length", true)),
 		inputConstructor("form/text/max-length", "(input/form/text/max-length integer) -> Input Constraint", "Sets the maximum text length in Unicode code points.", `(input/form/text/max-length 80)`, `(input/form/text/max-length 80)`, inputBound("text", "max-length", true)),
 	}
+	var request func(inputform.Form) (error, string)
+	if len(requestInput) != 0 {
+		request = requestInput[0]
+	}
+	exports = append(exports, inputConstructor("ask-json", "(input/ask-json form) -> String", "Requests input and waits for a JSON object result. The default prelude exposes input/ask, which decodes this text with the JSON module.", `(input/ask-json (input/form "Review" (input/form/text "name" "Name")))`, `"{\"name\":\"Ada\"}"`, func(arguments []lisp.Expr) (error, lisp.Expr) {
+		if len(arguments) != 1 {
+			return lisp.Errorf("input/ask requires one form"), nil
+		}
+		err, form := inputFormDescriptor(arguments[0])
+		if err != nil {
+			return err, nil
+		}
+		if request == nil {
+			return lisp.Errorf("input/ask is unavailable"), nil
+		}
+		err, result := request(form)
+		if err != nil {
+			return err, nil
+		}
+		return nil, lisp.String(result)
+	}))
 	return lisp.HostModule{ID: gatehouseInputModuleID, Exports: exports}
 }
 

@@ -48,6 +48,7 @@ func agentResourceModules(modules []lisp.HostModule) []lisp.HostModule {
 			result = append(result, resource)
 		}
 	}
+	result = append(result, NewInputModule())
 	return result
 }
 

@@ -158,6 +158,13 @@ func TestSessionApprovalWorkflowIDUsesApprovalRequestID(t *testing.T) {
 	}
 }
 
+func TestSessionInputWorkflowIDUsesInputRequestID(t *testing.T) {
+	request := model.SessionEventRef{Id: "sev_00000000000000000000000000"}
+	if got, want := sessionInputWorkflowID(request), "session-input:sev_00000000000000000000000000"; got != want {
+		t.Fatalf("sessionInputWorkflowID() = %q, want %q", got, want)
+	}
+}
+
 func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
 	runtime := &SessionEventReplyRuntime{}
 	session := model.SessionRef{}
@@ -174,6 +181,7 @@ func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
 		runtime.sessionTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionSecretsModule(nil, session, principal),
 		runtime.sessionEventsModule(nil, model.SessionEventRef{Session: session}, model.WorkspaceAgentRef{}, principal),
+		NewInputModule(),
 		NewPolicyModule(nil),
 		NewWebModule(),
 	}

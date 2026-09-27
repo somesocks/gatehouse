@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/inputform"
 	"gatehouse/model"
 )
 
@@ -46,7 +47,12 @@ func inputDraftFixture(t *testing.T, configuration config.DatabaseConfig) (*data
 	agent := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &person, Payload: map[string]interface{}{"text": "hello"}}
 	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Parent: &message.Ref, Kind: "tool.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
-	input := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &tool.Ref, Kind: "input.request", AuthorAgent: &agent, Payload: map[string]interface{}{"description": "Review"}}
+	minimum := int64(1)
+	form := inputform.Form{Version: inputform.Version, Type: "form", Title: "Review", Fields: []inputform.Field{
+		{ID: "name", Label: "Name", Type: "text", MinLength: &minimum},
+		{ID: "count", Label: "Count", Type: "number", Integer: true, Optional: true},
+	}}
+	input := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &tool.Ref, Kind: "input.request", AuthorAgent: &agent, Payload: map[string]interface{}{"description": "Review", "form": form}}
 	if err, _ := store.SessionEventsCreateBatch(ctx, []model.SessionEvent{message, tool, input}); err != nil {
 		t.Fatal(err)
 	}
@@ -128,6 +134,24 @@ func TestSessionInputDraftListsAndInvalidPaths(t *testing.T) {
 	}
 	if err, draft := store.SessionInputDraftGet(ctx, request); err != nil || draft == nil || string(draft.Values) != `{"items":[]}` {
 		t.Fatalf("draft after rejected patches = (%#v, %v)", draft, err)
+	}
+}
+
+func TestSessionInputDraftNormalizesIncomingJSON(t *testing.T) {
+	ctx := context.Background()
+	store, request := inputDraftFixture(t, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	value := json.RawMessage(`{"name":"First","name":"Last","items":[{"value":9007199254740993,"value":9007199254740994}]}`)
+	err, draft := store.SessionInputDraftSet(ctx, request, []string{"data"}, value)
+	want := `{"data":{"items":[{"value":9007199254740994}],"name":"Last"}}`
+	if err != nil || draft == nil || string(draft.Values) != want {
+		t.Fatalf("normalized draft = (%#v, %v), want %s", draft, err, want)
+	}
+	err, stored := store.SessionInputDraftGet(ctx, request)
+	if err != nil || stored == nil || string(stored.Values) != want {
+		t.Fatalf("stored normalized draft = (%#v, %v), want %s", stored, err, want)
+	}
+	if err, draft := store.SessionInputDraftSet(ctx, request, []string{"data"}, json.RawMessage(`true false`)); err == nil || draft != nil {
+		t.Fatalf("multiple JSON values = (%#v, %v)", draft, err)
 	}
 }
 

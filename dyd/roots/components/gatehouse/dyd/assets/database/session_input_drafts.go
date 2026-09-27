@@ -1,11 +1,13 @@
 package database
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -45,11 +47,24 @@ func (store *Store) SessionInputDraftGet(ctx context.Context, request model.Sess
 
 // SessionInputDraftSet replaces one field or subtree, including an entire
 // array-valued field. It never treats array indices as path components.
+// Values are normalized before storage so duplicate JSON object keys have
+// the same last-key-wins interpretation in SQLite and PostgreSQL.
 func (store *Store) SessionInputDraftSet(ctx context.Context, request model.SessionEventRef, path []string, value json.RawMessage) (error, *SessionInputDraft) {
-	if !json.Valid(value) {
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	var decoded any
+	if err := decoder.Decode(&decoded); err != nil {
 		return fmt.Errorf("set session input draft: value must be valid JSON"), nil
 	}
-	return store.sessionInputDraftPatch(ctx, request, path, value)
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("set session input draft: value must be valid JSON"), nil
+	}
+	canonical, err := json.Marshal(decoded)
+	if err != nil {
+		return fmt.Errorf("normalize session input draft value: %w", err), nil
+	}
+	return store.sessionInputDraftPatch(ctx, request, path, canonical)
 }
 
 // SessionInputDraftRemove removes one field or subtree. An absent field is a
@@ -76,35 +91,20 @@ func (store *Store) sessionInputDraftPatch(ctx context.Context, request model.Se
 	}
 	defer transaction.Rollback()
 
+	err, raw := store.sessionInputDraftLock(ctx, transaction, request)
+	if err != nil || raw == "" {
+		return err, nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
-	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
-	// The insert acquires SQLite's writer lock before the draft is read. For
-	// PostgreSQL the subsequent SELECT FOR UPDATE locks the draft row. Both
-	// paths serialize read/modify/write operations without a revision column.
-	_, err = transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_input_drafts (workspace, session, input, draft, updated_at)
-		SELECT workspace, session, id, '{}', `+placeholder(1)+`
-		FROM gatehouse_session_events
-		WHERE workspace = `+placeholder(2)+` AND session = `+placeholder(3)+` AND id = `+placeholder(4)+`
-			AND kind = 'input.request' AND author_agent IS NOT NULL
-		ON CONFLICT (workspace, session, input) DO NOTHING
-	`, updatedAt, request.Session.Workspace.Id, request.Session.Id, request.Id)
-	if err != nil {
-		return fmt.Errorf("initialize session input draft: %w", err), nil
+	var resolved bool
+	if err := transaction.QueryRowContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM gatehouse_session_input_responses
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND input = `+placeholder(3)+`)
+	`, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&resolved); err != nil {
+		return fmt.Errorf("check session input response: %w", err), nil
 	}
-	query := `
-		SELECT draft FROM gatehouse_session_input_drafts
-		WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + ` AND input = ` + placeholder(3)
-	if store.kind == config.DatabaseKindPostgres {
-		query += " FOR UPDATE"
-	}
-	var raw string
-	err = transaction.QueryRowContext(ctx, query, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return fmt.Errorf("read session input draft for patch: %w", err), nil
+	if resolved {
+		return ErrSessionInputResolved, nil
 	}
 	var document map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(raw), &document); err != nil || document == nil {
@@ -117,7 +117,7 @@ func (store *Store) sessionInputDraftPatch(ctx context.Context, request model.Se
 	if err != nil {
 		return fmt.Errorf("encode session input draft: %w", err), nil
 	}
-	updatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	updatedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	updateValue := placeholder(1)
 	if store.kind == config.DatabaseKindPostgres {
 		updateValue += "::jsonb"
@@ -134,6 +134,39 @@ func (store *Store) sessionInputDraftPatch(ctx context.Context, request model.Se
 		return fmt.Errorf("commit session input draft patch: %w", err), nil
 	}
 	return nil, &SessionInputDraft{Request: request, Values: encoded, UpdatedAt: updatedAt}
+}
+
+func (store *Store) sessionInputDraftLock(ctx context.Context, transaction *sql.Tx, request model.SessionEventRef) (error, string) {
+	placeholder := keychainPlaceholder(store.kind)
+	// The insert acquires SQLite's writer lock before the draft is read. For
+	// PostgreSQL the subsequent SELECT FOR UPDATE locks the draft row. Both
+	// paths serialize patches and terminal responses without a revision column.
+	_, err := transaction.ExecContext(ctx, `
+		INSERT INTO gatehouse_session_input_drafts (workspace, session, input, draft, updated_at)
+		SELECT workspace, session, id, '{}', `+placeholder(1)+`
+		FROM gatehouse_session_events
+		WHERE workspace = `+placeholder(2)+` AND session = `+placeholder(3)+` AND id = `+placeholder(4)+`
+			AND kind = 'input.request' AND author_agent IS NOT NULL
+		ON CONFLICT (workspace, session, input) DO NOTHING
+	`, time.Now().UTC().Format(time.RFC3339Nano), request.Session.Workspace.Id, request.Session.Id, request.Id)
+	if err != nil {
+		return fmt.Errorf("initialize session input draft: %w", err), ""
+	}
+	query := `
+		SELECT draft FROM gatehouse_session_input_drafts
+		WHERE workspace = ` + placeholder(1) + ` AND session = ` + placeholder(2) + ` AND input = ` + placeholder(3)
+	if store.kind == config.DatabaseKindPostgres {
+		query += " FOR UPDATE"
+	}
+	var raw string
+	err = transaction.QueryRowContext(ctx, query, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ""
+	}
+	if err != nil {
+		return fmt.Errorf("lock session input draft: %w", err), ""
+	}
+	return nil, raw
 }
 
 func patchInputDraftObject(document map[string]json.RawMessage, path []string, value json.RawMessage) error {
