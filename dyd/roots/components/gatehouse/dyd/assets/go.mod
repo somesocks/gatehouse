@@ -3,7 +3,7 @@ module gatehouse
 go 1.25.12
 
 require (
-	github.com/dbos-inc/dbos-transact-golang v1.1.0
+	github.com/dbos-inc/dbos-transact-golang v1.2.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2

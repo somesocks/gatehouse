@@ -6,6 +6,8 @@ github.com/dbos-inc/dbos-transact-golang v1.0.0 h1:r1wHhtj/IyfgEIde60gIdtezJ21mV
 github.com/dbos-inc/dbos-transact-golang v1.0.0/go.mod h1:cOOJfxDEnhdZd39EpYWps4mva6JxKyyKztyWzGxXpCE=
 github.com/dbos-inc/dbos-transact-golang v1.1.0 h1:J2uSNUDdfNx1Qbxg67k0cwm3xZ6xbtJ4SXIIyu33RZ8=
 github.com/dbos-inc/dbos-transact-golang v1.1.0/go.mod h1:cOOJfxDEnhdZd39EpYWps4mva6JxKyyKztyWzGxXpCE=
+github.com/dbos-inc/dbos-transact-golang v1.2.0 h1:o1CaHn+E7FQSBXJ/rUP7vV+yTYZB7vhzd98dnyxLlMA=
+github.com/dbos-inc/dbos-transact-golang v1.2.0/go.mod h1:HEjtVW5wgpkpTIAp+FAIVldSr+oiiolyFZ+2RJda8gI=
 github.com/dlclark/regexp2 v1.11.0 h1:G/nrcoOa7ZXlpoa/91N3X7mM3r8eIlMBBJZvsz/mxKI=
 github.com/dlclark/regexp2 v1.11.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
