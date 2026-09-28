@@ -474,8 +474,7 @@ details[open] > summary::after {
 }
 
 table {
-  border-collapse: separate;
-  border-spacing: 0 calc(var(--space) / 4);
+  border-collapse: collapse;
   inline-size: 100%;
 }
 
@@ -494,28 +493,22 @@ td {
   vertical-align: top;
 }
 
-thead th,
+th {
+  font-family: var(--font-family-display);
+  font-weight: var(--font-weight);
+}
+
 tfoot td {
-  background-color: var(--surface-2);
   font-weight: var(--heading-weight);
 }
 
-tbody td {
-  background-color: var(--surface-1);
+thead tr:last-child > :is(th, td) {
+  border-block-end: 0.0625rem solid var(--border);
 }
 
-tbody tr:hover td {
-  background-color: var(--surface-2);
-}
-
-:is(thead th, tbody td, tfoot td):first-child {
-  border-end-start-radius: var(--radius);
-  border-start-start-radius: var(--radius);
-}
-
-:is(thead th, tbody td, tfoot td):last-child {
-  border-end-end-radius: var(--radius);
-  border-start-end-radius: var(--radius);
+tbody tr + tr > :is(th, td),
+tfoot tr:first-child > :is(th, td) {
+  border-block-start: 0.0625rem solid var(--border);
 }
 
 progress {
