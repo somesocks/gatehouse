@@ -17,7 +17,6 @@ export function createInputFormController(transport: InputTransport) {
     form: null as InputForm | null,
     draft: {} as Record<string, unknown>,
     error: "",
-    pending: 0,
     terminalPending: false,
     needsReload: false,
     invalidAnswer: false,
@@ -118,7 +117,6 @@ export function createInputFormController(transport: InputTransport) {
     draftRevision += 1
     state.error = ""
     state.invalidAnswer = false
-    state.pending += 1
     let success = false
     const operation = queue.then(async () => {
       try {
@@ -137,8 +135,6 @@ export function createInputFormController(transport: InputTransport) {
       } catch (error) {
         state.error = error instanceof Error ? error.message : "Your changes could not be saved."
         state.needsReload = true
-      } finally {
-        state.pending -= 1
       }
     })
     queue = operation.then(() => {})

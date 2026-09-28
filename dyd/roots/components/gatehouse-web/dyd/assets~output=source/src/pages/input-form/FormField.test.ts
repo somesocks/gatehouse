@@ -37,19 +37,16 @@ describe("form field headings and labels", () => {
     expect(notesLabel).not.toContain("*</span>")
   })
 
-  it("places the clear action inside answered optional controls", () => {
+  it("places the clear action inside answered optional text and number controls", () => {
     for (const [type, value] of [
       ["text", "Note"],
       ["number", "42"],
-      ["options", "north"],
-      ["boolean", false],
     ] as const) {
       const field: InputField = {
         id: type,
         label: "Answer",
         type,
         optional: true,
-        ...(type === "options" ? { choices: ["north"] } : {}),
       }
       const props = {
         field,
@@ -62,7 +59,45 @@ describe("form field headings and labels", () => {
       expect(answered).toMatch(/class="input-control"[^>]*>.*?class="icon inline input-clear"/s)
       expect(answered).toContain('aria-label="Clear Answer"')
       expect(answered).not.toContain("Clear answer</button>")
-      expect(unanswered).not.toContain('class="icon inline input-clear"')
+      expect(unanswered).toContain('class="icon inline input-clear"')
+      expect(unanswered).toContain('data-empty="true"')
+      expect(unanswered).toContain('tabindex="-1"')
     }
+  })
+
+  it("lets answered required text and number fields be cleared", () => {
+    for (const [type, value] of [
+      ["text", "Note"],
+      ["number", "42"],
+    ] as const) {
+      const field: InputField = { id: type, label: "Answer", type }
+      const props = { field, path: [type], onSet: async () => true, onRemove: async () => true }
+      expect(render(FormField, { props: { ...props, value } }).body).toContain('aria-label="Clear Answer"')
+      const unanswered = render(FormField, { props: { ...props, value: undefined } }).body
+      expect(unanswered).toContain('data-empty="true"')
+      expect(unanswered).toContain('tabindex="-1"')
+    }
+  })
+
+  it("uses the unanswered option instead of a clear action for selects", () => {
+    for (const field of [
+      { id: "required", label: "Answer", type: "options", choices: ["north"] },
+      { id: "optional", label: "Answer", type: "options", choices: ["north"], optional: true },
+      { id: "boolean", label: "Answer", type: "boolean", optional: true },
+    ] satisfies InputField[]) {
+      const body = render(FormField, { props: {
+        field, path: [field.id!], value: field.type === "boolean" ? false : "north",
+        onSet: async () => true, onRemove: async () => true,
+      } }).body
+      expect(body).toContain('option value=""')
+      expect(body).not.toContain('aria-label="Clear Answer"')
+    }
+
+    const requiredBoolean: InputField = { id: "approved", label: "Approved", type: "boolean" }
+    const body = render(FormField, { props: {
+      field: requiredBoolean, path: ["approved"], value: false,
+      onSet: async () => true, onRemove: async () => true,
+    } }).body
+    expect(body).not.toContain('aria-label="Clear Approved"')
   })
 })

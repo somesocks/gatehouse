@@ -57,7 +57,6 @@
       {#each controller.state.form.fields as field (field.id)}
         <FormField {field} path={[field.id ?? ""]} value={controller.value([field.id ?? ""])} busy={controller.state.terminalPending || controller.state.needsReload} onSet={controller.set} onRemove={controller.remove} />
       {/each}
-      {#if controller.state.pending > 0}<p role="status" class="field-help">Saving {controller.state.pending} change{controller.state.pending === 1 ? "" : "s"}...</p>{/if}
       {#if controller.state.error !== ""}<p class="field-help" role="alert">{controller.state.error}</p>{/if}
       {#if controller.state.needsReload}<button type="button" class="secondary" onclick={() => void controller.load()}>Reload shared draft</button>{/if}
       <div class="cluster">

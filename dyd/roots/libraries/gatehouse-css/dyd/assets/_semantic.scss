@@ -877,6 +877,42 @@ textarea {
   padding: 0.5rem 0.65rem;
 }
 
+.input-control {
+  display: block;
+  min-inline-size: 0;
+  position: relative;
+}
+
+.input-control > input:not([type="checkbox"], [type="radio"], [type="file"]),
+.input-control > textarea {
+  inline-size: 100%;
+}
+
+.input-control[data-trailing] > input:not([type="checkbox"], [type="radio"], [type="file"]),
+.input-control[data-trailing] > textarea {
+  padding-inline-end: 2.5rem;
+}
+
+.input-control-status {
+  display: grid;
+  inset-block: 0;
+  inset-inline-end: 0.125rem;
+  inline-size: 2.25rem;
+  place-items: center;
+  pointer-events: none;
+  position: absolute;
+}
+
+.input-control:has(> .select-control) > .input-control-status {
+  inset-inline-end: 2.125rem;
+}
+
+.input-control-status > .spinner {
+  block-size: 1rem;
+  border-width: 0.125rem;
+  inline-size: 1rem;
+}
+
 .select-control {
   display: block;
   min-inline-size: 0;
@@ -898,12 +934,8 @@ textarea {
   transform: translateY(-50%);
 }
 
-.select-control[data-clearable] > select {
+.select-control[data-trailing] > select {
   padding-inline-end: 4.5rem;
-}
-
-.select-control[data-clearable] > svg {
-  inset-inline-end: 2.75rem;
 }
 
 .select-control:has(select:disabled) > svg {

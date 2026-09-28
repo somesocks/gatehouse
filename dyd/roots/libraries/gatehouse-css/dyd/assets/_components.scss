@@ -376,23 +376,22 @@ a.attachment-chip:focus-visible {
   gap: calc(var(--space) / 2);
 }
 
-.input-control {
-  position: relative;
-}
-
-.input-control > input {
-  inline-size: 100%;
-}
-
-.input-control[data-clearable] > input {
-  padding-inline-end: 2.5rem;
-}
-
 .input-clear {
   inset-block-start: 50%;
   inset-inline-end: 0.125rem;
   position: absolute;
   transform: translateY(-50%);
+}
+
+.input-clear[data-empty],
+.input-control[data-loading] > .input-clear > svg {
+  visibility: hidden;
+}
+
+.input-action-spinner {
+  block-size: 1rem;
+  border-width: 0.125rem;
+  inline-size: 1rem;
 }
 
 .event-error {

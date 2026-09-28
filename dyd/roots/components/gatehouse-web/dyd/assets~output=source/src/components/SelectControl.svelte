@@ -4,14 +4,14 @@
 
   let {
     children,
-    clearable = false,
+    trailing = false,
   }: {
     children: Snippet
-    clearable?: boolean
+    trailing?: boolean
   } = $props()
 </script>
 
-<span class="select-control" data-clearable={clearable || undefined}>
+<span class="select-control" data-trailing={trailing || undefined}>
   {@render children()}
   <ChevronDown size={16} strokeWidth={2} aria-hidden="true" />
 </span>
