@@ -10,6 +10,7 @@ const descriptor = {
   fields: [
     { id: "name", label: "Name", type: "text" },
     { id: "approved", label: "Approved", type: "boolean" },
+    { id: "attachments", label: "Attachments", type: "files", optional: true },
     { id: "profile", label: "Profile", type: "object", optional: true, fields: [
       { id: "city", label: "City", type: "text" },
     ] },
@@ -30,6 +31,9 @@ function sharedInput(): { transport: () => InputTransport; snapshot: () => { dra
         draft = patchDraft(draft, operation.path, operation.value, operation.op === "remove")
         return new Response(null, { status: 204 })
       },
+      createFile: async () => { throw new Error("not used") },
+      uploadFile: async () => { throw new Error("not used") },
+      finishFile: async () => { throw new Error("not used") },
       terminal: async (action: "submit" | "cancel") => {
         if (terminal !== null) return new Response(null, { status: 409 })
         if (action === "submit" && typeof draft.name !== "string")
@@ -43,6 +47,40 @@ function sharedInput(): { transport: () => InputTransport; snapshot: () => { dra
 }
 
 describe("shared input form controller", () => {
+  it("waits for a file upload and its draft patch before submitting", async () => {
+    const server = sharedInput()
+    const transport = server.transport()
+    let created = 0
+    transport.createFile = async () => Response.json({ file: { ref: { id: `sfi_${++created}` } }, upload_url: "/storage" })
+    let finishPut!: (response: Response) => void
+    let startedPut!: () => void
+    const putStarted = new Promise<void>((resolve) => { startedPut = resolve })
+    let putCount = 0
+    transport.uploadFile = () => {
+      if (++putCount === 1) {
+        startedPut()
+        return new Promise<Response>((resolve) => { finishPut = resolve })
+      }
+      return Promise.resolve(new Response(null, { status: 204 }))
+    }
+    transport.finishFile = async (_path, id) => Response.json({ id, name: `${id}.txt`, size: 4 })
+    const user = createInputFormController(transport)
+    await user.load()
+    await user.set(["name"], "Ada")
+    const files = [new File(["data"], "one.txt"), new File(["data"], "two.txt")]
+    const uploading = user.upload(["attachments"], files, (summary) =>
+      user.set(["attachments"], [...(user.value(["attachments"]) as object[] ?? []), summary]))
+    await putStarted
+    const submitting = user.submit()
+    expect(server.snapshot().terminal).toBeNull()
+    finishPut(new Response(null, { status: 204 }))
+    await Promise.all([uploading, submitting])
+    expect(server.snapshot().draft.attachments).toEqual([
+      { id: "sfi_1", name: "sfi_1.txt", size: 4 },
+      { id: "sfi_2", name: "sfi_2.txt", size: 4 },
+    ])
+    expect(user.state.status).toBe("submitted")
+  })
   it("saves distinct fields, snapshots the stored draft, and blocks a second responder", async () => {
     const server = sharedInput()
     const alice = createInputFormController(server.transport())

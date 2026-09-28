@@ -95,6 +95,22 @@ func inputFieldDescriptor(value lisp.Expr) (error, inputform.Field) {
 			}
 		}
 	case "input/form/boolean":
+	case "input/form/files":
+		for _, constraint := range values[3:] {
+			_, parts := lisp.RequireList(constraint)
+			_, name := lisp.RequireSymbol(parts[0])
+			switch name {
+			case "input/form/files/max-files":
+				_, bound := lisp.RequireInteger(parts[1])
+				field.MaxFiles = &bound
+			case "input/form/files/media-types":
+				_, types := lisp.RequireList(parts[1])
+				for _, candidate := range types {
+					_, mediaType := lisp.RequireString(candidate)
+					field.MediaTypes = append(field.MediaTypes, mediaType)
+				}
+			}
+		}
 	default:
 		return fmt.Errorf("input field descriptor type %q is unsupported", tag), inputform.Field{}
 	}

@@ -23,6 +23,7 @@ func TestInputFormConstructorsReturnTaggedValues(t *testing.T) {
 		{`(input/form/text "name" "Name")`, `(input/form/text "name" "Name")`},
 		{`(input/form/text "name" "Name" (input/form/text/min-length 1) (input/form/text/max-length 80))`, `(input/form/text "name" "Name" (input/form/text/min-length 1) (input/form/text/max-length 80))`},
 		{`(input/form/boolean "send" "Send updates")`, `(input/form/boolean "send" "Send updates")`},
+		{`(input/form/files "photos" "Photos" (input/form/files/max-files 5) (input/form/files/media-types (list "image/*")))`, `(input/form/files "photos" "Photos" (input/form/files/max-files 5) (input/form/files/media-types ("image/*")))`},
 		{`(input/form/number "amount" "Amount")`, `(input/form/number "amount" "Amount")`},
 		{`(input/form/number "count" "Count" (input/form/number/min -10) (input/form/number/max 100) (input/form/number/integer))`, `(input/form/number "count" "Count" (input/form/number/min -10) (input/form/number/max 100) (input/form/number/integer))`},
 		{`(input/form/options "size" "Size" (list "small" "large"))`, `(input/form/options "size" "Size" ("small" "large"))`},
@@ -63,6 +64,8 @@ func TestInputFormConstructorsRejectInvalidShapes(t *testing.T) {
 		{`(input/form/text/min-length "1")`, "non-negative integer"},
 		{`(input/form/number/min "1.5")`, "requires an integer"},
 		{`(input/form/number/integer 1)`, "requires no arguments"},
+		{`(input/form/files/max-files 0)`, "positive integer"},
+		{`(input/form/files/media-types (list "image/png" "image/png"))`, "distinct valid MIME types"},
 		{`(input/form/text "name" "Name" (input/form/number/min 1))`, "supported constraints"},
 		{`(input/form/number "count" "Count" (input/form/text/max-length 2))`, "supported constraints"},
 		{`(input/form/text "name" "Name" (input/form/text/min-length 1) (input/form/text/min-length 2))`, "duplicated"},
@@ -164,6 +167,21 @@ func TestInputFormDescriptorUsesVersionedJSON(t *testing.T) {
 	}
 	if err := form.ValidateResult(json.RawMessage(`{"contacts":[{"name":"Ada"}],"count":0}`)); err != nil {
 		t.Fatalf("validate serialized form result: %v", err)
+	}
+}
+
+func TestInputFilesDescriptor(t *testing.T) {
+	err, value := evaluateInputForm(`(input/form "Files" (input/form/files "attachments" "Attachments" (input/form/files/max-files 3) (input/form/files/media-types (list "image/*" "application/pdf"))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, form := inputFormDescriptor(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	field := form.Fields[0]
+	if field.Type != "files" || field.MaxFiles == nil || *field.MaxFiles != 3 || len(field.MediaTypes) != 2 || field.MediaTypes[0] != "image/*" || field.MediaTypes[1] != "application/pdf" {
+		t.Fatalf("file descriptor = %#v", field)
 	}
 }
 

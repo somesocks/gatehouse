@@ -27,6 +27,11 @@ const form: InputForm = {
 }
 
 describe("input form JSON", () => {
+  it("preserves file size text in saved summary arrays", () => {
+    const document = parseInputDocument(`{"form":{"version":1,"type":"form","title":"Files","fields":[{"id":"files","label":"Files","type":"files"}]},"draft":{"files":[{"id":"sfi_1","name":"large.bin","size":9007199254740993}]}}`)
+    expect(document.draft.files).toEqual([{ id: "sfi_1", name: "large.bin", size: "9007199254740993" }])
+    expect(encodeFieldValue(document.form.fields[0], document.draft.files)).toBe('[{"id":"sfi_1","name":"large.bin","size":9007199254740993}]')
+  })
   it("reads numeric draft values and bounds without rounding", () => {
     const result = parseInputDocument(`{"form":{"version":1,"type":"form","title":"Review","fields":[{"type":"number","id":"amount","min":9007199254740993}]},"draft":{"amount":9007199254740993,"list":[{"value":1.234567890123456789}]},"updated_at":null}`)
     expect(result.form.fields[0].min).toBe("9007199254740993")

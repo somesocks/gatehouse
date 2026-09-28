@@ -593,15 +593,15 @@
                             rel="noopener noreferrer"
                             download={file.name}
                             title={file.fingerprint}
-                            ><Paperclip
+                            ><span class="attachment-chip-icon"><Paperclip
                               size={14}
                               strokeWidth={2}
                               aria-hidden="true"
-                            /><span>{file.name}</span><small
+                            /></span><span class="attachment-chip-label"><span>{file.name}</span><small
                               >{file.size} bytes{file.media_type === undefined
                                 ? ""
                                 : ` · ${file.media_type}`}</small
-                            ></a
+                            ></span></a
                           >{/each}
                       </div>{/if}
                   </article>
@@ -811,15 +811,15 @@
                               rel="noopener noreferrer"
                               download={file.name}
                               title={file.fingerprint}
-                              ><Paperclip
+                              ><span class="attachment-chip-icon"><Paperclip
                                 size={14}
                                 strokeWidth={2}
                                 aria-hidden="true"
-                              /><span>{file.name}</span><small
+                              /></span><span class="attachment-chip-label"><span>{file.name}</span><small
                                 >{file.size} bytes{file.media_type === undefined
                                   ? ""
                                   : ` · ${file.media_type}`}</small
-                              ></a
+                              ></span></a
                             >{/each}
                         </div>{/if}
                     </article>{/each}{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<button
@@ -857,14 +857,14 @@
                 {#each controller.state.composerFiles as entry (entry.file)}<span
                     class="attachment-chip badge"
                     data-state={entry.status}
-                    >{#if entry.status === "uploading"}<span
+                    ><span class="attachment-chip-icon">{#if entry.status === "uploading"}<span
                         class="spinner"
                         aria-hidden="true"
                       ></span>{:else}<Paperclip
                         size={14}
                         strokeWidth={2}
                         aria-hidden="true"
-                      />{/if}<span>{entry.file.name}</span><small
+                      />{/if}</span><span class="attachment-chip-label"><span>{entry.file.name}</span><small
                       >{entry.status === "uploading"
                         ? "Uploading"
                         : entry.status === "failed"
@@ -872,7 +872,7 @@
                           : entry.id === undefined
                             ? `${entry.file.size} bytes`
                             : "Ready"}</small
-                    ><button
+                    ></span><button
                       class="icon inline secondary"
                       type="button"
                       aria-label={`Remove ${entry.file.name}`}

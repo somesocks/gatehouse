@@ -100,4 +100,16 @@ describe("form field headings and labels", () => {
     } }).body
     expect(body).not.toContain('aria-label="Clear Approved"')
   })
+
+  it("shows completed file summaries as removable chips after reload", () => {
+    const field: InputField = { id: "files", label: "Documents", type: "files", max_files: "2", media_types: ["application/pdf"] }
+    const body = render(FormField, { props: {
+      field, path: ["files"], value: [{ id: "sfi_1", name: "report.pdf", size: "42", media_type: "application/pdf" }],
+      onSet: async () => true, onRemove: async () => true,
+    } }).body
+    expect(body).toContain('accept="application/pdf"')
+    expect(body).toContain("report.pdf")
+    expect(body).toContain("42 bytes")
+    expect(body).toContain('aria-label="Remove report.pdf"')
+  })
 })

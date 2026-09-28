@@ -1,7 +1,7 @@
 export type InputField = {
   id?: string
   label?: string
-  type: "text" | "number" | "boolean" | "options" | "object" | "list"
+  type: "text" | "number" | "boolean" | "options" | "object" | "list" | "files"
   optional?: boolean
   min_length?: string
   max_length?: string
@@ -11,7 +11,11 @@ export type InputField = {
   choices?: string[]
   fields?: InputField[]
   item?: InputField
+  max_files?: string
+  media_types?: string[]
 }
+
+export type InputFileSummary = { id: string; name: string; size: string | number; media_type?: string }
 
 export type InputForm = {
   version: string
@@ -80,6 +84,14 @@ export function encodeFieldValue(field: InputField, value: unknown): string {
     case "boolean":
       if (typeof value !== "boolean") break
       return String(value)
+    case "files":
+      if (!Array.isArray(value) || value.some((file) =>
+        file === null || typeof file !== "object" || typeof file.id !== "string" ||
+        typeof file.name !== "string" || !/^(0|[1-9]\d*)$/.test(String(file.size)) ||
+        file.media_type !== undefined && typeof file.media_type !== "string")) break
+      return `[${value.map((file: InputFileSummary) =>
+        `{"id":${JSON.stringify(file.id)},"name":${JSON.stringify(file.name)},"size":${file.size}${file.media_type === undefined ? "" : `,"media_type":${JSON.stringify(file.media_type)}`}}`,
+      ).join(",")}]`
     case "object": {
       if (value === null || typeof value !== "object" || Array.isArray(value))
         break
@@ -145,6 +157,8 @@ export function initialListValue(field: InputField): unknown {
       return " ".repeat(Math.max(0, Number(field.min_length ?? "0")))
     case "number":
       return field.min ?? (field.max !== undefined && field.max.startsWith("-") ? field.max : "0")
+    case "files":
+      return []
   }
 }
 

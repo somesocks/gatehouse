@@ -187,6 +187,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/inputs/{input}/open", workspaceSessionInputOpen(store, tokens[0], configuration.PublicBaseURL))
 		mux.HandleFunc("/api/v1/input", sessionInputRead(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input/draft", sessionInputPatch(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/files", sessionInputFileCreate(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/files/{file}/finish", sessionInputFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input/submit", sessionInputTerminal(store, tokens[0], dispatcher, "input.success"))
 		mux.HandleFunc("/api/v1/input/cancel", sessionInputTerminal(store, tokens[0], dispatcher, "input.failure"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))

@@ -34,7 +34,7 @@ type inputTestFixture struct {
 	login      string
 }
 
-func newInputTestFixture(t *testing.T) inputTestFixture {
+func newInputTestFixture(t *testing.T, extra ...inputform.Field) inputTestFixture {
 	t.Helper()
 	ctx := context.Background()
 	tokens, store, workspaces := testBearerTokens(t)
@@ -62,12 +62,120 @@ func newInputTestFixture(t *testing.T) inputTestFixture {
 		}},
 		{ID: "agreed", Label: "Agreed", Type: "boolean", Optional: true},
 	}}
+	form.Fields = append(form.Fields, extra...)
 	input := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &tool.Ref, Kind: "input.request", AuthorAgent: &agent, Payload: map[string]interface{}{"description": "Review", "form": form}}
 	if err, _ := store.SessionEventsCreateBatch(ctx, []model.SessionEvent{message, tool, input}); err != nil {
 		t.Fatal(err)
 	}
 	dispatcher := &inputTestDispatcher{}
 	return inputTestFixture{store: store, tokens: tokens, handler: HandlerWithReplyDispatcher(config.HTTPService{API: true, Web: true, PublicBaseURL: "https://gatehouse.example.test"}, store, dispatcher, tokens), dispatcher: dispatcher, input: input.Ref, login: login}
+}
+
+func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
+	limit := int64(2)
+	fixture := newInputTestFixture(t, inputform.Field{ID: "attachments", Label: "Attachments", Type: "files", MaxFiles: &limit, MediaTypes: []string{"text/plain"}})
+	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
+	var launch struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "").Body.Bytes(), &launch); err != nil {
+		t.Fatal(err)
+	}
+	capability := inputTestCapability(t, launch.URL)
+	sessionFiles := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/files"
+	if denied := inputTestRequest(fixture.handler, http.MethodPost, sessionFiles, capability, `{"name":"existing.txt"}`); denied.Code != http.StatusUnauthorized {
+		t.Fatalf("form capability accessed ordinary session files = %d", denied.Code)
+	}
+	create := func(mediaType string) *httptest.ResponseRecorder {
+		return inputTestRequest(fixture.handler, http.MethodPost, "/api/v1/input/files", capability,
+			`{"path":["attachments"],"name":"report.txt","media_type":"`+mediaType+`"}`)
+	}
+	if bad := create("image/png"); bad.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("disallowed MIME = %d", bad.Code)
+	}
+	created := create("text/plain")
+	var upload sessionFileCreateResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &upload); err != nil || created.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s (%v)", created.Code, created.Body.String(), err)
+	}
+	fileID := upload.File.Ref.Id
+	fileValue := `[{"id":"` + fileID + `","name":"report.txt","size":4,"media_type":"text/plain"}]`
+	patch := func(value string) *httptest.ResponseRecorder {
+		return inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability, `{"op":"set","path":["attachments"],"value":`+value+`}`)
+	}
+	existing := inputTestRequest(fixture.handler, http.MethodPost, sessionFiles, fixture.login, `{"name":"existing.txt","media_type":"text/plain"}`)
+	var unrelated sessionFileCreateResponse
+	if err := json.Unmarshal(existing.Body.Bytes(), &unrelated); err != nil || existing.Code != http.StatusCreated {
+		t.Fatalf("create unrelated session file = %d %s (%v)", existing.Code, existing.Body.String(), err)
+	}
+	if put := inputTestRequest(fixture.handler, http.MethodPut, unrelated.UploadURL, "", "data"); put.Code != http.StatusNoContent {
+		t.Fatalf("upload unrelated file = %d", put.Code)
+	}
+	if finished := inputTestRequest(fixture.handler, http.MethodPost, sessionFiles+"/"+unrelated.File.Ref.Id+"/finish", fixture.login, ""); finished.Code != http.StatusOK {
+		t.Fatalf("finish unrelated file = %d", finished.Code)
+	}
+	if other := patch(`[{"id":"` + unrelated.File.Ref.Id + `","name":"existing.txt","size":4,"media_type":"text/plain"}]`); other.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("accepted existing session file as form upload = %d %s", other.Code, other.Body.String())
+	}
+	if early := patch(fileValue); early.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("accepted unfinished upload = %d %s", early.Code, early.Body.String())
+	}
+	if put := inputTestRequest(fixture.handler, http.MethodPut, upload.UploadURL, "", "data"); put.Code != http.StatusNoContent {
+		t.Fatalf("upload = %d %s", put.Code, put.Body.String())
+	}
+	finished := inputTestRequest(fixture.handler, http.MethodPost, "/api/v1/input/files/"+fileID+"/finish", capability, `{"path":["attachments"]}`)
+	var summary inputform.FileSummary
+	if err := json.Unmarshal(finished.Body.Bytes(), &summary); err != nil || finished.Code != http.StatusOK || summary.ID != fileID || summary.Name != "report.txt" || summary.Size != 4 {
+		t.Fatalf("finish = %d %s (%v)", finished.Code, finished.Body.String(), err)
+	}
+	if forged := patch(`[{"id":"` + fileID + `","name":"forged.txt","size":4,"media_type":"text/plain"}]`); forged.Code != http.StatusNoContent {
+		t.Fatalf("failed to canonicalize file summary = %d", forged.Code)
+	}
+	var document struct {
+		Draft struct {
+			Attachments []inputform.FileSummary `json:"attachments"`
+		} `json:"draft"`
+	}
+	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", capability, ""); json.Unmarshal(read.Body.Bytes(), &document) != nil || len(document.Draft.Attachments) != 1 || document.Draft.Attachments[0].Name != "report.txt" {
+		t.Fatalf("file draft kept untrusted metadata: %d %s", read.Code, read.Body.String())
+	}
+	if stored := patch(fileValue); stored.Code != http.StatusNoContent {
+		t.Fatalf("save = %d %s", stored.Code, stored.Body.String())
+	}
+	if repeated := patch(`[` + strings.TrimSuffix(strings.TrimPrefix(fileValue, "["), "]") + `,` + strings.TrimSuffix(strings.TrimPrefix(fileValue, "["), "]") + `]`); repeated.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("accepted duplicate IDs = %d", repeated.Code)
+	}
+	if result := inputTestRequest(fixture.handler, http.MethodPost, "/api/v1/input/submit", capability, ""); result.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("submitted without other required fields = %d", result.Code)
+	}
+	if name := inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability, `{"op":"set","path":["name"],"value":"Ada"}`); name.Code != http.StatusNoContent {
+		t.Fatalf("save name = %d", name.Code)
+	}
+	response := inputTestRequest(fixture.handler, http.MethodPost, "/api/v1/input/submit", capability, "")
+	// The original fixture's optional fields need no answer. The file summary is stored as result data.
+	if response.Code != http.StatusAccepted {
+		t.Fatalf("submit = %d %s", response.Code, response.Body.String())
+	}
+	var terminal struct {
+		EventID string `json:"event_id"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &terminal); err != nil {
+		t.Fatal(err)
+	}
+	resultErr, result := fixture.store.SessionInputResponseResultGet(context.Background(), model.SessionEventRef{Session: fixture.input.Session, Id: terminal.EventID})
+	var answer struct {
+		Attachments []inputform.FileSummary `json:"attachments"`
+	}
+	decodeErr := json.Unmarshal([]byte(result), &answer)
+	if resultErr != nil || decodeErr != nil || len(answer.Attachments) != 1 || answer.Attachments[0].ID != fileID || answer.Attachments[0].Name != "report.txt" || answer.Attachments[0].Size != 4 {
+		t.Fatalf("result = %s (%v, %v)", result, resultErr, decodeErr)
+	}
+	if late := create("text/plain"); late.Code != http.StatusConflict {
+		t.Fatalf("upload after submit = %d", late.Code)
+	}
+	if err, files := fixture.store.SessionFileReferencesGet(context.Background(), fixture.input.Session, []string{fileID}); err != nil || len(files) != 1 {
+		t.Fatalf("submitted upload is not a session file: %#v (%v)", files, err)
+	}
 }
 
 func inputTestRequest(handler http.Handler, method, path, token, body string) *httptest.ResponseRecorder {

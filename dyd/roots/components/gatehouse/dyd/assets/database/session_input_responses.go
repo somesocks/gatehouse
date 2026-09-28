@@ -91,6 +91,17 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 		if err := form.ValidateResult(json.RawMessage(draft)); err != nil {
 			return fmt.Errorf("%w: %w", ErrSessionInputInvalidDraft, err), model.SessionEvent{}
 		}
+		var values map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(draft), &values); err != nil {
+			return err, model.SessionEvent{}
+		}
+		for _, field := range form.Fields {
+			if value, exists := values[field.ID]; exists {
+				if err, _ := store.canonicalizeInputFiles(ctx, transaction, *event.Parent, field, []string{field.ID}, value); err != nil {
+					return fmt.Errorf("%w: %w", ErrSessionInputInvalidDraft, err), model.SessionEvent{}
+				}
+			}
+		}
 		event.Payload = map[string]interface{}{"result": json.RawMessage(draft)}
 	}
 	createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, event.Ref.Id)

@@ -14,6 +14,8 @@ import (
 	"gatehouse/inputform"
 	"gatehouse/model"
 	"gatehouse/typed_id"
+	"strings"
+	"time"
 )
 
 func inputResponseHeaders(response http.ResponseWriter) {
@@ -215,6 +217,16 @@ func sessionInputPatch(store *database.Store, tokens *auth.BearerTokens) http.Ha
 				http.Error(response, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
+			if fileErr, canonical := store.CanonicalizeInputFiles(request.Context(), input, field, patch.Path, patch.Value); fileErr != nil {
+				if errors.Is(fileErr, database.ErrSessionInputFileUnavailable) {
+					http.Error(response, fileErr.Error(), http.StatusUnprocessableEntity)
+				} else {
+					http.Error(response, "internal server error", http.StatusInternalServerError)
+				}
+				return
+			} else {
+				patch.Value = canonical
+			}
 			err, draft = store.SessionInputDraftSet(request.Context(), input, patch.Path, patch.Value)
 		} else {
 			err, draft = store.SessionInputDraftRemove(request.Context(), input, patch.Path)
@@ -231,6 +243,138 @@ func sessionInputPatch(store *database.Store, tokens *auth.BearerTokens) http.Ha
 		default:
 			response.WriteHeader(http.StatusNoContent)
 		}
+	}
+}
+
+type inputFileCreateRequest struct {
+	Path      []string `json:"path"`
+	Name      string   `json:"name"`
+	MediaType *string  `json:"media_type"`
+}
+
+func sessionInputFileCreate(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		inputResponseHeaders(response)
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		form, input, claims, ok := authorizedFormInput(response, request, store, tokens)
+		if !ok || !inputPending(response, request, store, input) {
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, input.Session, authz.SessionFileCreate) {
+			return
+		}
+		var body inputFileCreateRequest
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		var trailing any
+		if err := decoder.Decode(&body); err != nil || strings.TrimSpace(body.Name) == "" || decoder.Decode(&trailing) != io.EOF {
+			http.Error(response, "invalid input file", http.StatusBadRequest)
+			return
+		}
+		field, found := form.FileFieldAtPath(body.Path)
+		if !found || body.MediaType != nil && (!inputform.ValidMediaTypePattern(*body.MediaType) || strings.HasSuffix(*body.MediaType, "/*")) || !inputform.AllowsMediaType(field, mediaTypeValueForInput(body.MediaType)) {
+			http.Error(response, "invalid input file type or field", http.StatusUnprocessableEntity)
+			return
+		}
+		fileID, idErr := typed_id.New(typed_id.SessionFile)
+		objectID, objectErr := typed_id.New(typed_id.StorageObject)
+		if idErr != nil || objectErr != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		file := model.SessionFile{Ref: model.SessionFileRef{Session: input.Session, Id: fileID}, Name: body.Name, MediaType: body.MediaType, Enabled: true}
+		err, stored, object := store.SessionInputFileCreate(request.Context(), input, body.Path, file, objectID, claims.Principal.Ref)
+		if errors.Is(err, database.ErrSessionInputResolved) {
+			http.Error(response, "input is already resolved", http.StatusConflict)
+			return
+		}
+		if err != nil {
+			if strings.Contains(err.Error(), "no available storage provider") {
+				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)
+			} else {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+			}
+			return
+		}
+		err, token := storageToken(request.Context(), tokens, object, "put", 15*time.Minute)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSONStatus(response, http.StatusCreated, sessionFileCreateResponse{File: stored, UploadURL: storageURL(request, token)})
+	}
+}
+
+func mediaTypeValueForInput(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
+}
+
+func sessionInputFileFinish(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		inputResponseHeaders(response)
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		form, input, claims, ok := authorizedFormInput(response, request, store, tokens)
+		if !ok || !inputPending(response, request, store, input) {
+			return
+		}
+		if !sessionActionAllowed(response, request, store, claims, input.Session, authz.SessionFileFinish) {
+			return
+		}
+		var body struct {
+			Path []string `json:"path"`
+		}
+		decoder := json.NewDecoder(http.MaxBytesReader(response, request.Body, 1<<20))
+		decoder.DisallowUnknownFields()
+		var trailing any
+		if err := decoder.Decode(&body); err != nil || decoder.Decode(&trailing) != io.EOF {
+			http.Error(response, "invalid file field", http.StatusBadRequest)
+			return
+		}
+		field, found := form.FileFieldAtPath(body.Path)
+		if !found {
+			http.Error(response, "invalid file field", http.StatusBadRequest)
+			return
+		}
+		err, file, object := store.SessionInputFileGet(request.Context(), input, body.Path, request.PathValue("file"), claims.Principal.Ref)
+		if errors.Is(err, database.ErrSessionInputFileUnavailable) {
+			http.NotFound(response, request)
+			return
+		}
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if file == nil || object == nil {
+			http.NotFound(response, request)
+			return
+		}
+		if !inputform.AllowsMediaType(field, mediaTypeValueForInput(file.MediaType)) {
+			http.Error(response, "invalid file media type", http.StatusUnprocessableEntity)
+			return
+		}
+		if err := tokens.StorageClient().Finish(request.Context(), object.ID); err != nil {
+			http.Error(response, "storage object is not ready", http.StatusConflict)
+			return
+		}
+		if err, _, _ := store.SessionFileFinish(request.Context(), file.Ref, claims.Principal.Ref); err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		err, summary := store.SessionInputFileSummaryGet(request.Context(), input, body.Path, file.Ref.Id)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, summary)
 	}
 }
 

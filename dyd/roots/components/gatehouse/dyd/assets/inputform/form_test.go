@@ -122,3 +122,39 @@ func TestFormDraftValueAllowsIncompleteObjectsButRejectsInvalidValues(t *testing
 		t.Fatalf("ValidateResult(incomplete draft) = %v", err)
 	}
 }
+
+func TestFileAnswersValidateCountAndMediaType(t *testing.T) {
+	limit := int64(2)
+	form := Form{Version: Version, Type: "form", Title: "Files", Fields: []Field{{ID: "attachments", Label: "Attachments", Type: "files", MaxFiles: &limit, MediaTypes: []string{"image/*"}}}}
+	if err := form.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	file := `{"id":"sfi_00000000000000000000000000","name":"image.png","size":4,"media_type":"image/png"}`
+	if err := ValidateDraftValue(form.Fields[0], json.RawMessage(`[]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := form.ValidateResult(json.RawMessage(`{"attachments":[` + file + `]}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{
+		`{"attachments":[]}`,
+		`{"attachments":[` + file + `,` + file + `]}`,
+		`{"attachments":[` + file + `,` + file + `,` + file + `]}`,
+		`{"attachments":[{"id":"sfi_00000000000000000000000000","name":"image.png","size":4,"media_type":"text/plain"}]}`,
+	} {
+		if err := form.ValidateResult(json.RawMessage(value)); err == nil {
+			t.Fatalf("accepted invalid file result %s", value)
+		}
+	}
+	if err, _ := Decode([]byte(`{"version":1,"type":"form","title":"Files","fields":[{"id":"bad","label":"Bad","type":"files","media_types":["image/*","image/*"]}]}`)); err == nil {
+		t.Fatal("accepted duplicate MIME type")
+	}
+	if err, _ := Decode([]byte(`{"version":1,"type":"form","title":"Files","fields":[{"id":"entries","label":"Entries","type":"list","item":{"type":"files"}}]}`)); err == nil {
+		t.Fatal("accepted redundant list of file arrays")
+	}
+	if err, nested := Decode([]byte(`{"version":1,"type":"form","title":"Files","fields":[{"id":"entries","label":"Entries","type":"list","item":{"type":"object","fields":[{"id":"attachments","label":"Attachments","type":"files"}]}}]}`)); err != nil {
+		t.Fatalf("rejected files inside list entry objects: %v", err)
+	} else if field, ok := nested.FileFieldAtPath([]string{"entries", "attachments"}); !ok || field.Type != "files" {
+		t.Fatalf("could not resolve nested file field: %#v (%t)", field, ok)
+	}
+}

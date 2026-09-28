@@ -26,4 +26,20 @@ describe("input capability API", () => {
     }
     expect(request.mock.calls[2][1].body).toBeUndefined()
   })
+
+  it("uses the form capability for file create and finish, but only the signed URL for bytes", async () => {
+    const request = vi.fn(async () => new Response(null, { status: 204 }))
+    vi.stubGlobal("fetch", request)
+    const transport = createInputTransport("form-token")
+    const file = new File(["data"], "report.txt", { type: "text/plain" })
+    await transport.createFile(["attachments"], file)
+    await transport.uploadFile("/api/v1/storage?token=storage-token", file)
+    await transport.finishFile(["attachments"], "sfi_1")
+    expect(request.mock.calls.map(([url]) => url)).toEqual([
+      "/api/v1/input/files", "/api/v1/storage?token=storage-token", "/api/v1/input/files/sfi_1/finish",
+    ])
+    expect(request.mock.calls[0][1].headers.Authorization).toBe("Bearer form-token")
+    expect(request.mock.calls[1][1].headers?.Authorization).toBeUndefined()
+    expect(request.mock.calls[2][1].headers.Authorization).toBe("Bearer form-token")
+  })
 })

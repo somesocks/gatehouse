@@ -55,7 +55,7 @@
       void controller.submit()
     }}>
       {#each controller.state.form.fields as field (field.id)}
-        <FormField {field} path={[field.id ?? ""]} value={controller.value([field.id ?? ""])} busy={controller.state.terminalPending || controller.state.needsReload} onSet={controller.set} onRemove={controller.remove} />
+        <FormField {field} path={[field.id ?? ""]} value={controller.value([field.id ?? ""])} busy={controller.state.terminalPending || controller.state.needsReload} onSet={controller.set} onRemove={controller.remove} onUpload={controller.upload} />
       {/each}
       {#if controller.state.error !== ""}<p class="field-help" role="alert">{controller.state.error}</p>{/if}
       {#if controller.state.needsReload}<button type="button" class="secondary" onclick={() => void controller.load()}>Reload shared draft</button>{/if}

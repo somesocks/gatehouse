@@ -6,6 +6,7 @@ import {
   requiredBooleanDefaults,
   type InputField,
   type InputForm,
+  type InputFileSummary,
 } from "./form-data"
 import type { InputTransport } from "./input-api"
 
@@ -24,6 +25,33 @@ export function createInputFormController(transport: InputTransport) {
   let queue = Promise.resolve()
   let generation = 0
   let draftRevision = 0
+  const uploads = new Set<Promise<boolean>>()
+
+  function upload(path: string[], files: File[], save: (value: InputFileSummary) => Promise<boolean>): Promise<boolean> {
+    if (state.status !== "ready" || state.terminalPending || state.needsReload) return Promise.resolve(false)
+    const operation = (async () => {
+      try {
+        for (const file of files) {
+          const created = await transport.createFile(path, file)
+          if (!created.ok) throw new Error(`File upload could not start (${created.status}).`)
+          const started = (await created.json()) as { file: { ref: { id: string } }; upload_url: string }
+          const put = await transport.uploadFile(started.upload_url, file)
+          if (!put.ok) throw new Error(`File upload failed (${put.status}).`)
+          const finished = await transport.finishFile(path, started.file.ref.id)
+          if (!finished.ok) throw new Error(`File upload could not finish (${finished.status}).`)
+          const summary = (await finished.json()) as InputFileSummary
+          if (!(await save(summary))) return false
+        }
+        return true
+      } catch (error) {
+        state.error = error instanceof Error ? error.message : "File upload failed."
+        state.invalidAnswer = true
+        return false
+      }
+    })()
+    uploads.add(operation)
+    return operation.finally(() => uploads.delete(operation))
+  }
 
   function dispose(): void {
     generation += 1
@@ -102,7 +130,7 @@ export function createInputFormController(transport: InputTransport) {
   }
 
   function enqueue(path: string[], value?: unknown, remove = false): Promise<boolean> {
-    if (state.status !== "ready" || state.terminalPending || state.needsReload) return Promise.resolve(false)
+    if (state.status !== "ready" || state.terminalPending && uploads.size === 0 || state.needsReload) return Promise.resolve(false)
     let body: string
     try {
       body = remove
@@ -148,6 +176,7 @@ export function createInputFormController(transport: InputTransport) {
     state.terminalPending = true
     state.error = ""
     try {
+      if (action === "submit") await Promise.all([...uploads])
       await queue
       if (state.status !== "ready") return
       if (action === "submit") {
@@ -216,6 +245,7 @@ export function createInputFormController(transport: InputTransport) {
     value: (path: string[]) => fieldValue(state.draft, path),
     set: (path: string[], value: unknown) => enqueue(path, value),
     remove: (path: string[]) => enqueue(path, undefined, true),
+    upload,
     submit: () => finish("submit"),
     cancel: () => finish("cancel"),
   }

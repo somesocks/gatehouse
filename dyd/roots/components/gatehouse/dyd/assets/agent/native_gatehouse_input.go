@@ -15,6 +15,9 @@ func NewInputModule(requestInput ...func(inputform.Form) (error, string)) lisp.H
 	exports := []lisp.HostExport{
 		inputConstructor("form", "(input/form title fields...) -> Input Form", "Creates a form with a non-blank title and at least one field.", `(input/form "Review" (input/form/text "name" "Name"))`, `(input/form "Review" (input/form/text "name" "Name"))`, inputForm),
 		inputConstructor("form/boolean", "(input/form/boolean id label) -> Input Field", "Creates a boolean field.", `(input/form/boolean "updates" "Receive updates")`, `(input/form/boolean "updates" "Receive updates")`, inputSimpleField("boolean")),
+		inputConstructor("form/files", "(input/form/files id label constraint...) -> Input Field", "Uploads session files and returns an array of file summaries.", `(input/form/files "photos" "Photos" (input/form/files/max-files 5))`, `(input/form/files "photos" "Photos" (input/form/files/max-files 5))`, inputSimpleField("files")),
+		inputConstructor("form/files/max-files", "(input/form/files/max-files count) -> Input Constraint", "Limits the number of uploaded files to a positive count.", `(input/form/files/max-files 5)`, `(input/form/files/max-files 5)`, inputFileMaxFiles),
+		inputConstructor("form/files/media-types", "(input/form/files/media-types types) -> Input Constraint", "Accepts declared media types such as image/png or image/*.", `(input/form/files/media-types (list "image/*"))`, `(input/form/files/media-types ("image/*"))`, inputFileMediaTypes),
 		inputConstructor("form/number", "(input/form/number id label constraint...) -> Input Field", "Creates a numeric field. Bounds are integer-valued; number/integer restricts answers to whole numbers.", `(input/form/number "count" "Count" (input/form/number/min 0) (input/form/number/integer))`, `(input/form/number "count" "Count" (input/form/number/min 0) (input/form/number/integer))`, inputSimpleField("number")),
 		inputConstructor("form/number/integer", "(input/form/number/integer) -> Input Constraint", "Requires a numeric answer to be an integer.", `(input/form/number/integer)`, `(input/form/number/integer)`, inputNumberInteger),
 		inputConstructor("form/number/min", "(input/form/number/min integer) -> Input Constraint", "Sets an inclusive integer-valued lower bound for a numeric answer.", `(input/form/number/min 0)`, `(input/form/number/min 0)`, inputBound("number", "min", false)),
@@ -157,6 +160,42 @@ func inputNumberInteger(arguments []lisp.Expr) (error, lisp.Expr) {
 	return nil, inputTagged("form/number/integer")
 }
 
+func inputFileMaxFiles(arguments []lisp.Expr) (error, lisp.Expr) {
+	if len(arguments) != 1 {
+		return lisp.Errorf("input/form/files/max-files requires one positive integer"), nil
+	}
+	if err := inputPublic(arguments); err != nil {
+		return err, nil
+	}
+	valueErr, value := lisp.RequireInteger(arguments[0])
+	if valueErr != nil || value <= 0 {
+		return lisp.Errorf("input/form/files/max-files requires one positive integer"), nil
+	}
+	return nil, inputTagged("form/files/max-files", arguments[0])
+}
+
+func inputFileMediaTypes(arguments []lisp.Expr) (error, lisp.Expr) {
+	if len(arguments) != 1 {
+		return lisp.Errorf("input/form/files/media-types requires a non-empty list"), nil
+	}
+	if err := inputPublic(arguments); err != nil {
+		return err, nil
+	}
+	valuesErr, values := lisp.RequireList(arguments[0])
+	if valuesErr != nil || len(values) == 0 {
+		return lisp.Errorf("input/form/files/media-types requires a non-empty list"), nil
+	}
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		textErr, text := lisp.RequireString(value)
+		if textErr != nil || !inputform.ValidMediaTypePattern(text) || seen[text] {
+			return lisp.Errorf("input/form/files/media-types requires distinct valid MIME types"), nil
+		}
+		seen[text] = true
+	}
+	return nil, inputTagged("form/files/media-types", arguments[0])
+}
+
 func inputOptions(arguments []lisp.Expr) (error, lisp.Expr) {
 	if len(arguments) != 3 {
 		return lisp.Errorf("input/form/options requires an id, label, and list of choices"), nil
@@ -278,6 +317,28 @@ func inputConstraints(kind string, constraints []lisp.Expr) error {
 		if kind == "number" && name == "integer" && len(values) == 1 {
 			continue
 		}
+		if kind == "files" {
+			switch name {
+			case "max-files":
+				if len(values) != 2 {
+					return lisp.Errorf("input/form/files/max-files requires one positive integer")
+				}
+				err, count := lisp.RequireInteger(values[1])
+				if err != nil || count <= 0 {
+					return lisp.Errorf("input/form/files/max-files requires one positive integer")
+				}
+			case "media-types":
+				if len(values) != 2 {
+					return lisp.Errorf("input/form/files/media-types requires a non-empty list")
+				}
+				if err, _ := inputFileMediaTypes(values[1:]); err != nil {
+					return err
+				}
+			default:
+				return lisp.Errorf("input/form/files requires supported constraints")
+			}
+			continue
+		}
 		lowerBound := (kind == "text" && name == "min-length") || (kind == "number" && name == "min")
 		upperBound := (kind == "text" && name == "max-length") || (kind == "number" && name == "max")
 		if (!lowerBound && !upperBound) || len(values) != 2 {
@@ -355,7 +416,7 @@ func inputFieldID(field lisp.Expr, allowOptional bool) (string, error) {
 		if err := inputFields(arguments[2:]); err != nil {
 			return "", err
 		}
-	case "input/form/text", "input/form/boolean", "input/form/number":
+	case "input/form/text", "input/form/boolean", "input/form/number", "input/form/files":
 		kind := strings.TrimPrefix(tag, "input/form/")
 		if len(arguments) < 2 || (kind == "boolean" && len(arguments) != 2) {
 			return "", lisp.Errorf("%s requires an id and label%s", tag, inputConstraintSuffix(kind))

@@ -9,9 +9,12 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"regexp"
 	"strconv"
 	"strings"
 	"unicode/utf8"
+
+	"gatehouse/typed_id"
 )
 
 const Version = 1
@@ -24,18 +27,43 @@ type Form struct {
 }
 
 type Field struct {
-	ID        string   `json:"id,omitempty"`
-	Label     string   `json:"label,omitempty"`
-	Type      string   `json:"type"`
-	Optional  bool     `json:"optional,omitempty"`
-	MinLength *int64   `json:"min_length,omitempty"`
-	MaxLength *int64   `json:"max_length,omitempty"`
-	Min       *int64   `json:"min,omitempty"`
-	Max       *int64   `json:"max,omitempty"`
-	Integer   bool     `json:"integer,omitempty"`
-	Choices   []string `json:"choices,omitempty"`
-	Fields    []Field  `json:"fields,omitempty"`
-	Item      *Field   `json:"item,omitempty"`
+	ID         string   `json:"id,omitempty"`
+	Label      string   `json:"label,omitempty"`
+	Type       string   `json:"type"`
+	Optional   bool     `json:"optional,omitempty"`
+	MinLength  *int64   `json:"min_length,omitempty"`
+	MaxLength  *int64   `json:"max_length,omitempty"`
+	Min        *int64   `json:"min,omitempty"`
+	Max        *int64   `json:"max,omitempty"`
+	Integer    bool     `json:"integer,omitempty"`
+	Choices    []string `json:"choices,omitempty"`
+	Fields     []Field  `json:"fields,omitempty"`
+	Item       *Field   `json:"item,omitempty"`
+	MaxFiles   *int64   `json:"max_files,omitempty"`
+	MediaTypes []string `json:"media_types,omitempty"`
+}
+
+type FileSummary struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Size      int64   `json:"size"`
+	MediaType *string `json:"media_type,omitempty"`
+}
+
+var mediaTypePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9!#$&^_.+-]*/(?:[a-z0-9][a-z0-9!#$&^_.+-]*|\*)$`)
+
+func ValidMediaTypePattern(value string) bool { return mediaTypePattern.MatchString(value) }
+
+func AllowsMediaType(field Field, value string) bool {
+	if len(field.MediaTypes) == 0 {
+		return true
+	}
+	for _, accepted := range field.MediaTypes {
+		if accepted == value || strings.HasSuffix(accepted, "/*") && strings.HasPrefix(value, strings.TrimSuffix(accepted, "*")) {
+			return true
+		}
+	}
+	return false
 }
 
 // Decode rejects unknown descriptor properties and malformed or unsupported
@@ -91,35 +119,38 @@ func validateField(field Field, named bool) error {
 	}
 	switch field.Type {
 	case "object":
-		if field.Item != nil || len(field.Choices) != 0 || hasConstraints(field) {
+		if field.Item != nil || len(field.Choices) != 0 || hasConstraints(field) || hasFileConstraints(field) {
 			return fmt.Errorf("input form object has unsupported properties")
 		}
 		return validateFields(field.Fields)
 	case "list":
-		if field.Item == nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) {
+		if field.Item == nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) || hasFileConstraints(field) {
 			return fmt.Errorf("input form list requires one item type")
+		}
+		if field.Item.Type == "files" {
+			return fmt.Errorf("input form list of files is redundant; use a files field")
 		}
 		return validateField(*field.Item, false)
 	case "text":
-		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || field.Min != nil || field.Max != nil || field.Integer {
+		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || field.Min != nil || field.Max != nil || field.Integer || hasFileConstraints(field) {
 			return fmt.Errorf("input form text has unsupported properties")
 		}
 		if field.MinLength != nil && *field.MinLength < 0 || field.MaxLength != nil && *field.MaxLength < 0 || field.MinLength != nil && field.MaxLength != nil && *field.MinLength > *field.MaxLength {
 			return fmt.Errorf("input form text length bounds are invalid")
 		}
 	case "number":
-		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || field.MinLength != nil || field.MaxLength != nil {
+		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || field.MinLength != nil || field.MaxLength != nil || hasFileConstraints(field) {
 			return fmt.Errorf("input form number has unsupported properties")
 		}
 		if field.Min != nil && field.Max != nil && *field.Min > *field.Max {
 			return fmt.Errorf("input form number bounds are invalid")
 		}
 	case "boolean":
-		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) {
+		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) || hasFileConstraints(field) {
 			return fmt.Errorf("input form boolean has unsupported properties")
 		}
 	case "options":
-		if field.Item != nil || len(field.Fields) != 0 || hasConstraints(field) || len(field.Choices) == 0 {
+		if field.Item != nil || len(field.Fields) != 0 || hasConstraints(field) || hasFileConstraints(field) || len(field.Choices) == 0 {
 			return fmt.Errorf("input form options require choices")
 		}
 		seen := make(map[string]bool, len(field.Choices))
@@ -128,6 +159,21 @@ func validateField(field Field, named bool) error {
 				return fmt.Errorf("input form options require distinct non-blank choices")
 			}
 			seen[choice] = true
+		}
+	case "files":
+		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) ||
+			field.MaxFiles != nil && *field.MaxFiles <= 0 {
+			return fmt.Errorf("input form files have invalid constraints")
+		}
+		seen := make(map[string]bool, len(field.MediaTypes))
+		for _, mediaType := range field.MediaTypes {
+			if !ValidMediaTypePattern(mediaType) || seen[mediaType] {
+				return fmt.Errorf("input form files require distinct valid media types")
+			}
+			seen[mediaType] = true
+		}
+		if field.MediaTypes != nil && len(field.MediaTypes) == 0 {
+			return fmt.Errorf("input form files require media types")
 		}
 	default:
 		return fmt.Errorf("input form field type %q is unsupported", field.Type)
@@ -138,6 +184,8 @@ func validateField(field Field, named bool) error {
 func hasConstraints(field Field) bool {
 	return field.MinLength != nil || field.MaxLength != nil || field.Min != nil || field.Max != nil || field.Integer
 }
+
+func hasFileConstraints(field Field) bool { return field.MaxFiles != nil || field.MediaTypes != nil }
 
 // ValidateResult checks the complete result object. An absent optional key is
 // distinct from JSON null, and unknown keys are not accepted.
@@ -163,6 +211,37 @@ func (form Form) FieldAtPath(path []string) (Field, bool) {
 			}
 			if index == len(path)-1 {
 				return field, true
+			}
+			if field.Type != "object" {
+				return Field{}, false
+			}
+			fields = field.Fields
+			found = true
+			break
+		}
+		if !found {
+			return Field{}, false
+		}
+	}
+	return Field{}, false
+}
+
+// FileFieldAtPath accepts descriptor paths through list item objects. List
+// indices are intentionally absent: a file belongs to the named field, not
+// to an entry position that may change when the shared list is edited.
+func (form Form) FileFieldAtPath(path []string) (Field, bool) {
+	fields := form.Fields
+	for index, segment := range path {
+		found := false
+		for _, field := range fields {
+			if field.ID != segment {
+				continue
+			}
+			if index == len(path)-1 {
+				return field, field.Type == "files"
+			}
+			for field.Type == "list" && field.Item != nil {
+				field = *field.Item
 			}
 			if field.Type != "object" {
 				return Field{}, false
@@ -214,7 +293,7 @@ func ValidateDraftValue(field Field, source json.RawMessage) error {
 		}
 		return nil
 	default:
-		return validateValue(field, source)
+		return validateValue(field, source, false)
 	}
 }
 
@@ -233,7 +312,7 @@ func validateObject(fields []Field, source json.RawMessage) error {
 			}
 			continue
 		}
-		if err := validateValue(field, value); err != nil {
+		if err := validateValue(field, value, true); err != nil {
 			return fmt.Errorf("input form field %q: %w", field.ID, err)
 		}
 	}
@@ -245,7 +324,7 @@ func validateObject(fields []Field, source json.RawMessage) error {
 	return nil
 }
 
-func validateValue(field Field, source json.RawMessage) error {
+func validateValue(field Field, source json.RawMessage, complete bool) error {
 	switch field.Type {
 	case "object":
 		return validateObject(field.Fields, source)
@@ -255,9 +334,30 @@ func validateValue(field Field, source json.RawMessage) error {
 			return fmt.Errorf("requires a JSON array")
 		}
 		for _, item := range items {
-			if err := validateValue(*field.Item, item); err != nil {
+			if err := validateValue(*field.Item, item, complete); err != nil {
 				return fmt.Errorf("invalid list item: %w", err)
 			}
+		}
+	case "files":
+		var raw []json.RawMessage
+		if err := json.Unmarshal(source, &raw); err != nil || raw == nil {
+			return fmt.Errorf("requires a JSON array of files")
+		}
+		if complete && len(raw) == 0 {
+			return fmt.Errorf("requires at least one file")
+		}
+		if field.MaxFiles != nil && int64(len(raw)) > *field.MaxFiles {
+			return fmt.Errorf("too many files")
+		}
+		seen := make(map[string]bool, len(raw))
+		for _, entry := range raw {
+			decoder := json.NewDecoder(bytes.NewReader(entry))
+			decoder.DisallowUnknownFields()
+			var file FileSummary
+			if err := decoder.Decode(&file); err != nil || !typed_id.Valid(typed_id.SessionFile, file.ID) || strings.TrimSpace(file.Name) == "" || file.Size < 0 || file.MediaType != nil && !AllowsMediaType(field, *file.MediaType) || field.MediaTypes != nil && file.MediaType == nil || seen[file.ID] {
+				return fmt.Errorf("requires distinct completed session files")
+			}
+			seen[file.ID] = true
 		}
 	case "text", "options":
 		var text string
