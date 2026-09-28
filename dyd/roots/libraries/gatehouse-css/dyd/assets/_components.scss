@@ -405,6 +405,10 @@ a.attachment-chip:focus-visible {
   padding: var(--space);
 }
 
+.input-form-actions {
+  justify-content: flex-end;
+}
+
 .input-section-heading {
   margin-block: calc(var(--space) / 2) 0;
 }

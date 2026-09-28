@@ -59,9 +59,9 @@
       {/each}
       {#if controller.state.error !== ""}<p class="field-help" role="alert">{controller.state.error}</p>{/if}
       {#if controller.state.needsReload}<button type="button" class="secondary" onclick={() => void controller.load()}>Reload shared draft</button>{/if}
-      <div class="cluster">
-        <button class="primary" type="submit" disabled={controller.state.terminalPending || controller.state.needsReload}>Submit</button>
+      <div class="cluster input-form-actions">
         <button class="secondary" type="button" disabled={controller.state.terminalPending} onclick={() => void controller.cancel()}>Cancel input</button>
+        <button class="primary" type="submit" disabled={controller.state.terminalPending || controller.state.needsReload}>Submit</button>
       </div>
     </form>
   {/if}
