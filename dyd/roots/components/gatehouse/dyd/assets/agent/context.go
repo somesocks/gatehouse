@@ -123,7 +123,7 @@ func (runtime *SessionEventReplyRuntime) mcmtrContextEvents(ctx context.Context,
 		return fmt.Errorf("reply to session event %q: active agent request is unavailable", parent.Id), nil
 	}
 	for index := range events {
-		if events[index].Kind != "message.text" || events[index].AuthorPrincipal == nil {
+		if events[index].Kind != model.SessionEventKindMessageText || events[index].AuthorPrincipal == nil {
 			continue
 		}
 		payload := make(map[string]interface{}, len(events[index].Payload))
@@ -142,7 +142,7 @@ func mcmtrContextActive(events []model.SessionEvent, request model.SessionEventR
 		if event.Ref != request {
 			continue
 		}
-		if event.Kind != "agent.request" || event.Parent == nil {
+		if event.Kind != model.SessionEventKindAgentRequest || event.Parent == nil {
 			return fmt.Errorf("reply to session event %q: active agent request is invalid", request.Id), model.SessionEventRef{}
 		}
 		return nil, *event.Parent

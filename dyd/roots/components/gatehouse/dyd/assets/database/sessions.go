@@ -372,7 +372,7 @@ func sessionAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, ga
 }
 
 func (store *Store) SessionEventsCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, false)
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, false, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -465,15 +465,19 @@ func (store *Store) SessionMessagesCreate(ctx context.Context, event model.Sessi
 		if err != nil {
 			return fmt.Errorf("create agent request: generate event ID: %w", err), model.SessionEvent{}
 		}
+		payload, err := SessionEventPayloadFrom(model.AgentRequestPayload{Agent: target})
+		if err != nil {
+			return fmt.Errorf("create agent request payload: %w", err), model.SessionEvent{}
+		}
 		events = append(events, model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: event.Ref.Session, Id: id},
 			Parent:          &event.Ref,
-			Kind:            "agent.request",
+			Kind:            model.SessionEventKindAgentRequest,
 			AuthorPrincipal: event.AuthorPrincipal,
-			Payload:         map[string]interface{}{"agent": target},
+			Payload:         payload,
 		})
 	}
-	err, events = store.sessionEventsCreateBatch(ctx, events, true, false)
+	err, events = store.sessionEventsCreateBatch(ctx, events, true, false, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -481,14 +485,14 @@ func (store *Store) SessionMessagesCreate(ctx context.Context, event model.Sessi
 }
 
 func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
-	if event.Kind != "message.text" {
+	if event.Kind != model.SessionEventKindMessageText {
 		return nil, fmt.Errorf("create session message: event kind must be message.text")
 	}
 	attachmentsValue, exists := event.Payload["attachments"]
 	if !exists {
 		return nil, nil
 	}
-	values, ok := attachmentsValue.([]string)
+	values, ok := eventStringSlice(attachmentsValue)
 	if !ok {
 		return nil, fmt.Errorf("create session message: attachments must be string IDs")
 	}
@@ -496,7 +500,7 @@ func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
 }
 
 func sessionMessageTargetAgents(event model.SessionEvent) ([]string, error) {
-	if event.Kind != "message.text" {
+	if event.Kind != model.SessionEventKindMessageText {
 		return nil, fmt.Errorf("create session message: event kind must be message.text")
 	}
 	if _, exists := event.Payload["agent"]; exists {
@@ -506,7 +510,7 @@ func sessionMessageTargetAgents(event model.SessionEvent) ([]string, error) {
 	if !exists {
 		return nil, nil
 	}
-	agents, ok := value.([]string)
+	agents, ok := eventStringSlice(value)
 	if !ok {
 		return nil, fmt.Errorf("create session message: agents must be binding IDs")
 	}
@@ -525,8 +529,27 @@ func sessionMessageTargetAgents(event model.SessionEvent) ([]string, error) {
 	return targets, nil
 }
 
+func eventStringSlice(value interface{}) ([]string, bool) {
+	switch values := value.(type) {
+	case []string:
+		return values, true
+	case []interface{}:
+		result := make([]string, len(values))
+		for index, value := range values {
+			text, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			result[index] = text
+		}
+		return result, true
+	default:
+		return nil, false
+	}
+}
+
 func sessionAgentRequestTarget(event model.SessionEvent) (string, error) {
-	if event.Kind != "agent.request" || event.Parent == nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
+	if event.Kind != model.SessionEventKindAgentRequest || event.Parent == nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
 		return "", fmt.Errorf("create agent request: request must be a principal-authored child")
 	}
 	agent, ok := event.Payload["agent"].(string)
@@ -613,12 +636,25 @@ func sessionEventAttachmentIDs(event model.SessionEvent) ([]string, bool, error)
 }
 
 func (store *Store) SessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent) (error, []model.SessionEvent) {
-	return store.sessionEventsCreateBatch(ctx, events, false, false)
+	return store.sessionEventsCreateBatch(ctx, events, false, false, false)
 }
 
 // SessionApprovalResponseCreate persists one terminal approval response and schedules its delivery.
 func (store *Store) SessionApprovalResponseCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, true)
+	return store.sessionApprovalResponseCreate(ctx, event, false)
+}
+
+// SessionApprovalCancellationCreate marks an approval terminal without queuing
+// delivery to the already-cancelled approval workflow.
+func (store *Store) SessionApprovalCancellationCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	if event.Kind != model.SessionEventKindApprovalFailure || event.Payload["code"] != "cancelled" {
+		return fmt.Errorf("create session approval cancellation: event must be approval.failure with code cancelled"), model.SessionEvent{}
+	}
+	return store.sessionApprovalResponseCreate(ctx, event, true)
+}
+
+func (store *Store) sessionApprovalResponseCreate(ctx context.Context, event model.SessionEvent, delivered bool) (error, model.SessionEvent) {
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, true, delivered)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -633,7 +669,7 @@ type sessionEventInsert struct {
 	metrics                  any
 }
 
-func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks, createApprovalResponse bool) (error, []model.SessionEvent) {
+func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks, createApprovalResponse, approvalResponseDelivered bool) (error, []model.SessionEvent) {
 	if len(events) == 0 {
 		return nil, []model.SessionEvent{}
 	}
@@ -686,7 +722,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
 		if createReplyTasks {
 			switch event.Kind {
-			case "message.text":
+			case model.SessionEventKindMessageText:
 				attachments, err := sessionMessageAttachmentIDs(event)
 				if err != nil {
 					return err, nil
@@ -704,7 +740,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 						return err, nil
 					}
 				}
-			case "agent.request":
+			case model.SessionEventKindAgentRequest:
 				target, err := sessionAgentRequestTarget(event)
 				if err != nil {
 					return err, nil
@@ -726,8 +762,8 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		seen[event.Ref] = struct{}{}
 	}
 	for _, insert := range inserts {
-		if createApprovalResponse && (insert.event.Parent == nil || (insert.event.Kind != "approval.approved" && insert.event.Kind != "approval.rejected")) {
-			return fmt.Errorf("create approval response: event must be an approval.approved or approval.rejected child"), nil
+		if createApprovalResponse && (insert.event.Parent == nil || (insert.event.Kind != model.SessionEventKindApprovalSuccess && insert.event.Kind != model.SessionEventKindApprovalFailure)) {
+			return fmt.Errorf("create approval response: event must be an approval.success or approval.failure child"), nil
 		}
 		row := transaction.QueryRowContext(ctx, `
 			INSERT INTO gatehouse_session_events (
@@ -753,7 +789,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			return fmt.Errorf("append session event activity: %w", err), nil
 		}
 		if createReplyTasks {
-			if insert.event.Kind == "agent.request" {
+			if insert.event.Kind == model.SessionEventKindAgentRequest {
 				_, err := transaction.ExecContext(ctx, `
 				INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
 				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
@@ -762,7 +798,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 					return fmt.Errorf("insert session event reply task: %w", err), nil
 				}
 			}
-			if insert.event.Kind == "message.text" {
+			if insert.event.Kind == model.SessionEventKindMessageText {
 				targets, err := sessionMessageTargetAgents(insert.event)
 				if err != nil {
 					return err, nil
@@ -789,9 +825,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if createApprovalResponse {
 			result, err := transaction.ExecContext(ctx, `
 				INSERT INTO gatehouse_session_approval_decisions (workspace, session, approval, response, created_at, delivered)
-				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, FALSE)
+				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`)
 				ON CONFLICT (workspace, session, approval) DO NOTHING
-			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id, insert.event.Ref.Id, insert.event.CreatedAt)
+			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id, insert.event.Ref.Id, insert.event.CreatedAt, approvalResponseDelivered)
 			if err != nil {
 				return fmt.Errorf("create approval response decision: %w", err), nil
 			}
@@ -857,7 +893,7 @@ func (store *Store) SessionAgentRequestEventsGet(ctx context.Context, request mo
 			SELECT events.id, events.parent
 			FROM gatehouse_session_events AS events
 			WHERE events.workspace = `+placeholder(1)+` AND events.session = `+placeholder(2)+`
-				AND events.kind = 'agent.request' AND `+target+` = `+placeholder(3)+`
+				AND events.kind = '`+model.SessionEventKindAgentRequest+`' AND `+target+` = `+placeholder(3)+`
 				AND events.id <= `+placeholder(4)+`
 		),
 		history (id) AS (

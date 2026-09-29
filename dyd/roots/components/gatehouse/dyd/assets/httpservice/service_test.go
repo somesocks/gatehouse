@@ -27,13 +27,13 @@ func TestSessionEventTranscriptProject(t *testing.T) {
 	entries := []database.SessionEventTreeEntry{
 		{Event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "message", "attachments": []string{"sfi_00000000000000000000000000"}, "agents": []string{"assistant"}, "reasoning": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "agent.request", Payload: map[string]interface{}{"agent": "assistant"}}},
-		{Event: model.SessionEvent{Kind: "agent.reply", Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "reasoning": "hidden"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindAgentSuccess, Payload: map[string]interface{}{"text": "reply", "attachments": []string{"sfi_00000000000000000000000000"}, "reasoning": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect source.", "code": "(read-all)"}}},
 		{Event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": "Allow access?", "scope": "hidden"}}},
 		{Event: model.SessionEvent{Kind: "input.request", Payload: map[string]interface{}{"description": "Provide details", "form": map[string]interface{}{"title": "private"}}}},
 		{Event: model.SessionEvent{Kind: "input.success", Payload: map[string]interface{}{"result": map[string]interface{}{"private": true}}}},
 		{Event: model.SessionEvent{Kind: "input.failure", Payload: map[string]interface{}{"code": "cancelled"}}},
-		{Event: model.SessionEvent{Kind: "thinking.delay", Payload: map[string]interface{}{"reason": "rate_limit", "until": "2026-09-21T12:50:00.000Z", "hidden": "value"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingUpdate, Payload: map[string]interface{}{"reason": "rate_limit", "until": "2026-09-21T12:50:00.000Z", "hidden": "value"}}},
 		{Event: model.SessionEvent{Kind: "tool.success", Payload: map[string]interface{}{"output": "hidden"}}},
 	}
 
@@ -523,7 +523,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	child := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: childID}, Parent: &event.Ref, Kind: "message.reasoning", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
+		Ref: model.SessionEventRef{Session: event.Ref.Session, Id: childID}, Parent: &event.Ref, Kind: "gateway.notice", AuthorPrincipal: event.AuthorPrincipal, Payload: map[string]interface{}{"text": "working"},
 	}
 	if err, _ := store.SessionEventsCreate(context.Background(), child); err != nil {
 		t.Fatal(err)
@@ -649,7 +649,7 @@ func TestSessionApprovalResponse(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &decision); err != nil {
 		t.Fatal(err)
 	}
-	if decision.Kind != "approval.approved" || decision.Parent == nil || *decision.Parent != approval.Ref || decision.AuthorPrincipal == nil || decision.AuthorPrincipal.Ref != alice {
+	if decision.Kind != model.SessionEventKindApprovalSuccess || decision.Parent == nil || *decision.Parent != approval.Ref || decision.AuthorPrincipal == nil || decision.AuthorPrincipal.Ref != alice {
 		t.Fatalf("approval response = %#v", decision)
 	}
 	if duplicate := request("rejected"); duplicate.Code != http.StatusConflict {

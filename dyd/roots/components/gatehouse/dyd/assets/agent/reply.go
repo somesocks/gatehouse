@@ -79,6 +79,7 @@ const (
 
 type sessionToolCallExecution struct {
 	Kind   string
+	Code   string
 	Output string
 }
 
@@ -118,7 +119,7 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	if err != nil {
 		return fmt.Errorf("register session event reply queue: %w", err), nil
 	}
-	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue)
+	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue, dbos.WithGlobalConcurrency(10))
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
@@ -170,7 +171,7 @@ func (runtime *SessionEventReplyRuntime) ConfigName() string {
 // CancelReply starts one recoverable cancellation per agent request. The HTTP
 // caller waits only for the request event, not the grace period or tool calls.
 func (runtime *SessionEventReplyRuntime) CancelReply(ctx context.Context, request model.SessionEvent) (error, model.SessionEvent) {
-	if request.Kind != "cancel.request" || request.Parent == nil || request.AuthorPrincipal == nil {
+	if request.Kind != model.SessionEventKindCancelRequest || request.Parent == nil || request.AuthorPrincipal == nil {
 		return fmt.Errorf("cancel reply: invalid request"), model.SessionEvent{}
 	}
 	id := sessionReplyCancellationWorkflowID(*request.Parent)
@@ -178,7 +179,7 @@ func (runtime *SessionEventReplyRuntime) CancelReply(ctx context.Context, reques
 	// target reply has entered a terminal state.
 	_, err := dbos.RetrieveWorkflow[model.SessionEventRef](runtime.dbos, id)
 	if errors.Is(err, dbos.ErrNonExistentWorkflow) {
-		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, "agent.reply")
+		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, model.SessionEventKindAgentSuccess)
 		if err != nil {
 			return err, model.SessionEvent{}
 		}
@@ -222,7 +223,7 @@ func (runtime *SessionEventReplyRuntime) CancelReply(ctx context.Context, reques
 
 func (runtime *SessionEventReplyRuntime) cancelReply(ctx dbos.Context, input SessionReplyCancellationInput) (model.SessionEventRef, error) {
 	request := input.Request
-	if request.Kind != "cancel.request" || request.Parent == nil || request.AuthorPrincipal == nil || request.Ref.Session != request.Parent.Session {
+	if request.Kind != model.SessionEventKindCancelRequest || request.Parent == nil || request.AuthorPrincipal == nil || request.Ref.Session != request.Parent.Session {
 		return model.SessionEventRef{}, fmt.Errorf("session reply cancellation request is invalid")
 	}
 	storedRequest, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEvent, error) {
@@ -249,37 +250,199 @@ func (runtime *SessionEventReplyRuntime) cancelReply(ctx dbos.Context, input Ses
 	if err != nil {
 		return model.SessionEventRef{}, fmt.Errorf("read cancelled reply %q status: %w", request.Parent.Id, err)
 	}
-	kind := "cancel.success"
-	payload := map[string]interface{}{}
+	kind := model.SessionEventKindCancelSuccess
+	var payload map[string]interface{}
 	switch status.Status {
 	case dbos.WorkflowStatusCancelled:
 	case dbos.WorkflowStatusSuccess:
 		// A reply can observe cancel.request and finish cooperatively before
 		// DBOS marks it CANCELLED. A real agent reply means it finished first.
-		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, "agent.reply")
+		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, model.SessionEventKindAgentSuccess)
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
 		if reply != nil {
-			kind = "cancel.failure"
-			payload["code"] = "already_completed"
+			kind = model.SessionEventKindCancelFailure
 		}
 	case dbos.WorkflowStatusError, dbos.WorkflowStatusMaxRecoveryAttemptsExceeded:
-		kind = "cancel.failure"
-		payload["code"] = "already_completed"
+		kind = model.SessionEventKindCancelFailure
 	default:
 		return model.SessionEventRef{}, fmt.Errorf("reply %q has unexpected status %q after cancellation", request.Parent.Id, status.Status)
 	}
-	if kind == "cancel.success" {
+	if kind == model.SessionEventKindCancelSuccess {
 		if _, err := dbos.Sleep(ctx, replyCancellationGrace); err != nil {
 			return model.SessionEventRef{}, fmt.Errorf("wait after cancelling reply %q: %w", request.Parent.Id, err)
 		}
+		payload, err = database.SessionEventPayloadFrom(model.CancelSuccessPayload{})
+	} else {
+		payload, err = database.SessionEventPayloadFrom(model.CancelFailurePayload{Code: "already_completed"})
+	}
+	if err != nil {
+		return model.SessionEventRef{}, fmt.Errorf("encode cancellation outcome payload: %w", err)
+	}
+	agentFailureCode := "cancelled"
+	if kind == model.SessionEventKindCancelFailure && (status.Status == dbos.WorkflowStatusError || status.Status == dbos.WorkflowStatusMaxRecoveryAttemptsExceeded) {
+		agentFailureCode = "failed"
+	}
+	if err := runtime.cancelledReplyFinalize(ctx, request, agentFailureCode); err != nil {
+		return model.SessionEventRef{}, err
 	}
 	err, reference := runtime.persistAgentEvent(ctx, model.SessionEvent{
 		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref, Kind: kind,
 		AuthorPrincipal: request.AuthorPrincipal, Payload: payload, CreatedAt: eventTerminalCreatedAt(request.CreatedAt),
 	})
 	return reference, err
+}
+
+func (runtime *SessionEventReplyRuntime) cancelledReplyFinalize(ctx dbos.Context, cancellation model.SessionEvent, agentFailureCode string) error {
+	request := *cancellation.Parent
+	err, events := runtime.store.SessionEventsGet(ctx, request.Session)
+	if err != nil {
+		return fmt.Errorf("read cancelled reply event tree %q: %w", request.Id, err)
+	}
+	var agentRequest model.SessionEvent
+	for _, event := range events {
+		if event.Ref == request && event.Kind == model.SessionEventKindAgentRequest {
+			agentRequest = event
+			break
+		}
+	}
+	if agentRequest.Ref.Id == "" {
+		return fmt.Errorf("cancel agent request %q: request event is unavailable", request.Id)
+	}
+	children := make(map[string][]model.SessionEvent, len(events))
+	for _, event := range events {
+		if event.Parent != nil {
+			children[event.Parent.Id] = append(children[event.Parent.Id], event)
+		}
+	}
+	hasTerminal := func(parent model.SessionEvent, terminals ...string) bool {
+		for _, child := range children[parent.Ref.Id] {
+			for _, terminal := range terminals {
+				if child.Kind == terminal {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	descendants := make([]model.SessionEvent, 0)
+	queue := append([]model.SessionEvent(nil), children[request.Id]...)
+	for len(queue) > 0 {
+		event := queue[0]
+		queue = queue[1:]
+		descendants = append(descendants, event)
+		queue = append(queue, children[event.Ref.Id]...)
+	}
+	// Close approval and input capabilities before finalizing their tools.
+	for _, event := range descendants {
+		switch event.Kind {
+		case model.SessionEventKindInputRequest:
+			if hasTerminal(event, model.SessionEventKindInputSuccess, model.SessionEventKindInputFailure) {
+				continue
+			}
+			id, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				return err
+			}
+			payload, err := database.SessionEventPayloadFrom(model.InputFailurePayload{Code: "cancelled"})
+			if err != nil {
+				return err
+			}
+			err, _ = runtime.store.SessionInputCancellationCreate(ctx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: event.Ref.Session, Id: id}, Parent: &event.Ref,
+				Kind: model.SessionEventKindInputFailure, AuthorPrincipal: cancellation.AuthorPrincipal, Payload: payload,
+			})
+			if errors.Is(err, database.ErrSessionInputResolved) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("cancel pending input %q: %w", event.Ref.Id, err)
+			}
+		case model.SessionEventKindApprovalRequest:
+			if hasTerminal(event, model.SessionEventKindApprovalSuccess, model.SessionEventKindApprovalFailure) {
+				continue
+			}
+			id, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				return err
+			}
+			payload, err := database.SessionEventPayloadFrom(model.ApprovalFailurePayload{Code: "cancelled"})
+			if err != nil {
+				return err
+			}
+			err, _ = runtime.store.SessionApprovalCancellationCreate(ctx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: event.Ref.Session, Id: id}, Parent: &event.Ref,
+				Kind: model.SessionEventKindApprovalFailure, AuthorPrincipal: cancellation.AuthorPrincipal, Payload: payload,
+			})
+			if errors.Is(err, database.ErrSessionApprovalResolved) {
+				continue
+			}
+			if err != nil {
+				return fmt.Errorf("cancel pending approval %q: %w", event.Ref.Id, err)
+			}
+		}
+	}
+	for _, event := range descendants {
+		switch event.Kind {
+		case model.SessionEventKindToolRequest:
+			if hasTerminal(event, model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure) {
+				continue
+			}
+			name, _ := event.Payload["name"].(string)
+			callID, _ := event.Payload["call_id"].(string)
+			if name == "" || callID == "" || event.AuthorAgent == nil {
+				return fmt.Errorf("cancel unfinished tool %q: request payload is invalid", event.Ref.Id)
+			}
+			payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{Name: name, CallId: callID, Code: "cancelled", Output: "execution cancelled"})
+			if err != nil {
+				return err
+			}
+			if err, _ := runtime.persistAgentEvent(ctx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: event.Ref.Session}, Parent: &event.Ref,
+				Kind: model.SessionEventKindToolFailure, AuthorAgent: event.AuthorAgent, Payload: payload,
+				CreatedAt: eventTerminalCreatedAt(event.CreatedAt),
+			}); err != nil {
+				return fmt.Errorf("finish cancelled tool %q: %w", event.Ref.Id, err)
+			}
+		case model.SessionEventKindThinkingRequest:
+			if hasTerminal(event, model.SessionEventKindThinkingSuccess, model.SessionEventKindThinkingFailure) {
+				continue
+			}
+			if event.AuthorAgent == nil {
+				return fmt.Errorf("cancel unfinished thinking %q: agent is unavailable", event.Ref.Id)
+			}
+			payload, err := database.SessionEventPayloadFrom(model.ThinkingFailurePayload{Code: "cancelled"})
+			if err != nil {
+				return err
+			}
+			if err, _ := runtime.persistAgentEvent(ctx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: event.Ref.Session}, Parent: &event.Ref,
+				Kind: model.SessionEventKindThinkingFailure, AuthorAgent: event.AuthorAgent, Payload: payload,
+				CreatedAt: eventTerminalCreatedAt(event.CreatedAt),
+			}); err != nil {
+				return fmt.Errorf("finish cancelled thinking %q: %w", event.Ref.Id, err)
+			}
+		}
+	}
+	if !hasTerminal(agentRequest, model.SessionEventKindAgentSuccess, model.SessionEventKindAgentFailure) {
+		agentID, _ := agentRequest.Payload["agent"].(string)
+		if agentID == "" {
+			return fmt.Errorf("cancel agent request %q: target agent is unavailable", request.Id)
+		}
+		payload, err := database.SessionEventPayloadFrom(model.AgentFailurePayload{Code: agentFailureCode})
+		if err != nil {
+			return err
+		}
+		if err, _ := runtime.persistAgentEvent(ctx, model.SessionEvent{
+			Ref: model.SessionEventRef{Session: request.Session}, Parent: &request,
+			Kind: model.SessionEventKindAgentFailure, AuthorAgent: &model.WorkspaceAgentRef{Workspace: request.Session.Workspace, Id: agentID}, Payload: payload,
+			CreatedAt: eventTerminalCreatedAt(agentRequest.CreatedAt),
+		}); err != nil {
+			return fmt.Errorf("finish cancelled agent request %q: %w", request.Id, err)
+		}
+	}
+	return nil
 }
 
 func (runtime *SessionEventReplyRuntime) Reconcile() error {
@@ -361,7 +524,7 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 	}
 	preparation := sessionNamePreparation{}
 	for _, event := range events {
-		if event.Parent != nil || event.Kind != "message.text" || event.AuthorPrincipal == nil {
+		if event.Parent != nil || event.Kind != model.SessionEventKindMessageText || event.AuthorPrincipal == nil {
 			continue
 		}
 		text, ok := event.Payload["text"].(string)
@@ -454,6 +617,56 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 }
 
 func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEventRef, error) {
+	reference, replyErr := runtime.replyAttempt(ctx, input)
+	if replyErr == nil || reference.Id != "" {
+		return reference, replyErr
+	}
+	var cancelled sessionReplyCancelled
+	if errors.As(replyErr, &cancelled) || ctx.Err() != nil {
+		return reference, replyErr
+	}
+	err, request := runtime.store.SessionEventGet(runtime.dbos, input.Event)
+	if err != nil || request == nil || request.Kind != model.SessionEventKindAgentRequest {
+		return reference, errors.Join(replyErr, err)
+	}
+	err, cancellation := runtime.replyCancellationRequested(runtime.dbos, input.Event)
+	if err != nil || cancellation != nil {
+		return reference, errors.Join(replyErr, err)
+	}
+	for _, terminal := range []string{model.SessionEventKindAgentSuccess, model.SessionEventKindAgentFailure} {
+		err, existing := runtime.store.SessionEventChildGet(runtime.dbos, input.Event, terminal)
+		if err != nil || existing != nil {
+			return reference, errors.Join(replyErr, err)
+		}
+	}
+	agentID, ok := request.Payload["agent"].(string)
+	if !ok || agentID == "" {
+		return reference, replyErr
+	}
+	payload, err := database.SessionEventPayloadFrom(model.AgentFailurePayload{Code: failureEventCode(replyErr)})
+	if err != nil {
+		return reference, errors.Join(replyErr, err)
+	}
+	failure := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: input.Event.Session}, Parent: &input.Event,
+		Kind: model.SessionEventKindAgentFailure, AuthorAgent: &model.WorkspaceAgentRef{Workspace: input.Event.Session.Workspace, Id: agentID},
+		Payload: payload,
+	}
+	if err, _ := runtime.persistAgentEvent(ctx, failure); err != nil {
+		return reference, errors.Join(replyErr, fmt.Errorf("persist agent failure: %w", err))
+	}
+	return reference, replyErr
+}
+
+func failureEventCode(err error) string {
+	var cancelled sessionReplyCancelled
+	if errors.As(err, &cancelled) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, dbos.ErrWorkflowCancelled) || errors.Is(err, lisp.ErrInterrupted) {
+		return "cancelled"
+	}
+	return "failed"
+}
+
+func (runtime *SessionEventReplyRuntime) replyAttempt(ctx dbos.Context, input SessionEventReplyInput) (model.SessionEventRef, error) {
 	err, request := runtime.store.SessionEventGet(ctx, input.Event)
 	if err != nil {
 		return model.SessionEventRef{}, err
@@ -461,14 +674,14 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	if request == nil {
 		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: event not found", input.Event.Id)
 	}
-	if request.Kind != "agent.request" || request.Parent == nil || request.AuthorPrincipal == nil {
+	if request.Kind != model.SessionEventKindAgentRequest || request.Parent == nil || request.AuthorPrincipal == nil {
 		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: request is invalid", input.Event.Id)
 	}
 	err, message := runtime.store.SessionEventGet(ctx, *request.Parent)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
-	if message == nil || message.Kind != "message.text" || message.AuthorPrincipal == nil || message.Ref.Session != request.Ref.Session {
+	if message == nil || message.Kind != model.SessionEventKindMessageText || message.AuthorPrincipal == nil || message.Ref.Session != request.Ref.Session {
 		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: parent message is invalid", input.Event.Id)
 	}
 	preferred, _ := request.Payload["agent"].(string)
@@ -497,9 +710,9 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 		}
 		err, final.Text = BuiltinReply(selected.Model, selected.Parameters)
 		if err != nil {
-			return model.SessionEventRef{}, runtime.thinkingFinish(ctx, thinking, "thinking.failed", err)
+			return model.SessionEventRef{}, runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err)
 		}
-		if err := runtime.thinkingFinish(ctx, thinking, "thinking.completed", nil); err != nil {
+		if err := runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingSuccess, nil); err != nil {
 			return model.SessionEventRef{}, err
 		}
 	case "openai-chat-completions", "openai-responses":
@@ -534,15 +747,16 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 			return model.SessionEventRef{}, fmt.Errorf("filter agent reply attachments: %w", err)
 		}
 	}
+	payload, err := database.SessionEventPayloadFrom(model.AgentSuccessPayload{Text: final.Text, Attachments: optionalStringSlice(final.Attachments)})
+	if err != nil {
+		return model.SessionEventRef{}, fmt.Errorf("encode agent success payload: %w", err)
+	}
 	event := model.SessionEvent{
 		Ref:         model.SessionEventRef{Session: input.Event.Session},
 		Parent:      &request.Ref,
-		Kind:        "agent.reply",
+		Kind:        model.SessionEventKindAgentSuccess,
 		AuthorAgent: &selected.Ref,
-		Payload:     map[string]interface{}{"text": final.Text},
-	}
-	if len(final.Attachments) > 0 {
-		event.Payload["attachments"] = final.Attachments
+		Payload:     payload,
 	}
 	err, stored := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
@@ -570,7 +784,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 		for {
 			err, selected = runtime.currentWorkspaceAgentModel(ctx, agent)
 			if err != nil {
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+				return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
 			}
 			err, turn = runtime.agentProviderTurn(ctx, parent, thinking, selected, principal)
 			if err == nil {
@@ -578,23 +792,23 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 			}
 			var retryable *openAIRetryableError
 			if !errors.As(err, &retryable) {
-				return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, turn.Metrics), agentFinalReply{}
+				return runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics), agentFinalReply{}
 			}
 			if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
-				return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+				return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
 			}
 		}
 		if turn.Final != nil {
-			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, turn.Metrics); err != nil {
+			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingSuccess, nil, turn.Metrics); err != nil {
 				return err, agentFinalReply{}
 			}
 			return nil, *turn.Final
 		}
 		if round >= selected.MaxTurns {
 			err := fmt.Errorf("agent provider completion exceeded turn limit")
-			return runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.failed", err, turn.Metrics), agentFinalReply{}
+			return runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics), agentFinalReply{}
 		}
-		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, "thinking.completed", nil, turn.Metrics); err != nil {
+		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingSuccess, nil, turn.Metrics); err != nil {
 			return err, agentFinalReply{}
 		}
 		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
@@ -606,7 +820,7 @@ func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent mo
 		}
 		if !mcmtrNativeCallsFit(turn.Calls, profile.BufferBytes) {
 			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
-			return runtime.thinkingFinish(ctx, thinking, "thinking.failed", err), agentFinalReply{}
+			return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
 		}
 		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, turn.Calls)
 		if err != nil {
@@ -801,11 +1015,53 @@ func agentProviderAssociatedData(id string, alias *string, selector string) (err
 }
 
 func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input SessionToolCallInput) (model.SessionEventRef, error) {
+	reference, callErr := runtime.toolCallAttempt(ctx, input)
+	if callErr == nil || reference.Id != "" || ctx.Err() != nil {
+		return reference, callErr
+	}
+	err, request := runtime.store.SessionEventGet(runtime.dbos, input.Request)
+	if err != nil || request == nil || request.Kind != model.SessionEventKindToolRequest || request.AuthorAgent == nil {
+		return reference, errors.Join(callErr, err)
+	}
+	if request.Parent != nil {
+		err, cancellation := runtime.replyCancellationRequested(runtime.dbos, *request.Parent)
+		if err != nil || cancellation != nil {
+			return reference, errors.Join(callErr, err)
+		}
+	}
+	for _, terminal := range []string{model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure} {
+		err, existing := runtime.store.SessionEventChildGet(runtime.dbos, input.Request, terminal)
+		if err != nil || existing != nil {
+			return reference, errors.Join(callErr, err)
+		}
+	}
+	callID, _ := request.Payload["call_id"].(string)
+	if callID == "" {
+		callID = "unknown"
+	}
+	payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{
+		Name: "lisp", CallId: callID, Code: failureEventCode(callErr), Output: callErr.Error(),
+	})
+	if err != nil {
+		return reference, errors.Join(callErr, err)
+	}
+	failure := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref,
+		Kind: model.SessionEventKindToolFailure, AuthorAgent: request.AuthorAgent, Payload: payload,
+		CreatedAt: toolOutputCreatedAt(request.CreatedAt),
+	}
+	if err, reference = runtime.persistAgentEvent(ctx, failure); err != nil {
+		return reference, errors.Join(callErr, fmt.Errorf("persist tool failure: %w", err))
+	}
+	return reference, callErr
+}
+
+func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input SessionToolCallInput) (model.SessionEventRef, error) {
 	err, request := runtime.store.SessionEventGet(ctx, input.Request)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
-	if request == nil || request.Kind != "tool.request" || request.Parent == nil || request.AuthorAgent == nil {
+	if request == nil || request.Kind != model.SessionEventKindToolRequest || request.Parent == nil || request.AuthorAgent == nil {
 		return model.SessionEventRef{}, fmt.Errorf("session tool call request is invalid")
 	}
 	err, parent := runtime.store.SessionEventGet(ctx, *request.Parent)
@@ -832,7 +1088,7 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	principal := parent.AuthorPrincipal.Ref
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
-		return runtime.toolCallFinish(ctx, *request, agent, callID, sessionToolCallExecution{Kind: "tool.failure", Output: err.Error()})
+		return runtime.toolCallFinish(ctx, *request, agent, callID, sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "execution_failed", Output: err.Error()})
 	}
 	modules := []lisp.HostModule{
 		runtime.projectInfoModule(ctx, request.Ref.Session, principal),
@@ -858,11 +1114,11 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
 	if errors.Is(evalErr, lisp.ErrInterrupted) {
-		execution = sessionToolCallExecution{Kind: "tool.failure", Output: "execution cancelled"}
+		execution = sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "cancelled", Output: "execution cancelled"}
 	} else if evalErr != nil {
-		execution = sessionToolCallExecution{Kind: "tool.failure", Output: evalErr.Error()}
+		execution = sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "execution_failed", Output: evalErr.Error()}
 	} else {
-		execution = sessionToolCallExecution{Kind: "tool.success", Output: result.String()}
+		execution = sessionToolCallExecution{Kind: model.SessionEventKindToolSuccess, Output: result.String()}
 	}
 	return runtime.toolCallFinish(ctx, *request, agent, callID, execution)
 }
@@ -919,15 +1175,32 @@ func sessionEventReadRange(event model.SessionEvent, offset, length int64) (erro
 }
 
 func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, request model.SessionEvent, agent model.WorkspaceAgentRef, callID string, execution sessionToolCallExecution) (model.SessionEventRef, error) {
+	var payload map[string]interface{}
+	var err error
+	if execution.Kind == model.SessionEventKindToolSuccess {
+		payload, err = database.SessionEventPayloadFrom(model.ToolSuccessPayload{Name: "lisp", CallId: callID, Output: execution.Output})
+	} else {
+		payload, err = database.SessionEventPayloadFrom(model.ToolFailurePayload{Name: "lisp", CallId: callID, Code: execution.Code, Output: execution.Output})
+	}
+	if err != nil {
+		return model.SessionEventRef{}, fmt.Errorf("encode tool terminal payload: %w", err)
+	}
 	resultEvent := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref, Kind: execution.Kind, AuthorAgent: &agent,
-		Payload: map[string]interface{}{"name": "lisp", "call_id": callID, "output": execution.Output}, CreatedAt: toolOutputCreatedAt(request.CreatedAt),
+		Payload: payload, CreatedAt: toolOutputCreatedAt(request.CreatedAt),
 	}
 	err, reference := runtime.persistAgentEvent(ctx, resultEvent)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
 	return reference, nil
+}
+
+func optionalStringSlice(values []string) *[]string {
+	if len(values) == 0 {
+		return nil
+	}
+	return &values
 }
 
 func (runtime *SessionEventReplyRuntime) sessionNoteCreate(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) SessionNoteCreate {
@@ -1756,8 +2029,12 @@ func projectRecordValueFromModel(value model.ProjectRecordValue) ProjectRecordVa
 }
 
 func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, description string) error {
+	payload, err := database.SessionEventPayloadFrom(model.ApprovalRequestPayload{Description: description})
+	if err != nil {
+		return err
+	}
 	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
-		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: "approval.request", AuthorAgent: &agent, Payload: map[string]interface{}{"description": description},
+		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: model.SessionEventKindApprovalRequest, AuthorAgent: &agent, Payload: payload,
 	})
 	if err != nil {
 		return err
@@ -1796,9 +2073,9 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 			return "", fmt.Errorf("approval response is invalid")
 		}
 		switch event.Kind {
-		case "approval.approved":
+		case model.SessionEventKindApprovalSuccess:
 			return ApprovalGranted, nil
-		case "approval.rejected":
+		case model.SessionEventKindApprovalFailure:
 			return ApprovalRejected, nil
 		default:
 			return "", fmt.Errorf("approval response has invalid kind %q", event.Kind)
@@ -1810,9 +2087,13 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	if err := form.Validate(); err != nil {
 		return err, ""
 	}
+	payload, err := database.SessionEventPayloadFrom(model.InputRequestPayload{Description: form.Title, Form: form})
+	if err != nil {
+		return err, ""
+	}
 	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
-		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: "input.request", AuthorAgent: &agent,
-		Payload: map[string]interface{}{"description": form.Title, "form": form},
+		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: model.SessionEventKindInputRequest, AuthorAgent: &agent,
+		Payload: payload,
 	})
 	if err != nil {
 		return err, ""
@@ -1849,10 +2130,10 @@ func (runtime *SessionEventReplyRuntime) input(ctx dbos.Context, input SessionIn
 			return InputOutcome{}, fmt.Errorf("input response is invalid")
 		}
 		switch event.Kind {
-		case "input.success":
+		case model.SessionEventKindInputSuccess:
 			err, result := runtime.store.SessionInputResponseResultGet(step, response)
 			return InputOutcome{Result: result}, err
-		case "input.failure":
+		case model.SessionEventKindInputFailure:
 			code, ok := event.Payload["code"].(string)
 			if !ok || code == "" {
 				return InputOutcome{}, fmt.Errorf("input response has an invalid failure code")
@@ -1877,12 +2158,18 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent m
 			return nil, fmt.Errorf("OpenAI-compatible completion requested a duplicate tool call ID")
 		}
 		seen[call.ID] = true
+		batch := round
+		position := offset + index
+		payload, err := database.SessionEventPayloadFrom(model.ToolRequestPayload{Name: "lisp", CallId: call.ID, Code: code, Reason: reason, Batch: &batch, Position: &position})
+		if err != nil {
+			return nil, fmt.Errorf("encode tool request payload %q: %w", call.ID, err)
+		}
 		request := model.SessionEvent{
 			Ref:         model.SessionEventRef{Session: parent.Session},
 			Parent:      &parent,
-			Kind:        "tool.request",
+			Kind:        model.SessionEventKindToolRequest,
 			AuthorAgent: &agent,
-			Payload:     map[string]interface{}{"name": "lisp", "call_id": call.ID, "code": code, "reason": reason, "batch": round, "position": offset + index},
+			Payload:     payload,
 		}
 		err, stored := runtime.persistAgentEvent(ctx, request)
 		if err != nil {
@@ -2023,7 +2310,7 @@ func (runtime *SessionEventReplyRuntime) persistAgentEvent(ctx dbos.Context, eve
 }
 
 func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.Context, parent model.SessionEventRef) (error, *model.SessionEvent) {
-	return runtime.store.SessionEventChildGet(ctx, parent, "cancel.request")
+	return runtime.store.SessionEventChildGet(ctx, parent, model.SessionEventKindCancelRequest)
 }
 
 // cancelReplyWorkflowTree durably cancels the reply and every DBOS child,
@@ -2047,9 +2334,13 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {
+	payload, err := database.SessionEventPayloadFrom(model.ThinkingRequestPayload{Turn: turn})
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
 	event := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent, Kind: "thinking.started", AuthorAgent: &agent,
-		Payload: map[string]interface{}{"turn": turn},
+		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent, Kind: model.SessionEventKindThinkingRequest, AuthorAgent: &agent,
+		Payload: payload,
 	}
 	err, reference := runtime.persistAgentEvent(ctx, event)
 	if err != nil {
@@ -2065,11 +2356,16 @@ func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent 
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingDelay(ctx dbos.Context, started model.SessionEvent, until time.Time) error {
-	event := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: "thinking.delay", AuthorAgent: started.AuthorAgent,
-		Payload: map[string]interface{}{"reason": "rate_limit", "until": until.UTC().Format(time.RFC3339Nano)},
+	untilValue := until.UTC().Format(time.RFC3339Nano)
+	payload, err := database.SessionEventPayloadFrom(model.ThinkingUpdatePayload{Reason: "rate_limit", Until: &untilValue})
+	if err != nil {
+		return err
 	}
-	err, _ := runtime.persistAgentEvent(ctx, event)
+	event := model.SessionEvent{
+		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: model.SessionEventKindThinkingUpdate, AuthorAgent: started.AuthorAgent,
+		Payload: payload,
+	}
+	err, _ = runtime.persistAgentEvent(ctx, event)
 	return err
 }
 
@@ -2078,11 +2374,25 @@ func (runtime *SessionEventReplyRuntime) thinkingFinish(ctx dbos.Context, starte
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingFinishWithMetrics(ctx dbos.Context, started model.SessionEvent, kind string, completionErr error, metrics *model.SessionEventMetrics) error {
+	var payload map[string]interface{}
+	var err error
+	if kind == model.SessionEventKindThinkingSuccess {
+		payload, err = database.SessionEventPayloadFrom(model.ThinkingSuccessPayload{})
+	} else {
+		message := ""
+		if completionErr != nil {
+			message = completionErr.Error()
+		}
+		payload, err = database.SessionEventPayloadFrom(model.ThinkingFailurePayload{Code: failureEventCode(completionErr), Message: optionalString(message)})
+	}
+	if err != nil {
+		return fmt.Errorf("encode thinking terminal payload: %w", err)
+	}
 	event := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
-		Payload: map[string]interface{}{}, Metrics: metrics, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
+		Payload: payload, Metrics: metrics, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
 	}
-	err, _ := runtime.persistAgentEvent(ctx, event)
+	err, _ = runtime.persistAgentEvent(ctx, event)
 	if completionErr != nil && err != nil {
 		return errors.Join(completionErr, err)
 	}
@@ -2090,6 +2400,13 @@ func (runtime *SessionEventReplyRuntime) thinkingFinishWithMetrics(ctx dbos.Cont
 		return completionErr
 	}
 	return err
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func openAICompatibleLispTool() openAICompatibleTool {
@@ -2181,7 +2498,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 	batches := map[string]*batch{}
 	callBatches := map[string]string{}
 	for _, event := range events {
-		if event.Kind != "tool.request" || event.AuthorAgent == nil {
+		if event.Kind != model.SessionEventKindToolRequest || event.AuthorAgent == nil {
 			continue
 		}
 		call, err := openAICompatibleStoredToolCall(event)
@@ -2206,7 +2523,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 	}
 	for _, event := range events {
 		switch event.Kind {
-		case "message.text":
+		case model.SessionEventKindMessageText:
 			message, text, ok := transcriptMessageContent(event)
 			if !ok {
 				continue
@@ -2216,7 +2533,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			} else if event.AuthorAgent != nil {
 				messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: text, Message: message})
 			}
-		case "tool.request":
+		case model.SessionEventKindToolRequest:
 			if event.AuthorAgent == nil {
 				continue
 			}
@@ -2242,7 +2559,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 			}
 			messages = append(messages, openAICompatibleMessage{Role: "assistant", Content: transcriptEvents(transcriptToolCallEvent(event, call.ID))})
 			messages = append(messages, openAICompatibleMessage{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call}})
-		case "tool.success", "tool.failure":
+		case model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
 			if event.AuthorAgent == nil || event.Parent == nil {
 				continue
 			}
@@ -2255,7 +2572,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 				return fmt.Errorf("session tool output %q has no text output", event.Ref.Id), nil
 			}
 			status := "success"
-			if event.Kind == "tool.failure" {
+			if event.Kind == model.SessionEventKindToolFailure {
 				status = "failure"
 			}
 			messages = append(messages, openAICompatibleMessage{Role: "tool", ToolCallID: call.ID, Content: output, ToolOutput: &transcriptToolOutput{Event: event, Status: status}})

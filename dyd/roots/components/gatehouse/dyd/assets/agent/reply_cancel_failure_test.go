@@ -108,7 +108,7 @@ func TestAcceptedCancellationFailsWhenReplyFinishesFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: "cancel.request", AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
+	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: model.SessionEventKindCancelRequest, AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
 	if err, _ := runtime.CancelReply(ctx, cancellation); !errors.Is(err, database.ErrSessionReplyAlreadyCompleted) {
 		t.Fatalf("CancelReply() on terminal workflow = %v, want conflict", err)
 	}
@@ -122,10 +122,10 @@ func TestAcceptedCancellationFailsWhenReplyFinishesFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, failure := store.SessionEventGet(ctx, result)
-	if err != nil || failure == nil || failure.Kind != "cancel.failure" || failure.Parent == nil || *failure.Parent != cancellation.Ref || failure.Payload["code"] != "already_completed" {
+	if err != nil || failure == nil || failure.Kind != model.SessionEventKindCancelFailure || failure.Parent == nil || *failure.Parent != cancellation.Ref || failure.Payload["code"] != "already_completed" {
 		t.Fatalf("cancel outcome = (%#v, %v), want cancel.failure", failure, err)
 	}
-	if err, success := store.SessionEventChildGet(ctx, cancellation.Ref, "cancel.success"); err != nil || success != nil {
+	if err, success := store.SessionEventChildGet(ctx, cancellation.Ref, model.SessionEventKindCancelSuccess); err != nil || success != nil {
 		t.Fatalf("unexpected cancel.success = (%#v, %v)", success, err)
 	}
 }

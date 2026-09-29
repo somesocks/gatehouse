@@ -118,22 +118,22 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			started := events[3]
 			completed := events[4]
 			reply := events[5]
-			if request.Kind != "agent.request" || request.Parent == nil || *request.Parent != message.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice || request.Payload["agent"] != requestedID {
+			if request.Kind != model.SessionEventKindAgentRequest || request.Parent == nil || *request.Parent != message.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice || request.Payload["agent"] != requestedID {
 				t.Fatalf("agent request event = %#v", request)
 			}
-			if started.Kind != "thinking.started" || started.Parent == nil || *started.Parent != request.Ref || started.AuthorAgent == nil || started.AuthorAgent.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
+			if started.Kind != model.SessionEventKindThinkingRequest || started.Parent == nil || *started.Parent != request.Ref || started.AuthorAgent == nil || started.AuthorAgent.Id != requestedID || started.Payload["turn"] != float64(0) || started.Ref.Id == "" {
 				t.Fatalf("thinking start event = %#v", started)
 			}
-			if completed.Kind != "thinking.completed" || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Id != requestedID || completed.Ref.Id == "" {
+			if completed.Kind != model.SessionEventKindThinkingSuccess || completed.Parent == nil || *completed.Parent != started.Ref || completed.AuthorAgent == nil || completed.AuthorAgent.Id != requestedID || completed.Ref.Id == "" {
 				t.Fatalf("thinking completion event = %#v", completed)
 			}
-			if reply.Kind != "agent.reply" || reply.Parent == nil || *reply.Parent != request.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
+			if reply.Kind != model.SessionEventKindAgentSuccess || reply.Parent == nil || *reply.Parent != request.Ref || reply.AuthorAgent == nil || reply.AuthorAgent.Id != requestedID || reply.Payload["text"] != "Requested reply." || reply.Ref.Id == "" {
 				t.Fatalf("reply event = %#v", reply)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session events = %#v, want human-only message, targeted message, agent request, thinking lifecycle, and reply", events)
+			t.Fatalf("session events = %#v, want human-only message, targeted message, agent request, thinking lifecycle, and agent.success", events)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -193,7 +193,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	}
 	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: cancellationID}, Parent: &finished.Ref, Kind: "cancel.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
 	if err, _ := runtime.CancelReply(ctx, cancellation); !errors.Is(err, database.ErrSessionReplyAlreadyCompleted) {
-		t.Fatalf("CancelReply() after agent.reply = %v, want conflict", err)
+		t.Fatalf("CancelReply() after agent.success = %v, want conflict", err)
 	}
 	if err, stored := store.SessionEventChildGet(ctx, finished.Ref, "cancel.request"); err != nil || stored != nil {
 		t.Fatalf("cancellation request after completed reply = (%#v, %v)", stored, err)
@@ -252,7 +252,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, events := store.SessionEventsGet(ctx, session)
-	if err != nil || len(events) != 2 || events[1].Kind != "agent.request" {
+	if err != nil || len(events) != 2 || events[1].Kind != model.SessionEventKindAgentRequest {
 		t.Fatalf("created request events = (%#v, %v)", events, err)
 	}
 	request := events[1]
@@ -263,7 +263,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	cancellation := model.SessionEvent{
 		Ref:             model.SessionEventRef{Session: session, Id: cancellationID},
 		Parent:          &request.Ref,
-		Kind:            "cancel.request",
+		Kind:            model.SessionEventKindCancelRequest,
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
 	}
@@ -292,15 +292,19 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(events) == 4 {
-			success := events[3]
-			if success.Kind != "cancel.success" || success.Parent == nil || *success.Parent != cancellation.Ref || success.AuthorPrincipal == nil || success.AuthorPrincipal.Ref != alice || success.AuthorPrincipal.Name == nil || *success.AuthorPrincipal.Name != aliceName {
+		if len(events) == 5 {
+			failure := events[3]
+			if failure.Kind != model.SessionEventKindAgentFailure || failure.Parent == nil || *failure.Parent != request.Ref || failure.Payload["code"] != "cancelled" {
+				t.Fatalf("agent cancellation outcome = %#v", failure)
+			}
+			success := events[4]
+			if success.Kind != model.SessionEventKindCancelSuccess || success.Parent == nil || *success.Parent != cancellation.Ref || success.AuthorPrincipal == nil || success.AuthorPrincipal.Ref != alice || success.AuthorPrincipal.Name == nil || *success.AuthorPrincipal.Name != aliceName {
 				t.Fatalf("cancellation success = %#v", success)
 			}
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("session events = %#v, want message, agent request, cancellation request, and cancellation success", events)
+			t.Fatalf("session events = %#v, want message, agent request, cancellation request, agent failure, and cancellation success", events)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

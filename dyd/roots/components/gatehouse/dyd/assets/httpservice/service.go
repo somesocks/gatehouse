@@ -193,8 +193,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/input/draft", sessionInputPatch(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input/files", sessionInputFileCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input/files/{file}/finish", sessionInputFileFinish(store, tokens[0]))
-		mux.HandleFunc("/api/v1/input/submit", sessionInputTerminal(store, tokens[0], dispatcher, "input.success"))
-		mux.HandleFunc("/api/v1/input/cancel", sessionInputTerminal(store, tokens[0], dispatcher, "input.failure"))
+		mux.HandleFunc("/api/v1/input/submit", sessionInputTerminal(store, tokens[0], dispatcher, model.SessionEventKindInputSuccess))
+		mux.HandleFunc("/api/v1/input/cancel", sessionInputTerminal(store, tokens[0], dispatcher, model.SessionEventKindInputFailure))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
@@ -1804,11 +1804,16 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		err, payload := messagePayload(message)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		event := model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: session, Id: id},
-			Kind:            "message.text",
+			Kind:            model.SessionEventKindMessageText,
 			AuthorPrincipal: &claims.Principal,
-			Payload:         messagePayload(message),
+			Payload:         payload,
 		}
 		err, stored := store.SessionMessagesCreate(request.Context(), event)
 		if err != nil {
@@ -3228,18 +3233,19 @@ func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
 	}
 }
 
-func messagePayload(message sessionMessageRequest) map[string]interface{} {
-	payload := map[string]interface{}{}
+func messagePayload(message sessionMessageRequest) (error, map[string]interface{}) {
+	payload := model.MessageTextPayload{}
 	if strings.TrimSpace(message.Text) != "" {
-		payload["text"] = message.Text
+		payload.Text = &message.Text
 	}
 	if len(message.Agents) > 0 {
-		payload["agents"] = message.Agents
+		payload.Agents = &message.Agents
 	}
 	if len(message.Attachments) > 0 {
-		payload["attachments"] = message.Attachments
+		payload.Attachments = &message.Attachments
 	}
-	return payload
+	converted, err := database.SessionEventPayloadFrom(payload)
+	return err, converted
 }
 
 func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTokens, dispatcher ReplyDispatcher) http.HandlerFunc {
@@ -3278,7 +3284,7 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if message == nil || message.Kind != "agent.request" || message.Parent == nil || message.AuthorPrincipal == nil {
+		if message == nil || message.Kind != model.SessionEventKindAgentRequest || message.Parent == nil || message.AuthorPrincipal == nil {
 			http.NotFound(response, request)
 			return
 		}
@@ -3287,12 +3293,17 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		payload, err := database.SessionEventPayloadFrom(model.CancelRequestPayload{})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		event := model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: session, Id: id},
 			Parent:          &parent,
-			Kind:            "cancel.request",
+			Kind:            model.SessionEventKindCancelRequest,
 			AuthorPrincipal: &claims.Principal,
-			Payload:         map[string]interface{}{},
+			Payload:         payload,
 		}
 		canceller, ok := dispatcher.(ReplyCancellationDispatcher)
 		if !ok {
@@ -3359,7 +3370,7 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if approval == nil || approval.Kind != "approval.request" || approval.AuthorAgent == nil || approval.Parent == nil {
+		if approval == nil || approval.Kind != model.SessionEventKindApprovalRequest || approval.AuthorAgent == nil || approval.Parent == nil {
 			http.NotFound(response, request)
 			return
 		}
@@ -3368,7 +3379,7 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		if tool == nil || tool.Kind != "tool.request" || tool.AuthorAgent == nil {
+		if tool == nil || tool.Kind != model.SessionEventKindToolRequest || tool.AuthorAgent == nil {
 			http.NotFound(response, request)
 			return
 		}
@@ -3377,12 +3388,22 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		kind := "approval.approved"
+		kind := model.SessionEventKindApprovalSuccess
+		payload, err := database.SessionEventPayloadFrom(model.ApprovalSuccessPayload{})
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		if approvalInput.Decision == "rejected" {
-			kind = "approval.rejected"
+			kind = model.SessionEventKindApprovalFailure
+			payload, err = database.SessionEventPayloadFrom(model.ApprovalFailurePayload{Code: "rejected"})
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
 		}
 		event := model.SessionEvent{
-			Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &approvalRef, Kind: kind, AuthorPrincipal: &claims.Principal, Payload: map[string]interface{}{},
+			Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &approvalRef, Kind: kind, AuthorPrincipal: &claims.Principal, Payload: payload,
 		}
 		err, stored := store.SessionApprovalResponseCreate(request.Context(), event)
 		if errors.Is(err, database.ErrSessionApprovalResolved) {
@@ -3481,18 +3502,26 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		payload := map[string]interface{}{}
 		var keys []string
 		switch event.Kind {
-		case "message.text":
+		case model.SessionEventKindMessageText:
 			keys = []string{"text", "attachments", "agents"}
-		case "agent.request":
+		case model.SessionEventKindAgentRequest:
 			keys = []string{"agent"}
-		case "agent.reply":
+		case model.SessionEventKindAgentSuccess:
 			keys = []string{"text", "attachments"}
-		case "tool.request":
+		case model.SessionEventKindAgentFailure:
+			keys = []string{"code", "message"}
+		case model.SessionEventKindToolRequest:
 			keys = []string{"name", "reason"}
-		case "approval.request":
+		case model.SessionEventKindToolFailure:
+			keys = []string{"name", "call_id", "code", "message", "output"}
+		case model.SessionEventKindApprovalRequest:
 			keys = []string{"description"}
-		case "thinking.delay":
+		case model.SessionEventKindApprovalFailure:
+			keys = []string{"code", "message"}
+		case model.SessionEventKindThinkingUpdate:
 			keys = []string{"reason", "until"}
+		case model.SessionEventKindThinkingFailure, model.SessionEventKindCancelFailure:
+			keys = []string{"code", "message"}
 		}
 		for _, key := range keys {
 			if value, exists := event.Payload[key]; exists {
@@ -3509,11 +3538,18 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 func sessionInputEventProject(event *model.SessionEvent) bool {
 	var allowed string
 	switch event.Kind {
-	case "input.request":
+	case model.SessionEventKindInputRequest:
 		allowed = "description"
-	case "input.failure":
-		allowed = "code"
-	case "input.success":
+	case model.SessionEventKindInputFailure:
+		payload := map[string]interface{}{}
+		for _, key := range []string{"code", "message"} {
+			if value, exists := event.Payload[key]; exists {
+				payload[key] = value
+			}
+		}
+		event.Payload = payload
+		return true
+	case model.SessionEventKindInputSuccess:
 	default:
 		return false
 	}

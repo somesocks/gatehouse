@@ -1000,6 +1000,270 @@ let SessionEventMetrics =
         }
         s.record.meta::{ name = Some "SessionEventMetrics", description = Some "Optional provider metrics recorded with a session event." }
 
+let AgentRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { agent =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "target workspace agent identity" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "AgentRequestPayload", description = Some "Payload for an agent.request event." }
+
+let AgentSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { text =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "agent response text" }
+              }
+        , optional =
+            toMap
+              { attachments =
+                  s.list.from
+                    s.list.props::{
+                    , values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file identity" }
+                    }
+                    s.list.meta::{ description = Some "session files attached to the agent response" }
+              }
+        }
+        s.record.meta::{ name = Some "AgentSuccessPayload", description = Some "Payload for an agent.success event." }
+
+let AgentFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { code =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "machine-readable agent failure code" }
+              }
+        , optional =
+            toMap
+              { message =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "human-readable failure summary" }
+              }
+        }
+        s.record.meta::{ name = Some "AgentFailurePayload", description = Some "Payload for an agent.failure event." }
+
+let MessageTextPayload =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { text =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "message text" }
+              , agents =
+                  s.list.from
+                    s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "target workspace agent identity" } }
+                    s.list.meta::{ description = Some "workspace agents addressed by the message" }
+              , attachments =
+                  s.list.from
+                    s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file identity" } }
+                    s.list.meta::{ description = Some "session files attached to the message" }
+              }
+        }
+        s.record.meta::{ name = Some "MessageTextPayload", description = Some "Payload for a message.text event." }
+
+let ThinkingRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { turn =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "agent turn number" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ThinkingRequestPayload", description = Some "Payload for a thinking.request event." }
+
+let ThinkingUpdatePayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { reason =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "reason for the non-terminal thinking update" }
+              }
+        , optional =
+            toMap
+              { until =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "optional time when the update condition is expected to end" }
+              }
+        }
+        s.record.meta::{ name = Some "ThinkingUpdatePayload", description = Some "Payload for a thinking.update event." }
+
+let ThinkingSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ThinkingSuccessPayload", description = Some "Payload for a thinking.success event; provider metrics are carried by the event envelope." }
+
+let ThinkingFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { code =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "machine-readable thinking failure code" }
+              }
+        , optional =
+            toMap
+              { message =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "human-readable failure summary" }
+              }
+        }
+        s.record.meta::{ name = Some "ThinkingFailurePayload", description = Some "Payload for a thinking.failure event." }
+
+let ToolRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool name" }
+              , call_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider tool call identity" }
+              , code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool program" }
+              , reason = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "why the tool is being called" }
+              }
+        , optional =
+            toMap
+              { batch = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "parallel tool batch number" }
+              , position = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "position within the parallel tool batch" }
+              }
+        }
+        s.record.meta::{ name = Some "ToolRequestPayload", description = Some "Payload for a tool.request event." }
+
+let ToolSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool name" }
+              , call_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider tool call identity" }
+              , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool result returned to the agent" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ToolSuccessPayload", description = Some "Payload for a tool.success event." }
+
+let ToolFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool name" }
+              , call_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider tool call identity" }
+              , code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable tool failure code" }
+              , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool failure result returned to the agent" }
+              }
+        , optional =
+            toMap
+              { message = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "human-readable failure summary" }
+              }
+        }
+        s.record.meta::{ name = Some "ToolFailurePayload", description = Some "Payload for a tool.failure event." }
+
+let ApprovalRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required = toMap { description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "action requiring approval" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ApprovalRequestPayload", description = Some "Payload for an approval.request event." }
+
+let ApprovalSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ApprovalSuccessPayload", description = Some "Payload for an approval.success event." }
+
+let ApprovalFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required = toMap { code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable approval failure code, such as rejected or cancelled" } }
+        , optional = toMap { message = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "human-readable failure summary" } }
+        }
+        s.record.meta::{ name = Some "ApprovalFailurePayload", description = Some "Payload for an approval.failure event." }
+
+let InputRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "input request description" }
+              , form = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "versioned input form descriptor" }
+              }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "InputRequestPayload", description = Some "Payload for an input.request event." }
+
+let InputSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required = toMap { result = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "validated input result" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "InputSuccessPayload", description = Some "Payload for an input.success event." }
+
+let InputFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required = toMap { code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable input failure code" } }
+        , optional = toMap { message = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "human-readable failure summary" } }
+        }
+        s.record.meta::{ name = Some "InputFailurePayload", description = Some "Payload for an input.failure event." }
+
+let CancelRequestPayload =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "CancelRequestPayload", description = Some "Payload for a cancel.request event." }
+
+let CancelSuccessPayload =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "CancelSuccessPayload", description = Some "Payload for a cancel.success event." }
+
+let CancelFailurePayload =
+      s.record.from
+        s.record.props::{
+        , required = toMap { code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable cancellation failure code" } }
+        , optional = toMap { message = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "human-readable failure summary" } }
+        }
+        s.record.meta::{ name = Some "CancelFailurePayload", description = Some "Payload for a cancel.failure event." }
+
 let SessionEvent =
       s.record.from
         s.record.props::{
@@ -1325,6 +1589,26 @@ in  Document::{
              , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
              , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }
              , s.root.from SessionEventMetrics s.root.meta::{ name = "SessionEventMetrics" }
+             , s.root.from AgentRequestPayload s.root.meta::{ name = "AgentRequestPayload" }
+             , s.root.from AgentSuccessPayload s.root.meta::{ name = "AgentSuccessPayload" }
+             , s.root.from AgentFailurePayload s.root.meta::{ name = "AgentFailurePayload" }
+             , s.root.from MessageTextPayload s.root.meta::{ name = "MessageTextPayload" }
+             , s.root.from ThinkingRequestPayload s.root.meta::{ name = "ThinkingRequestPayload" }
+             , s.root.from ThinkingUpdatePayload s.root.meta::{ name = "ThinkingUpdatePayload" }
+             , s.root.from ThinkingSuccessPayload s.root.meta::{ name = "ThinkingSuccessPayload" }
+             , s.root.from ThinkingFailurePayload s.root.meta::{ name = "ThinkingFailurePayload" }
+             , s.root.from ToolRequestPayload s.root.meta::{ name = "ToolRequestPayload" }
+             , s.root.from ToolSuccessPayload s.root.meta::{ name = "ToolSuccessPayload" }
+             , s.root.from ToolFailurePayload s.root.meta::{ name = "ToolFailurePayload" }
+             , s.root.from ApprovalRequestPayload s.root.meta::{ name = "ApprovalRequestPayload" }
+             , s.root.from ApprovalSuccessPayload s.root.meta::{ name = "ApprovalSuccessPayload" }
+             , s.root.from ApprovalFailurePayload s.root.meta::{ name = "ApprovalFailurePayload" }
+             , s.root.from InputRequestPayload s.root.meta::{ name = "InputRequestPayload" }
+             , s.root.from InputSuccessPayload s.root.meta::{ name = "InputSuccessPayload" }
+             , s.root.from InputFailurePayload s.root.meta::{ name = "InputFailurePayload" }
+             , s.root.from CancelRequestPayload s.root.meta::{ name = "CancelRequestPayload" }
+             , s.root.from CancelSuccessPayload s.root.meta::{ name = "CancelSuccessPayload" }
+             , s.root.from CancelFailurePayload s.root.meta::{ name = "CancelFailurePayload" }
              , s.root.from SessionEvent s.root.meta::{ name = "SessionEvent" }
           , s.root.from ActivityEventRef s.root.meta::{ name = "ActivityEventRef" }
           , s.root.from ActivityEvent s.root.meta::{ name = "ActivityEvent" }

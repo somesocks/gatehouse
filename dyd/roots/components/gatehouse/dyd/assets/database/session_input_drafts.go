@@ -146,7 +146,7 @@ func (store *Store) sessionInputDraftLock(ctx context.Context, transaction *sql.
 		SELECT workspace, session, id, '{}', `+placeholder(1)+`
 		FROM gatehouse_session_events
 		WHERE workspace = `+placeholder(2)+` AND session = `+placeholder(3)+` AND id = `+placeholder(4)+`
-			AND kind = 'input.request' AND author_agent IS NOT NULL
+			AND kind = '`+model.SessionEventKindInputRequest+`' AND author_agent IS NOT NULL
 		ON CONFLICT (workspace, session, input) DO NOTHING
 	`, time.Now().UTC().Format(time.RFC3339Nano), request.Session.Workspace.Id, request.Session.Id, request.Id)
 	if err != nil {

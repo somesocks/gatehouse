@@ -25,18 +25,35 @@ type SessionInputResponseTask struct {
 // terminal child event, and schedules its delivery to the waiting workflow.
 // A success payload is always taken from the stored draft, not the caller.
 func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	return store.sessionInputResponseCreate(ctx, event, false)
+}
+
+// SessionInputCancellationCreate resolves a pending form without scheduling a
+// response for its already-cancelled DBOS input workflow.
+func (store *Store) SessionInputCancellationCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	if event.Kind != model.SessionEventKindInputFailure || event.Payload["code"] != "cancelled" {
+		return fmt.Errorf("create session input cancellation: event must be input.failure with code cancelled"), model.SessionEvent{}
+	}
+	return store.sessionInputResponseCreate(ctx, event, true)
+}
+
+func (store *Store) sessionInputResponseCreate(ctx context.Context, event model.SessionEvent, delivered bool) (error, model.SessionEvent) {
 	if event.Parent == nil || *event.Parent == event.Ref || event.Parent.Session != event.Ref.Session ||
 		event.AuthorPrincipal == nil || event.AuthorPrincipal.Ref.Id == "" || event.AuthorAgent != nil || event.AuthorGateway != nil ||
-		(event.Kind != "input.success" && event.Kind != "input.failure") || !typed_id.Valid(typed_id.SessionEvent, event.Ref.Id) {
+		(event.Kind != model.SessionEventKindInputSuccess && event.Kind != model.SessionEventKindInputFailure) || !typed_id.Valid(typed_id.SessionEvent, event.Ref.Id) {
 		return fmt.Errorf("create session input response: invalid terminal event"), model.SessionEvent{}
 	}
-	if event.Kind == "input.success" && len(event.Payload) != 0 {
+	if event.Kind == model.SessionEventKindInputSuccess && len(event.Payload) != 0 {
 		return fmt.Errorf("create session input response: success must use the stored draft"), model.SessionEvent{}
 	}
-	if event.Kind == "input.failure" {
+	if event.Kind == model.SessionEventKindInputFailure {
 		code, ok := event.Payload["code"].(string)
-		if !ok || len(event.Payload) != 1 || !validInputFailureCode(code) {
-			return fmt.Errorf("create session input response: failure requires a valid code"), model.SessionEvent{}
+		message, hasMessage := event.Payload["message"].(string)
+		if !ok || !validInputFailureCode(code) || len(event.Payload) != 1 && !(len(event.Payload) == 2 && hasMessage) {
+			return fmt.Errorf("create session input response: failure requires a valid code and optional message"), model.SessionEvent{}
+		}
+		if hasMessage && strings.TrimSpace(message) == "" {
+			return fmt.Errorf("create session input response: failure message must not be blank"), model.SessionEvent{}
 		}
 	}
 	transaction, err := store.BeginTx(ctx, nil)
@@ -68,8 +85,8 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 		JOIN gatehouse_session_events AS tools ON tools.workspace = inputs.workspace
 			AND tools.session = inputs.session AND tools.id = inputs.parent
 		WHERE inputs.workspace = `+placeholder(1)+` AND inputs.session = `+placeholder(2)+` AND inputs.id = `+placeholder(3)+`
-			AND inputs.kind = 'input.request' AND inputs.author_agent IS NOT NULL
-			AND tools.kind = 'tool.request' AND tools.author_agent = inputs.author_agent
+			AND inputs.kind = '`+model.SessionEventKindInputRequest+`' AND inputs.author_agent IS NOT NULL
+			AND tools.kind = '`+model.SessionEventKindToolRequest+`' AND tools.author_agent = inputs.author_agent
 	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Parent.Id).Scan(&requestPayload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("create session input response: invalid request parent"), model.SessionEvent{}
@@ -77,7 +94,7 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 	if err != nil {
 		return fmt.Errorf("read session input request: %w", err), model.SessionEvent{}
 	}
-	if event.Kind == "input.success" {
+	if event.Kind == model.SessionEventKindInputSuccess {
 		var request struct {
 			Form json.RawMessage `json:"form"`
 		}
@@ -132,9 +149,9 @@ func (store *Store) SessionInputResponseCreate(ctx context.Context, event model.
 	}
 	result, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_input_responses (workspace, session, input, response, created_at, delivered)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, FALSE)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`)
 		ON CONFLICT (workspace, session, input) DO NOTHING
-	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Parent.Id, event.Ref.Id, event.CreatedAt)
+	`, event.Ref.Session.Workspace.Id, event.Ref.Session.Id, event.Parent.Id, event.Ref.Id, event.CreatedAt, delivered)
 	if err != nil {
 		return fmt.Errorf("insert session input delivery task: %w", err), model.SessionEvent{}
 	}
@@ -177,7 +194,7 @@ func (store *Store) SessionInputResponseResultGet(ctx context.Context, response 
 	var payload string
 	err := store.QueryRowContext(ctx, `
 		SELECT payload FROM gatehouse_session_events
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+` AND kind = 'input.success'
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+` AND kind = '`+model.SessionEventKindInputSuccess+`'
 	`, response.Session.Workspace.Id, response.Session.Id, response.Id).Scan(&payload)
 	if err != nil {
 		return fmt.Errorf("read session input result: %w", err), ""

@@ -26,8 +26,15 @@ export type ChatEvent = {
     reason?: string
     until?: string
     code?: string
+    message?: string
     description?: string
+    form?: unknown
     output?: string
+    result?: unknown
+    turn?: number
+    call_id?: string
+    batch?: number
+    position?: number
     attachments?: ChatFile[]
   }
   ref: { id: string }

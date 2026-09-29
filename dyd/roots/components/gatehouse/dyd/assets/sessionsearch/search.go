@@ -139,10 +139,10 @@ func Cursor(source, value string) (error, string) {
 // EventReadableBody returns the exact bytes exposed by session/events/read.
 func EventReadableBody(event model.SessionEvent) (string, bool) {
 	switch event.Kind {
-	case "message.text", "agent.reply":
+	case model.SessionEventKindMessageText, model.SessionEventKindAgentSuccess:
 		output, ok := event.Payload["text"].(string)
 		return output, ok
-	case "tool.request":
+	case model.SessionEventKindToolRequest:
 		callID, callIDOK := event.Payload["call_id"].(string)
 		name, nameOK := event.Payload["name"].(string)
 		code, codeOK := event.Payload["code"].(string)
@@ -151,10 +151,10 @@ func EventReadableBody(event model.SessionEvent) (string, bool) {
 			return "", false
 		}
 		return code + "\n" + reason, true
-	case "tool.success", "tool.failure":
+	case model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
 		output, ok := event.Payload["output"].(string)
 		return output, ok
-	case "approval.request":
+	case model.SessionEventKindApprovalRequest:
 		description, ok := event.Payload["description"].(string)
 		return description, ok
 	default:
@@ -169,7 +169,7 @@ func EventReadableBody(event model.SessionEvent) (string, bool) {
 // EventSearchBody returns explicitly searchable current-session event text.
 func EventSearchBody(event model.SessionEvent) (string, bool) {
 	switch event.Kind {
-	case "message.text", "agent.reply", "tool.request", "tool.success", "tool.failure", "approval.request":
+	case model.SessionEventKindMessageText, model.SessionEventKindAgentSuccess, model.SessionEventKindToolRequest, model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure, model.SessionEventKindApprovalRequest:
 		return EventReadableBody(event)
 	default:
 		return "", false

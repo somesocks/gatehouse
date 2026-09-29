@@ -36,7 +36,7 @@ func (store *Store) linkSessionInputFile(ctx context.Context, transaction *sql.T
 	result, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_input_files (workspace, session, input, field_path, file)
 		SELECT `+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`
-		WHERE EXISTS (SELECT 1 FROM gatehouse_session_events WHERE workspace = `+placeholder(6)+` AND session = `+placeholder(7)+` AND id = `+placeholder(8)+` AND kind = 'input.request')
+		WHERE EXISTS (SELECT 1 FROM gatehouse_session_events WHERE workspace = `+placeholder(6)+` AND session = `+placeholder(7)+` AND id = `+placeholder(8)+` AND kind = '`+model.SessionEventKindInputRequest+`')
 		AND NOT EXISTS (SELECT 1 FROM gatehouse_session_input_responses WHERE workspace = `+placeholder(9)+` AND session = `+placeholder(10)+` AND input = `+placeholder(11)+`)
 	`, input.Session.Workspace.Id, input.Session.Id, input.Id, inputFilePath(path), fileID,
 		input.Session.Workspace.Id, input.Session.Id, input.Id, input.Session.Workspace.Id, input.Session.Id, input.Id)

@@ -22,8 +22,8 @@ func (store *Store) SessionInputRequestFormGet(ctx context.Context, request mode
 		JOIN gatehouse_session_events AS tools ON tools.workspace = inputs.workspace
 			AND tools.session = inputs.session AND tools.id = inputs.parent
 		WHERE inputs.workspace = `+placeholder(1)+` AND inputs.session = `+placeholder(2)+` AND inputs.id = `+placeholder(3)+`
-			AND inputs.kind = 'input.request' AND inputs.author_agent IS NOT NULL
-			AND tools.kind = 'tool.request' AND tools.author_agent = inputs.author_agent
+			AND inputs.kind = '`+model.SessionEventKindInputRequest+`' AND inputs.author_agent IS NOT NULL
+			AND tools.kind = '`+model.SessionEventKindToolRequest+`' AND tools.author_agent = inputs.author_agent
 	`, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -79,8 +79,8 @@ func (store *Store) SessionInputStateGet(ctx context.Context, request model.Sess
 		LEFT JOIN gatehouse_session_input_responses AS responses ON responses.workspace = inputs.workspace
 			AND responses.session = inputs.session AND responses.input = inputs.id
 		WHERE inputs.workspace = `+placeholder(1)+` AND inputs.session = `+placeholder(2)+` AND inputs.id = `+placeholder(3)+`
-			AND inputs.kind = 'input.request' AND inputs.author_agent IS NOT NULL
-			AND tools.kind = 'tool.request' AND tools.author_agent = inputs.author_agent
+			AND inputs.kind = '`+model.SessionEventKindInputRequest+`' AND inputs.author_agent IS NOT NULL
+			AND tools.kind = '`+model.SessionEventKindToolRequest+`' AND tools.author_agent = inputs.author_agent
 	`, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&draft, &updatedAt, &response)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil

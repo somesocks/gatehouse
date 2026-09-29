@@ -47,18 +47,18 @@ func TestResultUsesCanonicalRequestAndApprovalText(t *testing.T) {
 	}
 }
 
-func TestResultUsesAgentReplyText(t *testing.T) {
+func TestResultUsesAgentSuccessText(t *testing.T) {
 	err, expression := Parse(`"reply"`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	reply := model.SessionEvent{Ref: model.SessionEventRef{Id: "sev_00000000000000000000000000"}, Kind: "agent.reply", Payload: map[string]interface{}{"text": "Final reply text"}}
+	reply := model.SessionEvent{Ref: model.SessionEventRef{Id: "sev_00000000000000000000000000"}, Kind: model.SessionEventKindAgentSuccess, Payload: map[string]interface{}{"text": "Final reply text"}}
 	body, readable := EventReadableBody(reply)
 	result, matched := Result(reply, expression)
 	if !readable || body != "Final reply text" || !matched || result.Size != int64(len(body)) || result.Preview != body || len(result.Matches) != 1 || result.Matches[0] != (Range{Offset: 6, Length: 5}) {
 		t.Fatalf("agent reply Result() = (%q, %#v, %t)", body, result, matched)
 	}
-	invalid := model.SessionEvent{Kind: "agent.reply", Payload: map[string]interface{}{"text": float64(42)}}
+	invalid := model.SessionEvent{Kind: model.SessionEventKindAgentSuccess, Payload: map[string]interface{}{"text": float64(42)}}
 	if _, readable := EventReadableBody(invalid); readable {
 		t.Fatalf("EventReadableBody() accepted malformed agent reply")
 	}

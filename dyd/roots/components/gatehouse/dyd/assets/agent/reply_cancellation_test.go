@@ -2,7 +2,6 @@ package agent_test
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,15 +18,16 @@ import (
 	"gatehouse/typed_id"
 )
 
-func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
+func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) {
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(input/ask (input/form \\\"Review\\\" (input/form/text \\\"name\\\" \\\"Name\\\")))\",\"reason\":\"review\"}"},{"type":"function_call","call_id":"call-2","name":"lisp","arguments":"{\"code\":\"(+ 1 2)\",\"reason\":\"arithmetic\"}"}],"usage":{"input_tokens":20,"output_tokens":10,"total_tokens":30}}`))
+		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(input/ask (input/form \\\"Review\\\" (input/form/text \\\"name\\\" \\\"Name\\\")))\",\"reason\":\"review\"}"},{"type":"function_call","call_id":"call-2","name":"lisp","arguments":"{\"code\":\"((policy/require-approval \\\"Approve this action\\\" +) 1 2)\",\"reason\":\"approval\"}"}],"usage":{"input_tokens":20,"output_tokens":10,"total_tokens":30}}`))
 	}))
 	defer server.Close()
 	t.Setenv("GATEHOUSE_TEST_CANCEL_KEYCHAIN", "test passphrase")
 	t.Setenv("GATEHOUSE_TEST_CANCEL_API_KEY", "test-key")
+	testPrelude := `(import (json @native:json/v1) (input @native:gatehouse/input/v1) (policy @native:gatehouse/policy/v1) (let ((input/ask (fn (form) (json/decode (input/ask-json form))))) (eval program)))`
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: "openai-responses", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_CANCEL_API_KEY"}, Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "test", Model: "test-model", Parameters: `{}`, Compaction: defaultAgentModelCompaction, MaxTurns: 4, MaxOutputTokens: 1024, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Prelude: &testPrelude, Default: true, Enabled: true}},
 	}
 	err, ring := keychain.NewKeyring(store, keychains, keychain.NewPassphraseSourceResolver())
 	if err != nil {
@@ -91,7 +91,7 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 	if err := runtime.Reconcile(); err != nil {
 		t.Fatal(err)
 	}
-	var input model.SessionEventRef
+	var input, approval model.SessionEventRef
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		err, events := store.SessionEventsGet(ctx, session)
@@ -99,12 +99,14 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 			t.Fatal(err)
 		}
 		for _, event := range events {
-			if event.Kind == "input.request" {
+			if event.Kind == model.SessionEventKindInputRequest {
 				input = event.Ref
-				break
+			}
+			if event.Kind == model.SessionEventKindApprovalRequest {
+				approval = event.Ref
 			}
 		}
-		if input.Id != "" {
+		if input.Id != "" && approval.Id != "" {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)
@@ -112,11 +114,14 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 	if input.Id == "" {
 		t.Fatal("tool did not open its input form")
 	}
+	if approval.Id == "" {
+		t.Fatal("tool did not open its approval request")
+	}
 	id, err := typed_id.New(typed_id.SessionEvent)
 	if err != nil {
 		t.Fatal(err)
 	}
-	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: "cancel.request", AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
+	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: model.SessionEventKindCancelRequest, AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
 	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
 		t.Fatalf("CancelReply() = (%#v, %v), want %#v", stored, err, cancellation.Ref)
 	}
@@ -125,7 +130,7 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 	}
 	var success *model.SessionEvent
 	for time.Now().Before(deadline.Add(10 * time.Second)) {
-		err, success = store.SessionEventChildGet(ctx, cancellation.Ref, "cancel.success")
+		err, success = store.SessionEventChildGet(ctx, cancellation.Ref, model.SessionEventKindCancelSuccess)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -152,29 +157,36 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 	if err != nil || inputRequest == nil || inputRequest.Parent == nil {
 		t.Fatalf("input request = (%#v, %v)", inputRequest, err)
 	}
+	err, approvalRequest := store.SessionEventGet(ctx, approval)
+	if err != nil || approvalRequest == nil || approvalRequest.Parent == nil {
+		t.Fatalf("approval request = (%#v, %v)", approvalRequest, err)
+	}
 	for _, workflowID := range []string{
 		"session-event-reply:" + request.Ref.Id,
 		"session-tool-call:" + inputRequest.Parent.Id,
+		"session-tool-call:" + approvalRequest.Parent.Id,
 		"session-input:" + input.Id,
+		"session-approval:" + approval.Id,
 	} {
 		var status string
 		if err := store.QueryRowContext(ctx, `SELECT status FROM workflow_status WHERE workflow_uuid = ?`, workflowID).Scan(&status); err != nil || status != "CANCELLED" {
 			t.Fatalf("workflow %q = (%q, %v), want CANCELLED", workflowID, status, err)
 		}
 	}
-	if err, resolved := store.SessionInputResolvedGet(ctx, input); err != nil || resolved {
-		t.Fatalf("form after cancellation = (%v, %v), want unresolved during this phase", resolved, err)
+	if err, resolved := store.SessionInputResolvedGet(ctx, input); err != nil || !resolved {
+		t.Fatalf("form after cancellation = (%v, %v), want resolved", resolved, err)
 	}
-	if err, _ := store.SessionInputDraftSet(ctx, input, []string{"name"}, json.RawMessage(`"Ada"`)); err != nil {
-		t.Fatalf("form draft remains editable during this phase: %v", err)
+	if err, draft := store.SessionInputDraftGet(ctx, input); err != nil || draft != nil {
+		t.Fatalf("form draft after cancellation = (%#v, %v), want deleted", draft, err)
 	}
-	responseID, err := typed_id.New(typed_id.SessionEvent)
-	if err != nil {
-		t.Fatal(err)
+	if err, response := store.SessionEventChildGet(ctx, input, model.SessionEventKindInputFailure); err != nil || response == nil || response.Payload["code"] != "cancelled" {
+		t.Fatalf("input cancellation response = (%#v, %v)", response, err)
 	}
-	response := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: responseID}, Parent: &input, Kind: "input.success", AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
-	if err, _ := store.SessionInputResponseCreate(ctx, response); err != nil {
-		t.Fatalf("form remains submitable during this phase: %v", err)
+	if err, response := store.SessionEventChildGet(ctx, approval, model.SessionEventKindApprovalFailure); err != nil || response == nil || response.Payload["code"] != "cancelled" {
+		t.Fatalf("approval cancellation response = (%#v, %v)", response, err)
+	}
+	if err, pending := store.SessionInputResponseTasksGet(ctx, 10); err != nil || len(pending) != 0 {
+		t.Fatalf("cancelled input delivery tasks = (%#v, %v), want none", pending, err)
 	}
 	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
 		t.Fatalf("CancelReply() after completion = (%#v, %v)", stored, err)
@@ -183,16 +195,41 @@ func TestReplyCancellationMarksBlockedInputWorkflowsCancelled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cancellations := 0
+	cancellations, agentFailures := 0, 0
+	toolRequests := []model.SessionEvent{}
 	for _, event := range events {
-		if event.Kind == "agent.reply" {
+		if event.Kind == model.SessionEventKindAgentSuccess {
 			t.Fatal("cancelled reply produced an agent reply")
 		}
-		if event.Kind == "cancel.success" {
+		if event.Kind == model.SessionEventKindAgentFailure {
+			agentFailures++
+			if event.Parent == nil || *event.Parent != request.Ref || event.Payload["code"] != "cancelled" {
+				t.Fatalf("agent cancellation outcome = %#v", event)
+			}
+		}
+		if event.Kind == model.SessionEventKindCancelSuccess {
 			cancellations++
+		}
+		if event.Kind == model.SessionEventKindToolRequest && event.Parent != nil && *event.Parent == request.Ref {
+			toolRequests = append(toolRequests, event)
 		}
 	}
 	if cancellations != 1 {
 		t.Fatalf("cancel.success count = %d, want 1", cancellations)
+	}
+	if agentFailures != 1 {
+		t.Fatalf("agent.failure count = %d, want 1", agentFailures)
+	}
+	if len(toolRequests) != 2 {
+		t.Fatalf("parallel tool requests = %d, want 2", len(toolRequests))
+	}
+	for _, tool := range toolRequests {
+		if err, terminal := store.SessionEventChildGet(ctx, tool.Ref, model.SessionEventKindToolSuccess); err != nil {
+			t.Fatal(err)
+		} else if terminal == nil {
+			if err, terminal = store.SessionEventChildGet(ctx, tool.Ref, model.SessionEventKindToolFailure); err != nil || terminal == nil {
+				t.Fatalf("tool %q has no terminal event: (%#v, %v)", tool.Ref.Id, terminal, err)
+			}
+		}
 	}
 }

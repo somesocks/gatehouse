@@ -31,6 +31,7 @@
   import {
     activityDuration,
     activityEvents,
+    agentFailures,
     agentRequests,
     approvalRequests,
     approvalResponse,
@@ -383,7 +384,14 @@
   function thinkingSummary(tree: ChatEventTree): string {
     const status = thinkingStatus(tree)
     if (status === "succeeded") return "Thought"
-    if (status === "failed") return "Thinking failed after"
+    if (status === "failed")
+      return tree.children.some(
+        (child) =>
+          child.event.kind === "thinking.failure" &&
+          child.event.payload.code === "cancelled",
+      )
+        ? "Thinking cancelled after"
+        : "Thinking failed after"
     const until = thinkingRateLimitDelayUntil(
       tree,
       controller.state.activityTimestamp,
@@ -616,6 +624,8 @@
                             ? "Cancellation failed"
                           : cancellationRequest(request) !== undefined
                             ? "Cancellation requested"
+                            : agentFailures(request).length > 0
+                              ? `${activityAgentLabel(request)} failed`
                             : finalReplies(request).length === 0
                               ? `${activityAgentLabel(request)} is working`
                               : activityAgentLabel(
@@ -634,6 +644,9 @@
                               : "Cancel"}</button
                           >{/if}
                       </header>
+                      {#if agentFailures(request).length > 0}<p class="event-summary" data-state="failed">
+                        {agentFailures(request)[0].event.payload.message ?? agentFailures(request)[0].event.payload.code ?? "Agent failed."}
+                      </p>{/if}
                       {#if renderedActivityEvents(request).length > 0}<div
                           class="event-list"
                         >
@@ -713,7 +726,7 @@
                                             "rejected",
                                           )}>Reject</button
                                       ></span
-                                    >{:else if response.event.kind === "approval.approved"}<ShieldCheck
+                                    >{:else if response.event.kind === "approval.success"}<ShieldCheck
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
@@ -726,7 +739,7 @@
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><strong>Action rejected:</strong
+                                    /><strong>{response.event.payload.code === "cancelled" ? "Action cancelled:" : "Action rejected:"}</strong
                                     ><span>{approvalDescription(
                                         approval,
                                         event,
@@ -743,7 +756,7 @@
                               </p>{/if}{/each}
                               {#each inputRequests(event) as input (input.event.ref.id)}
                                 <InputRequestCard request={input} workspaceID={workspace.id} sessionID={session.id} onAuthenticationLost={runtime.requireLogin} />
-                              {/each}{:else if event.event.kind === "thinking.started"}<p
+                              {/each}{:else if event.event.kind === "thinking.request"}<p
                                 class="event-summary"
                                 data-state={thinkingStatus(event)}
                               >
@@ -759,10 +772,10 @@
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
-                                  />{/if}{thinkingSummary(event)}{#if activityDuration(event, "thinking.completed", "thinking.failed") !== ""}<small>{activityDuration(
-                                      event,
-                                      "thinking.completed",
-                                      "thinking.failed",
+                                  />{/if}{thinkingSummary(event)}{#if activityDuration(event, "thinking.success", "thinking.failure") !== ""}<small>{activityDuration(
+                                       event,
+                                       "thinking.success",
+                                       "thinking.failure",
                                     )}</small>{/if}
                               </p>{/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<p
                               class="event-more"

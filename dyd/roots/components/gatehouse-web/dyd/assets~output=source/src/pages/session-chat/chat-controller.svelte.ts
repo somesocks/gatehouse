@@ -96,6 +96,7 @@ export function createChatController({
           .filter(
             (tree) =>
               finalReplies(tree).length > 0 ||
+              agentFailures(tree).length > 0 ||
               hasThinkingFailure(tree) ||
               hasCancellationSuccess(tree) ||
               hasCancellationFailure(tree),
@@ -478,7 +479,7 @@ export function deliveredAgentIDs(
 }
 export function finalReplies(tree: ChatEventTree): ChatEventTree[] {
   return tree.children.flatMap((child) => [
-    ...(child.event.kind === "agent.reply" &&
+    ...(child.event.kind === "agent.success" &&
     child.event.author_agent !== undefined &&
     child.event.payload.text !== undefined
       ? [child]
@@ -486,13 +487,17 @@ export function finalReplies(tree: ChatEventTree): ChatEventTree[] {
     ...finalReplies(child),
   ])
 }
+export function agentFailures(tree: ChatEventTree): ChatEventTree[] {
+  return tree.children.filter((child) => child.event.kind === "agent.failure")
+}
 export function agentRequests(tree: ChatEventTree): ChatEventTree[] {
   return tree.children.filter((child) => child.event.kind === "agent.request")
 }
 export function activityEvents(tree: ChatEventTree): ChatEventTree[] {
   return tree.children.flatMap((child) => [
     ...(child.event.kind !== "agent.request" &&
-    child.event.kind !== "agent.reply"
+    child.event.kind !== "agent.success" &&
+    child.event.kind !== "agent.failure"
       ? [child]
       : []),
     ...activityEvents(child),
@@ -502,7 +507,7 @@ export function renderedActivityEvents(tree: ChatEventTree): ChatEventTree[] {
   return activityEvents(tree).filter(
     (activity) =>
       activity.event.kind === "tool.request" ||
-      activity.event.kind === "thinking.started",
+      activity.event.kind === "thinking.request",
   )
 }
 export function displayedActivityEvents(
@@ -517,7 +522,7 @@ export function displayedActivityEvents(
 export function hasThinkingFailure(tree: ChatEventTree): boolean {
   return activityEvents(tree).some(
     (child) =>
-      child.event.kind === "thinking.started" &&
+      child.event.kind === "thinking.request" &&
       thinkingStatus(child) === "failed",
   )
 }
@@ -549,6 +554,7 @@ export function replyCanBeCancelled(tree: ChatEventTree): boolean {
   return (
     (tree.event.kind === "agent.request" || agentRequests(tree).length === 1) &&
     finalReplies(tree).length === 0 &&
+    agentFailures(tree).length === 0 &&
     !hasThinkingFailure(tree) &&
     cancellationRequest(tree) === undefined
   )
@@ -572,7 +578,7 @@ export function toolStatus(
 export function thinkingStatus(
   tree: ChatEventTree,
 ): "working" | "succeeded" | "failed" {
-  return activityStatus(tree, "thinking.completed", "thinking.failed")
+  return activityStatus(tree, "thinking.success", "thinking.failure")
 }
 export function thinkingRateLimitDelayUntil(
   tree: ChatEventTree,
@@ -581,7 +587,7 @@ export function thinkingRateLimitDelayUntil(
   for (let index = tree.children.length - 1; index >= 0; index -= 1) {
     const delay = tree.children[index].event
     if (
-      delay.kind !== "thinking.delay" ||
+      delay.kind !== "thinking.update" ||
       delay.payload.reason !== "rate_limit" ||
       typeof delay.payload.until !== "string"
     )
@@ -601,8 +607,8 @@ export function approvalResponse(
 ): ChatEventTree | undefined {
   return tree.children.find(
     (child) =>
-      child.event.kind === "approval.approved" ||
-      child.event.kind === "approval.rejected",
+      child.event.kind === "approval.success" ||
+      child.event.kind === "approval.failure",
   )
 }
 

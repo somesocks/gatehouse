@@ -284,7 +284,7 @@ func TestSessionEventReadRange(t *testing.T) {
 		{name: "tool failure", event: model.SessionEvent{Kind: "tool.failure", Payload: map[string]interface{}{"output": "failure"}}, offset: 2, length: 8, output: "ilure"},
 		{name: "tool request", event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": `say "Conroe"`, "reason": "Explain the quote."}}, offset: 0, length: 4096, output: "say \"Conroe\"\nExplain the quote."},
 		{name: "approval request", event: model.SessionEvent{Kind: "approval.request", Payload: map[string]interface{}{"description": `Approve "Conroe"`}}, offset: 0, length: 4096, output: `Approve "Conroe"`},
-		{name: "other kind", event: model.SessionEvent{Kind: "thinking.completed", Payload: map[string]interface{}{}}, offset: 0, length: 1, output: "{"},
+		{name: "other kind", event: model.SessionEvent{Kind: model.SessionEventKindThinkingSuccess, Payload: map[string]interface{}{}}, offset: 0, length: 1, output: "{"},
 		{name: "missing payload", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{}}, offset: 0, length: 1, fails: true},
 		{name: "invalid tool request", event: model.SessionEvent{Kind: "tool.request", Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": "", "reason": "reason"}}, offset: 0, length: 1, fails: true},
 		{name: "unavailable offset", event: model.SessionEvent{Kind: "message.text", Payload: map[string]interface{}{"text": "hello"}}, offset: 6, length: 1, fails: true},

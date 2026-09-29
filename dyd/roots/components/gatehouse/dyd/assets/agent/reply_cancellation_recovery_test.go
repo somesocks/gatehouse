@@ -106,13 +106,13 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: "cancel.request", AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
+	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &request.Ref, Kind: model.SessionEventKindCancelRequest, AuthorPrincipal: &principal, Payload: map[string]interface{}{}}
 	if err, _ := runtime.CancelReply(ctx, cancellation); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		err, success := store.SessionEventChildGet(ctx, cancellation.Ref, "cancel.success")
+		err, success := store.SessionEventChildGet(ctx, cancellation.Ref, model.SessionEventKindCancelSuccess)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -121,7 +121,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	if err, success := store.SessionEventChildGet(ctx, cancellation.Ref, "cancel.success"); err != nil || success == nil {
+	if err, success := store.SessionEventChildGet(ctx, cancellation.Ref, model.SessionEventKindCancelSuccess); err != nil || success == nil {
 		t.Fatalf("queued reply cancellation = (%#v, %v), want success while queue is blocked", success, err)
 	}
 	var status string
@@ -165,10 +165,10 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 	}
 	completions := 0
 	for _, event := range events {
-		if event.Kind == "cancel.success" {
+		if event.Kind == model.SessionEventKindCancelSuccess {
 			completions++
 		}
-		if event.Kind == "agent.reply" {
+		if event.Kind == model.SessionEventKindAgentSuccess {
 			t.Fatal("cancelled queued reply ran after restart")
 		}
 	}

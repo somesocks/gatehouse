@@ -20,9 +20,9 @@ function tree(
     event: {
       created_at: "2026-01-01T00:00:00.000Z",
       kind,
-      payload: kind === "agent.reply" ? { text: "Reply", ...payload } : payload,
+      payload: kind === "agent.success" ? { text: "Reply", ...payload } : payload,
       ref: { id: kind },
-      ...(kind === "agent.reply"
+      ...(kind === "agent.success"
         ? { author_agent: { id: "wag_test", workspace: { id: "wsp_test" } } }
         : {}),
     },
@@ -58,8 +58,8 @@ describe("chat request activity", () => {
   })
 
   it("keeps replies in their request branch", () => {
-    const firstReply = tree("agent.reply")
-    const secondReply = tree("agent.reply")
+    const firstReply = tree("agent.success")
+    const secondReply = tree("agent.success")
     const message = tree("message.text", [
       tree("agent.request", [firstReply]),
       tree("agent.request", [secondReply]),
@@ -81,8 +81,8 @@ describe("chat request activity", () => {
 describe("thinking rate-limit delay", () => {
   it("returns a future rate-limit delay deadline", () => {
     const until = "2026-01-01T00:00:30.000Z"
-    const thinking = tree("thinking.started", [
-      tree("thinking.delay", [], { reason: "rate_limit", until }),
+    const thinking = tree("thinking.request", [
+      tree("thinking.update", [], { reason: "rate_limit", until }),
     ])
 
     expect(
@@ -94,12 +94,12 @@ describe("thinking rate-limit delay", () => {
   })
 
   it("ignores elapsed and malformed delay deadlines", () => {
-    const thinking = tree("thinking.started", [
-      tree("thinking.delay", [], {
+    const thinking = tree("thinking.request", [
+      tree("thinking.update", [], {
         reason: "rate_limit",
         until: "not-a-timestamp",
       }),
-      tree("thinking.delay", [], {
+      tree("thinking.update", [], {
         reason: "rate_limit",
         until: "2026-01-01T00:00:00.000Z",
       }),

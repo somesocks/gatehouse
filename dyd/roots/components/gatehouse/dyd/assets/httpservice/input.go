@@ -412,8 +412,13 @@ func sessionInputTerminal(store *database.Store, tokens *auth.BearerTokens, disp
 			return
 		}
 		var payload map[string]interface{}
-		if kind == "input.failure" {
-			payload = map[string]interface{}{"code": "cancelled"}
+		if kind == model.SessionEventKindInputFailure {
+			var payloadErr error
+			payload, payloadErr = database.SessionEventPayloadFrom(model.InputFailurePayload{Code: "cancelled"})
+			if payloadErr != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
 		}
 		event := model.SessionEvent{
 			Ref: model.SessionEventRef{Session: input.Session, Id: id}, Parent: &input,

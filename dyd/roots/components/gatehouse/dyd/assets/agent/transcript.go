@@ -257,7 +257,7 @@ func compileMCMTRContextWithShared(events []model.SessionEvent, active model.Ses
 		byID[event.Ref.Id] = event
 	}
 	activeEvent, ok := byID[active.Id]
-	if !ok || activeEvent.Ref.Session != active.Session || activeEvent.Kind != "message.text" || activeEvent.AuthorPrincipal == nil {
+	if !ok || activeEvent.Ref.Session != active.Session || activeEvent.Kind != model.SessionEventKindMessageText || activeEvent.AuthorPrincipal == nil {
 		return nil, state, 0, fmt.Errorf("reply to session event %q: active user message is unavailable", active.Id)
 	}
 
@@ -493,10 +493,10 @@ func mcmtrAnnotateRoots(events []model.SessionEvent) []model.SessionEvent {
 }
 
 func mcmtrChannel(event model.SessionEvent) string {
-	if event.Kind == "tool.request" || event.Kind == "tool.success" || event.Kind == "tool.failure" {
+	if event.Kind == model.SessionEventKindToolRequest || event.Kind == model.SessionEventKindToolSuccess || event.Kind == model.SessionEventKindToolFailure {
 		return "tool"
 	}
-	if event.Kind == "message.text" && event.AuthorPrincipal != nil {
+	if event.Kind == model.SessionEventKindMessageText && event.AuthorPrincipal != nil {
 		return "user"
 	}
 	return "agent"
@@ -608,18 +608,18 @@ func mcmtrSelectText(value string, schedule contextSchedule, used *int) mcmtrTex
 }
 
 func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
-	if event.Kind == "agent.request" || strings.HasPrefix(event.Kind, "thinking.") || strings.HasPrefix(event.Kind, "approval.") {
+	if event.Kind == model.SessionEventKindAgentRequest || event.Kind == model.SessionEventKindAgentFailure || strings.HasPrefix(event.Kind, "thinking.") || strings.HasPrefix(event.Kind, "approval.") {
 		return mcmtrRecord{}, false, nil
 	}
 	record := mcmtrRecord{event: event, kind: event.Kind, channel: agentContextSchedule}
 	switch event.Kind {
-	case "message.text", "agent.reply":
+	case model.SessionEventKindMessageText, model.SessionEventKindAgentSuccess:
 		record.kind = "message"
 		record.contents.value, _ = event.Payload["text"].(string)
 		if event.AuthorPrincipal != nil {
 			record.channel = userContextSchedule
 		}
-	case "tool.request":
+	case model.SessionEventKindToolRequest:
 		if event.AuthorAgent == nil {
 			return mcmtrRecord{}, false, nil
 		}
@@ -628,13 +628,13 @@ func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
 			return mcmtrRecord{}, false, err
 		}
 		record.kind, record.callID, record.contents.value, record.channel = "tool-call", call.ID, call.Function.Arguments, toolResultSchedule
-	case "tool.success", "tool.failure":
+	case model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
 		output, ok := event.Payload["output"].(string)
 		if !ok {
 			return mcmtrRecord{}, false, fmt.Errorf("session tool output %q has no text output", event.Ref.Id)
 		}
 		record.kind, record.contents, record.channel = "tool-result", mcmtrLimitText(output, mcmtrToolResultContentMaximumBytes), toolResultSchedule
-		if event.Kind == "tool.success" {
+		if event.Kind == model.SessionEventKindToolSuccess {
 			record.status = "success"
 		} else {
 			record.status = "failure"

@@ -98,14 +98,14 @@ func sessionEventSearchSQLiteTextPredicate(text string, placeholder func(int) st
 	output := contains(outputValue)
 	request := contains(codeValue + " || char(10) || " + reasonValue)
 	approval := contains(descriptionValue)
-	return "((events.kind IN ('message.text', 'agent.reply') AND json_type(events.payload, '$.text') = 'text' AND " + message + ") OR " +
-		"(events.kind IN ('tool.success', 'tool.failure') AND json_type(events.payload, '$.output') = 'text' AND " + output + ") OR " +
-		"(events.kind = 'tool.request' AND json_type(events.payload, '$.name') = 'text' AND " +
+	return "((events.kind IN ('" + model.SessionEventKindMessageText + "', '" + model.SessionEventKindAgentSuccess + "') AND json_type(events.payload, '$.text') = 'text' AND " + message + ") OR " +
+		"(events.kind IN ('" + model.SessionEventKindToolSuccess + "', '" + model.SessionEventKindToolFailure + "') AND json_type(events.payload, '$.output') = 'text' AND " + output + ") OR " +
+		"(events.kind = '" + model.SessionEventKindToolRequest + "' AND json_type(events.payload, '$.name') = 'text' AND " +
 		"json_extract(events.payload, '$.name') = 'lisp' AND json_type(events.payload, '$.call_id') = 'text' AND " +
 		"trim(COALESCE(json_extract(events.payload, '$.call_id'), '')) <> '' AND json_type(events.payload, '$.code') = 'text' AND " +
 		"trim(COALESCE(" + codeValue + ", '')) <> '' AND json_type(events.payload, '$.reason') = 'text' AND " +
 		"trim(COALESCE(" + reasonValue + ", '')) <> '' AND " + request + ") OR " +
-		"(events.kind = 'approval.request' AND json_type(events.payload, '$.description') = 'text' AND " + approval + "))", arguments
+		"(events.kind = '" + model.SessionEventKindApprovalRequest + "' AND json_type(events.payload, '$.description') = 'text' AND " + approval + "))", arguments
 }
 
 func sessionEventSearchTextPredicate(parameter string) string {
@@ -121,12 +121,12 @@ func sessionEventSearchTextPredicate(parameter string) string {
 	output := contains(outputValue)
 	request := contains(codeValue + " || E'\\n' || " + reasonValue)
 	approval := contains(descriptionValue)
-	return "((events.kind IN ('message.text', 'agent.reply') AND jsonb_typeof(events.payload -> 'text') = 'string' AND " + message + ") OR " +
-		"(events.kind IN ('tool.success', 'tool.failure') AND jsonb_typeof(events.payload -> 'output') = 'string' AND " + output + ") OR " +
-		"(events.kind = 'tool.request' AND jsonb_typeof(events.payload -> 'name') = 'string' AND " +
+	return "((events.kind IN ('" + model.SessionEventKindMessageText + "', '" + model.SessionEventKindAgentSuccess + "') AND jsonb_typeof(events.payload -> 'text') = 'string' AND " + message + ") OR " +
+		"(events.kind IN ('" + model.SessionEventKindToolSuccess + "', '" + model.SessionEventKindToolFailure + "') AND jsonb_typeof(events.payload -> 'output') = 'string' AND " + output + ") OR " +
+		"(events.kind = '" + model.SessionEventKindToolRequest + "' AND jsonb_typeof(events.payload -> 'name') = 'string' AND " +
 		"(events.payload ->> 'name') = 'lisp' AND jsonb_typeof(events.payload -> 'call_id') = 'string' AND " +
 		"btrim(COALESCE(events.payload ->> 'call_id', '')) <> '' AND jsonb_typeof(events.payload -> 'code') = 'string' AND " +
 		"btrim(COALESCE(" + codeValue + ", '')) <> '' AND jsonb_typeof(events.payload -> 'reason') = 'string' AND " +
 		"btrim(COALESCE(" + reasonValue + ", '')) <> '' AND " + request + ") OR " +
-		"(events.kind = 'approval.request' AND jsonb_typeof(events.payload -> 'description') = 'string' AND " + approval + "))"
+		"(events.kind = '" + model.SessionEventKindApprovalRequest + "' AND jsonb_typeof(events.payload -> 'description') = 'string' AND " + approval + "))"
 }

@@ -1056,7 +1056,7 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 	if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{
 		Ref:         model.SessionEventRef{Session: session, Id: lateID},
 		Parent:      &firstRequest.Ref,
-		Kind:        "agent.reply",
+		Kind:        model.SessionEventKindAgentSuccess,
 		AuthorAgent: &agent,
 		Payload:     map[string]interface{}{"text": "late"},
 	}); err != nil {
@@ -1273,7 +1273,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		return event
 	}
 	root := create("sev_00000000000000000000000000", "message.text", nil)
-	reasoning := create("sev_00000000000000000000000001", "message.reasoning", &root.Ref)
+	notice := create("sev_00000000000000000000000001", "gateway.notice", &root.Ref)
 	call := create("sev_00000000000000000000000002", "tool.request", &root.Ref)
 	result := create("sev_00000000000000000000000003", "tool.success", &call.Ref)
 	text := create("sev_00000000000000000000000004", "message.text", &root.Ref)
@@ -1282,7 +1282,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		t.Fatalf("SessionEventsTailPageGet(newest) = (%#v, %v)", newest, err)
 	}
 	err, older := store.SessionEventsTailPageGet(ctx, session, newest[0].Ref.Id, 2)
-	if err != nil || len(older) != 2 || older[0].Ref != reasoning.Ref || older[1].Ref != call.Ref {
+	if err != nil || len(older) != 2 || older[0].Ref != notice.Ref || older[1].Ref != call.Ref {
 		t.Fatalf("SessionEventsTailPageGet(older) = (%#v, %v)", older, err)
 	}
 	err, oldest := store.SessionEventsTailPageGet(ctx, session, older[0].Ref.Id, 2)
@@ -1302,7 +1302,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		event  model.SessionEvent
 		parent model.SessionEventRef
 	}{
-		{reasoning, root.Ref},
+		{notice, root.Ref},
 		{call, root.Ref},
 		{result, call.Ref},
 		{text, root.Ref},
@@ -1325,7 +1325,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		depth int
 	}{
 		{root.Ref.Id, 0},
-		{reasoning.Ref.Id, 1},
+		{notice.Ref.Id, 1},
 		{call.Ref.Id, 1},
 		{result.Ref.Id, 2},
 		{text.Ref.Id, 1},
@@ -1453,7 +1453,7 @@ func TestSessionEventsSearch(t *testing.T) {
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Kind: "approval.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"description": "Approve Conroe ordinance"}},
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Kind: "tool.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "code": `say "Conroe"`, "reason": "Explain the quote."}},
 		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000005"}, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": float64(42)}},
-		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000006"}, Kind: "agent.reply", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "Irving response"}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000006"}, Kind: model.SessionEventKindAgentSuccess, AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "Irving response"}},
 	} {
 		if err, _ := store.SessionEventsCreate(ctx, event); err != nil {
 			t.Fatal(err)
@@ -1539,7 +1539,7 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 	if err, _ := store.SessionEventsCreate(ctx, request); err != nil {
 		t.Fatal(err)
 	}
-	decision := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Parent: &request.Ref, Kind: "approval.approved", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	decision := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000003"}, Parent: &request.Ref, Kind: model.SessionEventKindApprovalSuccess, AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
 	err, stored := store.SessionApprovalResponseCreate(ctx, decision)
 	if err != nil || stored.Ref != decision.Ref {
 		t.Fatalf("SessionApprovalResponseCreate() = (%#v, %v)", stored, err)
@@ -1548,7 +1548,7 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 	if err != nil || len(tasks) != 1 || tasks[0].Approval != request.Ref || tasks[0].Response != decision.Ref {
 		t.Fatalf("SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
 	}
-	rejected := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Parent: &request.Ref, Kind: "approval.rejected", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	rejected := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Parent: &request.Ref, Kind: model.SessionEventKindApprovalFailure, AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"code": "rejected"}}
 	err, _ = store.SessionApprovalResponseCreate(ctx, rejected)
 	if !errors.Is(err, database.ErrSessionApprovalResolved) {
 		t.Fatalf("second SessionApprovalResponseCreate() error = %v", err)

@@ -18,6 +18,7 @@ in  renderer.render renderer.options::{ package = Some "model" } ./document.dhal
 EOF
 
 dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/models.go"
+cp "$SRC_DIR/dyd/assets/event_kinds.go" "$DEST_DIR/dyd/assets/event_kinds.go"
 cat > "$WORK_DIR/render-typescript.dhall" <<'EOF'
 let renderer = ./dhall-codegen/renderer-typescript/package.dhall
 
