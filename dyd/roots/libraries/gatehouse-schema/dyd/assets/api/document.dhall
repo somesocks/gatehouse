@@ -112,7 +112,7 @@ let toolRequest =
 
 let toolFailure =
       s.record.from
-        s.record.props::{ required = toMap { name = text, call_id = text, code = text, output = text }, optional = toMap { message = text } }
+        s.record.props::{ required = toMap { name = text, call_id = text, output = text }, optional = toMap { code = text, message = text } }
         s.record.meta::{=}
 
 let description =

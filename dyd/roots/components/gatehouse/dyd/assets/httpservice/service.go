@@ -3489,7 +3489,17 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 				sessionInputEventProject(&entries[index].Event)
 			}
 		}
-		writeJSON(response, sessionEventTrees(entries))
+		trees := sessionEventTrees(entries)
+		if view == "transcript" {
+			err, encoded := transcriptEventTrees(trees)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			writeJSON(response, encoded)
+			return
+		}
+		writeJSON(response, trees)
 	}
 }
 

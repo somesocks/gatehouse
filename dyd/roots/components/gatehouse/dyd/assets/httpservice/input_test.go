@@ -50,7 +50,7 @@ func newInputTestFixture(t *testing.T, extra ...inputform.Field) inputTestFixtur
 	}
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: agentID}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: alice, Enabled: true}, Payload: map[string]interface{}{"text": "hello"}}
-	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Parent: &message.Ref, Kind: "tool.request", AuthorAgent: &agent, Payload: map[string]interface{}{}}
+	tool := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}, Parent: &message.Ref, Kind: "tool.request", AuthorAgent: &agent, Payload: map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(input/ask ...)", "reason": "Collect input"}}
 	minimum := int64(9007199254740993)
 	form := inputform.Form{Version: inputform.Version, Type: "form", Title: "Review", Fields: []inputform.Field{
 		{ID: "name", Label: "Name", Type: "text"},
