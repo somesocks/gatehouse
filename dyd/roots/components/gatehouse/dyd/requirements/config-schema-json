@@ -1,1 +1,1 @@
-root:../../../../libraries/gatehouse-config-schema?target=json-schema
+root:../../../../libraries/gatehouse-schema?output=config&renderer=json-schema

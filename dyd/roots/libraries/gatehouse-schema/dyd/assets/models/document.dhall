@@ -1,4 +1,4 @@
-let Grammar = ./dhall-codegen/grammar.dhall
+let Grammar = ../dhall-codegen/grammar.dhall
 
 let Document = Grammar.Document
 

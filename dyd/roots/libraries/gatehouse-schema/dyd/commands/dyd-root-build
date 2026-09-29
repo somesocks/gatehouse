@@ -1,0 +1,59 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+WORK_DIR="$DEST_DIR/render-work"
+OUTPUT=$(cat "$SRC_DIR/dyd/traits/output")
+RENDERER=$(cat "$SRC_DIR/dyd/traits/renderer")
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits" "$WORK_DIR"
+cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
+chmod -R +w "$WORK_DIR"
+ln -s "$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets" "$WORK_DIR/dhall-codegen"
+
+case "$OUTPUT/$RENDERER" in
+    config/go)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let codec = ./dhall-codegen/codec-golang-json/package.dhall
+
+in  codec.render codec.options::{ package = Some "configschema" } ./config/document.dhall
+EOF
+        OUTPUT_FILE=config.go
+        ;;
+    config/json-schema)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-json-schema/package.dhall
+
+in  renderer.render renderer.options::{ main = Some "GatehouseConfig" } ./config/document.dhall
+EOF
+        OUTPUT_FILE=schema.json
+        ;;
+    models/go)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-golang/package.dhall
+
+in  renderer.render renderer.options::{ package = Some "model" } ./models/document.dhall
+EOF
+        OUTPUT_FILE=models.go
+        cp "$SRC_DIR/dyd/assets/models/event_kinds.go" "$DEST_DIR/dyd/assets/event_kinds.go"
+        ;;
+    models/ts)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-typescript/package.dhall
+
+in  renderer.render renderer.options.default ./models/document.dhall
+EOF
+        OUTPUT_FILE=models.ts
+        ;;
+    *)
+        printf 'unsupported schema output/renderer: %s/%s\n' "$OUTPUT" "$RENDERER" >&2
+        exit 1
+        ;;
+esac
+
+dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/$OUTPUT_FILE"
+rm -rf "$WORK_DIR"
+
+printf '%s' gatehouse-schema > "$DEST_DIR/dyd/traits/name"

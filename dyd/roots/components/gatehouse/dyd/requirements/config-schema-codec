@@ -1,1 +1,1 @@
-root:../../../../libraries/gatehouse-config-schema?target=golang-json-codec
+root:../../../../libraries/gatehouse-schema?output=config&renderer=go
