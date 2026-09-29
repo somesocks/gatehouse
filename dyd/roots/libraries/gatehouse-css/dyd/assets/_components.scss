@@ -361,6 +361,17 @@ a.attachment-chip:focus-visible {
   white-space: nowrap;
 }
 
+.event-failure {
+  background-color: var(--surface);
+  border-radius: var(--radius);
+  color: var(--foreground);
+  padding: calc(var(--space) / 3) calc(var(--space) / 2);
+}
+
+.event-failure > svg {
+  color: var(--accent);
+}
+
 .event-request {
   margin-inline-start: calc(var(--space) * 1.25);
 }

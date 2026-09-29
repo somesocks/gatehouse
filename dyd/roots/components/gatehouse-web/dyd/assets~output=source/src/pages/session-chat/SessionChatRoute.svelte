@@ -381,6 +381,17 @@
       controller.state.activityTimestamp,
     )
   }
+  function agentFailureSummary(tree: ChatEventTree): string | undefined {
+    const failure = agentFailures(tree)[0]?.event.payload
+    if (failure === undefined) return undefined
+    if (
+      hasCancellationSuccess(tree) &&
+      failure.code === "cancelled" &&
+      (failure.message === undefined || failure.message === "cancelled")
+    )
+      return undefined
+    return failure.message ?? failure.code
+  }
   function thinkingSummary(tree: ChatEventTree): string {
     const status = thinkingStatus(tree)
     if (status === "succeeded") return "Thought"
@@ -644,10 +655,7 @@
                               : "Cancel"}</button
                           >{/if}
                       </header>
-                      {#if agentFailures(request).length > 0}<p class="event-summary" data-state="failed">
-                        {agentFailures(request)[0].event.payload.message ?? agentFailures(request)[0].event.payload.code ?? "Agent failed."}
-                      </p>{/if}
-                      {#if renderedActivityEvents(request).length > 0}<div
+                      {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined}<div
                           class="event-list"
                         >
                           {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<p
@@ -788,7 +796,10 @@
                                 onclick={() => controller.toggleActivity(request)}
                                  >Show less</button
                               >
-                            </p>{/if}
+                            </p>{/if}{#if agentFailureSummary(request) !== undefined}<p
+                              class="event-summary event-failure"
+                              data-state="failed"
+                            ><CircleX size={14} strokeWidth={2} aria-hidden="true" /><span>{agentFailureSummary(request)}</span></p>{/if}
                           </div>{/if}
                     </section>{#each finalReplies(request) as reply (reply.event.ref.id)}<article
                       class="conversation-message card"
