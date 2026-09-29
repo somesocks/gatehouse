@@ -3522,6 +3522,13 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 			keys = []string{"reason", "until"}
 		case model.SessionEventKindThinkingFailure, model.SessionEventKindCancelFailure:
 			keys = []string{"code", "message"}
+		case model.SessionEventKindThinkingRequest, model.SessionEventKindThinkingSuccess,
+			model.SessionEventKindToolSuccess, model.SessionEventKindApprovalSuccess,
+			model.SessionEventKindInputSuccess, model.SessionEventKindCancelRequest,
+			model.SessionEventKindCancelSuccess:
+		default:
+			payload["original_kind"] = event.Kind
+			event.Kind = "other"
 		}
 		for _, key := range keys {
 			if value, exists := event.Payload[key]; exists {

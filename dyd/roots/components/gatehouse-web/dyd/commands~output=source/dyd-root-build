@@ -3,11 +3,13 @@
 set -eu
 
 MODEL_DIR="$DYD_STEM/dyd/dependencies/model-schema/dyd/assets"
+API_DIR="$DYD_STEM/dyd/dependencies/api-schema/dyd/assets"
 GATEHOUSE_CSS_DIR="$DYD_STEM/dyd/dependencies/gatehouse-css/dyd/assets"
 
 mkdir -p "$DYD_BUILD/dyd/assets"
 cp -R "$DYD_STEM/dyd/assets/." "$DYD_BUILD/dyd/assets"
 chmod -R u+w "$DYD_BUILD/dyd/assets"
 cp "$MODEL_DIR/models.ts" "$DYD_BUILD/dyd/assets/src/model.ts"
+cp "$API_DIR/api.ts" "$DYD_BUILD/dyd/assets/src/api-model.ts"
 cp "$GATEHOUSE_CSS_DIR/base.css" "$DYD_BUILD/dyd/assets/src/gatehouse.css"
 cp -R "$GATEHOUSE_CSS_DIR/fonts" "$DYD_BUILD/dyd/assets/src/fonts"

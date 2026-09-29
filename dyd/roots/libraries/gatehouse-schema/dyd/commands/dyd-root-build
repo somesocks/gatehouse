@@ -47,6 +47,22 @@ in  renderer.render renderer.options.default ./models/document.dhall
 EOF
         OUTPUT_FILE=models.ts
         ;;
+    api/ts)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-typescript/package.dhall
+
+in  renderer.render renderer.options.default ./api/document.dhall
+EOF
+        OUTPUT_FILE=api.ts
+        ;;
+    api/json-schema)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-json-schema/package.dhall
+
+in  renderer.render renderer.options::{ main = Some "TranscriptEvent" } ./api/document.dhall
+EOF
+        OUTPUT_FILE=api.json
+        ;;
     *)
         printf 'unsupported schema output/renderer: %s/%s\n' "$OUTPUT" "$RENDERER" >&2
         exit 1

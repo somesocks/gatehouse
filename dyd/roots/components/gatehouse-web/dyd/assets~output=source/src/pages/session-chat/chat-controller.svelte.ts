@@ -10,6 +10,7 @@ import {
   uploadChatFile,
   type ChatAgent,
   type ChatComposerFile,
+  type ChatEvent,
   type ChatEventTree,
 } from "../../app/chat"
 import { mentionedAgentIDs } from "./chat-mentions"
@@ -128,10 +129,10 @@ export function createChatController({
         return false
       }
       if (!response.ok) throw new Error("agents could not be refreshed")
-       const agents = (await response.json()) as ChatAgent[]
-       if (!validContext(value, workspaceID, sessionID)) return false
-       state.agents = agents
-       return true
+      const agents = (await response.json()) as ChatAgent[]
+      if (!validContext(value, workspaceID, sessionID)) return false
+      state.agents = agents
+      return true
     } catch {
       return false
     }
@@ -182,7 +183,9 @@ export function createChatController({
     followingLatest = false
   }
 
-  async function sendMessage(delivery: ChatDelivery = { mode: "group" }): Promise<void> {
+  async function sendMessage(
+    delivery: ChatDelivery = { mode: "group" },
+  ): Promise<void> {
     if (
       context === null ||
       state.sendingMessage ||
@@ -193,7 +196,8 @@ export function createChatController({
     const value = generation
     const text = state.messageText
     if (delivery.mode === "direct" && delivery.agentID === undefined) {
-      state.messageError = "The direct agent is unavailable. Choose another agent."
+      state.messageError =
+        "The direct agent is unavailable. Choose another agent."
       return
     }
     const agents = deliveredAgentIDs(text, state.agents, delivery)
@@ -222,7 +226,8 @@ export function createChatController({
         return
       }
       if (!response.ok) throw new Error("message could not be sent")
-      const event = (await response.json()) as ChatEventTree["event"]
+      const event = (await response.json()) as ChatEventTree<"message.text">["event"]
+      if (event.kind !== "message.text") throw new Error("invalid message response")
       if (!validContext(value, workspaceID, sessionID)) return
       state.messageText = ""
       state.composerFiles = []
@@ -477,21 +482,33 @@ export function deliveredAgentIDs(
   if (mentions.length > 0 || delivery.mode === "group") return mentions
   return delivery.agentID === undefined ? [] : [delivery.agentID]
 }
-export function finalReplies(tree: ChatEventTree): ChatEventTree[] {
+function hasKind<K extends ChatEvent["kind"]>(
+  tree: ChatEventTree,
+  kind: K,
+): tree is ChatEventTree<K> {
+  return tree.event.kind === kind
+}
+
+export function finalReplies(
+  tree: ChatEventTree,
+): ChatEventTree<"agent.success">[] {
   return tree.children.flatMap((child) => [
-    ...(child.event.kind === "agent.success" &&
-    child.event.author_agent !== undefined &&
-    child.event.payload.text !== undefined
+    ...(hasKind(child, "agent.success") &&
+    child.event.author_agent !== undefined
       ? [child]
       : []),
     ...finalReplies(child),
   ])
 }
-export function agentFailures(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter((child) => child.event.kind === "agent.failure")
+export function agentFailures(
+  tree: ChatEventTree,
+): ChatEventTree<"agent.failure">[] {
+  return tree.children.filter((child) => hasKind(child, "agent.failure"))
 }
-export function agentRequests(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter((child) => child.event.kind === "agent.request")
+export function agentRequests(
+  tree: ChatEventTree,
+): ChatEventTree<"agent.request">[] {
+  return tree.children.filter((child) => hasKind(child, "agent.request"))
 }
 export function activityEvents(tree: ChatEventTree): ChatEventTree[] {
   return tree.children.flatMap((child) => [
@@ -503,17 +520,21 @@ export function activityEvents(tree: ChatEventTree): ChatEventTree[] {
     ...activityEvents(child),
   ])
 }
-export function renderedActivityEvents(tree: ChatEventTree): ChatEventTree[] {
+export function renderedActivityEvents(
+  tree: ChatEventTree,
+): ChatEventTree<"tool.request" | "thinking.request">[] {
   return activityEvents(tree).filter(
-    (activity) =>
-      activity.event.kind === "tool.request" ||
-      activity.event.kind === "thinking.request",
+    (
+      activity,
+    ): activity is ChatEventTree<"tool.request" | "thinking.request"> =>
+      hasKind(activity, "tool.request") ||
+      hasKind(activity, "thinking.request"),
   )
 }
 export function displayedActivityEvents(
   tree: ChatEventTree,
   expanded: Set<string>,
-): ChatEventTree[] {
+): ChatEventTree<"tool.request" | "thinking.request">[] {
   const activity = renderedActivityEvents(tree)
   return expanded.has(tree.event.ref.id) || activity.length <= 5
     ? activity
@@ -528,9 +549,9 @@ export function hasThinkingFailure(tree: ChatEventTree): boolean {
 }
 export function cancellationRequest(
   tree: ChatEventTree,
-): ChatEventTree | undefined {
+): ChatEventTree<"cancel.request"> | undefined {
   for (const child of tree.children) {
-    if (child.event.kind === "cancel.request") return child
+    if (hasKind(child, "cancel.request")) return child
     const nested = cancellationRequest(child)
     if (nested !== undefined) return nested
   }
@@ -597,28 +618,32 @@ export function thinkingRateLimitDelayUntil(
   }
   return undefined
 }
-export function approvalRequests(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter(
-    (child) => child.event.kind === "approval.request",
-  )
+export function approvalRequests(
+  tree: ChatEventTree,
+): ChatEventTree<"approval.request">[] {
+  return tree.children.filter((child) => hasKind(child, "approval.request"))
 }
 export function approvalResponse(
   tree: ChatEventTree,
-): ChatEventTree | undefined {
+): ChatEventTree<"approval.success" | "approval.failure"> | undefined {
   return tree.children.find(
-    (child) =>
+    (child): child is ChatEventTree<"approval.success" | "approval.failure"> =>
       child.event.kind === "approval.success" ||
       child.event.kind === "approval.failure",
   )
 }
 
-export function inputRequests(tree: ChatEventTree): ChatEventTree[] {
-  return tree.children.filter((child) => child.event.kind === "input.request")
+export function inputRequests(
+  tree: ChatEventTree,
+): ChatEventTree<"input.request">[] {
+  return tree.children.filter((child) => hasKind(child, "input.request"))
 }
 
-export function inputResponse(tree: ChatEventTree): ChatEventTree | undefined {
+export function inputResponse(
+  tree: ChatEventTree,
+): ChatEventTree<"input.success" | "input.failure"> | undefined {
   return tree.children.find(
-    (child) =>
+    (child): child is ChatEventTree<"input.success" | "input.failure"> =>
       child.event.kind === "input.success" ||
       child.event.kind === "input.failure",
   )

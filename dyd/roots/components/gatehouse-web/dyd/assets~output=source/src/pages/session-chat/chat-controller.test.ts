@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import type { ChatEventTree } from "../../app/chat"
+import type { ChatEvent, ChatEventTree } from "../../app/chat"
 import {
   agentRequests,
   deliveredAgentIDs,
@@ -11,33 +11,50 @@ import {
   thinkingRateLimitDelayUntil,
 } from "./chat-controller.svelte"
 
-function tree(
-  kind: string,
+function tree<K extends ChatEvent["kind"]>(
+  kind: K,
   children: ChatEventTree[] = [],
-  payload: ChatEventTree["event"]["payload"] = {},
-): ChatEventTree {
+  payload: Record<string, unknown> = {},
+): ChatEventTree<K> {
+  const defaults: Record<string, Record<string, unknown>> = {
+    "agent.request": { agent: "wag_test" },
+    "agent.success": { text: "Reply" },
+    "tool.request": { name: "lisp", reason: "Test task" },
+    "input.request": { description: "Review" },
+    "thinking.update": { reason: "rate_limit" },
+  }
   return {
     event: {
       created_at: "2026-01-01T00:00:00.000Z",
       kind,
-      payload: kind === "agent.success" ? { text: "Reply", ...payload } : payload,
-      ref: { id: kind },
+      payload: { ...defaults[kind], ...payload },
+      ref: {
+        id: kind,
+        session: { id: "ses_test", workspace: { id: "wsp_test" } },
+      },
       ...(kind === "agent.success"
         ? { author_agent: { id: "wag_test", workspace: { id: "wsp_test" } } }
         : {}),
-    },
+    } as ChatEventTree<K>["event"],
     children,
   }
 }
 
 describe("chat request activity", () => {
   it("keeps input requests under their tool, like approvals", () => {
-    const input = tree("input.request", [tree("input.failure", [], { code: "cancelled" })], { description: "Review" })
+    const input = tree(
+      "input.request",
+      [tree("input.failure", [], { code: "cancelled" })],
+      { description: "Review" },
+    )
     const tool = tree("tool.request", [input])
     const agent = tree("agent.request", [tool])
     expect(inputRequests(agent)).toEqual([])
     expect(inputRequests(tool)).toEqual([input])
-    expect(inputResponse(input)?.event.payload.code).toBe("cancelled")
+    const response = inputResponse(input)
+    expect(response?.event.kind).toBe("input.failure")
+    if (response?.event.kind === "input.failure")
+      expect(response.event.payload.code).toBe("cancelled")
   })
   it("does not treat a human-only message as an active agent request", () => {
     const message = tree("message.text")
@@ -71,7 +88,9 @@ describe("chat request activity", () => {
 
   it("treats cancel.failure as a terminal cancellation outcome", () => {
     const request = tree("agent.request", [
-      tree("cancel.request", [tree("cancel.failure", [], { code: "already_completed" })]),
+      tree("cancel.request", [
+        tree("cancel.failure", [], { code: "already_completed" }),
+      ]),
     ])
     expect(hasCancellationFailure(request)).toBe(true)
     expect(replyCanBeCancelled(request)).toBe(false)

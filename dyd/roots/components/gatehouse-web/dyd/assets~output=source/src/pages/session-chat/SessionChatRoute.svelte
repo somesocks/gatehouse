@@ -404,7 +404,7 @@
     const request = agentRequests(tree)[0]
     if (request?.event.payload.agent !== undefined)
       return agentLabel(request.event.payload.agent)
-    if (tree.event.payload.agent !== undefined)
+    if (tree.event.kind === "agent.request")
       return agentLabel(tree.event.payload.agent)
     const activity = activityEvents(tree).find(
       (child) => child.event.author_agent !== undefined,
@@ -417,8 +417,8 @@
       : agentLabel(reply.event.author_agent.id)
   }
   function approvalDescription(
-    approval: ChatEventTree,
-    task: ChatEventTree,
+    approval: ChatEventTree<"approval.request">,
+    task: ChatEventTree<"tool.request">,
   ): string {
     return (
       approval.event.payload.description ??

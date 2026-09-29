@@ -1,4 +1,5 @@
 import { fetchGatehouse as fetch } from "./api"
+import type { TranscriptEvent, TranscriptFile } from "../api-model"
 
 export type ChatAgent = {
   id: string
@@ -7,43 +8,12 @@ export type ChatAgent = {
   default: boolean
 }
 
-export type ChatFile = {
-  id: string
-  name: string
-  media_type?: string
-  size: number
-  fingerprint: string
+export type ChatFile = TranscriptFile
+export type ChatEvent = TranscriptEvent
+export type ChatEventTree<K extends ChatEvent["kind"] = ChatEvent["kind"]> = {
+  event: Extract<ChatEvent, { kind: K }>
+  children: ChatEventTree[]
 }
-
-export type ChatEvent = {
-  created_at: string
-  kind: string
-  payload: {
-    agent?: string
-    agents?: string[]
-    text?: string
-    name?: string
-    reason?: string
-    until?: string
-    code?: string
-    message?: string
-    description?: string
-    form?: unknown
-    output?: string
-    result?: unknown
-    turn?: number
-    call_id?: string
-    batch?: number
-    position?: number
-    attachments?: ChatFile[]
-  }
-  ref: { id: string }
-  parent?: { id: string }
-  author_principal?: { ref: { id: string }; name?: string }
-  author_agent?: { id: string; workspace: { id: string } }
-}
-
-export type ChatEventTree = { event: ChatEvent; children: ChatEventTree[] }
 
 export type ChatComposerFile = {
   file: File

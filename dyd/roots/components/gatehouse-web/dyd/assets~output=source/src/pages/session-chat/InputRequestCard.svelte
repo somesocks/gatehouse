@@ -9,7 +9,7 @@
     sessionID,
     onAuthenticationLost,
   }: {
-    request: ChatEventTree
+    request: ChatEventTree<"input.request">
     workspaceID: string
     sessionID: string
     onAuthenticationLost: () => void
@@ -74,7 +74,7 @@
     <strong>Input submitted:</strong>
   {:else if responseKind === "input.failure"}
     <CircleX size={15} strokeWidth={2} aria-hidden="true" />
-    <strong>{response?.event.payload.code === "cancelled" ? "Input cancelled:" : "Input failed:"}</strong>
+    <strong>{response?.event.kind === "input.failure" && response.event.payload.code === "cancelled" ? "Input cancelled:" : "Input failed:"}</strong>
   {:else}
     <ClipboardList size={15} strokeWidth={2} aria-hidden="true" />
     <strong>Input required:</strong>
