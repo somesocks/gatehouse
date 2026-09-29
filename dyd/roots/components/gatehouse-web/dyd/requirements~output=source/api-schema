@@ -1,1 +1,1 @@
-root:../../../../libraries/gatehouse-schema?output=api&renderer=ts
+root:../../../../libraries/gatehouse-schema?output=api&renderer=ts-json

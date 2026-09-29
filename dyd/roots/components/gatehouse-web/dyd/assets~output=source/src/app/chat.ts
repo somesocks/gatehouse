@@ -1,5 +1,9 @@
 import { fetchGatehouse as fetch } from "./api"
-import type { TranscriptEvent, TranscriptFile } from "../api-model"
+import {
+  decodeTranscriptEvent,
+  type TranscriptEvent,
+  type TranscriptFile,
+} from "../api-model"
 
 export type ChatAgent = {
   id: string
@@ -13,6 +17,25 @@ export type ChatEvent = TranscriptEvent
 export type ChatEventTree<K extends ChatEvent["kind"] = ChatEvent["kind"]> = {
   event: Extract<ChatEvent, { kind: K }>
   children: ChatEventTree[]
+}
+
+export { decodeTranscriptEvent as decodeChatEvent }
+
+function decodeChatEventTree(input: unknown): ChatEventTree {
+  if (input === null || typeof input !== "object" || Array.isArray(input))
+    throw new Error("invalid chat event tree")
+  const tree = input as Record<string, unknown>
+  if (!Array.isArray(tree.children))
+    throw new Error("invalid chat event children")
+  return {
+    event: decodeTranscriptEvent(tree.event),
+    children: tree.children.map(decodeChatEventTree),
+  }
+}
+
+export function decodeChatEventTrees(input: unknown): ChatEventTree[] {
+  if (!Array.isArray(input)) throw new Error("invalid chat event list")
+  return input.map(decodeChatEventTree)
 }
 
 export type ChatComposerFile = {

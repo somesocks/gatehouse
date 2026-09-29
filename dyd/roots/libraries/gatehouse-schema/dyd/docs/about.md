@@ -3,8 +3,9 @@
 The `config` and `models` schema documents share this root and can reuse
 definitions where their shapes agree. The supported output/renderer combinations
 are `config/go-json`, `config/json-schema`, `models/go`, `models/ts`,
-`api/ts`, `api/go-json`, and `api/json-schema`. The `go-json` renderer produces
-Go types and a JSON codec; `go` produces plain Go model types.
+`api/ts`, `api/ts-json`, `api/go-json`, and `api/json-schema`. The `go-json` and
+`ts-json` renderers produce types and JSON codecs; `go` and `ts` produce types
+only.
 Database migrations and persistence code remain hand-written.
 
 The API document describes the projected session-event transcript, not stored

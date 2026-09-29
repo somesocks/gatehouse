@@ -1,6 +1,8 @@
 import { tick } from "svelte"
 import {
   cancelChatReply,
+  decodeChatEvent,
+  decodeChatEventTrees,
   fetchChatAgents,
   fetchChatEvents,
   finishChatFileUpload,
@@ -79,7 +81,7 @@ export function createChatController({
         return false
       }
       if (!response.ok) throw new Error("session events could not be loaded")
-      const loaded = (await response.json()) as ChatEventTree[]
+      const loaded = decodeChatEventTrees(await response.json())
       if (!validContext(value, workspaceID, sessionID)) return false
       const knownEvents = new Set(state.events.flatMap(eventTreeIDs))
       const hasNewEvents = loaded.some((tree) =>
@@ -226,8 +228,9 @@ export function createChatController({
         return
       }
       if (!response.ok) throw new Error("message could not be sent")
-      const event = (await response.json()) as ChatEventTree<"message.text">["event"]
-      if (event.kind !== "message.text") throw new Error("invalid message response")
+      const event = decodeChatEvent(await response.json())
+      if (event.kind !== "message.text")
+        throw new Error("invalid message response")
       if (!validContext(value, workspaceID, sessionID)) return
       state.messageText = ""
       state.composerFiles = []

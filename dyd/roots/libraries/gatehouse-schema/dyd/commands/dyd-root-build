@@ -55,6 +55,14 @@ in  renderer.render renderer.options.default ./api/document.dhall
 EOF
         OUTPUT_FILE=api.ts
         ;;
+    api/ts-json)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let codec = ./dhall-codegen/codec-typescript-json/package.dhall
+
+in  codec.render codec.options.default ./api/document.dhall
+EOF
+        OUTPUT_FILE=api.ts
+        ;;
     api/go-json)
         cat > "$WORK_DIR/render.dhall" <<'EOF'
 let codec = ./dhall-codegen/codec-golang-json/package.dhall

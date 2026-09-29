@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   cancelChatReply,
   chatFileDownloadPath,
+  decodeChatEvent,
+  decodeChatEventTrees,
   fetchChatAgents,
   fetchChatFiles,
   fetchChatEvents,
@@ -15,6 +17,54 @@ import {
 } from "./chat"
 
 afterEach(() => vi.unstubAllGlobals())
+
+describe("chat event response decoding", () => {
+  const ref = {
+    id: "sev_test",
+    session: { id: "ses_test", workspace: { id: "wsp_test" } },
+  }
+  const message = {
+    created_at: "2026-01-01T00:00:00.000Z",
+    kind: "message.text",
+    payload: { text: "Hello" },
+    ref,
+  }
+  const failure = {
+    created_at: "2026-01-01T00:00:01.000Z",
+    kind: "tool.failure",
+    payload: { name: "lisp", call_id: "call-1", output: "execution failed" },
+    ref: { ...ref, id: "sev_failure" },
+    parent: ref,
+  }
+
+  it("decodes nested events, including failures without a code", () => {
+    const trees = [
+      { event: message, children: [{ event: failure, children: [] }] },
+    ]
+    expect(decodeChatEventTrees(trees)).toEqual(trees)
+    expect(decodeChatEvent(message)).toEqual(message)
+  })
+
+  it("rejects malformed tree structure and event payloads", () => {
+    expect(() => decodeChatEventTrees({})).toThrow("invalid chat event list")
+    expect(() =>
+      decodeChatEventTrees([{ event: message, children: {} }]),
+    ).toThrow("invalid chat event children")
+    expect(() =>
+      decodeChatEventTrees([
+        {
+          event: message,
+          children: [
+            { event: { ...failure, payload: { name: "lisp" } }, children: [] },
+          ],
+        },
+      ]),
+    ).toThrow()
+    expect(() =>
+      decodeChatEvent({ ...message, kind: "agent.success", payload: {} }),
+    ).toThrow()
+  })
+})
 
 describe("chat transport", () => {
   it("uses encoded session paths and same-origin credentials", async () => {
