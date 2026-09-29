@@ -466,10 +466,14 @@
     mentionStart = -1
     const alias = `@${agent.alias}`
     const text = controller.state.messageText
+    const suffix = text.slice(start + 1)
     controller.state.messageText =
-      text.slice(0, start) + alias + text.slice(start + 1)
+      text.slice(0, start) +
+      alias +
+      (suffix.startsWith(" ") ? "" : " ") +
+      suffix
     mentionOpen = false
-    focusComposer(start + alias.length)
+    focusComposer(start + alias.length + 1)
   }
   function setGroupDelivery(): void {
     deliveryMode = "group"
