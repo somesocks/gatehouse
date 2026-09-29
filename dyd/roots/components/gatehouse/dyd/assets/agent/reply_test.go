@@ -2,6 +2,7 @@ package agent_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -182,6 +183,21 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
+	err, finished := store.SessionEventChildGet(ctx, message.Ref, "agent.request")
+	if err != nil || finished == nil {
+		t.Fatalf("completed agent request = (%#v, %v)", finished, err)
+	}
+	cancellationID, err := typed_id.New(typed_id.SessionEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancellation := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: cancellationID}, Parent: &finished.Ref, Kind: "cancel.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	if err, _ := runtime.CancelReply(ctx, cancellation); !errors.Is(err, database.ErrSessionReplyAlreadyCompleted) {
+		t.Fatalf("CancelReply() after agent.reply = %v, want conflict", err)
+	}
+	if err, stored := store.SessionEventChildGet(ctx, finished.Ref, "cancel.request"); err != nil || stored != nil {
+		t.Fatalf("cancellation request after completed reply = (%#v, %v)", stored, err)
+	}
 }
 
 func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
@@ -251,10 +267,6 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{},
 	}
-	if err, _ := store.SessionEventsCreate(ctx, cancellation); err != nil {
-		t.Fatal(err)
-	}
-
 	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-agent-cancel-test", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +279,9 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
+	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
+		t.Fatalf("CancelReply() = (%#v, %v), want %#v", stored, err, cancellation.Ref)
+	}
 	if err := runtime.Reconcile(); err != nil {
 		t.Fatal(err)
 	}

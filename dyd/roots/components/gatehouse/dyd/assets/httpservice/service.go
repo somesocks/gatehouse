@@ -54,6 +54,10 @@ type ReplyDispatcher interface {
 	Reconcile() error
 }
 
+type ReplyCancellationDispatcher interface {
+	CancelReply(context.Context, model.SessionEvent) (error, model.SessionEvent)
+}
+
 func StartWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
 	return start(configuration, store, dispatcher, nil, tokens...)
 }
@@ -196,7 +200,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}", workspaceSessionFile(store, tokens[0]))
 		mux.HandleFunc("/api/v1/storage", storageProxy(tokens[0]))
-		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 	}
 	return mux
@@ -3238,7 +3242,7 @@ func messagePayload(message sessionMessageRequest) map[string]interface{} {
 	return payload
 }
 
-func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTokens, dispatcher ReplyDispatcher) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost {
 			response.WriteHeader(http.StatusMethodNotAllowed)
@@ -3290,7 +3294,16 @@ func workspaceSessionMessageCancel(store *database.Store, tokens *auth.BearerTok
 			AuthorPrincipal: &claims.Principal,
 			Payload:         map[string]interface{}{},
 		}
-		err, stored := store.SessionEventsCreate(request.Context(), event)
+		canceller, ok := dispatcher.(ReplyCancellationDispatcher)
+		if !ok {
+			http.Error(response, "reply cancellation is unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		err, stored := canceller.CancelReply(request.Context(), event)
+		if errors.Is(err, database.ErrSessionReplyAlreadyCompleted) {
+			http.Error(response, "reply is already completed", http.StatusConflict)
+			return
+		}
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return

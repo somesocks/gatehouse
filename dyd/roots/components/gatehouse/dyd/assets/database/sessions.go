@@ -18,6 +18,7 @@ import (
 )
 
 var ErrSessionApprovalResolved = errors.New("session approval is already resolved")
+var ErrSessionReplyAlreadyCompleted = errors.New("session reply is already completed")
 
 func (store *Store) SessionsCreate(ctx context.Context, session model.Session, grantee model.PrincipalRef) (error, model.Session) {
 	if strings.TrimSpace(session.Ref.Id) == "" {

@@ -38,10 +38,15 @@ const (
 	sessionNamePrompt      = "Generate a concise title for this conversation. Return only the title, using a few words."
 	sessionApprovalWait    = time.Duration(1<<63 - 1)
 	lispCancellationPoll   = time.Second
+	replyCancellationGrace = time.Second
 )
 
 type SessionEventReplyInput struct {
 	Event model.SessionEventRef
+}
+
+type SessionReplyCancellationInput struct {
+	Request model.SessionEvent
 }
 
 type SessionNameInput struct {
@@ -135,6 +140,10 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
 	)
+	dbos.RegisterWorkflow(ctx, runtime.cancelReply,
+		dbos.WithInstance(runtime),
+		dbos.WithWorkflowName("gatehouse.session-reply-cancel"),
+	)
 	dbos.RegisterWorkflow(ctx, runtime.toolCall,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-tool-call"),
@@ -156,6 +165,121 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 
 func (runtime *SessionEventReplyRuntime) ConfigName() string {
 	return "gatehouse"
+}
+
+// CancelReply starts one recoverable cancellation per agent request. The HTTP
+// caller waits only for the request event, not the grace period or tool calls.
+func (runtime *SessionEventReplyRuntime) CancelReply(ctx context.Context, request model.SessionEvent) (error, model.SessionEvent) {
+	if request.Kind != "cancel.request" || request.Parent == nil || request.AuthorPrincipal == nil {
+		return fmt.Errorf("cancel reply: invalid request"), model.SessionEvent{}
+	}
+	id := sessionReplyCancellationWorkflowID(*request.Parent)
+	// Repeated requests must retrieve the existing cancellation even after its
+	// target reply has entered a terminal state.
+	_, err := dbos.RetrieveWorkflow[model.SessionEventRef](runtime.dbos, id)
+	if errors.Is(err, dbos.ErrNonExistentWorkflow) {
+		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, "agent.reply")
+		if err != nil {
+			return err, model.SessionEvent{}
+		}
+		if reply != nil {
+			return database.ErrSessionReplyAlreadyCompleted, model.SessionEvent{}
+		}
+		handle, err := dbos.RetrieveWorkflow[model.SessionEventRef](runtime.dbos, sessionEventReplyWorkflowID(*request.Parent))
+		if err == nil {
+			status, err := handle.GetStatus()
+			if err != nil {
+				return err, model.SessionEvent{}
+			}
+			switch status.Status {
+			case dbos.WorkflowStatusSuccess, dbos.WorkflowStatusError, dbos.WorkflowStatusCancelled, dbos.WorkflowStatusMaxRecoveryAttemptsExceeded:
+				return database.ErrSessionReplyAlreadyCompleted, model.SessionEvent{}
+			}
+		} else if !errors.Is(err, dbos.ErrNonExistentWorkflow) {
+			return err, model.SessionEvent{}
+		}
+	} else if err != nil {
+		return err, model.SessionEvent{}
+	}
+	_, err = dbos.RunWorkflow(runtime.dbos, runtime.cancelReply, SessionReplyCancellationInput{Request: request},
+		dbos.WithRunInstance(runtime), dbos.WithWorkflowID(id))
+	if err != nil {
+		return fmt.Errorf("start session reply cancellation %q: %w", request.Parent.Id, err), model.SessionEvent{}
+	}
+	reference, err := dbos.GetEvent[model.SessionEventRef](dbos.From(runtime.dbos, ctx), id, "request", 10*time.Second)
+	if err != nil {
+		return fmt.Errorf("await session reply cancellation request %q: %w", request.Parent.Id, err), model.SessionEvent{}
+	}
+	err, stored := runtime.store.SessionEventGet(ctx, reference)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	if stored == nil {
+		return fmt.Errorf("session reply cancellation request %q is unavailable", reference.Id), model.SessionEvent{}
+	}
+	return nil, *stored
+}
+
+func (runtime *SessionEventReplyRuntime) cancelReply(ctx dbos.Context, input SessionReplyCancellationInput) (model.SessionEventRef, error) {
+	request := input.Request
+	if request.Kind != "cancel.request" || request.Parent == nil || request.AuthorPrincipal == nil || request.Ref.Session != request.Parent.Session {
+		return model.SessionEventRef{}, fmt.Errorf("session reply cancellation request is invalid")
+	}
+	storedRequest, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEvent, error) {
+		err, stored := runtime.store.SessionEventCreateInTransaction(step, tx, request)
+		return stored, err
+	}, dbos.WithStepName("gatehouse.session-reply-cancel-request"))
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	request = storedRequest
+	if err := dbos.SetEvent(ctx, "request", request.Ref); err != nil {
+		return model.SessionEventRef{}, err
+	}
+	handle, err := dbos.RunWorkflow(ctx, runtime.reply, SessionEventReplyInput{Event: *request.Parent},
+		dbos.WithRunInstance(runtime), dbos.WithWorkflowID(sessionEventReplyWorkflowID(*request.Parent)),
+		dbos.WithQueue(runtime.queue), dbos.WithQueuePartitionKey(sessionEventReplyTaskPartition(*request.Parent)))
+	if err != nil {
+		return model.SessionEventRef{}, fmt.Errorf("start cancelled reply %q: %w", request.Parent.Id, err)
+	}
+	if err := runtime.cancelReplyWorkflowTree(ctx, *request.Parent); err != nil {
+		return model.SessionEventRef{}, err
+	}
+	status, err := handle.GetStatus()
+	if err != nil {
+		return model.SessionEventRef{}, fmt.Errorf("read cancelled reply %q status: %w", request.Parent.Id, err)
+	}
+	kind := "cancel.success"
+	payload := map[string]interface{}{}
+	switch status.Status {
+	case dbos.WorkflowStatusCancelled:
+	case dbos.WorkflowStatusSuccess:
+		// A reply can observe cancel.request and finish cooperatively before
+		// DBOS marks it CANCELLED. A real agent reply means it finished first.
+		err, reply := runtime.store.SessionEventChildGet(ctx, *request.Parent, "agent.reply")
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+		if reply != nil {
+			kind = "cancel.failure"
+			payload["code"] = "already_completed"
+		}
+	case dbos.WorkflowStatusError, dbos.WorkflowStatusMaxRecoveryAttemptsExceeded:
+		kind = "cancel.failure"
+		payload["code"] = "already_completed"
+	default:
+		return model.SessionEventRef{}, fmt.Errorf("reply %q has unexpected status %q after cancellation", request.Parent.Id, status.Status)
+	}
+	if kind == "cancel.success" {
+		if _, err := dbos.Sleep(ctx, replyCancellationGrace); err != nil {
+			return model.SessionEventRef{}, fmt.Errorf("wait after cancelling reply %q: %w", request.Parent.Id, err)
+		}
+	}
+	err, reference := runtime.persistAgentEvent(ctx, model.SessionEvent{
+		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref, Kind: kind,
+		AuthorPrincipal: request.AuthorPrincipal, Payload: payload, CreatedAt: eventTerminalCreatedAt(request.CreatedAt),
+	})
+	return reference, err
 }
 
 func (runtime *SessionEventReplyRuntime) Reconcile() error {
@@ -1902,31 +2026,24 @@ func (runtime *SessionEventReplyRuntime) replyCancellationRequested(ctx context.
 	return runtime.store.SessionEventChildGet(ctx, parent, "cancel.request")
 }
 
+// cancelReplyWorkflowTree durably cancels the reply and every DBOS child,
+// including parallel tool calls and their input or approval waits.
+func (runtime *SessionEventReplyRuntime) cancelReplyWorkflowTree(ctx dbos.Context, request model.SessionEventRef) error {
+	if err := dbos.CancelWorkflow(ctx, sessionEventReplyWorkflowID(request), dbos.WithCancelChildren()); err != nil {
+		return fmt.Errorf("cancel session event reply workflow %q: %w", request.Id, err)
+	}
+	return nil
+}
+
 func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context, parent model.SessionEventRef) error {
-	err, cancelled := runtime.replyCancellationComplete(ctx, parent)
+	err, cancelled := runtime.replyCancellationRequested(ctx, parent)
 	if err != nil {
 		return err
 	}
-	if !cancelled {
+	if cancelled == nil {
 		return nil
 	}
 	return sessionReplyCancelled{}
-}
-
-func (runtime *SessionEventReplyRuntime) replyCancellationComplete(ctx dbos.Context, parent model.SessionEventRef) (error, bool) {
-	err, request := runtime.replyCancellationRequested(ctx, parent)
-	if err != nil {
-		return err, false
-	}
-	if request == nil {
-		return nil, false
-	}
-	event := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &request.Ref, Kind: "cancel.success", AuthorPrincipal: request.AuthorPrincipal,
-		Payload: map[string]interface{}{}, CreatedAt: eventTerminalCreatedAt(request.CreatedAt),
-	}
-	err, _ = runtime.persistAgentEvent(ctx, event)
-	return err, err == nil
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {
@@ -2205,6 +2322,10 @@ func openAIResponsesInput(messages []openAICompatibleMessage) []json.RawMessage 
 
 func sessionEventReplyWorkflowID(event model.SessionEventRef) string {
 	return "session-event-reply:" + event.Id
+}
+
+func sessionReplyCancellationWorkflowID(event model.SessionEventRef) string {
+	return "session-reply-cancel:" + event.Id
 }
 
 func sessionNameWorkflowID(session model.SessionRef) string {

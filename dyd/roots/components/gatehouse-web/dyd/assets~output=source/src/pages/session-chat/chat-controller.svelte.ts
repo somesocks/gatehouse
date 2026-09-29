@@ -97,7 +97,8 @@ export function createChatController({
             (tree) =>
               finalReplies(tree).length > 0 ||
               hasThinkingFailure(tree) ||
-              hasCancellationSuccess(tree),
+              hasCancellationSuccess(tree) ||
+              hasCancellationFailure(tree),
           )
           .map((tree) => tree.event.ref.id),
       )
@@ -534,6 +535,13 @@ export function hasCancellationSuccess(tree: ChatEventTree): boolean {
   return (
     cancellationRequest(tree)?.children.some(
       (child) => child.event.kind === "cancel.success",
+    ) ?? false
+  )
+}
+export function hasCancellationFailure(tree: ChatEventTree): boolean {
+  return (
+    cancellationRequest(tree)?.children.some(
+      (child) => child.event.kind === "cancel.failure",
     ) ?? false
   )
 }

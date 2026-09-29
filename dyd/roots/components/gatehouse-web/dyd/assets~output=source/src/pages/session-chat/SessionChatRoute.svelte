@@ -40,6 +40,7 @@
     displayedActivityEvents,
     elapsedDuration,
     finalReplies,
+    hasCancellationFailure,
     hasCancellationSuccess,
     inputRequests,
     renderedActivityEvents,
@@ -611,6 +612,8 @@
                       <header>
                         {hasCancellationSuccess(request)
                           ? "Cancelled"
+                          : hasCancellationFailure(request)
+                            ? "Cancellation failed"
                           : cancellationRequest(request) !== undefined
                             ? "Cancellation requested"
                             : finalReplies(request).length === 0

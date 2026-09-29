@@ -4,6 +4,7 @@ import {
   agentRequests,
   deliveredAgentIDs,
   finalReplies,
+  hasCancellationFailure,
   inputRequests,
   inputResponse,
   replyCanBeCancelled,
@@ -66,6 +67,14 @@ describe("chat request activity", () => {
 
     expect(finalReplies(agentRequests(message)[0])).toEqual([firstReply])
     expect(finalReplies(agentRequests(message)[1])).toEqual([secondReply])
+  })
+
+  it("treats cancel.failure as a terminal cancellation outcome", () => {
+    const request = tree("agent.request", [
+      tree("cancel.request", [tree("cancel.failure", [], { code: "already_completed" })]),
+    ])
+    expect(hasCancellationFailure(request)).toBe(true)
+    expect(replyCanBeCancelled(request)).toBe(false)
   })
 })
 
