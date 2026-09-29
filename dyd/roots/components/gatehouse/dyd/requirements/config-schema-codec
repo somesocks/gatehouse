@@ -1,1 +1,1 @@
-root:../../../../libraries/gatehouse-schema?output=config&renderer=go
+root:../../../../libraries/gatehouse-schema?output=config&renderer=go-json

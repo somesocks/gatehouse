@@ -14,7 +14,7 @@ chmod -R +w "$WORK_DIR"
 ln -s "$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets" "$WORK_DIR/dhall-codegen"
 
 case "$OUTPUT/$RENDERER" in
-    config/go)
+    config/go-json)
         cat > "$WORK_DIR/render.dhall" <<'EOF'
 let codec = ./dhall-codegen/codec-golang-json/package.dhall
 
@@ -54,6 +54,14 @@ let renderer = ./dhall-codegen/renderer-typescript/package.dhall
 in  renderer.render renderer.options.default ./api/document.dhall
 EOF
         OUTPUT_FILE=api.ts
+        ;;
+    api/go-json)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let codec = ./dhall-codegen/codec-golang-json/package.dhall
+
+in  codec.render codec.options::{ package = Some "apischema" } ./api/document.dhall
+EOF
+        OUTPUT_FILE=api.go
         ;;
     api/json-schema)
         cat > "$WORK_DIR/render.dhall" <<'EOF'
