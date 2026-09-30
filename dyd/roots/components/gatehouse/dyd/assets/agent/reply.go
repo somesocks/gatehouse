@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
@@ -2253,14 +2254,24 @@ func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.Session
 	fmt.Fprintf(os.Stderr, "gatehouse: invalid OpenAI Responses final reply provider=%q parent_event=%q input=%s output=%s\n", providerID, parent.Id, encodedInput, encodedOutput)
 }
 
-//go:embed default_system_prompt.txt
-var openAISystemPrompt string
+//go:embed system_prompt_role.tmpl
+var systemPromptRoleSource string
+
+var systemPromptRole = template.Must(template.New("system_prompt_role").Parse(systemPromptRoleSource))
+
+//go:embed system_prompt_shared.txt
+var systemPromptShared string
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
-	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
-		return openAISystemPrompt
+	var role strings.Builder
+	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
+		panic(fmt.Sprintf("render system prompt role: %v", err))
 	}
-	return openAISystemPrompt + "\n\n" + *selected.SystemPrompt
+	prompt := role.String() + "\n" + systemPromptShared
+	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
+		return prompt
+	}
+	return prompt + "\n\n" + *selected.SystemPrompt
 }
 
 func agentPreludeFor(selected *database.WorkspaceAgentModel) string {

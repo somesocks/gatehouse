@@ -1176,7 +1176,7 @@ func TestWorkspaceAgentModelGetUsesRequestedBinding(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, selected := store.WorkspaceAgentModelGet(ctx, workspace, bindingID)
-	if err != nil || selected == nil || selected.AgentModel.Id != firstID || selected.Ref.Id != bindingID {
+	if err != nil || selected == nil || selected.AgentModel.Id != firstID || selected.Ref.Id != bindingID || selected.Alias != "first" {
 		t.Fatalf("WorkspaceAgentModelGet() = (%#v, %v), want requested binding", selected, err)
 	}
 	if selected.MaxTurns != 3 || selected.MaxOutputTokens != 2000 {

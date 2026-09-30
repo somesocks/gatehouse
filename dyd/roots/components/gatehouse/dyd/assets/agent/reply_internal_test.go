@@ -55,21 +55,35 @@ func TestSessionToolCallInputContainsOnlyRequestReference(t *testing.T) {
 func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."
 	emptyPrompt := ""
+	selected := &database.WorkspaceAgentModel{Alias: "luna-high"}
+	sharedPrompt := openAISystemPromptFor(selected)
+	if !strings.HasPrefix(sharedPrompt, "# Role\n\nYour name is @luna-high.\nYou are an agent in a multi-user, multi-bot chat.\nYour job is to handle user requests directed at you (but not others).\n") || !strings.Contains(sharedPrompt, "# Tools\n") {
+		t.Fatalf("system prompt does not render the selected agent's role: %q", sharedPrompt)
+	}
+	for _, instruction := range []string{"You are persistent, honest, and thorough.", "You always verify your work before replying.", "You do not lie about completing a task or give false information."} {
+		if !strings.Contains(sharedPrompt, instruction) {
+			t.Fatalf("system prompt lost role instruction %q", instruction)
+		}
+	}
+	other := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "team/sol"})
+	if !strings.Contains(other, "Your name is @team/sol.") || strings.Contains(other, "@luna-high") || other == sharedPrompt {
+		t.Fatalf("system prompt does not use the other agent's handle: %q", other)
+	}
 	for name, prompt := range map[string]*string{
 		"default": nil,
 		"custom":  &customPrompt,
 		"empty":   &emptyPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := openAISystemPromptFor(&database.WorkspaceAgentModel{SystemPrompt: prompt})
-			if name == "default" && got != openAISystemPrompt {
-				t.Fatalf("system prompt = %q, want default prompt", got)
+			got := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: prompt})
+			if name == "default" && got != sharedPrompt {
+				t.Fatalf("system prompt = %q, want shared prompt", got)
 			}
-			if name == "custom" && got != openAISystemPrompt+"\n\nCustom instructions." {
-				t.Fatalf("system prompt = %q, want default prompt plus custom instructions", got)
+			if name == "custom" && got != sharedPrompt+"\n\nCustom instructions." {
+				t.Fatalf("system prompt = %q, want shared prompt plus custom instructions", got)
 			}
-			if name == "empty" && got != openAISystemPrompt {
-				t.Fatalf("system prompt = %q, want default prompt", got)
+			if name == "empty" && got != sharedPrompt {
+				t.Fatalf("system prompt = %q, want shared prompt", got)
 			}
 		})
 	}
@@ -113,15 +127,17 @@ func TestOpenAIResponsesFinalReply(t *testing.T) {
 	}
 }
 
-func TestOpenAIRequestMessagesIncludesDefaultSystemPrompt(t *testing.T) {
+func TestOpenAIRequestMessagesIncludesSharedSystemPrompt(t *testing.T) {
 	emptyPrompt := ""
 	messages := []openAICompatibleMessage{{Role: "user", Content: "hello"}}
-	withEmptyPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{SystemPrompt: &emptyPrompt}, messages)
-	if len(withEmptyPrompt) != 2 || withEmptyPrompt[0].Role != "system" || withEmptyPrompt[0].Content != openAISystemPrompt || withEmptyPrompt[1].Role != "user" || withEmptyPrompt[1].Content != "hello" {
+	selected := &database.WorkspaceAgentModel{Alias: "luna-high"}
+	prompt := openAISystemPromptFor(selected)
+	withEmptyPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: &emptyPrompt}, messages)
+	if len(withEmptyPrompt) != 2 || withEmptyPrompt[0].Role != "system" || withEmptyPrompt[0].Content != prompt || withEmptyPrompt[1].Role != "user" || withEmptyPrompt[1].Content != "hello" {
 		t.Fatalf("messages with empty prompt = %#v", withEmptyPrompt)
 	}
-	withDefaultPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{}, messages)
-	if len(withDefaultPrompt) != 2 || withDefaultPrompt[0].Role != "system" || withDefaultPrompt[0].Content != openAISystemPrompt || withDefaultPrompt[1].Role != "user" || withDefaultPrompt[1].Content != "hello" {
+	withDefaultPrompt := openAIRequestMessages(selected, messages)
+	if len(withDefaultPrompt) != 2 || withDefaultPrompt[0].Role != "system" || withDefaultPrompt[0].Content != prompt || withDefaultPrompt[1].Role != "user" || withDefaultPrompt[1].Content != "hello" {
 		t.Fatalf("messages with default prompt = %#v", withDefaultPrompt)
 	}
 }
@@ -137,8 +153,9 @@ func TestAgentPreludeFor(t *testing.T) {
 }
 
 func TestOpenAISystemPromptDocumentsIntegrationDiscovery(t *testing.T) {
+	prompt := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high"})
 	for _, binding := range []string{"session/*", "project/*", "help/env", "help/search"} {
-		if !strings.Contains(openAISystemPrompt, binding) {
+		if !strings.Contains(prompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}
 	}
