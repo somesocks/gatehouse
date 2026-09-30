@@ -114,7 +114,7 @@ func (store *Store) sessionInputResponseCreate(ctx context.Context, event model.
 		}
 		for _, field := range form.Fields {
 			if value, exists := values[field.ID]; exists {
-				if err, _ := store.canonicalizeInputFiles(ctx, transaction, *event.Parent, field, []string{field.ID}, value); err != nil {
+				if err, _ := store.canonicalizeInputFiles(ctx, transaction, event.Ref.Session, field, value); err != nil {
 					return fmt.Errorf("%w: %w", ErrSessionInputInvalidDraft, err), model.SessionEvent{}
 				}
 			}

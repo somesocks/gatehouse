@@ -114,8 +114,16 @@ func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
 	if finished := inputTestRequest(fixture.handler, http.MethodPost, sessionFiles+"/"+unrelated.File.Ref.Id+"/finish", fixture.login, ""); finished.Code != http.StatusOK {
 		t.Fatalf("finish unrelated file = %d", finished.Code)
 	}
-	if other := patch(`[{"id":"` + unrelated.File.Ref.Id + `","name":"existing.txt","size":4,"media_type":"text/plain"}]`); other.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("accepted existing session file as form upload = %d %s", other.Code, other.Body.String())
+	if other := patch(`[{"id":"` + unrelated.File.Ref.Id + `","name":"forged.txt","size":1,"media_type":"text/plain"}]`); other.Code != http.StatusNoContent {
+		t.Fatalf("reuse existing session file = %d %s", other.Code, other.Body.String())
+	}
+	var document struct {
+		Draft struct {
+			Attachments []inputform.FileSummary `json:"attachments"`
+		} `json:"draft"`
+	}
+	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", capability, ""); json.Unmarshal(read.Body.Bytes(), &document) != nil || len(document.Draft.Attachments) != 1 || document.Draft.Attachments[0].Name != "existing.txt" || document.Draft.Attachments[0].Size != 4 {
+		t.Fatalf("existing session file metadata was not canonicalized: %d %s", read.Code, read.Body.String())
 	}
 	if early := patch(fileValue); early.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("accepted unfinished upload = %d %s", early.Code, early.Body.String())
@@ -131,16 +139,12 @@ func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
 	if forged := patch(`[{"id":"` + fileID + `","name":"forged.txt","size":4,"media_type":"text/plain"}]`); forged.Code != http.StatusNoContent {
 		t.Fatalf("failed to canonicalize file summary = %d", forged.Code)
 	}
-	var document struct {
-		Draft struct {
-			Attachments []inputform.FileSummary `json:"attachments"`
-		} `json:"draft"`
-	}
 	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", capability, ""); json.Unmarshal(read.Body.Bytes(), &document) != nil || len(document.Draft.Attachments) != 1 || document.Draft.Attachments[0].Name != "report.txt" {
 		t.Fatalf("file draft kept untrusted metadata: %d %s", read.Code, read.Body.String())
 	}
-	if stored := patch(fileValue); stored.Code != http.StatusNoContent {
-		t.Fatalf("save = %d %s", stored.Code, stored.Body.String())
+	withExisting := `[{"id":"` + unrelated.File.Ref.Id + `","name":"existing.txt","size":4,"media_type":"text/plain"},` + strings.TrimPrefix(fileValue, "[")
+	if stored := patch(withExisting); stored.Code != http.StatusNoContent {
+		t.Fatalf("save existing and uploaded files = %d %s", stored.Code, stored.Body.String())
 	}
 	if repeated := patch(`[` + strings.TrimSuffix(strings.TrimPrefix(fileValue, "["), "]") + `,` + strings.TrimSuffix(strings.TrimPrefix(fileValue, "["), "]") + `]`); repeated.Code != http.StatusUnprocessableEntity {
 		t.Fatalf("accepted duplicate IDs = %d", repeated.Code)
@@ -167,7 +171,7 @@ func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
 		Attachments []inputform.FileSummary `json:"attachments"`
 	}
 	decodeErr := json.Unmarshal([]byte(result), &answer)
-	if resultErr != nil || decodeErr != nil || len(answer.Attachments) != 1 || answer.Attachments[0].ID != fileID || answer.Attachments[0].Name != "report.txt" || answer.Attachments[0].Size != 4 {
+	if resultErr != nil || decodeErr != nil || len(answer.Attachments) != 2 || answer.Attachments[0].ID != unrelated.File.Ref.Id || answer.Attachments[0].Name != "existing.txt" || answer.Attachments[1].ID != fileID || answer.Attachments[1].Name != "report.txt" || answer.Attachments[1].Size != 4 {
 		t.Fatalf("result = %s (%v, %v)", result, resultErr, decodeErr)
 	}
 	if late := create("text/plain"); late.Code != http.StatusConflict {
@@ -175,6 +179,45 @@ func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
 	}
 	if err, files := fixture.store.SessionFileReferencesGet(context.Background(), fixture.input.Session, []string{fileID}); err != nil || len(files) != 1 {
 		t.Fatalf("submitted upload is not a session file: %#v (%v)", files, err)
+	}
+}
+
+func TestInputFileDraftRejectsAnotherSessionFile(t *testing.T) {
+	fixture := newInputTestFixture(t, inputform.Field{ID: "attachments", Label: "Attachments", Type: "files"})
+	ctx := context.Background()
+	alice, _ := principalIdentityRefs(t, ctx, fixture.store, "alice", "gatehouse:alice")
+	id, err := typed_id.New(typed_id.Session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := model.SessionRef{Workspace: fixture.input.Session.Workspace, Id: id}
+	if err, _ := fixture.store.SessionsCreate(ctx, model.Session{Ref: other, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
+		t.Fatal(err)
+	}
+	path := "/api/v1/workspaces/" + other.Workspace.Id + "/sessions/" + other.Id + "/files"
+	created := inputTestRequest(fixture.handler, http.MethodPost, path, fixture.login, `{"name":"other.txt"}`)
+	var upload sessionFileCreateResponse
+	if err := json.Unmarshal(created.Body.Bytes(), &upload); err != nil || created.Code != http.StatusCreated {
+		t.Fatalf("create other session file = %d %s (%v)", created.Code, created.Body.String(), err)
+	}
+	if put := inputTestRequest(fixture.handler, http.MethodPut, upload.UploadURL, "", "data"); put.Code != http.StatusNoContent {
+		t.Fatalf("upload other session file = %d", put.Code)
+	}
+	if finish := inputTestRequest(fixture.handler, http.MethodPost, path+"/"+upload.File.Ref.Id+"/finish", fixture.login, ""); finish.Code != http.StatusOK {
+		t.Fatalf("finish other session file = %d", finish.Code)
+	}
+	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
+	var launch struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "").Body.Bytes(), &launch); err != nil {
+		t.Fatal(err)
+	}
+	capability := inputTestCapability(t, launch.URL)
+	patch := inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability,
+		`{"op":"set","path":["attachments"],"value":[{"id":"`+upload.File.Ref.Id+`","name":"other.txt","size":4}]}`)
+	if patch.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("accepted another session's file = %d %s", patch.Code, patch.Body.String())
 	}
 }
 

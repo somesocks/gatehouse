@@ -174,10 +174,6 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 }
 
 func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string, principal model.PrincipalRef) (error, model.SessionFile, string) {
-	return store.sessionFileCreate(ctx, file, storageObjectID, principal, nil)
-}
-
-func (store *Store) sessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string, principal model.PrincipalRef, link *sessionInputFileLink) (error, model.SessionFile, string) {
 	if !typed_id.Valid(typed_id.SessionFile, file.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, storageObjectID) || strings.TrimSpace(file.Name) == "" {
 		return fmt.Errorf("create session file: IDs or name are invalid"), model.SessionFile{}, ""
 	}
@@ -251,11 +247,6 @@ func (store *Store) sessionFileCreate(ctx context.Context, file model.SessionFil
 		ResourceSessionFile: &file.Ref.Id,
 	}, []string{ActivityTopicSessionFile(file.Ref)}); err != nil {
 		return fmt.Errorf("append session file creation activity: %w", err), model.SessionFile{}, ""
-	}
-	if link != nil {
-		if err := store.linkSessionInputFile(ctx, transaction, link.Input, link.Path, file.Ref.Id); err != nil {
-			return err, model.SessionFile{}, ""
-		}
 	}
 	if err := transaction.Commit(); err != nil {
 		return fmt.Errorf("commit session file creation: %w", err), model.SessionFile{}, ""

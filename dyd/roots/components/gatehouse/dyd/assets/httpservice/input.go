@@ -217,7 +217,7 @@ func sessionInputPatch(store *database.Store, tokens *auth.BearerTokens) http.Ha
 				http.Error(response, err.Error(), http.StatusUnprocessableEntity)
 				return
 			}
-			if fileErr, canonical := store.CanonicalizeInputFiles(request.Context(), input, field, patch.Path, patch.Value); fileErr != nil {
+			if fileErr, canonical := store.CanonicalizeInputFiles(request.Context(), input.Session, field, patch.Value); fileErr != nil {
 				if errors.Is(fileErr, database.ErrSessionInputFileUnavailable) {
 					http.Error(response, fileErr.Error(), http.StatusUnprocessableEntity)
 				} else {
@@ -286,11 +286,7 @@ func sessionInputFileCreate(store *database.Store, tokens *auth.BearerTokens) ht
 			return
 		}
 		file := model.SessionFile{Ref: model.SessionFileRef{Session: input.Session, Id: fileID}, Name: body.Name, MediaType: body.MediaType, Enabled: true}
-		err, stored, object := store.SessionInputFileCreate(request.Context(), input, body.Path, file, objectID, claims.Principal.Ref)
-		if errors.Is(err, database.ErrSessionInputResolved) {
-			http.Error(response, "input is already resolved", http.StatusConflict)
-			return
-		}
+		err, stored, object := store.SessionFileCreate(request.Context(), file, objectID, claims.Principal.Ref)
 		if err != nil {
 			if strings.Contains(err.Error(), "no available storage provider") {
 				http.Error(response, "no storage provider available", http.StatusServiceUnavailable)
@@ -344,11 +340,12 @@ func sessionInputFileFinish(store *database.Store, tokens *auth.BearerTokens) ht
 			http.Error(response, "invalid file field", http.StatusBadRequest)
 			return
 		}
-		err, file, object := store.SessionInputFileGet(request.Context(), input, body.Path, request.PathValue("file"), claims.Principal.Ref)
-		if errors.Is(err, database.ErrSessionInputFileUnavailable) {
+		fileID := request.PathValue("file")
+		if !typed_id.Valid(typed_id.SessionFile, fileID) {
 			http.NotFound(response, request)
 			return
 		}
+		err, file, object := store.SessionFileGet(request.Context(), model.SessionFileRef{Session: input.Session, Id: fileID}, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -365,16 +362,16 @@ func sessionInputFileFinish(store *database.Store, tokens *auth.BearerTokens) ht
 			http.Error(response, "storage object is not ready", http.StatusConflict)
 			return
 		}
-		if err, _, _ := store.SessionFileFinish(request.Context(), file.Ref, claims.Principal.Ref); err != nil {
-			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		err, summary := store.SessionInputFileSummaryGet(request.Context(), input, body.Path, file.Ref.Id)
+		err, finished, completed := store.SessionFileFinish(request.Context(), file.Ref, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		writeJSON(response, summary)
+		if finished == nil || completed == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, inputform.FileSummary{ID: finished.Ref.Id, Name: finished.Name, Size: completed.Size, MediaType: finished.MediaType})
 	}
 }
 
