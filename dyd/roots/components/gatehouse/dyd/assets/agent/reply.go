@@ -2269,21 +2269,24 @@ func logInvalidOpenAIResponsesFinalReply(providerID string, parent model.Session
 	fmt.Fprintf(os.Stderr, "gatehouse: invalid OpenAI Responses final reply provider=%q parent_event=%q input=%s output=%s\n", providerID, parent.Id, encodedInput, encodedOutput)
 }
 
-//go:embed system_prompt_role.tmpl
+//go:embed system_prompt_0_role.tmpl
 var systemPromptRoleSource string
 
-var systemPromptRole = template.Must(template.New("system_prompt_role").Parse(systemPromptRoleSource))
+var systemPromptRole = template.Must(template.New("system_prompt_0_role").Parse(systemPromptRoleSource))
 
-//go:embed system_prompt_shared.txt
-var systemPromptShared string
+//go:embed system_prompt_1_tools.txt
+var systemPromptTools string
 
-//go:embed system_prompt_session.txt
+//go:embed system_prompt_2_session.txt
 var systemPromptSession string
 
-//go:embed system_prompt_project.txt
+//go:embed system_prompt_2_project.txt
 var systemPromptProject string
 
-//go:embed system_prompt_workflow.txt
+//go:embed system_prompt_2_inputs.txt
+var systemPromptInputs string
+
+//go:embed system_prompt_3_workflow.txt
 var systemPromptWorkflow string
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat bool) string {
@@ -2291,11 +2294,11 @@ func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat b
 	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
 		panic(fmt.Sprintf("render system prompt role: %v", err))
 	}
-	prompt := role.String() + "\n" + systemPromptShared + "\n" + systemPromptSession
+	prompt := role.String() + "\n" + systemPromptTools + "\n" + systemPromptSession
 	if projectChat {
 		prompt += "\n" + systemPromptProject
 	}
-	prompt += "\n" + systemPromptWorkflow
+	prompt += "\n" + systemPromptInputs + "\n" + systemPromptWorkflow
 	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
 		return prompt
 	}

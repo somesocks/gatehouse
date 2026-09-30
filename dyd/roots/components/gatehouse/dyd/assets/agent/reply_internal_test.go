@@ -168,7 +168,7 @@ func TestAgentPreludeFor(t *testing.T) {
 
 func TestOpenAISystemPromptDocumentsIntegrationDiscovery(t *testing.T) {
 	prompt := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high"}, true)
-	for _, binding := range []string{"session/*", "project/*", "help/env", "help/search"} {
+	for _, binding := range []string{"session/*", "project/*", "input/*", "input/ask", "input/form", "help/env", "help/search"} {
 		if !strings.Contains(prompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}
