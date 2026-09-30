@@ -29,17 +29,17 @@ type mcmtrContextState struct {
 	ToolHighFrom  string `json:"tool_high_from,omitempty"`
 }
 
-func mcmtrProfileFingerprint(selected *database.WorkspaceAgentModel) string {
-	value := mcmtrAlgorithmVersion + "\x00" + selected.AgentModel.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected)
+func mcmtrProfileFingerprint(selected *database.WorkspaceAgentModel, projectChat bool) string {
+	value := mcmtrAlgorithmVersion + "\x00" + selected.AgentModel.Id + "\x00" + selected.Compaction + "\x00" + openAISystemPromptFor(selected, projectChat)
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(value)))
 }
 
-func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx context.Context, root model.SessionEventRef, selected *database.WorkspaceAgentModel) error {
+func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx context.Context, root model.SessionEventRef, selected *database.WorkspaceAgentModel, projectChat bool) error {
 	_, err := selectedMCMTRProfile(selected)
 	if err != nil {
 		return err
 	}
-	fingerprint := mcmtrProfileFingerprint(selected)
+	fingerprint := mcmtrProfileFingerprint(selected, projectChat)
 	err, stored := runtime.store.AgentContextGet(ctx, root)
 	if err != nil {
 		return err
@@ -63,7 +63,7 @@ func (runtime *SessionEventReplyRuntime) mcmtrContextStart(ctx context.Context, 
 	return runtime.store.AgentContextSet(ctx, database.AgentContext{Root: root, Model: selected.Ref, Profile: fingerprint, State: state})
 }
 
-func (runtime *SessionEventReplyRuntime) agentContext(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, []openAICompatibleMessage) {
+func (runtime *SessionEventReplyRuntime) agentContext(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, projectChat bool) (error, []openAICompatibleMessage) {
 	profile, err := selectedMCMTRProfile(selected)
 	if err != nil {
 		return err, nil
@@ -94,7 +94,7 @@ func (runtime *SessionEventReplyRuntime) agentContext(ctx context.Context, paren
 	if err != nil {
 		return err, nil
 	}
-	err = runtime.store.AgentContextSet(ctx, database.AgentContext{Root: parent, Model: selected.Ref, Profile: mcmtrProfileFingerprint(selected), State: encoded})
+	err = runtime.store.AgentContextSet(ctx, database.AgentContext{Root: parent, Model: selected.Ref, Profile: mcmtrProfileFingerprint(selected, projectChat), State: encoded})
 	if err != nil {
 		return err, nil
 	}

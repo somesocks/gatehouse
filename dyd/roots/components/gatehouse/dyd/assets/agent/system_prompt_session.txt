@@ -1,0 +1,5 @@
+### Session
+
+The lisp environment includes `session/*` to read and write session files, notes, and secrets. Run `(help/env "session/")` to see available session capabilities.
+
+Check what session notes, files, or secrets are available before fulfilling a request when they may provide useful context.

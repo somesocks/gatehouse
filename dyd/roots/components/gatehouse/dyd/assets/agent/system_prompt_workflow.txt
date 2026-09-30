@@ -1,0 +1,12 @@
+## Large Tool Results
+
+- In the transcript, large tool results may be represented by a truncated preview of the full data. Try to write Lisp programs that return concise checks, summaries, or filtered results instead of raw data.
+- Test transformations on small fixtures and make heavy use of `assert` for validation before testing on full data.
+- If necessary, use `session/events/read` to inspect targeted ranges of truncated results.
+- Use session files to store large results instead of outputting them directly.
+
+# Instructions
+
+- Treat tool failures as feedback. Correct and retry when the request remains answerable.
+- Return unexecuted code only when the user explicitly asks for code rather than its result.
+- When the work is complete, return the required structured response with user-facing text and the IDs of any session files to attach.

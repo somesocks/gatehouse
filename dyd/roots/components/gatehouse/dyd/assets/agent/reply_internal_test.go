@@ -56,7 +56,7 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."
 	emptyPrompt := ""
 	selected := &database.WorkspaceAgentModel{Alias: "luna-high"}
-	sharedPrompt := openAISystemPromptFor(selected)
+	sharedPrompt := openAISystemPromptFor(selected, false)
 	if !strings.HasPrefix(sharedPrompt, "# Role\n\nYour name is @luna-high.\nYou are an agent in a multi-user, multi-bot chat.\nYour job is to handle user requests directed at you (but not others).\n") || !strings.Contains(sharedPrompt, "# Tools\n") {
 		t.Fatalf("system prompt does not render the selected agent's role: %q", sharedPrompt)
 	}
@@ -65,7 +65,7 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 			t.Fatalf("system prompt lost role instruction %q", instruction)
 		}
 	}
-	other := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "team/sol"})
+	other := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "team/sol"}, false)
 	if !strings.Contains(other, "Your name is @team/sol.") || strings.Contains(other, "@luna-high") || other == sharedPrompt {
 		t.Fatalf("system prompt does not use the other agent's handle: %q", other)
 	}
@@ -75,7 +75,7 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 		"empty":   &emptyPrompt,
 	} {
 		t.Run(name, func(t *testing.T) {
-			got := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: prompt})
+			got := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: prompt}, false)
 			if name == "default" && got != sharedPrompt {
 				t.Fatalf("system prompt = %q, want shared prompt", got)
 			}
@@ -86,6 +86,13 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 				t.Fatalf("system prompt = %q, want shared prompt", got)
 			}
 		})
+	}
+	projectPrompt := openAISystemPromptFor(selected, true)
+	if strings.Contains(sharedPrompt, "project/") || !strings.Contains(sharedPrompt, "session/*") || !strings.Contains(projectPrompt, "project/*") || !strings.Contains(projectPrompt, "session/*") {
+		t.Fatalf("prompt integrations do not match the chat's project link")
+	}
+	if mcmtrProfileFingerprint(selected, true) == mcmtrProfileFingerprint(selected, false) {
+		t.Fatal("context fingerprints for project and ordinary chats match")
 	}
 }
 
@@ -131,33 +138,59 @@ func TestOpenAIRequestMessagesIncludesSharedSystemPrompt(t *testing.T) {
 	emptyPrompt := ""
 	messages := []openAICompatibleMessage{{Role: "user", Content: "hello"}}
 	selected := &database.WorkspaceAgentModel{Alias: "luna-high"}
-	prompt := openAISystemPromptFor(selected)
-	withEmptyPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: &emptyPrompt}, messages)
+	prompt := openAISystemPromptFor(selected, false)
+	withEmptyPrompt := openAIRequestMessages(&database.WorkspaceAgentModel{Alias: "luna-high", SystemPrompt: &emptyPrompt}, messages, false)
 	if len(withEmptyPrompt) != 2 || withEmptyPrompt[0].Role != "system" || withEmptyPrompt[0].Content != prompt || withEmptyPrompt[1].Role != "user" || withEmptyPrompt[1].Content != "hello" {
 		t.Fatalf("messages with empty prompt = %#v", withEmptyPrompt)
 	}
-	withDefaultPrompt := openAIRequestMessages(selected, messages)
+	withDefaultPrompt := openAIRequestMessages(selected, messages, false)
 	if len(withDefaultPrompt) != 2 || withDefaultPrompt[0].Role != "system" || withDefaultPrompt[0].Content != prompt || withDefaultPrompt[1].Role != "user" || withDefaultPrompt[1].Content != "hello" {
 		t.Fatalf("messages with default prompt = %#v", withDefaultPrompt)
+	}
+	withProject := openAIRequestMessages(selected, messages, true)
+	if len(withProject) != 2 || withProject[0].Content != openAISystemPromptFor(selected, true) {
+		t.Fatalf("messages with project prompt = %#v", withProject)
 	}
 }
 
 func TestAgentPreludeFor(t *testing.T) {
 	custom := `(let ((custom #t)))`
-	if got := agentPreludeFor(&database.WorkspaceAgentModel{}); got != agentPrelude {
-		t.Fatalf("default prelude = %q", got)
+	if got := agentPreludeFor(&database.WorkspaceAgentModel{}, false); got != agentSessionPrelude {
+		t.Fatalf("ordinary chat prelude = %q", got)
 	}
-	if got := agentPreludeFor(&database.WorkspaceAgentModel{Prelude: &custom}); got != custom {
+	if got := agentPreludeFor(&database.WorkspaceAgentModel{}, true); got != agentPrelude {
+		t.Fatalf("project chat prelude = %q", got)
+	}
+	if got := agentPreludeFor(&database.WorkspaceAgentModel{Prelude: &custom}, false); got != custom {
 		t.Fatalf("custom prelude = %q", got)
 	}
 }
 
 func TestOpenAISystemPromptDocumentsIntegrationDiscovery(t *testing.T) {
-	prompt := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high"})
+	prompt := openAISystemPromptFor(&database.WorkspaceAgentModel{Alias: "luna-high"}, true)
 	for _, binding := range []string{"session/*", "project/*", "help/env", "help/search"} {
 		if !strings.Contains(prompt, binding) {
 			t.Fatalf("system prompt does not document %q", binding)
 		}
+	}
+}
+
+func TestSessionPreludeDoesNotExposeProjectBindings(t *testing.T) {
+	runtime := &SessionEventReplyRuntime{}
+	session := model.SessionRef{}
+	principal := model.PrincipalRef{}
+	agent := model.WorkspaceAgentRef{}
+	modules := []lisp.HostModule{
+		runtime.sessionFilesModule(nil, session, principal),
+		runtime.sessionNotesModule(nil, session, principal, agent),
+		runtime.sessionTasksModule(nil, session, principal, agent),
+		runtime.sessionSecretsModule(nil, session, principal),
+		runtime.sessionEventsModule(nil, model.SessionEventRef{Session: session}, agent, principal),
+		NewInputModule(), NewPolicyModule(nil), NewWebModule(),
+	}
+	err, result := lisp.Evaluate(`(and (> (list/length (help/env "session/")) 0) (= (list/length (help/env "project/")) 0))`, lisp.EvalOptions{Prelude: agentSessionPrelude, HostModules: modules})
+	if err != nil || result == nil || result.String() != "#t" {
+		t.Fatalf("session prelude exposed project bindings or lost session bindings: (%v, %v)", result, err)
 	}
 }
 

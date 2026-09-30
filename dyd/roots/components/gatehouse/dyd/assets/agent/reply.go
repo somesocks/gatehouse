@@ -844,21 +844,27 @@ func (runtime *SessionEventReplyRuntime) currentWorkspaceAgentModel(ctx context.
 }
 
 func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn) {
-	switch selected.Protocol {
-	case "builtin":
+	if selected.Protocol == "builtin" {
 		err, text := BuiltinReply(selected.Model, selected.Parameters)
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
 		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}}
+	}
+	err, project := runtime.store.SessionProjectGet(ctx, parent.Session)
+	if err != nil {
+		return err, agentProviderTurn{}
+	}
+	projectChat := project != nil
+	switch selected.Protocol {
 	case "openai-chat-completions":
 		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
 		}
-		if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
+		if err := runtime.mcmtrContextStart(ctx, parent, selected, projectChat); err != nil {
 			return err, agentProviderTurn{}
 		}
-		err, messages := runtime.agentContext(ctx, parent, selected)
+		err, messages := runtime.agentContext(ctx, parent, selected, projectChat)
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
@@ -867,7 +873,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			return err, agentProviderTurn{}
 		}
 		request := openAICompatibleRequest{
-			Model: selected.Model, Messages: openAIRequestMessages(selected, messages), Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
+			Model: selected.Model, Messages: openAIRequestMessages(selected, messages, projectChat), Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
 		}
 		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
 		if err != nil {
@@ -894,10 +900,10 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
 		}
-		if err := runtime.mcmtrContextStart(ctx, parent, selected); err != nil {
+		if err := runtime.mcmtrContextStart(ctx, parent, selected, projectChat); err != nil {
 			return err, agentProviderTurn{}
 		}
-		err, messages := runtime.agentContext(ctx, parent, selected)
+		err, messages := runtime.agentContext(ctx, parent, selected, projectChat)
 		if err != nil {
 			return err, agentProviderTurn{}
 		}
@@ -911,7 +917,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		}
 		input := openAIResponsesInput(messages)
 		request := openAIResponsesRequest{
-			Model: selected.Model, Instructions: openAISystemPromptFor(selected), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
+			Model: selected.Model, Instructions: openAISystemPromptFor(selected, projectChat), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
 		}
 		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
 		if err != nil {
@@ -1087,17 +1093,26 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	}
 	agent := *request.AuthorAgent
 	principal := parent.AuthorPrincipal.Ref
+	err, project := runtime.store.SessionProjectGet(ctx, request.Ref.Session)
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
 		return runtime.toolCallFinish(ctx, *request, agent, callID, sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "execution_failed", Output: err.Error()})
 	}
-	modules := []lisp.HostModule{
-		runtime.projectInfoModule(ctx, request.Ref.Session, principal),
-		runtime.projectFilesModule(ctx, request.Ref.Session, principal),
-		runtime.projectNotesModule(ctx, request.Ref.Session, principal, agent),
-		runtime.projectTasksModule(ctx, request.Ref.Session, principal, agent),
-		runtime.projectSecretsModule(ctx, request.Ref.Session, principal),
-		runtime.projectRecordsModule(ctx, request.Ref.Session, principal, agent),
+	modules := []lisp.HostModule{}
+	if project != nil {
+		modules = append(modules,
+			runtime.projectInfoModule(ctx, request.Ref.Session, principal),
+			runtime.projectFilesModule(ctx, request.Ref.Session, principal),
+			runtime.projectNotesModule(ctx, request.Ref.Session, principal, agent),
+			runtime.projectTasksModule(ctx, request.Ref.Session, principal, agent),
+			runtime.projectSecretsModule(ctx, request.Ref.Session, principal),
+			runtime.projectRecordsModule(ctx, request.Ref.Session, principal, agent),
+		)
+	}
+	modules = append(modules,
 		runtime.sessionFilesModule(ctx, request.Ref.Session, principal),
 		runtime.sessionNotesModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionTasksModule(ctx, request.Ref.Session, principal, agent),
@@ -1106,12 +1121,12 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 		NewInputModule(func(form inputform.Form) (error, string) { return runtime.awaitInput(ctx, *request, agent, form) }),
 		NewPolicyModule(func(description string) error { return runtime.awaitApproval(ctx, *request, agent, description) }),
 		NewWebModule(),
-	}
+	)
 	evaluationContext, cancelEvaluation := context.WithCancel(ctx)
 	stopCancellationWatch := runtime.watchToolCallCancellation(request.Parent, cancelEvaluation)
 	defer stopCancellationWatch()
 	defer cancelEvaluation()
-	evalErr, result := lisp.Evaluate(code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPreludeFor(selected), HostModules: modules})
+	evalErr, result := lisp.Evaluate(code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPreludeFor(selected, project != nil), HostModules: modules})
 	evalErr = call.End(evalErr)
 	execution := sessionToolCallExecution{}
 	if errors.Is(evalErr, lisp.ErrInterrupted) {
@@ -2262,27 +2277,43 @@ var systemPromptRole = template.Must(template.New("system_prompt_role").Parse(sy
 //go:embed system_prompt_shared.txt
 var systemPromptShared string
 
-func openAISystemPromptFor(selected *database.WorkspaceAgentModel) string {
+//go:embed system_prompt_session.txt
+var systemPromptSession string
+
+//go:embed system_prompt_project.txt
+var systemPromptProject string
+
+//go:embed system_prompt_workflow.txt
+var systemPromptWorkflow string
+
+func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat bool) string {
 	var role strings.Builder
 	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
 		panic(fmt.Sprintf("render system prompt role: %v", err))
 	}
-	prompt := role.String() + "\n" + systemPromptShared
+	prompt := role.String() + "\n" + systemPromptShared + "\n" + systemPromptSession
+	if projectChat {
+		prompt += "\n" + systemPromptProject
+	}
+	prompt += "\n" + systemPromptWorkflow
 	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
 		return prompt
 	}
 	return prompt + "\n\n" + *selected.SystemPrompt
 }
 
-func agentPreludeFor(selected *database.WorkspaceAgentModel) string {
+func agentPreludeFor(selected *database.WorkspaceAgentModel, projectChat bool) string {
 	if selected.Prelude != nil {
 		return *selected.Prelude
+	}
+	if !projectChat {
+		return agentSessionPrelude
 	}
 	return agentPrelude
 }
 
-func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage) []openAICompatibleMessage {
-	prompt := openAISystemPromptFor(selected)
+func openAIRequestMessages(selected *database.WorkspaceAgentModel, messages []openAICompatibleMessage, projectChat bool) []openAICompatibleMessage {
+	prompt := openAISystemPromptFor(selected, projectChat)
 	if prompt == "" {
 		return messages
 	}

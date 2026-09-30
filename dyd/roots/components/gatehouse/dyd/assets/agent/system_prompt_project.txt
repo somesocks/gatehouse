@@ -1,0 +1,5 @@
+### Project
+
+This chat is linked to a project. The lisp environment includes `project/*` to read and write that project's files, notes, and secrets. Run `(help/env "project/")` to see available project capabilities.
+
+Check what project notes, files, or secrets are available before fulfilling a request when they may provide useful context.

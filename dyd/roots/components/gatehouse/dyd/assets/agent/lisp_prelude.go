@@ -1,6 +1,6 @@
 package agent
 
-const agentPrelude = `(let
+const agentPreludeStart = `(let
   (
     ; Import declarations remain raw forms until fn/apply invokes import.
     (prelude/imports
@@ -20,12 +20,18 @@ const agentPrelude = `(let
         (crypto/padding/pkcs7 @native:crypto/padding/pkcs7/v1)
 
         ; Workspace resource modules.
+`
+
+const agentPreludeProjectImports = `
         (project/info @native:gatehouse/project/info/v1)
         (project/files @native:gatehouse/project/files/v1)
         (project/notes @native:gatehouse/project/notes/v1)
         (project/tasks @native:gatehouse/project/tasks/v1)
         (project/secrets @native:gatehouse/project/secrets/v1)
         (project/records @native:gatehouse/project/records/v1)
+`
+
+const agentPreludeEnd = `
         (session/files @native:gatehouse/session/files/v1)
         (session/notes @native:gatehouse/session/notes/v1)
         (session/tasks @native:gatehouse/session/tasks/v1)
@@ -71,3 +77,6 @@ const agentPrelude = `(let
     )
   )
   (fn/apply import prelude/imports))`
+
+const agentPrelude = agentPreludeStart + agentPreludeProjectImports + agentPreludeEnd
+const agentSessionPrelude = agentPreludeStart + agentPreludeEnd
