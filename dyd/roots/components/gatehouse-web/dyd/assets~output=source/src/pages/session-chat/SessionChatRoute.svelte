@@ -24,6 +24,7 @@
   import SessionNavigation from "../../components/SessionNavigation.svelte"
   import StatusPage from "../../components/StatusPage.svelte"
   import InputRequestCard from "./InputRequestCard.svelte"
+  import InputRequestActivity from "./InputRequestActivity.svelte"
   import * as SidebarPage from "../../components/sidebar-page"
   import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
   import { renderMarkdown } from "../../markdown"
@@ -44,6 +45,7 @@
     hasCancellationFailure,
     hasCancellationSuccess,
     inputRequests,
+    pendingReplyInputRequests,
     renderedActivityEvents,
     replyCanBeCancelled,
     thinkingRateLimitDelayUntil,
@@ -124,6 +126,7 @@
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
     await tick()
+    if (document.activeElement instanceof Element && document.activeElement.closest(".input-form") !== null) return
     const scrollingElement = document.scrollingElement
     scrollingElement?.scrollTo({
       top: scrollingElement.scrollHeight,
@@ -765,9 +768,9 @@
                                     {controller.state.approvalErrors.get(
                                       approval.event.ref.id,
                                     )}
-                              </p>{/if}{/each}
+                               </p>{/if}{/each}
                               {#each inputRequests(event) as input (input.event.ref.id)}
-                                <InputRequestCard request={input} workspaceID={workspace.id} sessionID={session.id} onAuthenticationLost={runtime.requireLogin} />
+                                <InputRequestActivity request={input} />
                               {/each}{:else if event.event.kind === "thinking.request"}<p
                                 class="event-summary"
                                 data-state={thinkingStatus(event)}
@@ -805,7 +808,11 @@
                               data-state="failed"
                             ><CircleX size={14} strokeWidth={2} aria-hidden="true" /><span>{agentFailureSummary(request)}</span></p>{/if}
                           </div>{/if}
-                    </section>{#each finalReplies(request) as reply (reply.event.ref.id)}<article
+                    </section>
+                    {#each pendingReplyInputRequests(request) as input (input.event.ref.id)}
+                      <InputRequestCard request={input} workspaceID={workspace.id} sessionID={session.id} onAuthenticationLost={runtime.requireLogin} onResolved={() => void controller.refreshEvents()} />
+                    {/each}
+                    {#each finalReplies(request) as reply (reply.event.ref.id)}<article
                       class="conversation-message card"
                     >
                       <header>

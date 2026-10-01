@@ -30,7 +30,6 @@
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
   import ProjectRecordsRoute from "./pages/project-records/ProjectRecordsRoute.svelte"
   import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
-  import InputFormRoute from "./pages/input-form/InputFormRoute.svelte"
   import SessionFilesRoute from "./pages/session-files/SessionFilesRoute.svelte"
   import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
   import SessionSecretsRoute from "./pages/session-secrets/SessionSecretsRoute.svelte"
@@ -44,7 +43,6 @@
   const owner = $derived(routeOwner(runtime.state.route))
 
   onMount(() => {
-    if (owner === "input-form") return
     runtime.start()
     return () => runtime.stop()
   })
@@ -69,8 +67,6 @@
   <ProjectRecordsRoute />
 {:else if owner === "session-chat"}
   <SessionChatRoute />
-{:else if owner === "input-form"}
-  <InputFormRoute />
 {:else if owner === "session-files"}
   <SessionFilesRoute />
 {:else if owner === "session-notes"}

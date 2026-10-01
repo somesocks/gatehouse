@@ -7,6 +7,8 @@ import {
   hasCancellationFailure,
   inputRequests,
   inputResponse,
+  displayedActivityEvents,
+  pendingReplyInputRequests,
   replyCanBeCancelled,
   thinkingRateLimitDelayUntil,
 } from "./chat-controller.svelte"
@@ -61,6 +63,43 @@ describe("chat request activity", () => {
 
     expect(agentRequests(message)).toEqual([])
     expect(replyCanBeCancelled(message)).toBe(false)
+  })
+
+  it("finds form cards independently of collapsed tool activity", () => {
+    const input = tree("input.request")
+    const tool = tree("tool.request", [input])
+    const agent = tree("agent.request", [
+      tool,
+      ...Array.from({ length: 6 }, () => tree("thinking.request")),
+    ])
+    expect(displayedActivityEvents(agent, new Set())).not.toContain(tool)
+    expect(pendingReplyInputRequests(agent)).toEqual([input])
+  })
+
+  it("keeps nested pending forms in their requesting agent's branch", () => {
+    const first = tree("input.request")
+    const second = tree("input.request")
+    const other = tree("input.request")
+    const agent = tree("agent.request", [tree("tool.request", [
+      first, tree("tool.request", [second]),
+    ])])
+    const otherAgent = tree("agent.request", [tree("tool.request", [other])])
+    expect(pendingReplyInputRequests(agent)).toEqual([first, second])
+    expect(pendingReplyInputRequests(otherAgent)).toEqual([other])
+  })
+
+  it.each([
+    ["input.success", {}],
+    ["input.failure", { code: "cancelled" }],
+    ["input.failure", { code: "failed" }],
+  ] as const)("keeps %s in tool activity while removing its form card", (kind, payload) => {
+    const resolved = tree("input.request", [tree(kind, [], payload)])
+    const pending = tree("input.request")
+    const tool = tree("tool.request", [resolved, pending])
+    const agent = tree("agent.request", [tool])
+    expect(inputRequests(tool)).toEqual([resolved, pending])
+    expect(inputResponse(resolved)?.event.kind).toBe(kind)
+    expect(pendingReplyInputRequests(agent)).toEqual([pending])
   })
 
   it("recognizes one request as cancellable work", () => {

@@ -652,6 +652,14 @@ export function inputResponse(
   )
 }
 
+export function pendingReplyInputRequests(
+  tree: ChatEventTree,
+): ChatEventTree<"input.request">[] {
+  return activityEvents(tree)
+    .filter((child) => hasKind(child, "input.request"))
+    .filter((request) => inputResponse(request) === undefined)
+}
+
 export function elapsedDuration(
   startedAt: string,
   completedAt: string | number,

@@ -8,6 +8,7 @@ import {
   fetchChatFiles,
   fetchChatEvents,
   fetchChatSession,
+  fetchChatInputLaunch,
   finishChatFileUpload,
   respondToChatApproval,
   sendChatMessage,
@@ -86,6 +87,7 @@ describe("chat transport", () => {
     await startChatFileUpload("wsp/test", "ses/test", file)
     await uploadChatFile("https://uploads.example.test/file", file)
     await finishChatFileUpload("wsp/test", "ses/test", "fil/test")
+    await fetchChatInputLaunch("wsp/test", "ses/test", "sev/test")
 
     expect(fetch).toHaveBeenNthCalledWith(
       1,
@@ -145,6 +147,11 @@ describe("chat transport", () => {
     expect(chatFileDownloadPath("wsp/test", "ses/test", "fil/test")).toBe(
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files/fil%2Ftest/download",
     )
+    expect(fetch).toHaveBeenNthCalledWith(
+      12,
+      "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/inputs/sev%2Ftest/open",
+      { credentials: "same-origin" },
+    )
   })
 
   it("forwards a route abort signal", async () => {
@@ -154,9 +161,14 @@ describe("chat transport", () => {
 
     await fetchChatSession("wsp_a", "ses_a", controller.signal)
     await fetchChatEvents("wsp_a", "ses_a", controller.signal)
+    await fetchChatInputLaunch("wsp_a", "ses_a", "sev_input", controller.signal)
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/v1/workspaces/wsp_a/sessions/ses_a",
+      { credentials: "same-origin", signal: controller.signal },
+    )
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/workspaces/wsp_a/sessions/ses_a/inputs/sev_input/open",
       { credentials: "same-origin", signal: controller.signal },
     )
     expect(fetch).toHaveBeenCalledWith(

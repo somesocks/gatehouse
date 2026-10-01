@@ -1,6 +1,9 @@
 <script lang="ts">
-  import { CircleCheck, CircleX, ClipboardList } from "@lucide/svelte"
+  import { untrack } from "svelte"
   import { fetchChatInputLaunch, type ChatEventTree } from "../../app/chat"
+  import InputForm from "../input-form/InputForm.svelte"
+  import { createInputTransport } from "../input-form/input-api"
+  import { createInputFormController } from "../input-form/input-controller.svelte"
   import { inputResponse } from "./chat-controller.svelte"
 
   let {
@@ -8,25 +11,31 @@
     workspaceID,
     sessionID,
     onAuthenticationLost,
+    onResolved,
   }: {
     request: ChatEventTree<"input.request">
     workspaceID: string
     sessionID: string
     onAuthenticationLost: () => void
+    onResolved: () => void
   } = $props()
   const inputID = $derived(request.event.ref.id)
   const response = $derived(inputResponse(request))
   const responseKind = $derived(response?.event.kind)
-  let url = $state<string | null>(null)
-  let state = $state<"loading" | "ready" | "error" | "denied">("loading")
+  type FormController = ReturnType<typeof createInputFormController>
+  let controller = $state<FormController | null>(null)
+  let state = $state<"loading" | "ready" | "error" | "denied" | "resolved">("loading")
+  let retry = $state(0)
+  const localStatus = $derived(controller?.state.status)
+  const resolved = $derived(response !== undefined || state === "resolved" || localStatus === "submitted" || localStatus === "cancelled" || localStatus === "resolved")
 
-  async function load(signal: AbortSignal, id: string): Promise<void> {
+  async function load(signal: AbortSignal, workspace: string, session: string, id: string, opened: (value: FormController) => void): Promise<void> {
     state = "loading"
-    url = null
+    controller = null
     try {
       const launched = await fetchChatInputLaunch(
-        workspaceID,
-        sessionID,
+        workspace,
+        session,
         id,
         signal,
       )
@@ -35,21 +44,25 @@
         onAuthenticationLost()
         return
       }
-      if (launched.status === 403) {
-        state = "denied"
+      if (launched.status === 409) {
+        state = "resolved"
+        onResolved()
         return
       }
-      if (launched.status === 409) {
+      if (launched.status === 403 || launched.status === 404) {
         state = "denied"
         return
       }
       if (!launched.ok) throw new Error("input could not be opened")
-      const result = (await launched.json()) as { url: string }
+      const result = (await launched.json()) as { capability: string }
       if (signal.aborted) return
-      const parsed = new URL(result.url)
-      if (!parsed.hash.startsWith("#capability=")) throw new Error("invalid input link")
-      url = parsed.href
+      const capability = result.capability
+      if (typeof capability !== "string" || capability === "") throw new Error("invalid input capability")
+      const form = createInputFormController(createInputTransport(capability))
+      opened(form)
+      controller = form
       state = "ready"
+      await form.load()
     } catch {
       if (!signal.aborted) state = "error"
     }
@@ -58,37 +71,40 @@
   $effect(() => {
     const id = inputID
     const kind = responseKind
+    const workspace = workspaceID
+    const session = sessionID
+    const attempt = retry
     if (kind !== undefined) {
-      url = null
+      controller = null
       return
     }
     const abort = new AbortController()
-    void load(abort.signal, id)
-    return () => abort.abort()
+    let form: FormController | null = null
+    void load(abort.signal, workspace, session, id, (value) => { form = value })
+    return () => {
+      abort.abort()
+      form?.dispose()
+    }
+  })
+
+  $effect(() => {
+    if (localStatus === "submitted" || localStatus === "cancelled" || localStatus === "resolved")
+      untrack(onResolved)
   })
 </script>
 
-<section class="event-request" data-resolved={response !== undefined || undefined}>
-  {#if responseKind === "input.success"}
-    <CircleCheck size={15} strokeWidth={2} aria-hidden="true" />
-    <strong>Input submitted:</strong>
-  {:else if responseKind === "input.failure"}
-    <CircleX size={15} strokeWidth={2} aria-hidden="true" />
-    <strong>{response?.event.kind === "input.failure" && response.event.payload.code === "cancelled" ? "Input cancelled:" : "Input failed:"}</strong>
-  {:else}
-    <ClipboardList size={15} strokeWidth={2} aria-hidden="true" />
-    <strong>Input required:</strong>
-  {/if}
-  <span>{request.event.payload.description ?? "Provide details"}</span>
-  {#if response === undefined && state === "ready" && url !== null}
-    <span data-actions>
-      <a class="primary input-open" href={url} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Open form</a>
-    </span>
-  {:else if response === undefined && state === "loading"}
-    <small>Preparing link...</small>
-  {:else if response === undefined && state === "denied"}
-    <small>Unavailable or already resolved.</small>
-  {:else if response === undefined}
-    <small>Could not open form. Refresh chat to try again.</small>
-  {/if}
-</section>
+{#if !resolved}
+  <section class="conversation-message conversation-input card stack" aria-label={request.event.payload.description ?? "Input form"}>
+    <h2>{controller?.state.form?.title ?? request.event.payload.description ?? "Input form"}</h2>
+    {#if state === "ready" && controller !== null}
+      <InputForm {controller} {inputID} depth={2} />
+    {:else if state === "loading"}
+      <p role="status">Loading the form...</p>
+    {:else if state === "denied"}
+      <p role="alert">Unavailable or already resolved.</p>
+    {:else}
+      <p role="alert">The form could not be loaded.</p>
+      <button class="secondary" type="button" onclick={() => retry += 1}>Try again</button>
+    {/if}
+  </section>
+{/if}

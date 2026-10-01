@@ -57,14 +57,14 @@
 
 <svelte:head><title>Session file picker · Gatehouse</title><meta name="referrer" content="no-referrer" /></svelte:head>
 
-<main class="input-form-page stack">
+<main class="input-tool-page stack">
   <header class="stack"><p class="eyebrow">Session file picker</p><h1>{picker?.state.label ?? "Select session files"}</h1></header>
   {#if picker === null}
     <p role="alert">The tool link is invalid. Reopen it from the input form.</p>
   {:else if picker.state.status === "loading"}
     <p role="status">Loading the field and saved selection…</p>
   {:else if picker.state.status === "resolved"}
-    <p role="status">This input is already resolved. Return to the form or chat.</p>
+    <p role="status">This input is already resolved. Return to chat.</p>
   {:else if picker.state.status === "denied"}
     <p role="alert">This tool link is unavailable or you no longer have access.</p>
   {:else if picker.state.status === "unavailable"}
@@ -80,7 +80,7 @@
         {/if}
         {#if picker.state.maxFiles !== null}<p class="field-help">Maximum {picker.state.maxFiles} files.</p>{/if}
         {#if picker.state.error}<p role="alert">{picker.state.error}</p>{/if}
-        {#if picker.state.saved}<p role="status">Selection saved. Return to the form to submit it.</p>{/if}
+        {#if picker.state.saved}<p role="status">Selection saved. Return to the form in chat to submit it.</p>{/if}
         <div class="cluster session-file-picker-actions">
           <button class="secondary" type="button" disabled={picker.state.busy} onclick={cancel}>Cancel</button>
           <button class="primary" type="button" disabled={picker.state.busy} onclick={() => void saveAndClose()}>{picker.state.busy ? "Working…" : "Save"}</button>

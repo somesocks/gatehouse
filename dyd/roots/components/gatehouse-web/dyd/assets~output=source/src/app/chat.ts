@@ -172,7 +172,7 @@ export async function fetchChatInputLaunch(
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(
-    `${chatAPIPath(workspaceID, sessionID)}/inputs/${encodeURIComponent(inputID)}/open?redirect=false`,
+    `${chatAPIPath(workspaceID, sessionID)}/inputs/${encodeURIComponent(inputID)}/open`,
     { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
   )
 }

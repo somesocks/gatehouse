@@ -16,7 +16,6 @@ describe("routes", () => {
       route: { kind: "login", next: "/app/wsp/wsp_a" },
     },
     { path: "/app/no-access", route: { kind: "no-access" } },
-    { path: "/app/input", route: { kind: "input-form" } },
     { path: "/app/system", route: { kind: "system" } },
     { path: "/app/system/grants", route: { kind: "system-grants" } },
     { path: "/app/system/principals", route: { kind: "system-principals" } },
@@ -383,6 +382,8 @@ describe("routes", () => {
 
   for (const path of [
     "/",
+    "/app/input",
+    "/app/input#capability=old-token",
     "/app/wsp",
     "/app/wsp/wsp_a/ses/ses_a/notes/new/edit",
     "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/0",

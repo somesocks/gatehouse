@@ -7,7 +7,6 @@ export type Route =
   | { kind: "app-home" }
   | { kind: "login"; next: string | null }
   | { kind: "no-access" }
-  | { kind: "input-form" }
   | { kind: "system" }
   | { kind: "system-grants" }
   | { kind: "system-principals" }
@@ -130,9 +129,6 @@ export function parseRoute(url: URL): Route {
   }
   if (segments.length === 2 && segments[1] === "no-access") {
     return { kind: "no-access" }
-  }
-  if (segments.length === 2 && segments[1] === "input") {
-    return { kind: "input-form" }
   }
   if (segments.length === 2 && segments[1] === "system") {
     return { kind: "system" }
@@ -516,8 +512,6 @@ export function routePath(route: NavigableRoute): string {
         : `/app/login?${new URLSearchParams({ next: route.next })}`
     case "no-access":
       return "/app/no-access"
-    case "input-form":
-      return "/app/input"
     case "system":
       return "/app/system"
     case "system-grants":

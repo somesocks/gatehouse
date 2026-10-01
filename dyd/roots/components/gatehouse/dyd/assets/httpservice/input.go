@@ -5,11 +5,9 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"net/url"
 
 	"gatehouse/auth"
 	"gatehouse/authz"
-	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/inputform"
 	"gatehouse/model"
@@ -23,21 +21,16 @@ func inputResponseHeaders(response http.ResponseWriter) {
 	response.Header().Set("Referrer-Policy", "no-referrer")
 }
 
-func workspaceSessionInputOpen(store *database.Store, tokens *auth.BearerTokens, publicBaseURL string) http.HandlerFunc {
+func workspaceSessionInputOpen(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		inputResponseHeaders(response)
 		if request.Method != http.MethodGet {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
-		query := request.URL.Query()
-		redirect := true
-		if len(query) != 0 {
-			if len(query) != 1 || len(query["redirect"]) != 1 || query.Get("redirect") != "false" {
-				http.Error(response, "invalid input redirect option", http.StatusBadRequest)
-				return
-			}
-			redirect = false
+		if request.URL.RawQuery != "" {
+			http.Error(response, "input open does not accept query parameters", http.StatusBadRequest)
+			return
 		}
 		claims, ok := authenticate(response, request, tokens)
 		if !ok {
@@ -59,25 +52,14 @@ func workspaceSessionInputOpen(store *database.Store, tokens *auth.BearerTokens,
 		if _, ok := pendingInputForm(response, request, store, input); !ok {
 			return
 		}
-		origin, err := config.CanonicalHTTPPublicBaseURL(publicBaseURL)
-		if err != nil {
-			http.Error(response, "input launch requires services.http.public_base_url", http.StatusServiceUnavailable)
-			return
-		}
 		err, capability := tokens.MintFormInput(request.Context(), input, claims)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		destination := origin + "/app/input#" + url.Values{"capability": {capability}}.Encode()
-		if redirect {
-			response.Header().Set("Location", destination)
-			response.WriteHeader(http.StatusSeeOther)
-			return
-		}
 		writeJSON(response, struct {
-			URL string `json:"url"`
-		}{URL: destination})
+			Capability string `json:"capability"`
+		}{Capability: capability})
 	}
 }
 

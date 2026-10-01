@@ -1,11 +1,3 @@
-export function capabilityFromFragment(fragment: string): string | null {
-  const values = new URLSearchParams(fragment.startsWith("#") ? fragment.slice(1) : fragment)
-  const credentials = values.getAll("capability")
-  return values.size === 1 && credentials.length === 1 && credentials[0] !== ""
-    ? credentials[0]
-    : null
-}
-
 export function createInputTransport(capability: string) {
   const headers = { Authorization: `Bearer ${capability}` }
   return {

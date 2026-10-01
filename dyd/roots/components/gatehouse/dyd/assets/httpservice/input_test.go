@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -74,14 +73,7 @@ func newInputTestFixture(t *testing.T, extra ...inputform.Field) inputTestFixtur
 func TestInputFileUploadStoresCompletedSessionFileSummaries(t *testing.T) {
 	limit := int64(2)
 	fixture := newInputTestFixture(t, inputform.Field{ID: "attachments", Label: "Attachments", Type: "files", MaxFiles: &limit, MediaTypes: []string{"text/plain"}})
-	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
-	var launch struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "").Body.Bytes(), &launch); err != nil {
-		t.Fatal(err)
-	}
-	capability := inputTestCapability(t, launch.URL)
+	capability := formTokenForFixture(t, fixture)
 	sessionFiles := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/files"
 	if denied := inputTestRequest(fixture.handler, http.MethodPost, sessionFiles, capability, `{"name":"existing.txt"}`); denied.Code != http.StatusUnauthorized {
 		t.Fatalf("form capability accessed ordinary session files = %d", denied.Code)
@@ -206,14 +198,7 @@ func TestInputFileDraftRejectsAnotherSessionFile(t *testing.T) {
 	if finish := inputTestRequest(fixture.handler, http.MethodPost, path+"/"+upload.File.Ref.Id+"/finish", fixture.login, ""); finish.Code != http.StatusOK {
 		t.Fatalf("finish other session file = %d", finish.Code)
 	}
-	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
-	var launch struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "").Body.Bytes(), &launch); err != nil {
-		t.Fatal(err)
-	}
-	capability := inputTestCapability(t, launch.URL)
+	capability := formTokenForFixture(t, fixture)
 	patch := inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability,
 		`{"op":"set","path":["attachments"],"value":[{"id":"`+upload.File.Ref.Id+`","name":"other.txt","size":4}]}`)
 	if patch.Code != http.StatusUnprocessableEntity {
@@ -231,17 +216,13 @@ func inputTestRequest(handler http.Handler, method, path, token, body string) *h
 	return response
 }
 
-func inputTestCapability(t *testing.T, destination string) string {
+func inputTestCapability(t *testing.T, response *httptest.ResponseRecorder) string {
 	t.Helper()
-	parsed, err := url.Parse(destination)
-	if err != nil || parsed.Path != "/app/input" || parsed.Host != "gatehouse.example.test" || parsed.Scheme != "https" {
-		t.Fatalf("invalid input destination: %v", err)
+	var launch map[string]string
+	if err := json.Unmarshal(response.Body.Bytes(), &launch); err != nil || response.Code != http.StatusOK || len(launch) != 1 || launch["capability"] == "" || response.Header().Get("Location") != "" {
+		t.Fatalf("invalid input capability response: %d %s (%v)", response.Code, response.Body.String(), err)
 	}
-	fragment, err := url.ParseQuery(parsed.RawFragment)
-	if err != nil || len(fragment) != 1 || len(fragment["capability"]) != 1 || fragment.Get("capability") == "" {
-		t.Fatalf("invalid input destination fragment: %v", err)
-	}
-	return fragment.Get("capability")
+	return launch["capability"]
 }
 
 func TestInputHTTPLaunchPatchAndSubmit(t *testing.T) {
@@ -249,8 +230,9 @@ func TestInputHTTPLaunchPatchAndSubmit(t *testing.T) {
 	fixture := newInputTestFixture(t)
 	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open"
 	unconfigured := HandlerWithReplyDispatcher(config.HTTPService{API: true, Web: true}, fixture.store, fixture.dispatcher, fixture.tokens)
-	if response := inputTestRequest(unconfigured, http.MethodGet, open, fixture.login, ""); response.Code != http.StatusServiceUnavailable || response.Header().Get("Location") != "" {
-		t.Fatalf("open without public base URL = %d, location %q", response.Code, response.Header().Get("Location"))
+	capabilityWithoutBaseURL := inputTestCapability(t, inputTestRequest(unconfigured, http.MethodGet, open, fixture.login, ""))
+	if read := inputTestRequest(unconfigured, http.MethodGet, "/api/v1/input", capabilityWithoutBaseURL, ""); read.Code != http.StatusOK {
+		t.Fatalf("read without public base URL = %d %s", read.Code, read.Body.String())
 	}
 	if response := inputTestRequest(fixture.handler, http.MethodGet, open, "", ""); response.Code != http.StatusUnauthorized {
 		t.Fatalf("open without credentials = %d", response.Code)
@@ -261,18 +243,15 @@ func TestInputHTTPLaunchPatchAndSubmit(t *testing.T) {
 	cookieRequest.Header.Set("X-Forwarded-Proto", "http")
 	cookieOpen := httptest.NewRecorder()
 	fixture.handler.ServeHTTP(cookieOpen, cookieRequest)
-	if cookieOpen.Code != http.StatusSeeOther || cookieOpen.Header().Get("Cache-Control") != "no-store" || cookieOpen.Header().Get("Referrer-Policy") != "no-referrer" {
-		t.Fatalf("cookie-authenticated redirect = %d %#v", cookieOpen.Code, cookieOpen.Header())
+	if cookieOpen.Code != http.StatusOK || cookieOpen.Header().Get("Cache-Control") != "no-store" || cookieOpen.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("cookie-authenticated open = %d %#v", cookieOpen.Code, cookieOpen.Header())
 	}
-	inputTestCapability(t, cookieOpen.Header().Get("Location"))
-	jsonOpen := inputTestRequest(fixture.handler, http.MethodGet, open+"?redirect=false", fixture.login, "")
-	var destination struct {
-		URL string `json:"url"`
+	inputTestCapability(t, cookieOpen)
+	jsonOpen := inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "")
+	capability := inputTestCapability(t, jsonOpen)
+	if jsonOpen.Header().Get("Cache-Control") != "no-store" || jsonOpen.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatalf("cookie-less JSON open headers = %#v", jsonOpen.Header())
 	}
-	if err := json.Unmarshal(jsonOpen.Body.Bytes(), &destination); err != nil || jsonOpen.Code != http.StatusOK || jsonOpen.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(destination.URL, "https://gatehouse.example.test/") {
-		t.Fatalf("cookie-less JSON open = %d %q (%v)", jsonOpen.Code, jsonOpen.Body.String(), err)
-	}
-	capability := inputTestCapability(t, destination.URL)
 	missingOpen := strings.Replace(open, fixture.input.Id, "sev_00000000000000000000000009", 1)
 	if response := inputTestRequest(fixture.handler, http.MethodGet, missingOpen, fixture.login, ""); response.Code != http.StatusNotFound {
 		t.Fatalf("open missing input = %d", response.Code)
@@ -287,8 +266,10 @@ func TestInputHTTPLaunchPatchAndSubmit(t *testing.T) {
 	if response := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", wrongCapability, ""); response.Code != http.StatusNotFound {
 		t.Fatalf("capability scoped to non-input event = %d", response.Code)
 	}
-	if response := inputTestRequest(fixture.handler, http.MethodGet, open+"?redirect=true", fixture.login, ""); response.Code != http.StatusBadRequest {
-		t.Fatalf("invalid open option = %d", response.Code)
+	for _, query := range []string{"?redirect=true", "?redirect=false"} {
+		if response := inputTestRequest(fixture.handler, http.MethodGet, open+query, fixture.login, ""); response.Code != http.StatusBadRequest {
+			t.Fatalf("removed open option %s = %d", query, response.Code)
+		}
 	}
 	for _, token := range []string{"", fixture.login} {
 		response := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", token, "")
@@ -398,28 +379,15 @@ func TestInputHTTPLaunchWithNoConfiguration(t *testing.T) {
 		t.Fatalf("resolve default HTTP service = (%#v, %v)", services, err)
 	}
 	handler := HandlerWithReplyDispatcher(*services.HTTP, fixture.store, fixture.dispatcher, fixture.tokens)
-	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
+	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open"
 	request := httptest.NewRequest(http.MethodGet, open, nil)
 	request.Header.Set("Authorization", "Bearer "+fixture.login)
 	request.Host = "untrusted.example.test"
 	request.Header.Set("X-Forwarded-Proto", "https")
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
-	var destination struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &destination); err != nil || response.Code != http.StatusOK || !strings.HasPrefix(destination.URL, "http://127.0.0.1:4283/app/input#") {
-		t.Fatalf("default input launch = %d %s (%v)", response.Code, response.Body.String(), err)
-	}
-	parsed, err := url.Parse(destination.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fragment, err := url.ParseQuery(parsed.RawFragment)
-	if err != nil || fragment.Get("capability") == "" {
-		t.Fatalf("default input launch capability = %v", err)
-	}
-	if read := inputTestRequest(handler, http.MethodGet, "/api/v1/input", fragment.Get("capability"), ""); read.Code != http.StatusOK {
+	capability := inputTestCapability(t, response)
+	if read := inputTestRequest(handler, http.MethodGet, "/api/v1/input", capability, ""); read.Code != http.StatusOK {
 		t.Fatalf("read form from default launch = %d %s", read.Code, read.Body.String())
 	}
 }
@@ -447,23 +415,14 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
+	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open"
 	response := inputTestRequest(fixture.handler, http.MethodGet, open, login, "")
-	var destination struct {
-		URL string `json:"url"`
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &destination); err != nil || response.Code != http.StatusOK {
-		t.Fatalf("contributor open = %d %s (%v)", response.Code, response.Body.String(), err)
-	}
-	capability := inputTestCapability(t, destination.URL)
+	capability := inputTestCapability(t, response)
 	if response := inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability, `{"op":"set","path":["name"],"value":"Bob"}`); response.Code != http.StatusNoContent {
 		t.Fatalf("contributor patch = %d %s", response.Code, response.Body.String())
 	}
 	response = inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "")
-	if err := json.Unmarshal(response.Body.Bytes(), &destination); err != nil || response.Code != http.StatusOK {
-		t.Fatalf("manager open = %d %s (%v)", response.Code, response.Body.String(), err)
-	}
-	managerToken := inputTestCapability(t, destination.URL)
+	managerToken := inputTestCapability(t, response)
 	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", managerToken, ""); read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"name":"Bob"`) {
 		t.Fatalf("shared draft across responders = %d %s", read.Code, read.Body.String())
 	}

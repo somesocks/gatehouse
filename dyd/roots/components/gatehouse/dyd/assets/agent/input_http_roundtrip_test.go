@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -179,34 +178,24 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 		httpHandler.ServeHTTP(recorder, request)
 		return recorder
 	}
-	open := fmt.Sprintf("/api/v1/workspaces/%s/sessions/%s/inputs/%s/open?redirect=false", workspaceID, session.Id, request.Id)
+	open := fmt.Sprintf("/api/v1/workspaces/%s/sessions/%s/inputs/%s/open", workspaceID, session.Id, request.Id)
 	opened := call(http.MethodGet, open, login, "")
 	if opened.Code != http.StatusOK {
 		t.Fatalf("open Lisp input = %d %s", opened.Code, opened.Body.String())
 	}
-	var destination struct {
-		URL string `json:"url"`
+	var launch struct {
+		Capability string `json:"capability"`
 	}
-	if err := json.Unmarshal(opened.Body.Bytes(), &destination); err != nil {
+	if err := json.Unmarshal(opened.Body.Bytes(), &launch); err != nil {
 		t.Fatal(err)
 	}
-	parsed, err := url.Parse(destination.URL)
-	if err != nil {
-		t.Fatal(err)
+	if launch.Capability == "" {
+		t.Fatal("open response has no input capability")
 	}
-	capability := url.Values{}
-	if values, err := url.ParseQuery(parsed.RawFragment); err == nil {
-		capability = values
-	} else {
-		t.Fatal(err)
-	}
-	if capability.Get("capability") == "" {
-		t.Fatal("open URL has no input capability")
-	}
-	if saved := call(http.MethodPatch, "/api/v1/input/draft", capability.Get("capability"), `{"op":"set","path":["name"],"value":"Ada"}`); saved.Code != http.StatusNoContent {
+	if saved := call(http.MethodPatch, "/api/v1/input/draft", launch.Capability, `{"op":"set","path":["name"],"value":"Ada"}`); saved.Code != http.StatusNoContent {
 		t.Fatalf("save input field = %d %s", saved.Code, saved.Body.String())
 	}
-	if submitted := call(http.MethodPost, "/api/v1/input/submit", capability.Get("capability"), ""); submitted.Code != http.StatusAccepted {
+	if submitted := call(http.MethodPost, "/api/v1/input/submit", launch.Capability, ""); submitted.Code != http.StatusAccepted {
 		t.Fatalf("submit input = %d %s", submitted.Code, submitted.Body.String())
 	}
 	result, err := handle.GetResult()

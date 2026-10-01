@@ -42,15 +42,9 @@ func customFieldToken(t *testing.T, fixture inputTestFixture, formToken string, 
 
 func formTokenForFixture(t *testing.T, fixture inputTestFixture) string {
 	t.Helper()
-	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open?redirect=false"
+	open := "/api/v1/workspaces/" + fixture.input.Session.Workspace.Id + "/sessions/" + fixture.input.Session.Id + "/inputs/" + fixture.input.Id + "/open"
 	response := inputTestRequest(fixture.handler, http.MethodGet, open, fixture.login, "")
-	var launch struct {
-		URL string `json:"url"`
-	}
-	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &launch) != nil {
-		t.Fatalf("form launch = %d %s", response.Code, response.Body.String())
-	}
-	return inputTestCapability(t, launch.URL)
+	return inputTestCapability(t, response)
 }
 
 func TestCustomInputSessionFilePickerRoundTrip(t *testing.T) {

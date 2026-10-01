@@ -389,31 +389,17 @@ a.attachment-chip:focus-visible {
   gap: calc(var(--space) / 3);
 }
 
-.event-request a.input-open {
-  background-color: transparent;
-  border: 0;
-  color: var(--navigation-link);
-  filter: none;
-  min-height: auto;
-  padding: 0.125rem 0.25rem;
+.conversation-input h2,
+.conversation-input > p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
-.event-request a.input-open:hover {
-  background-color: transparent;
-  color: var(--accent-hover);
-}
-
-.input-form-page {
+.input-tool-page {
   max-inline-size: 48rem;
   min-block-size: 100vh;
   margin-inline: auto;
   padding: calc(var(--space) * 2) var(--space);
-}
-
-.input-form-page > form {
-  @extend %surface;
-
-  padding: var(--space);
 }
 
 .input-form-actions {
