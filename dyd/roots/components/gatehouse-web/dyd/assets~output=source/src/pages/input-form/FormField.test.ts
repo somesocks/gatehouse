@@ -112,4 +112,19 @@ describe("form field headings and labels", () => {
     expect(body).toContain("42 bytes")
     expect(body).toContain('aria-label="Remove report.pdf"')
   })
+
+  it("shows a concise saved custom value with an accessible clear button", () => {
+    const field: InputField = { id: "attachment", label: "Attachments", type: "custom", custom: { url: "/app/tools/session-file-picker/", inputs: {}, capabilities: [] } }
+    const body = render(FormField, { props: {
+      field, path: ["attachment"], value: { file_ids: ["sfi_one", "sfi_two"] },
+      onSet: async () => true, onRemove: async () => true,
+    } }).body
+    expect(body).toContain("Saved")
+    expect(body).toContain('aria-label="Clear Attachments"')
+    expect(body).toContain('class="icon inline"')
+    expect(body).not.toContain("input-clear")
+    expect(body).not.toContain("Value saved")
+    expect(body).not.toContain("Clear value")
+    expect(body).not.toContain("sfi_one")
+  })
 })

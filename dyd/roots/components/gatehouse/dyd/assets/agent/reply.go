@@ -66,11 +66,6 @@ type SessionInputWaitInput struct {
 	Request model.SessionEventRef
 }
 
-type InputOutcome struct {
-	Result  string
-	Failure string
-}
-
 type ApprovalOutcome string
 
 const (
@@ -93,6 +88,7 @@ type agentProviderTurn struct {
 	Final   *agentFinalReply
 	Calls   []openAICompatibleToolCall
 	Metrics *model.SessionEventMetrics
+	Failure error
 }
 
 type sessionNamePreparation struct {
@@ -141,6 +137,9 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
+	)
+	dbos.RegisterWorkflow(ctx, runtime.agentRound,
+		dbos.WithInstance(runtime), dbos.WithWorkflowName("gatehouse.session-agent-round"),
 	)
 	dbos.RegisterWorkflow(ctx, runtime.cancelReply,
 		dbos.WithInstance(runtime),
@@ -689,247 +688,72 @@ func (runtime *SessionEventReplyRuntime) replyAttempt(ctx dbos.Context, input Se
 	if preferred == "" {
 		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: target agent is unavailable", input.Event.Id)
 	}
-	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, input.Event.Session.Workspace, preferred)
-	if err != nil {
-		return model.SessionEventRef{}, err
-	}
 	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
 		if _, cancelled := err.(sessionReplyCancelled); cancelled {
 			return model.SessionEventRef{}, nil
 		}
 		return model.SessionEventRef{}, err
 	}
-	if selected == nil {
-		return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: target agent is unavailable", input.Event.Id)
+	return runtime.runAgentRounds(ctx, input.Event)
+}
+
+func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn, database.AgentRateLimitClaim) {
+	err, request := agentProviderRequestFromThinking(thinking)
+	if err != nil {
+		return err, agentProviderTurn{}, database.AgentRateLimitClaim{}
 	}
-	final := agentFinalReply{}
-	switch selected.Protocol {
+	switch request.Protocol {
 	case "builtin":
-		err, thinking := runtime.thinkingStart(ctx, input.Event, selected.Ref, 0)
-		if err != nil {
-			return model.SessionEventRef{}, err
-		}
-		err, final.Text = BuiltinReply(selected.Model, selected.Parameters)
-		if err != nil {
-			return model.SessionEventRef{}, runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err)
-		}
-		if err := runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingSuccess, nil); err != nil {
-			return model.SessionEventRef{}, err
-		}
-	case "openai-chat-completions", "openai-responses":
-		if message.AuthorPrincipal == nil {
-			return model.SessionEventRef{}, fmt.Errorf("reply to session event %q: Lisp authorization requires a principal author", input.Event.Id)
-		}
-		err, final = runtime.openAIReply(ctx, input.Event, selected, message.AuthorPrincipal.Ref)
-	default:
-		err = fmt.Errorf("unsupported provider protocol %q", selected.Protocol)
-	}
-	if err != nil {
-		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			return model.SessionEventRef{}, nil
-		}
-		return model.SessionEventRef{}, err
-	}
-	if err := runtime.replyCancellationCheck(ctx, input.Event); err != nil {
-		if _, cancelled := err.(sessionReplyCancelled); cancelled {
-			return model.SessionEventRef{}, nil
-		}
-		return model.SessionEventRef{}, err
-	}
-	if len(final.Attachments) > 0 {
-		err, references := runtime.store.SessionFileReferencesFilter(ctx, input.Event.Session, final.Attachments)
-		if err == nil {
-			final.Attachments = make([]string, len(references))
-			for index, reference := range references {
-				final.Attachments[index] = reference.ID
-			}
-		}
-		if err != nil {
-			return model.SessionEventRef{}, fmt.Errorf("filter agent reply attachments: %w", err)
-		}
-	}
-	payload, err := database.SessionEventPayloadFrom(model.AgentSuccessPayload{Text: final.Text, Attachments: optionalStringSlice(final.Attachments)})
-	if err != nil {
-		return model.SessionEventRef{}, fmt.Errorf("encode agent success payload: %w", err)
-	}
-	event := model.SessionEvent{
-		Ref:         model.SessionEventRef{Session: input.Event.Session},
-		Parent:      &request.Ref,
-		Kind:        model.SessionEventKindAgentSuccess,
-		AuthorAgent: &selected.Ref,
-		Payload:     payload,
-	}
-	err, stored := runtime.persistAgentEvent(ctx, event)
-	if err != nil {
-		return model.SessionEventRef{}, err
-	}
-	return stored, nil
-}
-
-func (runtime *SessionEventReplyRuntime) openAIReply(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentFinalReply) {
-	agent := selected.Ref
-	callCount := 0
-	for round := 0; ; {
-		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, agentFinalReply{}
-		}
-		err, selected := runtime.currentWorkspaceAgentModel(ctx, agent)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		err, thinking := runtime.thinkingStart(ctx, parent, selected.Ref, round)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		turn := agentProviderTurn{}
-		for {
-			err, selected = runtime.currentWorkspaceAgentModel(ctx, agent)
-			if err != nil {
-				return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
-			}
-			err, turn = runtime.agentProviderTurn(ctx, parent, thinking, selected, principal)
-			if err == nil {
-				break
-			}
-			var retryable *openAIRetryableError
-			if !errors.As(err, &retryable) {
-				return runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics), agentFinalReply{}
-			}
-			if _, err := dbos.Sleep(ctx, retryable.RetryAfter()); err != nil {
-				return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
-			}
-		}
-		if turn.Final != nil {
-			if err := runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingSuccess, nil, turn.Metrics); err != nil {
-				return err, agentFinalReply{}
-			}
-			return nil, *turn.Final
-		}
-		if round >= selected.MaxTurns {
-			err := fmt.Errorf("agent provider completion exceeded turn limit")
-			return runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics), agentFinalReply{}
-		}
-		if err := runtime.thinkingFinishWithMetrics(ctx, thinking, model.SessionEventKindThinkingSuccess, nil, turn.Metrics); err != nil {
-			return err, agentFinalReply{}
-		}
-		if err := runtime.replyCancellationCheck(ctx, parent); err != nil {
-			return err, agentFinalReply{}
-		}
-		profile, err := selectedMCMTRProfile(selected)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		if !mcmtrNativeCallsFit(turn.Calls, profile.BufferBytes) {
-			err := fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
-			return runtime.thinkingFinish(ctx, thinking, model.SessionEventKindThinkingFailure, err), agentFinalReply{}
-		}
-		_, err = runtime.runLispCalls(ctx, parent, selected, principal, round, callCount, turn.Calls)
-		if err != nil {
-			return err, agentFinalReply{}
-		}
-		callCount += len(turn.Calls)
-		round++
-	}
-}
-
-func (runtime *SessionEventReplyRuntime) currentWorkspaceAgentModel(ctx context.Context, agent model.WorkspaceAgentRef) (error, *database.WorkspaceAgentModel) {
-	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, agent.Workspace, agent.Id)
-	if err != nil {
-		return err, nil
-	}
-	if selected == nil {
-		return fmt.Errorf("workspace agent %q is unavailable", agent.Id), nil
-	}
-	return nil, selected
-}
-
-func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn) {
-	if selected.Protocol == "builtin" {
-		err, text := BuiltinReply(selected.Model, selected.Parameters)
-		if err != nil {
-			return err, agentProviderTurn{}
-		}
-		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}}
-	}
-	err, project := runtime.store.SessionProjectGet(ctx, parent.Session)
-	if err != nil {
-		return err, agentProviderTurn{}
-	}
-	projectChat := project != nil
-	switch selected.Protocol {
+		err, text := BuiltinReply(request.BuiltinModel, request.BuiltinParameters)
+		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}, Failure: err}, database.AgentRateLimitClaim{}
 	case "openai-chat-completions":
-		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
-			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
+		if request.Chat == nil {
+			return fmt.Errorf("thinking request has no chat completion request"), agentProviderTurn{}, database.AgentRateLimitClaim{}
 		}
-		if err := runtime.mcmtrContextStart(ctx, parent, selected, projectChat); err != nil {
-			return err, agentProviderTurn{}
-		}
-		err, messages := runtime.agentContext(ctx, parent, selected, projectChat)
+		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.Chat)
 		if err != nil {
-			return err, agentProviderTurn{}
+			return err, agentProviderTurn{}, claim
 		}
-		err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
+		err, callModel := runtime.store.AgentProviderCredentialsGet(ctx, request.ProviderID)
+		if err != nil || callModel == nil {
+			if err == nil {
+				err = fmt.Errorf("provider credentials are unavailable")
+			}
+			return nil, agentProviderTurn{Failure: err}, claim
+		}
+		callModel.BaseURL = &request.BaseURL
+		completion, err := runtime.openAICompatibleComplete(ctx, callModel, *request.Chat)
 		if err != nil {
-			return err, agentProviderTurn{}
-		}
-		request := openAICompatibleRequest{
-			Model: selected.Model, Messages: openAIRequestMessages(selected, messages, projectChat), Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(), ParallelToolCalls: true, ReasoningEffort: reasoningEffort, MaxTokens: selected.MaxOutputTokens,
-		}
-		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
-		if err != nil {
-			return err, agentProviderTurn{}
-		}
-		completion, err := runtime.openAICompatibleComplete(ctx, selected, request)
-		inputTokens, outputTokens := agentUsageTokens(err, completion.Metrics)
-		if settleErr := runtime.agentRateLimitSettle(ctx, claim, inputTokens, outputTokens); settleErr != nil {
-			return settleErr, agentProviderTurn{}
-		}
-		if err != nil {
-			return err, agentProviderTurn{}
+			return nil, agentProviderTurn{Metrics: completion.Metrics, Failure: err}, claim
 		}
 		if len(completion.Message.ToolCalls) > 0 {
-			return nil, agentProviderTurn{Calls: completion.Message.ToolCalls, Metrics: completion.Metrics}
+			return nil, agentProviderTurn{Calls: completion.Message.ToolCalls, Metrics: completion.Metrics}, claim
 		}
 		final, err := openAIFinalReply(completion.Message.Content)
 		if err != nil {
-			logInvalidOpenAIFinalReply(selected.ProviderID, parent, completion.Message.Content)
-			return err, agentProviderTurn{Metrics: completion.Metrics}
+			logInvalidOpenAIFinalReply(request.ProviderID, parent, completion.Message.Content)
+			return nil, agentProviderTurn{Metrics: completion.Metrics, Failure: err}, claim
 		}
-		return nil, agentProviderTurn{Final: &final, Metrics: completion.Metrics}
+		return nil, agentProviderTurn{Final: &final, Metrics: completion.Metrics}, claim
 	case "openai-responses":
-		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
-			return fmt.Errorf("reply with OpenAI-compatible provider %q: missing credentials", selected.ProviderID), agentProviderTurn{}
+		if request.Responses == nil {
+			return fmt.Errorf("thinking request has no Responses request"), agentProviderTurn{}, database.AgentRateLimitClaim{}
 		}
-		if err := runtime.mcmtrContextStart(ctx, parent, selected, projectChat); err != nil {
-			return err, agentProviderTurn{}
-		}
-		err, messages := runtime.agentContext(ctx, parent, selected, projectChat)
+		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.Responses)
 		if err != nil {
-			return err, agentProviderTurn{}
+			return err, agentProviderTurn{}, claim
 		}
-		err, reasoningEffort := openAICompatibleReasoningEffort(selected.Parameters)
+		err, callModel := runtime.store.AgentProviderCredentialsGet(ctx, request.ProviderID)
+		if err != nil || callModel == nil {
+			if err == nil {
+				err = fmt.Errorf("provider credentials are unavailable")
+			}
+			return nil, agentProviderTurn{Failure: err}, claim
+		}
+		callModel.BaseURL = &request.BaseURL
+		response, err := runtime.openAIResponsesComplete(ctx, callModel, *request.Responses)
 		if err != nil {
-			return err, agentProviderTurn{}
-		}
-		var reasoning *openAIResponsesReasoning
-		if reasoningEffort != "" {
-			reasoning = &openAIResponsesReasoning{Effort: reasoningEffort}
-		}
-		input := openAIResponsesInput(messages)
-		request := openAIResponsesRequest{
-			Model: selected.Model, Instructions: openAISystemPromptFor(selected, projectChat), Input: input, Tools: []openAIResponsesTool{openAIResponsesLispTool()}, Text: openAIResponsesFinalReplyText(), ParallelToolCalls: true, Reasoning: reasoning, MaxOutputTokens: selected.MaxOutputTokens,
-		}
-		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request)
-		if err != nil {
-			return err, agentProviderTurn{}
-		}
-		response, err := runtime.openAIResponsesComplete(ctx, selected, request)
-		inputTokens, outputTokens := agentUsageTokens(err, response.Metrics)
-		if settleErr := runtime.agentRateLimitSettle(ctx, claim, inputTokens, outputTokens); settleErr != nil {
-			return settleErr, agentProviderTurn{}
-		}
-		if err != nil {
-			return err, agentProviderTurn{}
+			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
 		outputs := make([]openAIResponsesOutput, len(response.Output))
 		calls := make([]openAICompatibleToolCall, 0, 1)
@@ -937,8 +761,8 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
-				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, response.Output)
-				return err, agentProviderTurn{Metrics: response.Metrics}
+				logInvalidOpenAIResponsesFinalReply(request.ProviderID, parent, request.Responses.Input, response.Output)
+				return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 			}
 			outputs[index] = output
 			if output.Type == "function_call" {
@@ -949,16 +773,16 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			}
 		}
 		if len(calls) > 0 {
-			return nil, agentProviderTurn{Calls: calls, Metrics: response.Metrics}
+			return nil, agentProviderTurn{Calls: calls, Metrics: response.Metrics}, claim
 		}
 		final, err := openAIResponsesFinalReply(outputs)
 		if err != nil {
-			logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, input, response.Output)
-			return err, agentProviderTurn{Metrics: response.Metrics}
+			logInvalidOpenAIResponsesFinalReply(request.ProviderID, parent, request.Responses.Input, response.Output)
+			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
-		return nil, agentProviderTurn{Final: &final, Metrics: response.Metrics}
+		return nil, agentProviderTurn{Final: &final, Metrics: response.Metrics}, claim
 	default:
-		return fmt.Errorf("unsupported provider protocol %q", selected.Protocol), agentProviderTurn{}
+		return fmt.Errorf("unsupported provider protocol %q", request.Protocol), agentProviderTurn{}, database.AgentRateLimitClaim{}
 	}
 }
 
@@ -2119,90 +1943,95 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	if err != nil {
 		return fmt.Errorf("start input %q: %w", request.Id, err), ""
 	}
-	outcome, err := handle.GetResult()
+	response, err := handle.GetResult()
 	if err != nil {
 		return fmt.Errorf("await input %q: %w", request.Id, err), ""
 	}
-	if outcome.Failure != "" {
-		return lisp.Errorf("input failed: %s", outcome.Failure), ""
+	err, event := runtime.inputResponseEventGet(ctx, request, response)
+	if err != nil {
+		return fmt.Errorf("read input response %q: %w", response.Id, err), ""
 	}
-	if outcome.Result == "" {
-		return fmt.Errorf("input %q returned an empty result", request.Id), ""
+	switch event.Kind {
+	case model.SessionEventKindInputSuccess:
+		err, result := runtime.store.SessionInputResponseResultGet(ctx, response)
+		if err != nil {
+			return err, ""
+		}
+		if result == "" {
+			return fmt.Errorf("input %q returned an empty result", request.Id), ""
+		}
+		return nil, result
+	case model.SessionEventKindInputFailure:
+		code, _ := event.Payload["code"].(string)
+		return lisp.Errorf("input failed: %s", code), ""
+	default:
+		return fmt.Errorf("input %q returned invalid response kind %q", request.Id, event.Kind), ""
 	}
-	return nil, outcome.Result
 }
 
-func (runtime *SessionEventReplyRuntime) input(ctx dbos.Context, input SessionInputWaitInput) (InputOutcome, error) {
+// input checkpoints only the terminal event reference. awaitInput reads the
+// answer from Gatehouse after GetResult, keeping payload JSON out of DBOS.
+func (runtime *SessionEventReplyRuntime) input(ctx dbos.Context, input SessionInputWaitInput) (model.SessionEventRef, error) {
 	response, err := dbos.Recv[model.SessionEventRef](ctx, "response", sessionApprovalWait)
 	if err != nil {
-		return InputOutcome{}, err
+		return model.SessionEventRef{}, err
 	}
-	return dbos.RunAsStep(ctx, func(step context.Context) (InputOutcome, error) {
-		err, event := runtime.store.SessionEventGet(step, response)
-		if err != nil {
-			return InputOutcome{}, err
+	return dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEventRef, error) {
+		eventErr, event := runtime.inputResponseEventGet(step, input.Request, response)
+		if eventErr != nil {
+			return model.SessionEventRef{}, eventErr
 		}
-		if event == nil || event.Parent == nil || *event.Parent != input.Request || event.AuthorPrincipal == nil {
-			return InputOutcome{}, fmt.Errorf("input response is invalid")
-		}
-		switch event.Kind {
-		case model.SessionEventKindInputSuccess:
-			err, result := runtime.store.SessionInputResponseResultGet(step, response)
-			return InputOutcome{Result: result}, err
-		case model.SessionEventKindInputFailure:
-			code, ok := event.Payload["code"].(string)
-			if !ok || code == "" {
-				return InputOutcome{}, fmt.Errorf("input response has an invalid failure code")
+		if event.Kind == model.SessionEventKindInputSuccess {
+			if err, _ := runtime.store.SessionInputResponseResultGet(step, response); err != nil {
+				return model.SessionEventRef{}, err
 			}
-			return InputOutcome{Failure: code}, nil
-		default:
-			return InputOutcome{}, fmt.Errorf("input response has invalid kind %q", event.Kind)
 		}
+		return response, nil
 	}, dbos.WithStepName("gatehouse.session-input-response"))
 }
 
-func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, round, offset int, calls []openAICompatibleToolCall) ([]model.SessionEventRef, error) {
-	agent := selected.Ref
-	inputs := make([]SessionToolCallInput, len(calls))
-	seen := make(map[string]bool, len(calls))
-	for index, call := range calls {
-		code, reason, err := openAICompatibleLispArguments(call)
-		if err != nil {
-			return nil, err
-		}
-		if seen[call.ID] {
-			return nil, fmt.Errorf("OpenAI-compatible completion requested a duplicate tool call ID")
-		}
-		seen[call.ID] = true
-		batch := round
-		position := offset + index
-		payload, err := database.SessionEventPayloadFrom(model.ToolRequestPayload{Name: "lisp", CallId: call.ID, Code: code, Reason: reason, Batch: &batch, Position: &position})
-		if err != nil {
-			return nil, fmt.Errorf("encode tool request payload %q: %w", call.ID, err)
-		}
-		request := model.SessionEvent{
-			Ref:         model.SessionEventRef{Session: parent.Session},
-			Parent:      &parent,
-			Kind:        model.SessionEventKindToolRequest,
-			AuthorAgent: &agent,
-			Payload:     payload,
-		}
-		err, stored := runtime.persistAgentEvent(ctx, request)
-		if err != nil {
-			return nil, err
-		}
-		request.Ref = stored
-		inputs[index] = SessionToolCallInput{Request: request.Ref}
+func (runtime *SessionEventReplyRuntime) inputResponseEventGet(ctx context.Context, request, response model.SessionEventRef) (error, *model.SessionEvent) {
+	err, event := runtime.store.SessionEventGet(ctx, response)
+	if err != nil {
+		return err, nil
 	}
-	handles := make([]dbos.WorkflowHandle[model.SessionEventRef], len(inputs))
-	for index, input := range inputs {
-		handle, err := dbos.RunWorkflow(ctx, runtime.toolCall, input,
+	if err := validateInputResponseEvent(request, response, event); err != nil {
+		return err, nil
+	}
+	return nil, event
+}
+
+func validateInputResponseEvent(request, response model.SessionEventRef, event *model.SessionEvent) error {
+	if request.Session != response.Session {
+		return fmt.Errorf("input response belongs to another session")
+	}
+	if event == nil || event.Ref != response || event.Parent == nil || *event.Parent != request || event.AuthorPrincipal == nil {
+		return fmt.Errorf("input response is invalid")
+	}
+	switch event.Kind {
+	case model.SessionEventKindInputSuccess:
+		return nil
+	case model.SessionEventKindInputFailure:
+		code, ok := event.Payload["code"].(string)
+		if !ok || code == "" {
+			return fmt.Errorf("input response has an invalid failure code")
+		}
+		return nil
+	default:
+		return fmt.Errorf("input response has invalid kind %q", event.Kind)
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, requests []model.SessionEventRef) ([]model.SessionEventRef, error) {
+	handles := make([]dbos.WorkflowHandle[model.SessionEventRef], len(requests))
+	for index, request := range requests {
+		handle, err := dbos.RunWorkflow(ctx, runtime.toolCall, SessionToolCallInput{Request: request},
 			dbos.WithRunInstance(runtime),
-			dbos.WithWorkflowID(sessionToolCallWorkflowID(input.Request)),
+			dbos.WithWorkflowID(sessionToolCallWorkflowID(request)),
 			dbos.WithQueue(runtime.toolQueue),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("start session tool call %q: %w", calls[index].ID, err)
+			return nil, fmt.Errorf("start session tool call %q: %w", request.Id, err)
 		}
 		handles[index] = handle
 	}
@@ -2210,7 +2039,7 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, parent m
 	for index, handle := range handles {
 		output, err := handle.GetResult()
 		if err != nil {
-			return nil, fmt.Errorf("await session tool call %q: %w", calls[index].ID, err)
+			return nil, fmt.Errorf("await session tool call %q: %w", requests[index].Id, err)
 		}
 		outputs[index] = output
 	}
@@ -2376,28 +2205,6 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 		return nil
 	}
 	return sessionReplyCancelled{}
-}
-
-func (runtime *SessionEventReplyRuntime) thinkingStart(ctx dbos.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef, turn int) (error, model.SessionEvent) {
-	payload, err := database.SessionEventPayloadFrom(model.ThinkingRequestPayload{Turn: turn})
-	if err != nil {
-		return err, model.SessionEvent{}
-	}
-	event := model.SessionEvent{
-		Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent, Kind: model.SessionEventKindThinkingRequest, AuthorAgent: &agent,
-		Payload: payload,
-	}
-	err, reference := runtime.persistAgentEvent(ctx, event)
-	if err != nil {
-		return err, model.SessionEvent{}
-	}
-	createdAt, err := typed_id.Timestamp(typed_id.SessionEvent, reference.Id)
-	if err != nil {
-		return err, model.SessionEvent{}
-	}
-	event.Ref = reference
-	event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
-	return nil, event
 }
 
 func (runtime *SessionEventReplyRuntime) thinkingDelay(ctx dbos.Context, started model.SessionEvent, until time.Time) error {

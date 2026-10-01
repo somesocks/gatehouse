@@ -60,6 +60,12 @@ func inputFieldDescriptor(value lisp.Expr) (error, inputform.Field) {
 	_, label := lisp.RequireString(values[2])
 	field := inputform.Field{ID: id, Label: label, Type: strings.TrimPrefix(tag, "input/form/")}
 	switch tag {
+	case "input/form/custom":
+		err, custom := inputCustomDefinition(values[1:])
+		if err != nil {
+			return err, inputform.Field{}
+		}
+		field.Custom = custom
 	case "input/form/object":
 		for _, child := range values[3:] {
 			err, nested := inputFieldDescriptor(child)

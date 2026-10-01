@@ -18,6 +18,8 @@ cp -R "$SRC_DIR/dyd/dependencies/api-schema-codec/dyd/assets/." "$WORK_DIR/apisc
 cp "$SRC_DIR/dyd/dependencies/config-schema-json/dyd/assets/schema.json" "$WORK_DIR/config/schema.json"
 cp -R "$SRC_DIR/dyd/dependencies/model-schema/dyd/assets/." "$WORK_DIR/model"
 cp -R "$SRC_DIR/dyd/dependencies/web/dyd/assets/." "$WORK_DIR/httpservice/web"
+mkdir -p "$WORK_DIR/httpservice/web/tools/session-file-picker"
+cp -R "$SRC_DIR/dyd/dependencies/web-session-file-picker/dyd/assets/." "$WORK_DIR/httpservice/web/tools/session-file-picker"
 chmod -R u+w "$WORK_DIR/httpservice/web"
 
 cd "$WORK_DIR"

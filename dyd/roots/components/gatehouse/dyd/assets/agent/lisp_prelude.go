@@ -55,11 +55,18 @@ const agentPreludeEnd = `
                     (head (tail (tail operation)))))))
             (prelude/input-ask
               (fn (form) (json/decode (input/ask-json form))))
+            (prelude/session-file-picker
+              (help/document
+                (fn (id label inputs)
+                  (input/form/custom id label "/app/tools/session-file-picker/" inputs
+                    (input/form/custom/capabilities
+                      (list "session.file.list" "session.file.read" "session.file.upload"))))
+                "(session-file-picker id label inputs) -> Input Field. Select completed session files or upload new ones. Returns a JSON object with file_ids. Inputs is a JSON object; optional media_types is an array of MIME types or wildcards, and max_files is a positive integer. Example: (session-file-picker \"files\" \"Attachments\" (json/object))."))
           )
           (fn/apply let
             (list
               (list/concat
-                (list (list 'input/ask prelude/input-ask))
+                (list (list 'input/ask prelude/input-ask) (list 'session-file-picker prelude/session-file-picker))
                 (list/map prelude/operation-binding prelude/operations))
               '(let
                   ((import null)
@@ -67,6 +74,7 @@ const agentPreludeEnd = `
                    (import/search null)
                    (input/ask-json null)
                    (prelude/input-ask null)
+                   (prelude/session-file-picker null)
                    (policy/await-approval null)
                   (policy/require-approval null)
                   (prelude/imports null)

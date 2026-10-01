@@ -46,11 +46,10 @@ func (runtime *SessionEventReplyRuntime) agentRateLimitClaim(ctx dbos.Context, p
 			_ = runtime.agentRateLimitSettle(ctx, claim, intPointer(0), intPointer(0))
 			return err, database.AgentRateLimitClaim{}
 		}
-		if remaining := time.Until(until); remaining > 0 {
-			if _, err := dbos.Sleep(ctx, remaining); err != nil {
-				_ = runtime.agentRateLimitSettle(ctx, claim, intPointer(0), intPointer(0))
-				return err, database.AgentRateLimitClaim{}
-			}
+		// Replay must encounter this sleep even after its deadline has elapsed.
+		if _, err := dbos.Sleep(ctx, max(time.Until(until), 0)); err != nil {
+			_ = runtime.agentRateLimitSettle(ctx, claim, intPointer(0), intPointer(0))
+			return err, database.AgentRateLimitClaim{}
 		}
 	}
 	if err := runtime.replyCancellationCheck(ctx, parent); err != nil {

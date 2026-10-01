@@ -158,11 +158,28 @@ func EventReadableBody(event model.SessionEvent) (string, bool) {
 		description, ok := event.Payload["description"].(string)
 		return description, ok
 	default:
-		encoded, err := json.Marshal(event.Payload)
+		encoded, err := json.Marshal(EventPublicPayload(event))
 		if err != nil {
 			return "", false
 		}
 		return string(encoded), true
+	}
+}
+
+// EventPublicPayload excludes internal round request snapshots and decision
+// manifests from public event views and session/events/read.
+func EventPublicPayload(event model.SessionEvent) map[string]interface{} {
+	switch event.Kind {
+	case model.SessionEventKindThinkingRequest:
+		payload := map[string]interface{}{}
+		if turn, exists := event.Payload["turn"]; exists {
+			payload["turn"] = turn
+		}
+		return payload
+	case model.SessionEventKindThinkingSuccess:
+		return map[string]interface{}{}
+	default:
+		return event.Payload
 	}
 }
 

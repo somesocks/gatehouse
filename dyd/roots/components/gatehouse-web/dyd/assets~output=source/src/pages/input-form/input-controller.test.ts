@@ -22,6 +22,7 @@ function sharedInput(): { transport: () => InputTransport; snapshot: () => { dra
   let terminal: string | null = null
   return {
     transport: () => ({
+      openCustom: async () => { throw new Error("not used") },
       read: async () => terminal === null
         ? new Response(JSON.stringify({ form: descriptor, draft, updated_at: null }), { status: 200 })
         : new Response(null, { status: 409 }),

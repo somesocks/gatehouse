@@ -94,6 +94,16 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 		t.Fatalf("GET client route = status %d body %q", route.Code, route.Body.String())
 	}
 	entries, err := fs.ReadDir(webFiles, "assets")
+	picker := httptest.NewRecorder()
+	handler.ServeHTTP(picker, httptest.NewRequest(http.MethodGet, "/app/tools/session-file-picker/", nil))
+	if picker.Code != http.StatusOK || !strings.Contains(picker.Body.String(), `id="session-file-picker"`) || picker.Body.String() == app.Body.String() {
+		t.Fatalf("standalone file picker = %d %s", picker.Code, picker.Body.String())
+	}
+	missingPickerAsset := httptest.NewRecorder()
+	handler.ServeHTTP(missingPickerAsset, httptest.NewRequest(http.MethodGet, "/app/tools/session-file-picker/assets/missing.js", nil))
+	if missingPickerAsset.Code != http.StatusNotFound {
+		t.Fatalf("missing picker asset = %d", missingPickerAsset.Code)
+	}
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("embedded web assets = (%#v, %v)", entries, err)
 	}

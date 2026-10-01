@@ -3,6 +3,7 @@
   import InputControl from "../../components/InputControl.svelte"
   import SelectControl from "../../components/SelectControl.svelte"
   import FormField from "./FormField.svelte"
+  import CustomField from "./CustomField.svelte"
   import { initialListValue, patchDraft, type InputField, type InputFileSummary } from "./form-data"
 
   let {
@@ -16,6 +17,7 @@
     onSet,
     onRemove,
     onUpload,
+    onOpen,
   }: {
     field: InputField
     path: string[]
@@ -27,6 +29,7 @@
     onSet: (path: string[], value: unknown) => Promise<boolean>
     onRemove: (path: string[]) => Promise<boolean>
     onUpload?: (path: string[], files: File[], save: (value: InputFileSummary) => Promise<boolean>) => Promise<boolean>
+    onOpen?: (path: string[]) => Promise<string>
   } = $props()
 
   const entries = $derived(Array.isArray(value) ? value : [])
@@ -159,7 +162,7 @@
           </div>
         {/if}
         {#each field.fields ?? [] as child (child.id)}
-          <FormField field={child} path={[...path, child.id ?? ""]} value={isObject(value) && Object.hasOwn(value, child.id ?? "") ? value[child.id ?? ""] : undefined} label={child.label ?? "Value"} controlID={`${controlID}-${child.id}`} depth={depth + 1} {busy} {onSet} {onRemove} {onUpload} />
+            <FormField field={child} path={[...path, child.id ?? ""]} value={isObject(value) && Object.hasOwn(value, child.id ?? "") ? value[child.id ?? ""] : undefined} label={child.label ?? "Value"} controlID={`${controlID}-${child.id}`} depth={depth + 1} {busy} {onSet} {onRemove} {onUpload} {onOpen} />
         {/each}
       {/if}
     </div>
@@ -204,7 +207,10 @@
   </fieldset>
 {:else}
   <div class="field input-field">
-    {#if field.type === "files"}
+    {#if field.type === "custom"}
+      <p>{@render fieldTitle()}</p>
+      <CustomField {path} {value} {busy} {onOpen} {onRemove} {label} />
+    {:else if field.type === "files"}
       <label for={controlID}>{@render fieldTitle()}</label>
       <input bind:this={fileElement} class="visually-hidden" id={controlID} type="file" tabindex="-1" multiple={field.max_files === undefined || BigInt(field.max_files) > 1n} accept={field.media_types?.join(",")} disabled={busy || saving}
         onchange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void uploadFiles(files) }} />

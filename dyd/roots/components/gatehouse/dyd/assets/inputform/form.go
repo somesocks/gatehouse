@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,20 +28,60 @@ type Form struct {
 }
 
 type Field struct {
-	ID         string   `json:"id,omitempty"`
-	Label      string   `json:"label,omitempty"`
-	Type       string   `json:"type"`
-	Optional   bool     `json:"optional,omitempty"`
-	MinLength  *int64   `json:"min_length,omitempty"`
-	MaxLength  *int64   `json:"max_length,omitempty"`
-	Min        *int64   `json:"min,omitempty"`
-	Max        *int64   `json:"max,omitempty"`
-	Integer    bool     `json:"integer,omitempty"`
-	Choices    []string `json:"choices,omitempty"`
-	Fields     []Field  `json:"fields,omitempty"`
-	Item       *Field   `json:"item,omitempty"`
-	MaxFiles   *int64   `json:"max_files,omitempty"`
-	MediaTypes []string `json:"media_types,omitempty"`
+	ID         string       `json:"id,omitempty"`
+	Label      string       `json:"label,omitempty"`
+	Type       string       `json:"type"`
+	Optional   bool         `json:"optional,omitempty"`
+	MinLength  *int64       `json:"min_length,omitempty"`
+	MaxLength  *int64       `json:"max_length,omitempty"`
+	Min        *int64       `json:"min,omitempty"`
+	Max        *int64       `json:"max,omitempty"`
+	Integer    bool         `json:"integer,omitempty"`
+	Choices    []string     `json:"choices,omitempty"`
+	Fields     []Field      `json:"fields,omitempty"`
+	Item       *Field       `json:"item,omitempty"`
+	MaxFiles   *int64       `json:"max_files,omitempty"`
+	MediaTypes []string     `json:"media_types,omitempty"`
+	Custom     *CustomField `json:"custom,omitempty"`
+}
+
+type CustomField struct {
+	URL          string          `json:"url"`
+	Inputs       json.RawMessage `json:"inputs"`
+	Capabilities []string        `json:"capabilities"`
+}
+
+const (
+	SessionFileList   = "session.file.list"
+	SessionFileRead   = "session.file.read"
+	SessionFileUpload = "session.file.upload"
+)
+
+func ValidCapability(name string) bool {
+	return name == SessionFileList || name == SessionFileRead || name == SessionFileUpload
+}
+
+func (custom CustomField) Validate() error {
+	target, err := url.Parse(custom.URL)
+	if err != nil || custom.URL == "" || target.User != nil || target.Fragment != "" ||
+		(target.IsAbs() && (target.Host == "" || target.Scheme != "http" && target.Scheme != "https")) ||
+		(!target.IsAbs() && (target.Host != "" || !strings.HasPrefix(target.Path, "/"))) {
+		return fmt.Errorf("custom field requires an HTTP URL or an absolute path without credentials or a fragment")
+	}
+	if custom.Capabilities == nil {
+		return fmt.Errorf("custom field capabilities must be a list")
+	}
+	if !json.Valid(custom.Inputs) {
+		return fmt.Errorf("custom field inputs must be JSON")
+	}
+	seen := map[string]bool{}
+	for _, capability := range custom.Capabilities {
+		if !ValidCapability(capability) || seen[capability] {
+			return fmt.Errorf("custom field requires distinct supported capabilities")
+		}
+		seen[capability] = true
+	}
+	return nil
 }
 
 type FileSummary struct {
@@ -110,6 +151,9 @@ func validateFields(fields []Field) error {
 }
 
 func validateField(field Field, named bool) error {
+	if field.Type != "custom" && field.Custom != nil {
+		return fmt.Errorf("custom properties require a custom field")
+	}
 	if named {
 		if strings.TrimSpace(field.ID) == "" || strings.TrimSpace(field.Label) == "" {
 			return fmt.Errorf("input form field requires an id and label")
@@ -130,7 +174,15 @@ func validateField(field Field, named bool) error {
 		if field.Item.Type == "files" {
 			return fmt.Errorf("input form list of files is redundant; use a files field")
 		}
+		if containsCustom(*field.Item) {
+			return fmt.Errorf("custom fields inside lists are not supported")
+		}
 		return validateField(*field.Item, false)
+	case "custom":
+		if field.Custom == nil || field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || hasConstraints(field) || hasFileConstraints(field) {
+			return fmt.Errorf("custom field requires its definition and no built-in constraints")
+		}
+		return field.Custom.Validate()
 	case "text":
 		if field.Item != nil || len(field.Fields) != 0 || len(field.Choices) != 0 || field.Min != nil || field.Max != nil || field.Integer || hasFileConstraints(field) {
 			return fmt.Errorf("input form text has unsupported properties")
@@ -179,6 +231,18 @@ func validateField(field Field, named bool) error {
 		return fmt.Errorf("input form field type %q is unsupported", field.Type)
 	}
 	return nil
+}
+
+func containsCustom(field Field) bool {
+	if field.Type == "custom" {
+		return true
+	}
+	for _, child := range field.Fields {
+		if containsCustom(child) {
+			return true
+		}
+	}
+	return field.Item != nil && containsCustom(*field.Item)
 }
 
 func hasConstraints(field Field) bool {
@@ -326,6 +390,10 @@ func validateObject(fields []Field, source json.RawMessage) error {
 
 func validateValue(field Field, source json.RawMessage, complete bool) error {
 	switch field.Type {
+	case "custom":
+		if !json.Valid(source) {
+			return fmt.Errorf("requires a JSON value")
+		}
 	case "object":
 		return validateObject(field.Fields, source)
 	case "list":

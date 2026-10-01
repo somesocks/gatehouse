@@ -1,7 +1,7 @@
 export type InputField = {
   id?: string
   label?: string
-  type: "text" | "number" | "boolean" | "options" | "object" | "list" | "files"
+  type: "text" | "number" | "boolean" | "options" | "object" | "list" | "files" | "custom"
   optional?: boolean
   min_length?: string
   max_length?: string
@@ -13,6 +13,7 @@ export type InputField = {
   item?: InputField
   max_files?: string
   media_types?: string[]
+  custom?: { url: string; inputs: unknown; capabilities: string[] }
 }
 
 export type InputFileSummary = { id: string; name: string; size: string | number; media_type?: string }

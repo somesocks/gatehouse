@@ -9,6 +9,10 @@ export function capabilityFromFragment(fragment: string): string | null {
 export function createInputTransport(capability: string) {
   const headers = { Authorization: `Bearer ${capability}` }
   return {
+    openCustom: (path: string[]) =>
+      fetch(`/api/v1/input/fields/open?${new URLSearchParams({ path: JSON.stringify(path) })}`, {
+        credentials: "omit", cache: "no-store", headers,
+      }),
     read: () =>
       fetch("/api/v1/input", {
         credentials: "omit",

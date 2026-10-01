@@ -186,7 +186,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 // workflow registrations when their durable steps become incompatible; change
 // this only for a deliberate runtime-wide transition. DBOS otherwise uses a
 // binary hash that changes on every rebuild.
-const serveDBOSApplicationVersion = "gatehouse-workflows-v1"
+const serveDBOSApplicationVersion = "gatehouse-workflows-v4"
 
 func newServeDBOSContext(ctx context.Context, databaseConfig config.DatabaseConfig, store *database.Store) (dbos.Context, error) {
 	dbosConfig := dbos.Config{AppName: "gatehouse", ApplicationVersion: serveDBOSApplicationVersion}

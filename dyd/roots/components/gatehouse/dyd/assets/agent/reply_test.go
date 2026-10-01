@@ -116,8 +116,15 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		if len(events) == 6 {
 			request := events[2]
 			started := events[3]
-			completed := events[4]
-			reply := events[5]
+			var completed, reply model.SessionEvent
+			for _, event := range events[4:] {
+				if event.Kind == model.SessionEventKindThinkingSuccess {
+					completed = event
+				}
+				if event.Kind == model.SessionEventKindAgentSuccess {
+					reply = event
+				}
+			}
 			if request.Kind != model.SessionEventKindAgentRequest || request.Parent == nil || *request.Parent != message.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice || request.Payload["agent"] != requestedID {
 				t.Fatalf("agent request event = %#v", request)
 			}

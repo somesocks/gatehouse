@@ -7,6 +7,7 @@
     href,
     target,
     rel,
+    referrerPolicy,
     download,
     class: className,
     "aria-current": ariaCurrent,
@@ -15,6 +16,7 @@
     href: string
     target?: string
     rel?: string
+    referrerPolicy?: ReferrerPolicy
     download?: string | boolean
     class?: string
     "aria-current"?: "page" | "step" | "location" | "date" | "time" | "true" | "false"
@@ -38,6 +40,6 @@
   }
 </script>
 
-<a {href} {target} {rel} {download} aria-current={ariaCurrent} class={className} onclick={navigate}
+<a {href} {target} {rel} {referrerPolicy} {download} aria-current={ariaCurrent} class={className} onclick={navigate}
   >{@render children()}</a
 >

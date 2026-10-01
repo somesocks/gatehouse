@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SOURCE_DIR="$DYD_STEM/dyd/dependencies/source/dyd/assets"
+DEPENDENCIES_DIR="$DYD_STEM/dyd/dependencies/dependencies/dyd/assets"
+WORK_DIR="$DYD_BUILD/vite-work"
+
+mkdir -p "$DYD_BUILD/dyd/assets" "$WORK_DIR"
+cp -R "$SOURCE_DIR/." "$WORK_DIR"
+chmod -R u+w "$WORK_DIR"
+ln -s "$DEPENDENCIES_DIR/node_modules" "$WORK_DIR/node_modules"
+cp "$WORK_DIR/session-file-picker.html" "$WORK_DIR/index.html"
+
+cd "$WORK_DIR"
+node--npm run build -- --mode session-file-picker
+cp -R dist/. "$DYD_BUILD/dyd/assets/"
+rm -rf "$WORK_DIR"

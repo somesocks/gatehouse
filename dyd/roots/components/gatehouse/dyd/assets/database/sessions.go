@@ -302,14 +302,20 @@ func (store *Store) SessionGet(ctx context.Context, session model.SessionRef, pr
 }
 
 func (store *Store) SessionProjectGet(ctx context.Context, session model.SessionRef) (error, *model.ProjectRef) {
+	return store.sessionProjectGet(session, func(query string, args ...any) sessionEventRow {
+		return store.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) sessionProjectGet(session model.SessionRef, queryRow sessionRowQuery) (error, *model.ProjectRef) {
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := queryRow(`
 		SELECT project FROM gatehouse_sessions
 		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
 	`, session.Workspace.Id, session.Id)
 	var project sql.NullString
 	if err := row.Scan(&project); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return fmt.Errorf("get session project: %w", err), nil
@@ -879,6 +885,12 @@ func (store *Store) SessionEventsGet(ctx context.Context, session model.SessionR
 // SessionAgentRequestEventsGet returns one agent request's immutable historical
 // snapshot plus its live subtree. The request ULID is the snapshot boundary.
 func (store *Store) SessionAgentRequestEventsGet(ctx context.Context, request model.SessionEventRef, agent model.WorkspaceAgentRef) (error, []model.SessionEvent) {
+	return store.sessionAgentRequestEventsGet(request, agent, func(query string, args ...any) (sessionEventRows, error) {
+		return store.QueryContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, agent model.WorkspaceAgentRef, queryRows sessionRowsQuery) (error, []model.SessionEvent) {
 	if request.Session.Workspace != agent.Workspace || !typed_id.Valid(typed_id.SessionEvent, request.Id) || agent.Id == "" {
 		return fmt.Errorf("get agent request events: invalid request scope"), nil
 	}
@@ -887,7 +899,7 @@ func (store *Store) SessionAgentRequestEventsGet(ctx context.Context, request mo
 	if store.kind != config.DatabaseKindSQLite {
 		target = "events.payload ->> 'agent'"
 	}
-	rows, err := store.QueryContext(ctx, `
+	rows, err := queryRows(`
 		WITH RECURSIVE
 		requests (id, parent) AS (
 			SELECT events.id, events.parent
@@ -967,7 +979,17 @@ type sessionEventRow interface {
 	Scan(dest ...any) error
 }
 
-func sessionEventRowsGet(rows *sql.Rows, session model.SessionRef) (error, []model.SessionEvent) {
+type sessionEventRows interface {
+	sessionEventRow
+	Next() bool
+	Err() error
+	Close() error
+}
+
+type sessionRowQuery func(string, ...any) sessionEventRow
+type sessionRowsQuery func(string, ...any) (sessionEventRows, error)
+
+func sessionEventRowsGet(rows sessionEventRows, session model.SessionRef) (error, []model.SessionEvent) {
 	events := []model.SessionEvent{}
 	for rows.Next() {
 		err, event := sessionEventFromRow(rows, session)
@@ -983,7 +1005,10 @@ func sessionEventRowsGet(rows *sql.Rows, session model.SessionRef) (error, []mod
 }
 
 func sessionEventFromRow(row sessionEventRow, session model.SessionRef) (error, model.SessionEvent) {
-	var id, kind, payload, createdAt string
+	var id, kind, payload string
+	// sql.Scanner accepts the time.Time supplied by native pgx transactions as
+	// well as the text returned by SQLite and database/sql queries.
+	var createdAt sql.NullString
 	var metrics sql.NullString
 	var parent, principal, principalAlias, principalName, agent, gateway sql.NullString
 	var principalEnabled sql.NullBool
@@ -1023,7 +1048,7 @@ func sessionEventFromRow(row sessionEventRow, session model.SessionRef) (error, 
 		AuthorGateway:   authorGateway,
 		Payload:         decoded,
 		Metrics:         decodedMetrics,
-		CreatedAt:       createdAt,
+		CreatedAt:       createdAt.String,
 	}
 	if parent.Valid {
 		event.Parent = &model.SessionEventRef{Session: session, Id: parent.String}
@@ -1089,21 +1114,29 @@ type AgentContext struct {
 }
 
 func (store *Store) AgentContextGet(ctx context.Context, root model.SessionEventRef) (error, *AgentContext) {
+	return store.agentContextGet(root, func(query string, args ...any) sessionEventRow {
+		return store.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) agentContextGet(root model.SessionEventRef, queryRow sessionRowQuery) (error, *AgentContext) {
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := queryRow(`
 		SELECT model, profile, state, updated_at
 		FROM gatehouse_agent_contexts
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND root = `+placeholder(3)+`
 	`, root.Session.Workspace.Id, root.Session.Id, root.Id)
 	context := AgentContext{Root: root, Model: model.WorkspaceAgentRef{Workspace: root.Session.Workspace}}
 	var state string
-	if err := row.Scan(&context.Model.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+	var updatedAt sql.NullString
+	if err := row.Scan(&context.Model.Id, &context.Profile, &state, &updatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return fmt.Errorf("get agent context: %w", err), nil
 	}
 	context.State = json.RawMessage(state)
+	context.UpdatedAt = updatedAt.String
 	return nil, &context
 }
 
@@ -1134,11 +1167,17 @@ func (store *Store) AgentContextLatestGet(ctx context.Context, session model.Ses
 
 // AgentContextPreviousGet returns the nearest earlier best-effort checkpoint for one agent.
 func (store *Store) AgentContextPreviousGet(ctx context.Context, session model.SessionRef, agent model.WorkspaceAgentRef, before string) (error, *AgentContext) {
+	return store.agentContextPreviousGet(session, agent, before, func(query string, args ...any) sessionEventRow {
+		return store.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) agentContextPreviousGet(session model.SessionRef, agent model.WorkspaceAgentRef, before string, queryRow sessionRowQuery) (error, *AgentContext) {
 	if session.Workspace != agent.Workspace || agent.Id == "" || !typed_id.Valid(typed_id.SessionEvent, before) {
 		return fmt.Errorf("get previous agent context: invalid context selector"), nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := queryRow(`
 		SELECT root, profile, state, updated_at
 		FROM gatehouse_agent_contexts
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND model = `+placeholder(3)+`
@@ -1148,17 +1187,26 @@ func (store *Store) AgentContextPreviousGet(ctx context.Context, session model.S
 	`, session.Workspace.Id, session.Id, agent.Id, before)
 	context := AgentContext{Root: model.SessionEventRef{Session: session}, Model: agent}
 	var state string
-	if err := row.Scan(&context.Root.Id, &context.Profile, &state, &context.UpdatedAt); err != nil {
-		if err == sql.ErrNoRows {
+	var updatedAt sql.NullString
+	if err := row.Scan(&context.Root.Id, &context.Profile, &state, &updatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return fmt.Errorf("get previous agent context: %w", err), nil
 	}
 	context.State = json.RawMessage(state)
+	context.UpdatedAt = updatedAt.String
 	return nil, &context
 }
 
 func (store *Store) AgentContextSet(ctx context.Context, context AgentContext) error {
+	return store.agentContextSet(context, func(query string, args ...any) error {
+		_, err := store.ExecContext(ctx, query, args...)
+		return err
+	})
+}
+
+func (store *Store) agentContextSet(context AgentContext, execute func(string, ...any) error) error {
 	if context.Root.Session.Workspace != context.Model.Workspace || context.Root.Id == "" || context.Model.Id == "" || strings.TrimSpace(context.Profile) == "" || !json.Valid(context.State) {
 		return fmt.Errorf("set agent context: invalid context")
 	}
@@ -1166,7 +1214,7 @@ func (store *Store) AgentContextSet(ctx context.Context, context AgentContext) e
 		context.UpdatedAt = time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	_, err := store.ExecContext(ctx, `
+	err := execute(`
 		INSERT INTO gatehouse_agent_contexts (workspace, session, root, model, profile, state, updated_at)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`)
 		ON CONFLICT (workspace, session, root) DO UPDATE SET
@@ -1309,8 +1357,14 @@ func (store *Store) SessionEventsTreeTailGet(ctx context.Context, session model.
 }
 
 func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEventRef) (error, *model.SessionEvent) {
+	return store.sessionEventGet(event, func(query string, args ...any) sessionEventRow {
+		return store.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) sessionEventGet(event model.SessionEventRef, queryRow sessionRowQuery) (error, *model.SessionEvent) {
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := queryRow(`
 		SELECT `+sessionEventColumns+`
 		FROM gatehouse_session_events AS events
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
@@ -1318,7 +1372,7 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	`, event.Session.Workspace.Id, event.Session.Id, event.Id)
 	err, stored := sessionEventFromRow(row, event.Session)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return err, nil
@@ -1663,11 +1717,17 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 
 // WorkspaceAgentModelGet resolves one enabled workspace-agent binding without default fallback.
 func (store *Store) WorkspaceAgentModelGet(ctx context.Context, workspace model.WorkspaceRef, bindingID string) (error, *WorkspaceAgentModel) {
+	return store.workspaceAgentModelGet(workspace, bindingID, func(query string, args ...any) sessionEventRow {
+		return store.QueryRowContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) workspaceAgentModelGet(workspace model.WorkspaceRef, bindingID string, queryRow sessionRowQuery) (error, *WorkspaceAgentModel) {
 	if !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) {
 		return nil, nil
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := queryRow(`
 		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude, bindings.rate_limits
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
@@ -1681,13 +1741,13 @@ func (store *Store) WorkspaceAgentModelGet(ctx context.Context, workspace model.
 	return scanWorkspaceAgentModel(row, workspace)
 }
 
-func scanWorkspaceAgentModel(row *sql.Row, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
+func scanWorkspaceAgentModel(row sessionEventRow, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
 	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude, rateLimits sql.NullString
 	var keychainVersion sql.NullInt64
 	if err := row.Scan(&selected.Ref.Id, &selected.Alias, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude, &rateLimits); err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return fmt.Errorf("select workspace agent model: %w", err), nil

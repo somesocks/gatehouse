@@ -195,6 +195,11 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/input/files/{file}/finish", sessionInputFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input/submit", sessionInputTerminal(store, tokens[0], dispatcher, model.SessionEventKindInputSuccess))
 		mux.HandleFunc("/api/v1/input/cancel", sessionInputTerminal(store, tokens[0], dispatcher, model.SessionEventKindInputFailure))
+		mux.HandleFunc("/api/v1/input/fields/open", sessionInputFieldOpen(store, tokens[0], configuration.PublicBaseURL))
+		mux.HandleFunc("/api/v1/input/field", sessionInputField(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/field/files", sessionInputFieldFiles(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/field/files/{file}/finish", sessionInputFieldFileFinish(store, tokens[0]))
+		mux.HandleFunc("/api/v1/input/field/files/{file}/download", sessionInputFieldFileDownload(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files", workspaceSessionFiles(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
@@ -3486,6 +3491,7 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		for index := range entries {
 			entries[index].Event = hydrated[index]
 			if view != "transcript" {
+				entries[index].Event.Payload = sessionsearch.EventPublicPayload(entries[index].Event)
 				sessionInputEventProject(&entries[index].Event)
 			}
 		}
@@ -4441,12 +4447,20 @@ func web(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(request.URL.Path, "/app/")
+	const picker = "tools/session-file-picker"
+	if name == picker {
+		http.Redirect(response, request, request.URL.Path+"/", http.StatusTemporaryRedirect)
+		return
+	}
+	if name == picker+"/" {
+		name += "index.html"
+	}
 	if name == "" {
 		name = "index.html"
 	}
 	info, err := fs.Stat(webFiles, name)
 	if err != nil || info.IsDir() {
-		if strings.HasPrefix(name, "assets/") {
+		if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, picker+"/") {
 			http.NotFound(response, request)
 			return
 		}
@@ -4455,6 +4469,8 @@ func web(response http.ResponseWriter, request *http.Request) {
 	served := request.Clone(request.Context())
 	if name == "index.html" {
 		served.URL.Path = "/"
+	} else if name == picker+"/index.html" {
+		served.URL.Path = "/" + picker + "/"
 	} else {
 		served.URL.Path = "/" + name
 	}

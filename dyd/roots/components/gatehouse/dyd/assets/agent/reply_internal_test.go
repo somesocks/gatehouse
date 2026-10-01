@@ -52,6 +52,55 @@ func TestSessionToolCallInputContainsOnlyRequestReference(t *testing.T) {
 	}
 }
 
+func TestValidateInputResponseEvent(t *testing.T) {
+	workspace := model.WorkspaceRef{Id: "wsp_00000000000000000000000000"}
+	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
+	request := model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000001"}
+	response := model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}
+	principal := &model.Principal{Ref: model.PrincipalRef{Id: "prn_00000000000000000000000000"}}
+	valid := func(kind string, payload map[string]interface{}) *model.SessionEvent {
+		return &model.SessionEvent{Ref: response, Parent: &request, Kind: kind, AuthorPrincipal: principal, Payload: payload}
+	}
+	for _, event := range []*model.SessionEvent{
+		valid(model.SessionEventKindInputSuccess, nil),
+		valid(model.SessionEventKindInputFailure, map[string]interface{}{"code": "cancelled"}),
+	} {
+		if err := validateInputResponseEvent(request, response, event); err != nil {
+			t.Fatalf("valid %q response rejected: %v", event.Kind, err)
+		}
+	}
+
+	wrongSession := response
+	wrongSession.Session.Id = "ses_00000000000000000000000003"
+	wrongParent := request
+	wrongParent.Id = "sev_00000000000000000000000004"
+	wrongAuthor := valid(model.SessionEventKindInputSuccess, nil)
+	wrongAuthor.AuthorPrincipal = nil
+	wrongKind := valid(model.SessionEventKindMessageText, nil)
+	invalidFailure := valid(model.SessionEventKindInputFailure, map[string]interface{}{"code": ""})
+	for name, test := range map[string]struct {
+		response model.SessionEventRef
+		event    *model.SessionEvent
+	}{
+		"another session": {response: wrongSession, event: valid(model.SessionEventKindInputSuccess, nil)},
+		"another parent": {response: response, event: func() *model.SessionEvent {
+			event := valid(model.SessionEventKindInputSuccess, nil)
+			event.Parent = &wrongParent
+			return event
+		}()},
+		"missing author": {response: response, event: wrongAuthor},
+		"wrong kind":     {response: response, event: wrongKind},
+		"empty failure":  {response: response, event: invalidFailure},
+		"missing event":  {response: response, event: nil},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := validateInputResponseEvent(request, test.response, test.event); err == nil {
+				t.Fatal("invalid input response accepted")
+			}
+		})
+	}
+}
+
 func TestOpenAISystemPromptFor(t *testing.T) {
 	customPrompt := "Custom instructions."
 	emptyPrompt := ""

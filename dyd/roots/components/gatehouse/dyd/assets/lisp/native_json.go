@@ -10,6 +10,11 @@ import (
 
 const nativeJSONID = "native:json/v1"
 
+// EncodeJSON encodes a tagged JSON value using the native JSON module's rules.
+func EncodeJSON(value Expr) (error, string) {
+	return nativeJSONEncodeValue(value)
+}
+
 var nativeJSONDecodeDocumentation = doc(
 	"(json/decode text) -> JSON",
 	"Decodes JSON text into tagged JSON values created by json/null, json/boolean, json/string, json/number, json/array, and json/object. Numbers retain their JSON text.",

@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 
 	"gatehouse/inputform"
@@ -13,6 +14,8 @@ const gatehouseInputModuleID = "native:gatehouse/input/v1"
 // The default agent prelude wraps ask-json with json/decode as input/ask.
 func NewInputModule(requestInput ...func(inputform.Form) (error, string)) lisp.HostModule {
 	exports := []lisp.HostExport{
+		inputConstructor("form/custom", "(input/form/custom id label url inputs option...) -> Input Field", "Creates a field collected by an external UI. Inputs is a JSON value. The UI opens with a field-scoped capability; its result may be any JSON value.", `(input/form/custom "file" "Select a file" "/app/tools/session-file-picker/" (json/object) (input/form/custom/capabilities (list "session.file.list")))`, `(input/form/custom "file" "Select a file" "/app/tools/session-file-picker/" (json/object) (input/form/custom/capabilities ("session.file.list")))`, inputCustom),
+		inputConstructor("form/custom/capabilities", "(input/form/custom/capabilities names) -> Input Option", "Delegates session.file.list, session.file.read, and/or session.file.upload from the responder to this custom field's UI. Upload covers starting and finishing a file upload.", `(input/form/custom/capabilities (list "session.file.list"))`, `(input/form/custom/capabilities ("session.file.list"))`, inputCustomCapabilities),
 		inputConstructor("form", "(input/form title fields...) -> Input Form", "Creates a form with a non-blank title and at least one field.", `(input/form "Review" (input/form/text "name" "Name"))`, `(input/form "Review" (input/form/text "name" "Name"))`, inputForm),
 		inputConstructor("form/boolean", "(input/form/boolean id label) -> Input Field", "Creates a boolean field.", `(input/form/boolean "updates" "Receive updates")`, `(input/form/boolean "updates" "Receive updates")`, inputSimpleField("boolean")),
 		inputConstructor("form/files", "(input/form/files id label constraint...) -> Input Field", "Uploads session files and returns an array of file summaries.", `(input/form/files "photos" "Photos" (input/form/files/max-files 5))`, `(input/form/files "photos" "Photos" (input/form/files/max-files 5))`, inputSimpleField("files")),
@@ -52,6 +55,73 @@ func NewInputModule(requestInput ...func(inputform.Form) (error, string)) lisp.H
 		return nil, lisp.String(result)
 	}))
 	return lisp.HostModule{ID: gatehouseInputModuleID, Exports: exports}
+}
+
+func inputCustom(arguments []lisp.Expr) (error, lisp.Expr) {
+	field := inputTagged("form/custom", arguments...)
+	if _, err := inputFieldID(field, false); err != nil {
+		return err, nil
+	}
+	return nil, field
+}
+
+func inputCustomCapabilities(arguments []lisp.Expr) (error, lisp.Expr) {
+	if len(arguments) != 1 {
+		return lisp.Errorf("input/form/custom/capabilities requires a list of names"), nil
+	}
+	err, names := lisp.RequireList(arguments[0])
+	if err != nil {
+		return lisp.Errorf("input/form/custom/capabilities requires a list of names"), nil
+	}
+	seen := map[string]bool{}
+	for _, name := range names {
+		err, value := lisp.RequireString(name)
+		if err != nil || !inputform.ValidCapability(value) || seen[value] {
+			return lisp.Errorf("input/form/custom/capabilities requires distinct supported names"), nil
+		}
+		seen[value] = true
+	}
+	return nil, inputTagged("form/custom/capabilities", arguments...)
+}
+
+func inputCustomDefinition(arguments []lisp.Expr) (error, *inputform.CustomField) {
+	if len(arguments) < 4 {
+		return lisp.Errorf("input/form/custom requires id, label, url, and JSON inputs"), nil
+	}
+	if err := inputIdentity(arguments[:2]); err != nil {
+		return err, nil
+	}
+	err, target := lisp.RequireString(arguments[2])
+	if err != nil {
+		return err, nil
+	}
+	err, inputs := lisp.EncodeJSON(arguments[3])
+	if err != nil {
+		return err, nil
+	}
+	custom := &inputform.CustomField{URL: target, Inputs: json.RawMessage(inputs), Capabilities: []string{}}
+	if len(arguments) > 5 {
+		return lisp.Errorf("input/form/custom accepts one capabilities option"), nil
+	}
+	if len(arguments) == 5 {
+		err, option := lisp.RequireList(arguments[4])
+		if err != nil || len(option) != 2 {
+			return lisp.Errorf("input/form/custom requires a capabilities option"), nil
+		}
+		_, tag := lisp.RequireSymbol(option[0])
+		if tag != "input/form/custom/capabilities" {
+			return lisp.Errorf("input/form/custom requires a capabilities option"), nil
+		}
+		if err, _ := inputCustomCapabilities(option[1:]); err != nil {
+			return err, nil
+		}
+		_, names := lisp.RequireList(option[1])
+		for _, name := range names {
+			_, value := lisp.RequireString(name)
+			custom.Capabilities = append(custom.Capabilities, value)
+		}
+	}
+	return custom.Validate(), custom
 }
 
 func inputConstructor(name, signature, description, example, result string, call func([]lisp.Expr) (error, lisp.Expr)) lisp.HostExport {
@@ -406,6 +476,10 @@ func inputFieldID(field lisp.Expr, allowOptional bool) (string, error) {
 		return inputFieldID(arguments[0], false)
 	}
 	switch tag {
+	case "input/form/custom":
+		if err, _ := inputCustomDefinition(arguments); err != nil {
+			return "", err
+		}
 	case "input/form/object":
 		if len(arguments) < 3 {
 			return "", lisp.Errorf("input/form/object requires an id, label, and at least one field")

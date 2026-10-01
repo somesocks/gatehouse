@@ -57,6 +57,15 @@ export function createInputFormController(transport: InputTransport) {
     generation += 1
   }
 
+  async function openCustom(path: string[]): Promise<string> {
+    await queue
+    if (state.status !== "ready" || state.terminalPending || state.needsReload) throw new Error("The form is not ready.")
+    const response = await transport.openCustom(path)
+    if (!response.ok) throw new Error(`The tool could not be opened (${response.status}).`)
+    const launch = await response.json() as { url: string }
+    return launch.url
+  }
+
   async function load(): Promise<void> {
     await queue
     const value = ++generation
@@ -238,6 +247,7 @@ export function createInputFormController(transport: InputTransport) {
   }
 
   return {
+    openCustom,
     state,
     load,
     refresh,

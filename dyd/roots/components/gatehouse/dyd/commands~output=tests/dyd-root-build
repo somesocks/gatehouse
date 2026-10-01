@@ -20,6 +20,8 @@ cp "$SRC_DIR/dyd/dependencies/api-schema-json/dyd/assets/api.json" "$WORK_DIR/ht
 cp -R "$SRC_DIR/dyd/dependencies/model-schema/dyd/assets/." "$WORK_DIR/model"
 chmod -R u+w "$WORK_DIR/model"
 cp -R "$SRC_DIR/dyd/dependencies/web/dyd/assets/." "$WORK_DIR/httpservice/web"
+mkdir -p "$WORK_DIR/httpservice/web/tools/session-file-picker"
+cp -R "$SRC_DIR/dyd/dependencies/web-session-file-picker/dyd/assets/." "$WORK_DIR/httpservice/web/tools/session-file-picker"
 chmod -R u+w "$WORK_DIR/httpservice/web"
 
 cd "$WORK_DIR"

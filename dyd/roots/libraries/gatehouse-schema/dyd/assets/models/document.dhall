@@ -1088,7 +1088,13 @@ let ThinkingRequestPayload =
                     s.number.props::{ variant = s.number.variants.integer }
                     s.number.meta::{ description = Some "agent turn number" }
               }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { previous =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionEventRef" }
+                    s.reference.meta::{ description = Some "preceding committed round outcome, absent for the first round" }
+              }
         }
         s.record.meta::{ name = Some "ThinkingRequestPayload", description = Some "Payload for a thinking.request event." }
 
@@ -1116,7 +1122,17 @@ let ThinkingSuccessPayload =
       s.record.from
         s.record.props::{
         , required = [] : List { mapKey : Text, mapValue : s.type }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        , optional =
+            toMap
+              { tool_requests =
+                  s.list.from
+                    s.list.props::{ values = s.reference.from s.reference.props::{ to = "SessionEventRef" } s.reference.meta::{ description = Some "committed tool request" } }
+                    s.list.meta::{ description = Some "complete ordered tool batch, mutually exclusive with agent_success" }
+              , agent_success =
+                  s.reference.from
+                    s.reference.props::{ to = "SessionEventRef" }
+                    s.reference.meta::{ description = Some "committed final reply, mutually exclusive with tool_requests" }
+              }
         }
         s.record.meta::{ name = Some "ThinkingSuccessPayload", description = Some "Payload for a thinking.success event; provider metrics are carried by the event envelope." }
 

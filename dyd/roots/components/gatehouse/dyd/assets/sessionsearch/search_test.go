@@ -67,6 +67,24 @@ func TestResultUsesAgentSuccessText(t *testing.T) {
 	}
 }
 
+func TestRoundSnapshotsAreNotReadableOrSearchable(t *testing.T) {
+	for _, event := range []model.SessionEvent{
+		{Kind: model.SessionEventKindThinkingRequest, Payload: map[string]interface{}{"turn": 0, "provider_request": "ROUND_INTERNAL_SENTINEL"}},
+		{Kind: model.SessionEventKindThinkingSuccess, Payload: map[string]interface{}{"tool_requests": "ROUND_INTERNAL_SENTINEL"}},
+	} {
+		body, readable := EventReadableBody(event)
+		if !readable || strings.Contains(body, "ROUND_INTERNAL_SENTINEL") {
+			t.Fatalf("internal thinking payload is readable: %q", body)
+		}
+		if _, searchable := EventSearchBody(event); searchable {
+			t.Fatal("internal thinking payload is searchable")
+		}
+		if event.Payload["provider_request"] == nil && event.Payload["tool_requests"] == nil {
+			t.Fatal("projection mutated stored payload")
+		}
+	}
+}
+
 func TestParseRejectsUnsupportedExpressions(t *testing.T) {
 	for _, source := range []string{
 		`(not "Conroe")`,
