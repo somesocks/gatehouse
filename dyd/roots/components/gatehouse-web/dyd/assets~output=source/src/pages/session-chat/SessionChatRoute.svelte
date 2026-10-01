@@ -636,12 +636,8 @@
                       class="event-log"
                     >
                       <header>
-                        {hasCancellationSuccess(request)
-                          ? "Cancelled"
-                          : hasCancellationFailure(request)
-                            ? "Cancellation failed"
-                          : cancellationRequest(request) !== undefined
-                            ? "Cancellation requested"
+                        {cancellationRequest(request) !== undefined
+                            ? activityAgentLabel(request)
                             : agentFailures(request).length > 0
                               ? `${activityAgentLabel(request)} failed`
                             : finalReplies(request).length === 0
@@ -662,7 +658,7 @@
                               : "Cancel"}</button
                           >{/if}
                       </header>
-                      {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined}<div
+                      {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined || cancellationRequest(request) !== undefined}<div
                           class="event-list"
                         >
                           {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<p
@@ -803,7 +799,22 @@
                                 onclick={() => controller.toggleActivity(request)}
                                  >Show less</button
                               >
-                            </p>{/if}{#if agentFailureSummary(request) !== undefined}<p
+                            </p>{/if}
+                            {#if cancellationRequest(request) !== undefined}
+                              <p class="event-summary" role="status">
+                                {#if hasCancellationSuccess(request)}
+                                  <CircleX size={14} strokeWidth={2} aria-hidden="true" />
+                                  <span>Cancelled</span>
+                                {:else if hasCancellationFailure(request)}
+                                  <CircleX size={14} strokeWidth={2} aria-hidden="true" />
+                                  <span>Cancellation failed</span>
+                                {:else}
+                                  <span class="spinner" aria-hidden="true"></span>
+                                  <span>Cancellation requested</span>
+                                {/if}
+                              </p>
+                            {/if}
+                            {#if agentFailureSummary(request) !== undefined}<p
                               class="event-summary event-failure"
                               data-state="failed"
                             ><CircleX size={14} strokeWidth={2} aria-hidden="true" /><span>{agentFailureSummary(request)}</span></p>{/if}
