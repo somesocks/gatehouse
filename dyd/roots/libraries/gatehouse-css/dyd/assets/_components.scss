@@ -535,6 +535,7 @@ a.attachment-chip:focus-visible {
   border-block-end: var(--border);
   border-radius: 0;
   inline-size: 100%;
+  outline: none;
 }
 
 .mention-command [data-command-list] {
