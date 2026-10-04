@@ -403,7 +403,12 @@ func sessionInputTerminal(store *database.Store, tokens *auth.BearerTokens, disp
 			Ref: model.SessionEventRef{Session: input.Session, Id: id}, Parent: &input,
 			Kind: kind, AuthorPrincipal: &claims.Principal, Payload: payload,
 		}
-		err, stored := store.SessionInputResponseCreate(request.Context(), event)
+		responder, ok := dispatcher.(InputResponseDispatcher)
+		if !ok {
+			http.Error(response, "input responses unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		err, stored := responder.RespondToInput(request.Context(), event)
 		switch {
 		case errors.Is(err, database.ErrSessionInputResolved):
 			http.Error(response, "input is already resolved", http.StatusConflict)
@@ -412,9 +417,6 @@ func sessionInputTerminal(store *database.Store, tokens *auth.BearerTokens, disp
 		case err != nil:
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 		default:
-			if dispatcher != nil {
-				_ = dispatcher.Reconcile()
-			}
 			writeJSONStatus(response, http.StatusAccepted, struct {
 				EventID string `json:"event_id"`
 				Kind    string `json:"kind"`

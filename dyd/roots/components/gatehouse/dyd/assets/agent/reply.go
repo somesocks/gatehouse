@@ -62,10 +62,6 @@ type SessionApprovalInput struct {
 	Request model.SessionEventRef
 }
 
-type SessionInputWaitInput struct {
-	Request model.SessionEventRef
-}
-
 type ApprovalOutcome string
 
 const (
@@ -152,10 +148,6 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 	dbos.RegisterWorkflow(ctx, runtime.approval,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-approval"),
-	)
-	dbos.RegisterWorkflow(ctx, runtime.input,
-		dbos.WithInstance(runtime),
-		dbos.WithWorkflowName("gatehouse.session-input"),
 	)
 	dbos.RegisterWorkflow(ctx, runtime.nameSession,
 		dbos.WithInstance(runtime),
@@ -492,18 +484,6 @@ func (runtime *SessionEventReplyRuntime) Reconcile() error {
 			return fmt.Errorf("send approval response %q: %w", task.Response.Id, err)
 		}
 		if err := runtime.store.SessionApprovalDecisionTaskDelivered(runtime.dbos, task.Approval); err != nil {
-			return err
-		}
-	}
-	err, inputTasks := runtime.store.SessionInputResponseTasksGet(runtime.dbos, 100)
-	if err != nil {
-		return err
-	}
-	for _, task := range inputTasks {
-		if err := dbos.Send(runtime.dbos, sessionInputWorkflowID(task.Input), task.Response, "response", dbos.WithIdempotencyKey(task.Response.Id)); err != nil {
-			return fmt.Errorf("send input response %q: %w", task.Response.Id, err)
-		}
-		if err := runtime.store.SessionInputResponseTaskDelivered(runtime.dbos, task.Input); err != nil {
 			return err
 		}
 	}
@@ -1931,19 +1911,16 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	if err != nil {
 		return err, ""
 	}
+	// The tool workflow already exists. Publish the form and checkpoint its
+	// reference atomically, then receive only a response reference in this workflow.
 	err, request := runtime.persistAgentEvent(ctx, model.SessionEvent{
-		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref, Kind: model.SessionEventKindInputRequest, AuthorAgent: &agent,
-		Payload: payload,
+		Ref: model.SessionEventRef{Session: tool.Ref.Session}, Parent: &tool.Ref,
+		Kind: model.SessionEventKindInputRequest, AuthorAgent: &agent, Payload: payload,
 	})
 	if err != nil {
 		return err, ""
 	}
-	handle, err := dbos.RunWorkflow(ctx, runtime.input, SessionInputWaitInput{Request: request},
-		dbos.WithRunInstance(runtime), dbos.WithWorkflowID(sessionInputWorkflowID(request)))
-	if err != nil {
-		return fmt.Errorf("start input %q: %w", request.Id, err), ""
-	}
-	response, err := handle.GetResult()
+	response, err := dbos.Recv[model.SessionEventRef](ctx, sessionInputResponseTopic(request), sessionApprovalWait)
 	if err != nil {
 		return fmt.Errorf("await input %q: %w", request.Id, err), ""
 	}
@@ -1967,27 +1944,6 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	default:
 		return fmt.Errorf("input %q returned invalid response kind %q", request.Id, event.Kind), ""
 	}
-}
-
-// input checkpoints only the terminal event reference. awaitInput reads the
-// answer from Gatehouse after GetResult, keeping payload JSON out of DBOS.
-func (runtime *SessionEventReplyRuntime) input(ctx dbos.Context, input SessionInputWaitInput) (model.SessionEventRef, error) {
-	response, err := dbos.Recv[model.SessionEventRef](ctx, "response", sessionApprovalWait)
-	if err != nil {
-		return model.SessionEventRef{}, err
-	}
-	return dbos.RunAsStep(ctx, func(step context.Context) (model.SessionEventRef, error) {
-		eventErr, event := runtime.inputResponseEventGet(step, input.Request, response)
-		if eventErr != nil {
-			return model.SessionEventRef{}, eventErr
-		}
-		if event.Kind == model.SessionEventKindInputSuccess {
-			if err, _ := runtime.store.SessionInputResponseResultGet(step, response); err != nil {
-				return model.SessionEventRef{}, err
-			}
-		}
-		return response, nil
-	}, dbos.WithStepName("gatehouse.session-input-response"))
 }
 
 func (runtime *SessionEventReplyRuntime) inputResponseEventGet(ctx context.Context, request, response model.SessionEventRef) (error, *model.SessionEvent) {
@@ -2509,8 +2465,8 @@ func sessionApprovalWorkflowID(request model.SessionEventRef) string {
 	return "session-approval:" + request.Id
 }
 
-func sessionInputWorkflowID(request model.SessionEventRef) string {
-	return "session-input:" + request.Id
+func sessionInputResponseTopic(request model.SessionEventRef) string {
+	return "input:" + request.Id
 }
 
 func sessionEventReplyPartition(session model.SessionRef) string {

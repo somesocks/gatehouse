@@ -38,10 +38,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 		{Id: "sev_00000000000000000000000002"},
 		{Id: "sev_00000000000000000000000003"},
 	}
-	waits := []string{
-		sessionInputWorkflowID(model.SessionEventRef{Id: "sev_00000000000000000000000004"}),
-		sessionApprovalWorkflowID(model.SessionEventRef{Id: "sev_00000000000000000000000005"}),
-	}
+	approval := sessionApprovalWorkflowID(model.SessionEventRef{Id: "sev_00000000000000000000000005"})
 	queue, err := dbos.RegisterQueue(dbosContext, "gatehouse-tool-cancel-test-tools", dbos.WithGlobalConcurrency(2))
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +53,11 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 			queuedRan <- struct{}{}
 			return true, nil
 		}
-		child, err := dbos.RunWorkflow(workflowContext, wait, index, dbos.WithWorkflowID(waits[index]))
+		if index == 0 {
+			started <- index
+			return dbos.Recv[bool](workflowContext, "input:sev_00000000000000000000000004", time.Hour)
+		}
+		child, err := dbos.RunWorkflow(workflowContext, wait, index, dbos.WithWorkflowID(approval))
 		if err != nil {
 			return false, err
 		}
@@ -100,8 +101,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 		sessionToolCallWorkflowID(tools[0]): "PENDING",
 		sessionToolCallWorkflowID(tools[1]): "PENDING",
 		sessionToolCallWorkflowID(tools[2]): "ENQUEUED",
-		waits[0]:                            "PENDING",
-		waits[1]:                            "PENDING",
+		approval:                            "PENDING",
 	}
 	checkWorkflowStatuses(t, store, statuses, 10*time.Second)
 

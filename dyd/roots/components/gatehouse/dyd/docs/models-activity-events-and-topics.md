@@ -285,7 +285,6 @@ independent client activity:
 - `gatehouse_agent_tasks__session_name`
 - `gatehouse_session_approval_decisions`
 - `gatehouse_session_input_drafts`
-- `gatehouse_session_input_responses`
 - `gatehouse_storage_objects`
 - `gatehouse_embedded_storage_objects`
 - `gatehouse_embedded_storage_object_chunks`

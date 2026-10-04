@@ -76,6 +76,11 @@ func TestReplyRecoveryProcess(t *testing.T) {
 		} else if crashPoint == "decision-rollback" {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
 				WHEN NEW.function_name = 'gatehouse.agent-provider-decision' BEGIN SELECT gh_test_crash(); END`
+		} else if crashPoint == "input-request-rollback" {
+			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
+				WHEN NEW.function_name = 'gatehouse.session-event-agent-persist'
+					AND EXISTS (SELECT 1 FROM gatehouse_session_events WHERE kind = 'input.request')
+				BEGIN SELECT gh_test_crash(); END`
 		}
 		if _, err := store.ExecContext(ctx, trigger); err != nil {
 			t.Fatal(err)
@@ -107,6 +112,8 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 		{"openai-responses", "retry-replay"},
 		{"openai-responses", "rate-replay"},
 		{"openai-responses", "decision-rollback"},
+		{"openai-responses", "input-request-rollback"},
+		{"openai-responses", "multiple-inputs"},
 		{"openai-responses", "provider-failure"},
 		{"openai-responses", "invalid-batch"},
 		{"openai-responses", "final-rollback"},
@@ -114,6 +121,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 		{"openai-chat-completions", "cancelled"},
 	} {
 		protocol, outcome := testCase.protocol, testCase.outcome
+		successfulInput := outcome == "success" || outcome == "batch-unstarted" || outcome == "rate-replay" || outcome == "input-request-rollback" || outcome == "multiple-inputs"
 		t.Run(protocol+"/"+outcome, func(t *testing.T) {
 			t.Setenv("DBOS__APPVERSION", "")
 			t.Setenv("DBOS__VMID", "gatehouse-input-replay-test")
@@ -145,7 +153,11 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					return
 				}
 				w.Header().Set("Content-Type", "application/json")
-				arguments, _ := json.Marshal(map[string]string{"code": `(input/ask (input/form "Select" (session-file-picker "file" "File" (json/object))))`, "reason": "Select a session file"})
+				code := `(input/ask (input/form "Select" (session-file-picker "file" "File" (json/object))))`
+				if outcome == "multiple-inputs" {
+					code = `(let ((selected ` + code + `)) (list selected (input/ask (input/form "Select again" (session-file-picker "file" "File" selected)))))`
+				}
+				arguments, _ := json.Marshal(map[string]string{"code": code, "reason": "Select a session file"})
 				callIDs := []string{"call-picker"}
 				if outcome == "batch-rollback" || outcome == "batch-unstarted" || outcome == "decision-rollback" || outcome == "invalid-batch" {
 					callIDs = []string{"call-first", "call-second"}
@@ -291,7 +303,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			process := exec.Command(executable, "-test.run=^TestReplyRecoveryProcess$")
 			process.Env = append(os.Environ(), "GATEHOUSE_TEST_REPLAY_PATH="+configuration.Path, "GATEHOUSE_TEST_REPLAY_PROTOCOL="+protocol)
-			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "request-replay"
+			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "request-replay" || outcome == "input-request-rollback"
 			var recoveredContext dbos.Context
 			var recoveredRuntime *agent.SessionEventReplyRuntime
 			if boundaryCrash {
@@ -332,7 +344,17 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if outcome == "retry-replay" || outcome == "decision-rollback" {
 					wantSuccess = 0
 				}
-				if thinkingSuccess != wantSuccess || outcome == "batch-unstarted" && toolRequests != 2 || outcome != "batch-unstarted" && toolRequests != 0 {
+				wantTools := 0
+				if outcome == "batch-unstarted" {
+					wantTools = 2
+				} else if outcome == "input-request-rollback" {
+					wantTools = 1
+					var inputs int
+					if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_session_events WHERE kind = 'input.request'`).Scan(&inputs); err != nil || inputs != 0 {
+						t.Fatalf("uncommitted input request survived crash: %d (%v)", inputs, err)
+					}
+				}
+				if thinkingSuccess != wantSuccess || toolRequests != wantTools {
 					t.Fatalf("decision at boundary crash: thinking.success=%d tool.request=%d", thinkingSuccess, toolRequests)
 				}
 				second, runtime := newRuntime()
@@ -341,7 +363,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if err := runtime.Reconcile(); err != nil {
 					t.Fatal(err)
 				}
-				if outcome != "batch-unstarted" {
+				if outcome != "batch-unstarted" && outcome != "input-request-rollback" {
 					err, request := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
 					if err != nil || request == nil {
 						t.Fatalf("agent request = (%#v, %v)", request, err)
@@ -400,6 +422,13 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						agentSuccess = &succeeded
 					}
 					if event.Kind == model.SessionEventKindInputRequest {
+						if event.Parent == nil {
+							t.Fatal("input request has no owning tool")
+						}
+						var exists bool
+						if err := store.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM workflow_status WHERE workflow_uuid = ?)`, "session-tool-call:"+event.Parent.Id).Scan(&exists); err != nil || !exists {
+							t.Fatalf("input was exposed before its destination workflow: %v (%v)", exists, err)
+						}
 						input = event.Ref
 						if event.Parent != nil {
 							inputToolCall = *event.Parent
@@ -496,27 +525,20 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				defer dbos.Shutdown(recoveredContext, 10*time.Second)
 			}
 			runtime := recoveredRuntime
-			inputWorkflowID := "session-input:" + input.Id
-			inputWorkflowDeadline := time.Now().Add(15 * time.Second)
-			for time.Now().Before(inputWorkflowDeadline) {
-				var exists bool
-				if err := store.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM workflow_status WHERE workflow_uuid = ?)`, inputWorkflowID).Scan(&exists); err != nil {
-					t.Fatal(err)
-				}
-				if exists {
-					break
-				}
-				time.Sleep(20 * time.Millisecond)
-			}
-			var inputWorkflowExists bool
-			if err := store.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM workflow_status WHERE workflow_uuid = ?)`, inputWorkflowID).Scan(&inputWorkflowExists); err != nil || !inputWorkflowExists {
-				t.Fatalf("input workflow %q was not restarted: exists=%v err=%v", inputWorkflowID, inputWorkflowExists, err)
+			var inputWorkflows int
+			if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_status WHERE name = 'gatehouse.session-input'`).Scan(&inputWorkflows); err != nil || inputWorkflows != 0 {
+				t.Fatalf("unexpected input child workflows: %d (%v)", inputWorkflows, err)
 			}
 			const answerMarker = "DBOS_INPUT_PAYLOAD_MUST_STAY_IN_GATEHOUSE_7f3c2a"
+			const secondAnswerMarker = "DBOS_SECOND_INPUT_PAYLOAD_MUST_STAY_IN_GATEHOUSE_a93f2c"
+			firstAnswer := answerMarker
+			if outcome == "multiple-inputs" {
+				firstAnswer += strings.Repeat("x", 128<<10)
+			}
 			responseKind := model.SessionEventKindInputSuccess
 			responsePayload := map[string]interface{}{}
-			if outcome == "success" || outcome == "batch-unstarted" || outcome == "rate-replay" {
-				if err, _ := store.SessionInputDraftSet(ctx, input, []string{"file"}, json.RawMessage(`{"file_id":"`+answerMarker+`"}`)); err != nil {
+			if successfulInput {
+				if err, _ := store.SessionInputDraftSet(ctx, input, []string{"file"}, json.RawMessage(`{"file_id":"`+firstAnswer+`"}`)); err != nil {
 					t.Fatal(err)
 				}
 			} else {
@@ -527,14 +549,12 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err, _ := store.SessionInputResponseCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &input, Kind: responseKind, AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true}, Payload: responsePayload}); err != nil {
-				t.Fatal(err)
-			}
-			if err := runtime.Reconcile(); err != nil {
+			if err, _ := runtime.RespondToInput(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &input, Kind: responseKind, AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true}, Payload: responsePayload}); err != nil {
 				t.Fatal(err)
 			}
 			deadline = time.Now().Add(15 * time.Second)
 			var inputResponse model.SessionEventRef
+			var secondInput model.SessionEventRef
 			var inputToolOutcome *model.SessionEvent
 			for time.Now().Before(deadline) {
 				err, events := store.SessionEventsGet(ctx, session)
@@ -542,6 +562,27 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					t.Fatal(err)
 				}
 				for _, event := range events {
+					if outcome == "multiple-inputs" && event.Kind == model.SessionEventKindInputRequest && event.Ref != input && secondInput.Id == "" {
+						if event.Parent == nil || *event.Parent != inputToolCall {
+							t.Fatal("second form belongs to a different tool call")
+						}
+						encoded, err := json.Marshal(event.Payload)
+						if err != nil || !bytes.Contains(encoded, []byte(answerMarker)) {
+							t.Fatal("second form did not reuse the first response as its inputs")
+						}
+						assertDBOSDoesNotContain(t, store, answerMarker)
+						secondInput = event.Ref
+						if err, _ := store.SessionInputDraftSet(ctx, secondInput, []string{"file"}, json.RawMessage(`{"file_id":"`+secondAnswerMarker+`"}`)); err != nil {
+							t.Fatal(err)
+						}
+						id, err := typed_id.New(typed_id.SessionEvent)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err, _ := runtime.RespondToInput(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &secondInput, Kind: model.SessionEventKindInputSuccess, AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true}}); err != nil {
+							t.Fatal(err)
+						}
+					}
 					if (event.Kind == model.SessionEventKindInputSuccess || event.Kind == model.SessionEventKindInputFailure) && event.Parent != nil && *event.Parent == input {
 						inputResponse = event.Ref
 					}
@@ -565,16 +606,29 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						if inputResponse.Id == "" || inputToolOutcome == nil {
 							t.Fatal("input response or its tool outcome was not persisted")
 						}
-						if outcome == "success" || outcome == "batch-unstarted" || outcome == "rate-replay" {
+						if successfulInput {
 							if inputToolOutcome.Kind != model.SessionEventKindToolSuccess {
 								t.Fatalf("tool outcome after submitted input = %q, want success", inputToolOutcome.Kind)
 							}
 							if output, _ := inputToolOutcome.Payload["output"].(string); !strings.Contains(output, answerMarker) {
 								t.Fatalf("Gatehouse tool output did not retain the submitted answer: %q", output)
 							}
+							if outcome == "multiple-inputs" {
+								output, _ := inputToolOutcome.Payload["output"].(string)
+								if secondInput.Id == "" || !strings.Contains(output, secondAnswerMarker) {
+									t.Fatal("tool call did not retain both form responses")
+								}
+								var forms, waits int
+								if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_session_events WHERE kind = 'input.request'`).Scan(&forms); err != nil || forms != 2 {
+									t.Fatalf("forms after recovery: %d (%v), want 2", forms, err)
+								}
+								if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM workflow_status WHERE name = 'gatehouse.session-input'`).Scan(&waits); err != nil || waits != 0 {
+									t.Fatalf("unexpected input child workflows: %d (%v)", waits, err)
+								}
+							}
 							err, answer := store.SessionInputResponseResultGet(ctx, inputResponse)
-							if err != nil || answer != `{"file":{"file_id":"`+answerMarker+`"}}` {
-								t.Fatalf("stored input result = (%q, %v)", answer, err)
+							if err != nil || answer != `{"file":{"file_id":"`+firstAnswer+`"}}` {
+								t.Fatalf("stored input result: %d bytes (%v)", len(answer), err)
 							}
 						} else {
 							toolOutput, _ := inputToolOutcome.Payload["output"].(string)
@@ -586,6 +640,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 							}
 						}
 						assertDBOSDoesNotContain(t, store, answerMarker)
+						assertDBOSDoesNotContain(t, store, secondAnswerMarker)
 						assertDBOSDoesNotContain(t, store, providerReplyMarker)
 						return
 					}

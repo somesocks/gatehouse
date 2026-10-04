@@ -101,29 +101,28 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wait := func(waitContext dbos.Context, _ struct{}) (model.SessionEventRef, error) {
-		return dbos.Recv[model.SessionEventRef](waitContext, "response", time.Hour)
+	dataSource, err := dbos.NewDataSource(dbosContext, store.DB)
+	if err != nil {
+		t.Fatal(err)
 	}
-	dbos.RegisterWorkflow(dbosContext, wait, dbos.WithWorkflowName("test.input-http-wait"))
-	workflow := func(workflowContext dbos.Context, _ struct{}) (string, error) {
+	workflow := func(workflowContext dbos.Context, _ struct{}) (model.SessionEventRef, error) {
 		modules := []lisp.HostModule{agent.NewInputModule(func(form inputform.Form) (error, string) {
-			id, err := typed_id.New(typed_id.SessionEvent)
+			input, err := dbos.RunAsTransaction(workflowContext, dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
+				id, err := typed_id.New(typed_id.SessionEvent)
+				if err != nil {
+					return model.SessionEventRef{}, err
+				}
+				err, event := store.SessionEventCreateInTransaction(step, tx, model.SessionEvent{
+					Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &tool.Ref,
+					Kind: "input.request", AuthorAgent: &agentRef,
+					Payload: map[string]interface{}{"description": form.Title, "form": form},
+				})
+				return event.Ref, err
+			})
 			if err != nil {
 				return err, ""
 			}
-			input := model.SessionEvent{
-				Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &tool.Ref,
-				Kind: "input.request", AuthorAgent: &agentRef,
-				Payload: map[string]interface{}{"description": form.Title, "form": form},
-			}
-			if err, _ := store.SessionEventsCreateBatch(workflowContext, []model.SessionEvent{input}); err != nil {
-				return err, ""
-			}
-			handle, err := dbos.RunWorkflow(workflowContext, wait, struct{}{}, dbos.WithWorkflowID("session-input:"+id))
-			if err != nil {
-				return err, ""
-			}
-			response, err := handle.GetResult()
+			response, err := dbos.Recv[model.SessionEventRef](workflowContext, "input:"+input.Id, time.Hour)
 			if err != nil {
 				return err, ""
 			}
@@ -133,16 +132,26 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 			Context: workflowContext, HostModules: modules,
 		})
 		if err != nil {
-			return "", err
+			return model.SessionEventRef{}, err
 		}
-		return result.String(), nil
+		return dbos.RunAsTransaction(workflowContext, dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
+			id, err := typed_id.New(typed_id.SessionEvent)
+			if err != nil {
+				return model.SessionEventRef{}, err
+			}
+			err, event := store.SessionEventCreateInTransaction(step, tx, model.SessionEvent{
+				Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &tool.Ref,
+				Kind: "tool.success", AuthorAgent: &agentRef, Payload: map[string]interface{}{"output": result.String()},
+			})
+			return event.Ref, err
+		})
 	}
 	dbos.RegisterWorkflow(dbosContext, workflow, dbos.WithWorkflowName("test.input-http-roundtrip"))
 	if err := dbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
-	handle, err := dbos.RunWorkflow(dbosContext, workflow, struct{}{}, dbos.WithWorkflowID("test.input-http-roundtrip"))
+	handle, err := dbos.RunWorkflow(dbosContext, workflow, struct{}{}, dbos.WithWorkflowID("session-tool-call:"+tool.Ref.Id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -192,14 +201,20 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	if launch.Capability == "" {
 		t.Fatal("open response has no input capability")
 	}
-	if saved := call(http.MethodPatch, "/api/v1/input/draft", launch.Capability, `{"op":"set","path":["name"],"value":"Ada"}`); saved.Code != http.StatusNoContent {
+	const marker = "DBOS_HTTP_INPUT_PAYLOAD_MUST_STAY_IN_GATEHOUSE_439adc"
+	if saved := call(http.MethodPatch, "/api/v1/input/draft", launch.Capability, `{"op":"set","path":["name"],"value":"`+marker+`"}`); saved.Code != http.StatusNoContent {
 		t.Fatalf("save input field = %d %s", saved.Code, saved.Body.String())
 	}
 	if submitted := call(http.MethodPost, "/api/v1/input/submit", launch.Capability, ""); submitted.Code != http.StatusAccepted {
 		t.Fatalf("submit input = %d %s", submitted.Code, submitted.Body.String())
 	}
 	result, err := handle.GetResult()
-	if err != nil || result != `"Ada"` {
-		t.Fatalf("Lisp resumed with json/object result = (%s, %v)", result, err)
+	if err != nil {
+		t.Fatal(err)
 	}
+	err, event := store.SessionEventGet(ctx, result)
+	if err != nil || event == nil || event.Payload["output"] != `"`+marker+`"` {
+		t.Fatalf("Lisp resumed with json/object result = (%#v, %v)", event, err)
+	}
+	assertDBOSDoesNotContain(t, store, marker)
 }

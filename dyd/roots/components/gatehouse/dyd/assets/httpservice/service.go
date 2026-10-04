@@ -58,6 +58,10 @@ type ReplyCancellationDispatcher interface {
 	CancelReply(context.Context, model.SessionEvent) (error, model.SessionEvent)
 }
 
+type InputResponseDispatcher interface {
+	RespondToInput(context.Context, model.SessionEvent) (error, model.SessionEvent)
+}
+
 func StartWithReplyDispatcher(configuration config.HTTPService, store *database.Store, dispatcher ReplyDispatcher, tokens ...*auth.BearerTokens) (error, *Service) {
 	return start(configuration, store, dispatcher, nil, tokens...)
 }

@@ -165,7 +165,6 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 		"session-event-reply:" + request.Ref.Id,
 		"session-tool-call:" + inputRequest.Parent.Id,
 		"session-tool-call:" + approvalRequest.Parent.Id,
-		"session-input:" + input.Id,
 		"session-approval:" + approval.Id,
 	} {
 		var status string
@@ -184,9 +183,6 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 	}
 	if err, response := store.SessionEventChildGet(ctx, approval, model.SessionEventKindApprovalFailure); err != nil || response == nil || response.Payload["code"] != "cancelled" {
 		t.Fatalf("approval cancellation response = (%#v, %v)", response, err)
-	}
-	if err, pending := store.SessionInputResponseTasksGet(ctx, 10); err != nil || len(pending) != 0 {
-		t.Fatalf("cancelled input delivery tasks = (%#v, %v), want none", pending, err)
 	}
 	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
 		t.Fatalf("CancelReply() after completion = (%#v, %v)", stored, err)

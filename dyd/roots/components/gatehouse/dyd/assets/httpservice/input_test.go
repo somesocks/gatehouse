@@ -17,11 +17,21 @@ import (
 	"gatehouse/typed_id"
 )
 
-type inputTestDispatcher struct{ calls int }
+type inputTestDispatcher struct {
+	store *database.Store
+	calls int
+}
 
 func (dispatcher *inputTestDispatcher) Reconcile() error {
-	dispatcher.calls++
 	return nil
+}
+
+func (dispatcher *inputTestDispatcher) RespondToInput(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	err, stored := dispatcher.store.SessionInputResponseCreate(ctx, event)
+	if err == nil {
+		dispatcher.calls++
+	}
+	return err, stored
 }
 
 type inputTestFixture struct {
@@ -66,7 +76,7 @@ func newInputTestFixture(t *testing.T, extra ...inputform.Field) inputTestFixtur
 	if err, _ := store.SessionEventsCreateBatch(ctx, []model.SessionEvent{message, tool, input}); err != nil {
 		t.Fatal(err)
 	}
-	dispatcher := &inputTestDispatcher{}
+	dispatcher := &inputTestDispatcher{store: store}
 	return inputTestFixture{store: store, tokens: tokens, handler: HandlerWithReplyDispatcher(config.HTTPService{API: true, Web: true, PublicBaseURL: "https://gatehouse.example.test"}, store, dispatcher, tokens), dispatcher: dispatcher, input: input.Ref, login: login}
 }
 
@@ -341,7 +351,7 @@ func TestInputHTTPLaunchPatchAndSubmit(t *testing.T) {
 		Kind    string `json:"kind"`
 	}
 	if err := json.Unmarshal(submit.Body.Bytes(), &terminal); err != nil || submit.Code != http.StatusAccepted || terminal.Kind != "input.success" || !typed_id.Valid(typed_id.SessionEvent, terminal.EventID) || fixture.dispatcher.calls != 1 {
-		t.Fatalf("submit = %d %s (%v), reconcile calls %d", submit.Code, submit.Body.String(), err, fixture.dispatcher.calls)
+		t.Fatalf("submit = %d %s (%v), response calls %d", submit.Code, submit.Body.String(), err, fixture.dispatcher.calls)
 	}
 	err, result := fixture.store.SessionInputResponseResultGet(ctx, model.SessionEventRef{Session: fixture.input.Session, Id: terminal.EventID})
 	if err != nil || result != `{"agreed":false,"name":"Ada","profile":{"city":"Paris","entries":[{"count":9007199254740993}]}}` {
@@ -389,6 +399,26 @@ func TestInputHTTPLaunchWithNoConfiguration(t *testing.T) {
 	capability := inputTestCapability(t, response)
 	if read := inputTestRequest(handler, http.MethodGet, "/api/v1/input", capability, ""); read.Code != http.StatusOK {
 		t.Fatalf("read form from default launch = %d %s", read.Code, read.Body.String())
+	}
+}
+
+func TestInputSubmissionRequiresWorkflowDispatcher(t *testing.T) {
+	fixture := newInputTestFixture(t)
+	capability := formTokenForFixture(t, fixture)
+	if saved := inputTestRequest(fixture.handler, http.MethodPatch, "/api/v1/input/draft", capability, `{"op":"set","path":["name"],"value":"Ada"}`); saved.Code != http.StatusNoContent {
+		t.Fatalf("save draft: %d %s", saved.Code, saved.Body.String())
+	}
+	handler := Handler(config.HTTPService{API: true}, fixture.store, fixture.tokens)
+	for _, path := range []string{"/api/v1/input/submit", "/api/v1/input/cancel"} {
+		if response := inputTestRequest(handler, http.MethodPost, path, capability, ""); response.Code != http.StatusServiceUnavailable {
+			t.Fatalf("submission without workflow dispatcher: %d %s", response.Code, response.Body.String())
+		}
+	}
+	if err, resolved := fixture.store.SessionInputResolvedGet(context.Background(), fixture.input); err != nil || resolved {
+		t.Fatalf("unavailable dispatcher resolved input: %v (%v)", resolved, err)
+	}
+	if err, draft := fixture.store.SessionInputDraftGet(context.Background(), fixture.input); err != nil || draft == nil || string(draft.Values) != `{"name":"Ada"}` {
+		t.Fatalf("unavailable dispatcher changed draft: %#v (%v)", draft, err)
 	}
 }
 

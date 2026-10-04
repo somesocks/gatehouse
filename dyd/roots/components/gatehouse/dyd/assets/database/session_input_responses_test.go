@@ -66,9 +66,8 @@ func TestSessionInputSubmitUsesValidatedStoredDraft(t *testing.T) {
 	if err, draft := store.SessionInputDraftGet(ctx, request); err != nil || draft != nil {
 		t.Fatalf("successful submit retained draft = (%#v, %v)", draft, err)
 	}
-	err, tasks := store.SessionInputResponseTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Input != request || tasks[0].Response != stored.Ref {
-		t.Fatalf("undelivered response tasks = (%#v, %v)", tasks, err)
+	if err, resolved := store.SessionInputResolvedGet(ctx, request); err != nil || !resolved {
+		t.Fatalf("submitted input = (%v, %v), want resolved", resolved, err)
 	}
 	if err, _ := store.SessionInputDraftSet(ctx, request, []string{"name"}, json.RawMessage(`"Grace"`)); !errors.Is(err, database.ErrSessionInputResolved) {
 		t.Fatalf("late draft update error = %v", err)
@@ -83,11 +82,39 @@ func TestSessionInputSubmitUsesValidatedStoredDraft(t *testing.T) {
 	if err, event := store.SessionEventGet(ctx, second.Ref); err != nil || event != nil {
 		t.Fatalf("duplicate response event = (%#v, %v)", event, err)
 	}
-	if err := store.SessionInputResponseTaskDelivered(ctx, request); err != nil {
-		t.Fatal(err)
-	}
-	if err, tasks := store.SessionInputResponseTasksGet(ctx, 10); err != nil || len(tasks) != 0 {
-		t.Fatalf("delivered response tasks = (%#v, %v)", tasks, err)
+}
+
+func TestSessionInputTerminalEventConstraint(t *testing.T) {
+	for _, kind := range []string{"input.success", "input.failure"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx := context.Background()
+			store, request := inputDraftFixture(t, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+			first := inputResponse(t, store, request, "sev_00000000000000000000000003", kind, map[string]interface{}{})
+			// Bypass the response helper: the event constraint itself must protect
+			// the invariant, and event-based reads must recognize the resolution.
+			if err, _ := store.SessionEventsCreateBatch(ctx, []model.SessionEvent{first}); err != nil {
+				t.Fatal(err)
+			}
+			for index, otherKind := range []string{"input.success", "input.failure"} {
+				id := "sev_00000000000000000000000004"
+				if index == 1 {
+					id = "sev_00000000000000000000000005"
+				}
+				second := inputResponse(t, store, request, id, otherKind, map[string]interface{}{})
+				if err, _ := store.SessionEventsCreateBatch(ctx, []model.SessionEvent{second}); err == nil {
+					t.Fatalf("accepted %s after %s", otherKind, kind)
+				}
+			}
+			if err, resolved := store.SessionInputResolvedGet(ctx, request); err != nil || !resolved {
+				t.Fatalf("terminal event did not resolve input: %v (%v)", resolved, err)
+			}
+			if err, state := store.SessionInputStateGet(ctx, request); err != nil || state == nil || !state.Resolved {
+				t.Fatalf("terminal event not reflected in input state: %#v (%v)", state, err)
+			}
+			if err, _ := store.SessionInputDraftSet(ctx, request, []string{"name"}, json.RawMessage(`"Ada"`)); !errors.Is(err, database.ErrSessionInputResolved) {
+				t.Fatalf("terminal event permitted draft mutation: %v", err)
+			}
+		})
 	}
 }
 
@@ -156,6 +183,57 @@ func TestSessionInputPatchAndSubmitSerializeAcrossStores(t *testing.T) {
 		}
 	} else if !errors.Is(err, database.ErrSessionInputResolved) || result != `{"name":"Ada"}` {
 		t.Fatalf("late patch error = %v, terminal result = %s", err, result)
+	}
+}
+
+func TestSessionInputSubmitAndCancelSerializeAcrossStores(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: filepath.Join(t.TempDir(), "input.sqlite")}
+	first, request := inputDraftFixture(t, configuration)
+	err, second := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if err, _ := first.SessionInputDraftSet(ctx, request, []string{"name"}, json.RawMessage(`"Ada"`)); err != nil {
+		t.Fatal(err)
+	}
+	success := inputResponse(t, first, request, "sev_00000000000000000000000003", "input.success", nil)
+	failure := inputResponse(t, first, request, "sev_00000000000000000000000004", "input.failure", map[string]interface{}{"code": "cancelled"})
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	go func() {
+		<-start
+		err, _ := first.SessionInputResponseCreate(ctx, success)
+		results <- err
+	}()
+	go func() {
+		<-start
+		err, _ := second.SessionInputResponseCreate(ctx, failure)
+		results <- err
+	}()
+	close(start)
+	accepted, rejected := 0, 0
+	for range 2 {
+		err := <-results
+		switch {
+		case err == nil:
+			accepted++
+		case errors.Is(err, database.ErrSessionInputResolved):
+			rejected++
+		default:
+			t.Fatalf("competing response error: %v", err)
+		}
+	}
+	if accepted != 1 || rejected != 1 {
+		t.Fatalf("competing responses: accepted=%d rejected=%d", accepted, rejected)
+	}
+	var count int
+	if err := first.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_session_events WHERE parent = ? AND kind IN ('input.success', 'input.failure')`, request.Id).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("terminal responses: %d (%v)", count, err)
+	}
+	if err, draft := first.SessionInputDraftGet(ctx, request); err != nil || draft != nil {
+		t.Fatalf("resolved input retained a draft: %#v (%v)", draft, err)
 	}
 }
 

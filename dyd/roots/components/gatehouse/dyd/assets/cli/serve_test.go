@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/model"
 )
 
 func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
@@ -39,15 +40,15 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 	}
 
 	entered := make(chan struct{}, 1)
-	wait := func(ctx dbos.Context, _ struct{}) (string, error) {
+	wait := func(ctx dbos.Context, _ struct{}) (model.SessionEventRef, error) {
 		entered <- struct{}{}
-		return dbos.Recv[string](ctx, "response", time.Hour)
+		return dbos.Recv[model.SessionEventRef](ctx, "input:restart-test", time.Hour)
 	}
 	dbos.RegisterWorkflow(first, wait, dbos.WithWorkflowName("test.serve-input-wait"))
 	if err := dbos.Launch(first); err != nil {
 		t.Fatal(err)
 	}
-	const workflowID = "session-input:restart-test"
+	const workflowID = "session-tool-call:restart-test"
 	if _, err := dbos.RunWorkflow(first, wait, struct{}{}, dbos.WithWorkflowID(workflowID)); err != nil {
 		t.Fatal(err)
 	}
@@ -99,15 +100,16 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("input workflow was not recovered on restart")
 	}
-	if err := dbos.Send(second, workflowID, "Ada", "response"); err != nil {
+	response := model.SessionEventRef{Id: "sev_00000000000000000000000000"}
+	if err := dbos.Send(second, workflowID, response, "input:restart-test"); err != nil {
 		t.Fatal(err)
 	}
-	handle, err := dbos.RetrieveWorkflow[string](second, workflowID)
+	handle, err := dbos.RetrieveWorkflow[model.SessionEventRef](second, workflowID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	type outcome struct {
-		result string
+		result model.SessionEventRef
 		err    error
 	}
 	completed := make(chan outcome, 1)
@@ -117,8 +119,8 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 	}()
 	select {
 	case got := <-completed:
-		if got.err != nil || got.result != "Ada" {
-			t.Fatalf("recovered input result = (%q, %v), want Ada", got.result, got.err)
+		if got.err != nil || got.result != response {
+			t.Fatalf("recovered input result = (%#v, %v), want %#v", got.result, got.err, response)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("recovered input did not receive its response")

@@ -98,8 +98,9 @@ func (store *Store) sessionInputDraftPatch(ctx context.Context, request model.Se
 	placeholder := keychainPlaceholder(store.kind)
 	var resolved bool
 	if err := transaction.QueryRowContext(ctx, `
-		SELECT EXISTS (SELECT 1 FROM gatehouse_session_input_responses
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND input = `+placeholder(3)+`)
+		SELECT EXISTS (SELECT 1 FROM gatehouse_session_events
+		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND parent = `+placeholder(3)+`
+			AND kind IN ('input.success', 'input.failure'))
 	`, request.Session.Workspace.Id, request.Session.Id, request.Id).Scan(&resolved); err != nil {
 		return fmt.Errorf("check session input response: %w", err), nil
 	}
