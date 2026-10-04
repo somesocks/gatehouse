@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+
+set -eu
+
+export RELEASE_ASSETS="$DYD_STEM/dyd/dependencies/release-artifacts/dyd/assets"
+export PATH="$DYD_STEM/dyd/assets:$PATH"
+
+exec "${SHELL:-/bin/sh}" -i "$@"

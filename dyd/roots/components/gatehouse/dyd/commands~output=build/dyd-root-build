@@ -10,7 +10,8 @@ VERSION=$(cat "$SRC_DIR/dyd/traits/version")
 FINGERPRINT=$(cat "$SRC_DIR/dyd/fingerprint")
 WORK_DIR="$DEST_DIR/source"
 
-mkdir -p "$DEST_DIR/dyd/commands" "$WORK_DIR/config" "$WORK_DIR/configschema" "$WORK_DIR/apischema" "$WORK_DIR/httpservice/web" "$WORK_DIR/model"
+mkdir -p "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits" "$WORK_DIR/config" "$WORK_DIR/configschema" "$WORK_DIR/apischema" "$WORK_DIR/httpservice/web" "$WORK_DIR/model"
+cp "$SRC_DIR/dyd/traits/version" "$DEST_DIR/dyd/traits/version"
 cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
 chmod -R +w "$WORK_DIR"
 cp -R "$SRC_DIR/dyd/dependencies/config-schema-codec/dyd/assets/." "$WORK_DIR/configschema"
