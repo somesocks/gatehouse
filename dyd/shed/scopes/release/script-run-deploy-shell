@@ -2,4 +2,14 @@
 
 set -eu
 
+if [ -f "$DYD_GARDEN/release.env" ]; then
+	set -a
+	. "$DYD_GARDEN/release.env"
+	set +a
+fi
+
+if [ "$#" -gt 0 ]; then
+	exec dryad sprout run --scope=none --variant=output=deploy-shell dyd/sprouts/deployments/release -- "$@"
+fi
+
 exec dryad sprout run --scope=none --variant=output=deploy-shell dyd/sprouts/deployments/release

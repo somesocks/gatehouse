@@ -4,5 +4,6 @@
 /dyd/shed/heap/
 /dyd/shed/scopes/default
 
-# for the local-dev env file
+# local deployment environment files
 /local-dev.env
+/release.env

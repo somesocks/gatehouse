@@ -1,1 +1,1 @@
-Open the interactive release deploy shell.
+Open the release shell, loading release.env and forwarding optional commands.

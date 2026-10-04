@@ -26,10 +26,14 @@ dryad run build --scope=release
 
 The release scope also selects this root for `dryad roots build --scope=release`.
 
-Enter the deploy shell:
+Copy `release.env.example` to `release.env` and set the GHCR destination,
+username, and write-capable token to enable image publishing. `release.env` is
+loaded by the release scope's deploy-shell command.
+
+Enter the deploy shell; commands can also be passed after `--`:
 
 ```sh
-dryad sprout run --scope=none --variant=output=deploy-shell dyd/sprouts/deployments/release
+dryad run deploy-shell --scope=release
 ```
 
 Publish the release tag from the project Git working tree:

@@ -7,6 +7,10 @@ DEST_DIR=$DYD_BUILD
 
 mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/dependencies" "$DEST_DIR/dyd/traits"
 cp "$SRC_DIR/dyd/dependencies/release-artifacts/dyd/traits/version" "$DEST_DIR/dyd/traits/version"
+mkdir -p "$DEST_DIR/dyd/requirements"
+printf '%s' 'env:GHCR_IMAGE' > "$DEST_DIR/dyd/requirements/ghcr-image"
+printf '%s' 'env:GHCR_USER' > "$DEST_DIR/dyd/requirements/ghcr-user"
+printf '%s' 'env:GHCR_TOKEN' > "$DEST_DIR/dyd/requirements/ghcr-token"
 if [ -d "$SRC_DIR/dyd/assets" ]; then
 	cp -R "$SRC_DIR/dyd/assets/." "$DEST_DIR/dyd/assets"
 fi
