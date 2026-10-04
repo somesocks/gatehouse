@@ -5,7 +5,7 @@ This root has two output variants:
 - `release-artifacts` collects the Linux and macOS binaries for amd64 and arm64
   as plain `gatehouse-<os>-<arch>` files in `dyd/assets`. The universal container
   image's assets, including its OCI layout and image metadata, are collected in
-  `dyd/assets/image-gatehouse`.
+  `dyd/assets/image-gatehouse`. It also includes `gatehouse-config.schema.json`.
 - `deploy-shell` depends on `release-artifacts` and starts an interactive shell.
   Its `dyd/assets` directory is prepended to `PATH` for future `z-*` scripts.
   `RELEASE_ASSETS` points to the collected release assets. The shell uses `SHELL`

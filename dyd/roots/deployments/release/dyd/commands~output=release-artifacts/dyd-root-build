@@ -7,6 +7,7 @@ DEST_DIR=$DYD_BUILD
 
 mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits"
 cp "$SRC_DIR/dyd/dependencies/gatehouse-linux-amd64/dyd/traits/version" "$DEST_DIR/dyd/traits/version"
+cp "$SRC_DIR/dyd/dependencies/config-schema/dyd/assets/schema.json" "$DEST_DIR/dyd/assets/gatehouse-config.schema.json"
 for dependency in "$SRC_DIR"/dyd/dependencies/gatehouse-*; do
 	name=${dependency##*/}
 	cp "$dependency/dyd/commands/dyd-stem-run" "$DEST_DIR/dyd/assets/$name"
