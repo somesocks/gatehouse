@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+set -eu
+
+exec dryad sprout run --scope=none --variant=output=deploy-shell dyd/sprouts/deployments/release -- z-publish-tag "$@"

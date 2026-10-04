@@ -4,5 +4,10 @@ set -eu
 
 export RELEASE_ASSETS="$DYD_STEM/dyd/dependencies/release-artifacts/dyd/assets"
 export PATH="$DYD_STEM/dyd/assets:$PATH"
+export PS1='[release-shell]$ '
+
+if [ "$#" -gt 0 ]; then
+	exec "$@"
+fi
 
 exec "${SHELL:-/bin/sh}" -i "$@"
