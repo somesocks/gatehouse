@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+
+set -eu
+
+if [ "$#" -ne 0 ]; then
+	printf 'usage: z-push-images\n' >&2
+	exit 2
+fi
+
+: "${DYD_STEM:?z-push-images must run in the release deploy shell}"
+: "${RELEASE_ASSETS:?release assets are unavailable}"
+: "${GHCR_IMAGE:?set GHCR_IMAGE in release.env}"
+: "${GHCR_USER:?set GHCR_USER in release.env}"
+: "${GHCR_TOKEN:?set GHCR_TOKEN in release.env}"
+
+image_dir="$RELEASE_ASSETS/image-gatehouse"
+if [ ! -f "$image_dir/image-name" ] || [ ! -f "$image_dir/image-tag" ] || [ ! -f "$image_dir/oci/index.json" ]; then
+	printf 'Gatehouse OCI image assets are incomplete: %s\n' "$image_dir" >&2
+	exit 1
+fi
+
+source_tag=$(cat "$image_dir/image-tag")
+version=$(cat "$DYD_STEM/dyd/traits/version")
+
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/gatehouse-oci.XXXXXX")
+trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
+ln -s "$image_dir/oci" "$tmp_dir/image"
+
+printf '%s' "$GHCR_TOKEN" | regctl registry login ghcr.io --user "$GHCR_USER" --pass-stdin
+
+source_ref="ocidir://image:$source_tag"
+(
+	cd "$tmp_dir"
+	regctl image copy "$source_ref" "$GHCR_IMAGE:$version"
+	regctl image copy "$source_ref" "$GHCR_IMAGE:$source_tag"
+)
