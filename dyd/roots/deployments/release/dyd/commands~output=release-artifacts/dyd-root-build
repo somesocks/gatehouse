@@ -9,8 +9,8 @@ mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits"
 version=$(cat "$SRC_DIR/dyd/dependencies/gatehouse-linux-amd64/dyd/traits/version")
 printf '%s' "$version" > "$DEST_DIR/dyd/traits/version"
 cp "$SRC_DIR/dyd/dependencies/config-schema/dyd/assets/schema.json" "$DEST_DIR/dyd/assets/gatehouse-config.schema.json"
-cp "$SRC_DIR/dyd/dependencies/helm-gatehouse/dyd/assets/gatehouse-$version.tgz" "$DEST_DIR/dyd/assets/"
-cp "$SRC_DIR/dyd/dependencies/helm-gatehouse/dyd/assets/chart/values.schema.json" "$DEST_DIR/dyd/assets/gatehouse-values.schema.json"
+cp "$SRC_DIR/dyd/dependencies/helm-gatehouse/dyd/assets/gatehouse-$version.tgz" "$DEST_DIR/dyd/assets/gatehouse-helm-chart.tgz"
+cp "$SRC_DIR/dyd/dependencies/helm-gatehouse/dyd/assets/chart/values.schema.json" "$DEST_DIR/dyd/assets/gatehouse-helm-chart.schema.json"
 for dependency in "$SRC_DIR"/dyd/dependencies/gatehouse-*; do
 	name=${dependency##*/}
 	cp "$dependency/dyd/commands/dyd-stem-run" "$DEST_DIR/dyd/assets/$name"
