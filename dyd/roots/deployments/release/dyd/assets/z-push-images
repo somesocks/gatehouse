@@ -32,5 +32,4 @@ source_ref="ocidir://image:$source_tag"
 (
 	cd "$tmp_dir"
 	regctl image copy "$source_ref" "$GHCR_IMAGE:$version"
-	regctl image copy "$source_ref" "$GHCR_IMAGE:$source_tag"
 )

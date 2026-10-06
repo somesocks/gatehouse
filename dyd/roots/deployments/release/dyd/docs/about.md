@@ -11,8 +11,8 @@ This root has two output variants:
   `RELEASE_ASSETS` points to the collected release assets. The shell uses `SHELL`
   when set, otherwise `/bin/sh`, and starts with the `[release-shell]$` prompt.
 
-`z-push-images` publishes the universal OCI image to `GHCR_IMAGE` with both the
-release version and source fingerprint tags.
+`z-push-images` publishes the universal OCI image to `GHCR_IMAGE` with the
+release version tag.
 
 Both variants carry the Gatehouse version in `dyd/traits/version`. Publishing
 scripts in the deploy shell can read it from `$DYD_STEM/dyd/traits/version`.
