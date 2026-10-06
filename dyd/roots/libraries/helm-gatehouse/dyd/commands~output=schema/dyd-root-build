@@ -1,0 +1,62 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+CONFIG_SCHEMA="$SRC_DIR/dyd/dependencies/gatehouse-config/dyd/assets/schema.json"
+JQ="$SRC_DIR/dyd/dependencies/jq/dyd/commands/dyd-stem-run"
+
+if [ ! -f "$CONFIG_SCHEMA" ] || [ ! -x "$JQ" ]; then
+	printf '%s\n' 'missing Gatehouse config schema or jq dependency' >&2
+	exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits"
+
+"$JQ" --slurpfile app "$CONFIG_SCHEMA" '
+  def draft7:
+    if type == "object" then
+      with_entries(
+        if .key == "$defs" then .key = "definitions" | .value |= draft7
+        elif .key == "$schema" then .value = "http://json-schema.org/draft-07/schema#"
+        elif .key == "$id" then empty
+        elif .key == "$ref" then .value |= gsub("#/\\$defs/"; "#/definitions/")
+        else .value |= draft7
+        end
+      )
+    elif type == "array" then map(draft7)
+    else .
+    end;
+  ($app[0] | draft7) as $configSchema
+  | .definitions = ((.definitions // {}) + $configSchema.definitions)
+  | .definitions.GatehouseConfigForHelm = {
+      "allOf": [
+        {"$ref": "#/definitions/GatehouseConfig"},
+        {
+          "type": "object",
+          "required": ["database", "services"],
+          "properties": {
+            "services": {
+              "type": "object",
+              "required": ["http"],
+              "properties": {
+                "http": {
+                  "type": "object",
+                  "required": ["enabled", "listen"],
+                  "properties": {
+                    "enabled": {"const": true},
+                    "listen": {"const": "0.0.0.0:4283"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  | .properties.config = {"$ref": "#/definitions/GatehouseConfigForHelm"}
+  | .
+' "$SRC_DIR/dyd/assets/values.schema.json" > "$DEST_DIR/dyd/assets/values.schema.json"
+
+printf '%s' helm-gatehouse-values-schema > "$DEST_DIR/dyd/traits/name"

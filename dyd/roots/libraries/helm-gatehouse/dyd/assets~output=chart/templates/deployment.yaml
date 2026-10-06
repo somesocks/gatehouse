@@ -1,0 +1,120 @@
+{{- $volumeNames := dict -}}
+{{- range .Values.volumes -}}
+{{- if hasKey $volumeNames .name -}}
+{{- fail (printf "volumes contains duplicate name %q" .name) -}}
+{{- end -}}
+{{- $_ := set $volumeNames .name true -}}
+{{- end -}}
+{{- $podAnnotations := deepCopy .Values.podAnnotations -}}
+{{- $_ := set $podAnnotations "checksum/config" (include (print $.Template.BasePath "/configmap.yaml") . | sha256sum) -}}
+{{- $_ := set $podAnnotations "checksum/env" (include (print $.Template.BasePath "/secret.yaml") . | sha256sum) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gatehouse.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gatehouse.labels" . | nindent 4 }}
+  replicas: {{ .Values.replicaCount }}
+  revisionHistoryLimit: 5
+  strategy:
+    {{- toYaml .Values.deploymentStrategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "gatehouse.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "gatehouse.podLabels" . | nindent 8 }}
+      annotations:
+        {{- toYaml $podAnnotations | nindent 8 }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: gatehouse
+          image: {{ printf "%s:%s" .Values.image.repository (default .Chart.AppVersion .Values.image.tag) | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 4283
+              protocol: TCP
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          {{- with .Values.env }}
+          envFrom:
+            - secretRef:
+                name: {{ include "gatehouse.fullname" $ }}-env
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gatehouse/config.yaml
+              subPath: config.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+            {{- range .Values.volumes }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath | quote }}
+              {{- if .readOnly }}
+              readOnly: true
+              {{- end }}
+              {{- with .subPath }}
+              subPath: {{ . | quote }}
+              {{- end }}
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "gatehouse.fullname" . }}-config
+        - name: tmp
+          emptyDir: {}
+        {{- range .Values.volumes }}
+        - name: {{ .name }}
+          {{- include "gatehouse.volumeSource" (dict "root" $ "volume" .) | nindent 10 }}
+        {{- end }}

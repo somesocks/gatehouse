@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "gatehouse.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gatehouse.labels" . | nindent 4 }}
+data:
+  config.yaml: |-
+{{ toYaml .Values.config | indent 4 }}

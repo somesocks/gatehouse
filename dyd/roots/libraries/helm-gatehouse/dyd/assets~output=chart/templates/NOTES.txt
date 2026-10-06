@@ -1,0 +1,6 @@
+Gatehouse is available inside the cluster at:
+
+  http://{{ include "gatehouse.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}
+
+Configure platform routing separately. Set config.services.http.public_base_url
+to the external origin if Gatehouse input links are enabled.

@@ -1,0 +1,107 @@
+# Gatehouse Helm chart
+
+The chart requires a container image repository and a complete Gatehouse
+configuration. Helm validates the chart values and nested Gatehouse config
+against `values.schema.json` during lint, template, install, and upgrade. The
+config is always rendered to a ConfigMap and mounted at
+`/etc/gatehouse/config.yaml`.
+
+## SQLite with a chart-managed PVC
+
+```yaml
+image:
+  repository: ghcr.io/your-owner/gatehouse
+
+config:
+  api_version: v1
+  database:
+    kind: sqlite
+    path: /var/lib/gatehouse/gatehouse.db
+  services:
+    http:
+      enabled: true
+      listen: 0.0.0.0:4283
+      public_base_url: https://gatehouse.example.com
+      web:
+        enabled: true
+      api:
+        enabled: true
+
+volumes:
+  - name: data
+    mountPath: /var/lib/gatehouse
+    source:
+      persistentVolumeClaim:
+        create:
+          size: 8Gi
+```
+
+Install the packaged chart with these values:
+
+```sh
+helm install gatehouse ./gatehouse-<version>.tgz \
+  --namespace gatehouse --create-namespace --values values.yaml
+```
+
+The chart creates a PVC for `persistentVolumeClaim.create`. To use an existing
+PVC instead, set `source.persistentVolumeClaim.claimName` to its name. For a
+disposable SQLite test pod, use `source.emptyDir: {}` instead; the database
+then lasts only for the Pod's lifetime. The volume list is independent of the
+configured database type. Ensure the configured SQLite database path is under
+the corresponding `mountPath`.
+
+Chart-created PVCs have `helm.sh/resource-policy: keep` by default, so Helm
+uninstall leaves them behind. To reuse a retained claim, use its Kubernetes
+claim name in `source.persistentVolumeClaim.claimName` (for the example release
+name `gatehouse` and volume name `data`, that name is `gatehouse-data`). Set
+`persistentVolumeClaim.create.retain: false` to let Helm remove a PVC when the
+release is uninstalled. Deleting the PVC manually follows the reclaim policy
+of its PV/StorageClass. Supported access modes include `ReadWriteOnce` and
+`ReadWriteMany`, subject to the storage backend's capabilities.
+
+## PostgreSQL and environment values
+
+The `env` list is optional. If it has entries, the chart creates one Secret and
+injects its keys into the Pod with `envFrom`:
+
+```yaml
+config:
+  database:
+    kind: postgres
+    url: env:GATEHOUSE_DATABASE_URL
+
+env:
+  - name: GATEHOUSE_DATABASE_URL
+    value: postgres://gatehouse:password@postgres:5432/gatehouse?sslmode=disable
+  - name: OPENAI_API_KEY
+    value: replace-with-provider-key
+```
+
+Keep the environment names aligned with `env:` references in the config. Helm
+stores supplied values and rendered resources in its release history, so access
+to Helm release data must be protected when using credentials in `env`. The
+chart does not install PostgreSQL. A PostgreSQL deployment normally does not
+need an application data volume.
+
+## Volumes
+
+Each `volumes` entry specifies a name, `mountPath`, and a Kubernetes volume
+source. The chart renders matching Pod volumes and mounts, and creates PVCs for
+volume sources with a `persistentVolumeClaim.create` block. Sources without
+that block are passed through, including existing PVCs, `emptyDir`, ConfigMaps,
+Secrets, and projected volumes. No volume behavior is inferred from
+`config.database.kind`.
+
+Gatehouse's current web assets are embedded in the executable. Mounting another
+directory does not replace those assets.
+
+## Networking and health
+
+The chart creates a ClusterIP Service on port 4283. Configure external routing
+in the platform's Ingress or Gateway API resources. Gatehouse must listen on
+`0.0.0.0:4283`; set `services.http.public_base_url` to its externally
+reachable origin when using input links.
+
+The Deployment uses `/healthz` for startup and liveness probes and `/readyz`
+for readiness. These endpoints currently report process health; readiness
+does not independently test database connectivity.

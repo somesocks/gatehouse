@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Gatehouse Helm values",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["config", "image", "replicaCount", "service", "env", "volumes", "deploymentStrategy"],
+  "properties": {
+    "config": {},
+    "nameOverride": {"type": "string"},
+    "fullnameOverride": {"type": "string"},
+    "replicaCount": {"type": "integer", "minimum": 1, "default": 1},
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "tag": {"type": "string", "default": ""},
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {"name": {"type": "string", "minLength": 1}}
+      },
+      "default": []
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["port"],
+      "properties": {
+        "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 4283},
+        "annotations": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}}
+      }
+    },
+    "deploymentStrategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"type": "string", "enum": ["Recreate", "RollingUpdate"], "default": "Recreate"},
+        "rollingUpdate": {"type": "object"}
+      }
+    },
+    "env": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "value"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+          "value": {"type": "string"}
+        }
+      },
+      "default": []
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "mountPath", "source"],
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$", "maxLength": 63, "not": {"enum": ["config", "tmp"]}},
+          "mountPath": {"type": "string", "pattern": "^/"},
+          "readOnly": {"type": "boolean", "default": false},
+          "subPath": {"type": "string"},
+          "source": {
+            "type": "object",
+            "minProperties": 1,
+            "properties": {
+              "persistentVolumeClaim": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "claimName": {"type": "string", "minLength": 1},
+                  "readOnly": {"type": "boolean"},
+                  "create": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["size"],
+                    "properties": {
+                      "size": {"type": "string", "minLength": 1},
+                      "retain": {"type": "boolean", "default": true},
+                      "accessModes": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["ReadWriteOnce", "ReadOnlyMany", "ReadWriteMany", "ReadWriteOncePod"]},
+                        "minItems": 1,
+                        "default": ["ReadWriteOnce"]
+                      },
+                      "storageClassName": {"type": "string"},
+                      "volumeMode": {"type": "string", "const": "Filesystem"},
+                      "annotations": {"type": "object", "additionalProperties": {"type": "string"}},
+                      "labels": {"type": "object", "additionalProperties": {"type": "string"}}
+                    }
+                  }
+                },
+                "oneOf": [
+                  {"required": ["claimName"], "not": {"required": ["create"]}},
+                  {"required": ["create"], "not": {"required": ["claimName"]}}
+                ]
+              }
+            }
+          }
+        }
+      },
+      "default": []
+    },
+    "resources": {"type": "object", "default": {}},
+    "podAnnotations": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}},
+    "podLabels": {"type": "object", "additionalProperties": {"type": "string"}, "default": {}},
+    "podSecurityContext": {"type": "object", "default": {}},
+    "containerSecurityContext": {"type": "object", "default": {}},
+    "nodeSelector": {"type": "object", "default": {}},
+    "tolerations": {"type": "array", "items": {"type": "object"}, "default": []},
+    "affinity": {"type": "object", "default": {}}
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["config"],
+        "properties": {
+          "config": {
+            "required": ["database"],
+            "properties": {
+              "database": {
+                "required": ["kind"],
+                "properties": {"kind": {"const": "postgres"}}
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "config": {
+            "properties": {
+              "database": {"properties": {"url": {"pattern": "^env:[A-Za-z_][A-Za-z0-9_]*$"}}}
+            }
+          }
+        }
+      }
+    }
+  ]
+}

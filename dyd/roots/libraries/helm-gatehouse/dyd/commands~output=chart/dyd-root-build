@@ -1,0 +1,62 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+DEST_ASSETS=$DEST_DIR/dyd/assets/chart
+SCHEMA_DEP=$SRC_DIR/dyd/dependencies/schema
+HELM="$SRC_DIR/dyd/dependencies/helm/dyd/commands/dyd-stem-run"
+GATEHOUSE_DEP=$SRC_DIR/dyd/dependencies/gatehouse
+
+if [ ! -f "$SCHEMA_DEP/dyd/assets/values.schema.json" ] || [ ! -x "$HELM" ]; then
+	printf '%s\n' 'missing chart schema or Helm dependency' >&2
+	exit 1
+fi
+
+VERSION=$(cat "$GATEHOUSE_DEP/dyd/traits/version")
+TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/helm-gatehouse.XXXXXX")
+trap 'rm -rf "$TMP_DIR"' EXIT HUP INT TERM
+
+mkdir -p "$DEST_ASSETS" "$DEST_DIR/dyd/traits"
+cp -R "$SRC_DIR/dyd/assets/." "$DEST_ASSETS/"
+cp "$SCHEMA_DEP/dyd/assets/values.schema.json" "$DEST_ASSETS/values.schema.json"
+
+GATEHOUSE_VERSION=$VERSION
+export GATEHOUSE_VERSION
+cat > "$DEST_ASSETS/Chart.yaml" <<EOF
+apiVersion: v2
+name: gatehouse
+description: Gatehouse session and agent service
+type: application
+version: "$GATEHOUSE_VERSION"
+appVersion: "$GATEHOUSE_VERSION"
+EOF
+
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" "$DEST_ASSETS"
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/postgres-values.yaml" "$DEST_ASSETS"
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-emptydir-overrides.yaml" "$DEST_ASSETS"
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-existing-pvc-overrides.yaml" "$DEST_ASSETS"
+"$HELM" template gatehouse-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" > "$TMP_DIR/rendered.yaml"
+"$HELM" template gatehouse-postgres-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/postgres-values.yaml" > "$TMP_DIR/rendered-postgres.yaml"
+"$HELM" template gatehouse-sqlite-emptydir-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-emptydir-overrides.yaml" > "$TMP_DIR/rendered-sqlite-emptydir.yaml"
+"$HELM" template gatehouse-sqlite-existing-pvc-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-existing-pvc-overrides.yaml" > "$TMP_DIR/rendered-sqlite-existing-pvc.yaml"
+
+sed 's/^    kind: sqlite$/    kind: unknown/' \
+	"$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" > "$TMP_DIR/invalid-values.yaml"
+if "$HELM" template gatehouse-invalid "$DEST_ASSETS" --values "$TMP_DIR/invalid-values.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted invalid Gatehouse database config' >&2
+	exit 1
+fi
+if "$HELM" template gatehouse-duplicate-volumes "$DEST_ASSETS" \
+	--values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" \
+	--set-json 'volumes=[{"name":"duplicate","mountPath":"/one","source":{"emptyDir":{}}},{"name":"duplicate","mountPath":"/two","source":{"emptyDir":{}}}]' \
+	> /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted duplicate volume names' >&2
+	exit 1
+fi
+
+"$HELM" package "$DEST_ASSETS" --destination "$DEST_DIR/dyd/assets"
+
+printf '%s' helm-gatehouse > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"

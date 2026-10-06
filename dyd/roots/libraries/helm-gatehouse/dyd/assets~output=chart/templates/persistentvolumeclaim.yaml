@@ -1,0 +1,43 @@
+{{- $root := . -}}
+{{- range $volume := .Values.volumes -}}
+{{- $pvc := get $volume.source "persistentVolumeClaim" -}}
+{{- if and $pvc (hasKey $pvc "create") }}
+{{- $create := get $pvc "create" -}}
+{{- $labels := include "gatehouse.labels" $root | fromYaml -}}
+{{- if $create.labels -}}
+{{- $labels = merge $labels $create.labels -}}
+{{- end -}}
+{{- $annotations := deepCopy (default (dict) $create.annotations) -}}
+{{- $retain := true -}}
+{{- if hasKey $create "retain" -}}
+{{- $retain = $create.retain -}}
+{{- end -}}
+{{- if $retain -}}
+{{- $_ := set $annotations "helm.sh/resource-policy" "keep" -}}
+{{- end -}}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ printf "%s-%s" (include "gatehouse.fullname" $root) $volume.name | trunc 63 | trimSuffix "-" }}
+  namespace: {{ $root.Release.Namespace }}
+  labels:
+    {{- toYaml $labels | nindent 4 }}
+  {{- with $annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml (default (list "ReadWriteOnce") $create.accessModes) | nindent 4 }}
+  resources:
+    requests:
+      storage: {{ $create.size | quote }}
+  {{- with $create.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  {{- with $create.volumeMode }}
+  volumeMode: {{ . | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

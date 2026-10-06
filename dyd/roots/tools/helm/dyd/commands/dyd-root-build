@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+OS=$(cat "$SRC_DIR/dyd/traits/os")
+ARCH=$(cat "$SRC_DIR/dyd/traits/arch")
+VERSION=$(cat "$SRC_DIR/dyd/traits/version")
+PLATFORM="$OS-$ARCH"
+SOURCE="$SRC_DIR/dyd/dependencies/helm-bin/dyd/assets/helm-v$VERSION-$PLATFORM/$PLATFORM/helm"
+
+if [ ! -f "$SOURCE" ]; then
+	printf '%s\n' "missing Helm binary for $PLATFORM version $VERSION" >&2
+	exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp "$SOURCE" "$DEST_DIR/dyd/commands/dyd-stem-run"
+chmod +x "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' helm > "$DEST_DIR/dyd/traits/name"
+printf '%s' "$VERSION" > "$DEST_DIR/dyd/traits/version"
+printf '%s' "$OS" > "$DEST_DIR/dyd/traits/os"
+printf '%s' "$ARCH" > "$DEST_DIR/dyd/traits/arch"

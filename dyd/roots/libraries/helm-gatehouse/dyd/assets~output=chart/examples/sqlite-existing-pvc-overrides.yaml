@@ -1,0 +1,6 @@
+volumes:
+  - name: data
+    mountPath: /var/lib/gatehouse
+    source:
+      persistentVolumeClaim:
+        claimName: gatehouse-existing-data

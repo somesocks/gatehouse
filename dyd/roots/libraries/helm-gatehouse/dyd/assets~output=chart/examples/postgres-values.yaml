@@ -1,0 +1,26 @@
+image:
+  repository: example.invalid/gatehouse
+
+deploymentStrategy:
+  type: RollingUpdate
+
+config:
+  api_version: v1
+  database:
+    kind: postgres
+    url: env:GATEHOUSE_DATABASE_URL
+  services:
+    http:
+      enabled: true
+      listen: 0.0.0.0:4283
+      public_base_url: https://gatehouse.example.test
+      web:
+        enabled: true
+      api:
+        enabled: true
+
+env:
+  - name: GATEHOUSE_DATABASE_URL
+    value: postgres://gatehouse:replace-me@postgres:5432/gatehouse?sslmode=disable
+
+volumes: []

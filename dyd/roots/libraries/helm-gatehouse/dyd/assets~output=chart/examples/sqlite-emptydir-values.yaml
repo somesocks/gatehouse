@@ -1,0 +1,24 @@
+image:
+  repository: example.invalid/gatehouse
+
+config:
+  api_version: v1
+  database:
+    kind: sqlite
+    path: /var/lib/gatehouse/gatehouse.db
+  services:
+    http:
+      enabled: true
+      listen: 0.0.0.0:4283
+      public_base_url: https://gatehouse.example.test
+      web:
+        enabled: true
+      api:
+        enabled: true
+
+env: []
+volumes:
+  - name: gatehouse-data
+    mountPath: /var/lib/gatehouse
+    source:
+      emptyDir: {}

@@ -1,0 +1,22 @@
+#!/usr/bin/env sh
+
+set -eu
+
+SRC_DIR=$DYD_STEM
+DEST_DIR=$DYD_BUILD
+SOURCE="$SRC_DIR/dyd/dependencies/jq-bin/dyd/assets/jq"
+
+if [ ! -f "$SOURCE" ]; then
+	printf '%s\n' 'missing jq binary' >&2
+	exit 1
+fi
+
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/commands" "$DEST_DIR/dyd/traits"
+cp "$SOURCE" "$DEST_DIR/dyd/assets/jq"
+chmod +x "$DEST_DIR/dyd/assets/jq"
+ln -s ../assets/jq "$DEST_DIR/dyd/commands/dyd-stem-run"
+
+printf '%s' jq > "$DEST_DIR/dyd/traits/name"
+cp "$SRC_DIR/dyd/traits/version" "$DEST_DIR/dyd/traits/version"
+cp "$SRC_DIR/dyd/traits/os" "$DEST_DIR/dyd/traits/os"
+cp "$SRC_DIR/dyd/traits/arch" "$DEST_DIR/dyd/traits/arch"
