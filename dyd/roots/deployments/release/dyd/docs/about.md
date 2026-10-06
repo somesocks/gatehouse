@@ -12,10 +12,7 @@ This root has two output variants:
   when set, otherwise `/bin/sh`, and starts with the `[release-shell]$` prompt.
 
 `z-push-images` publishes the universal OCI image to `GHCR_IMAGE` with both the
-release version and source fingerprint tags. `z-publish-tag [remote]` creates
-the annotated `release-<version>` Git tag if it doesn't exist, then pushes that
-tag to `origin` or the specified Git remote. Run it from the project Git working
-tree.
+release version and source fingerprint tags.
 
 Both variants carry the Gatehouse version in `dyd/traits/version`. Publishing
 scripts in the deploy shell can read it from `$DYD_STEM/dyd/traits/version`.
@@ -38,7 +35,7 @@ Enter the deploy shell; commands can also be passed after `--`:
 dryad run deploy-shell --scope=release
 ```
 
-Publish the release tag from the project Git working tree:
+Publish the release tag with the host's Git authentication:
 
 ```sh
 dryad run publish-release-tag --scope=release

@@ -2,4 +2,23 @@
 
 set -eu
 
-exec dryad sprout run --scope=none --variant=output=deploy-shell dyd/sprouts/deployments/release -- z-publish-tag "$@"
+if [ "$#" -gt 1 ]; then
+	printf 'usage: dryad run publish-release-tag [remote]\n' >&2
+	exit 2
+fi
+
+version=$(cat "$DYD_GARDEN/dyd/roots/components/gatehouse/dyd/traits/version")
+tag="release-$version"
+if ! git -C "$DYD_GARDEN" check-ref-format "refs/tags/$tag"; then
+	printf 'invalid release tag: %s\n' "$tag" >&2
+	exit 1
+fi
+
+remote=${1:-origin}
+if git -C "$DYD_GARDEN" show-ref --verify --quiet "refs/tags/$tag"; then
+	printf 'reusing existing tag %s\n' "$tag"
+else
+	git -C "$DYD_GARDEN" tag --annotate "$tag" --message "Gatehouse $version"
+fi
+
+git -C "$DYD_GARDEN" push "$remote" "refs/tags/$tag:refs/tags/$tag"
