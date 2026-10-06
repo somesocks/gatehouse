@@ -18,7 +18,7 @@ remote=${1:-origin}
 if git -C "$DYD_GARDEN" show-ref --verify --quiet "refs/tags/$tag"; then
 	printf 'reusing existing tag %s\n' "$tag"
 else
-	git -C "$DYD_GARDEN" tag --annotate "$tag" --message "Gatehouse $version"
+	git -C "$DYD_GARDEN" tag "$tag"
 fi
 
 git -C "$DYD_GARDEN" push "$remote" "refs/tags/$tag:refs/tags/$tag"
