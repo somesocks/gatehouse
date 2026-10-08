@@ -472,7 +472,7 @@ let StorageProviderS3Credentials =
       s.record.from
         s.record.props::{
         , required = toMap
-            { access_key_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3 access key ID" }
+            { access_key_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "S3 access key ID or env:VARIABLE_NAME reference" }
             , secret_access_key = StorageProviderSecretAccessKey
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }

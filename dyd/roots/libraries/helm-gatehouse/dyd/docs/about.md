@@ -32,6 +32,12 @@ Helm release history, so protect access to release data. For PostgreSQL, set
 `database.url` to an `env:VARIABLE` reference and provide the matching name in
 `env`. The chart does not install or manage PostgreSQL.
 
+S3 `credentials.access_key_id` accepts either a literal access key ID or an
+`env:VARIABLE_NAME` reference. `credentials.secret_access_key.sources` accepts
+`env:VARIABLE_NAME` sources. Provide referenced variables in the chart's `env`
+list. When rotating an environment-backed credential, increment the storage
+provider's `revision` so Gatehouse reconciles the new value.
+
 The `volumes` array describes any number of volume sources and their mount
 paths. A `persistentVolumeClaim.create` source creates a PVC; setting
 `persistentVolumeClaim.claimName` references an existing claim. Other sources,

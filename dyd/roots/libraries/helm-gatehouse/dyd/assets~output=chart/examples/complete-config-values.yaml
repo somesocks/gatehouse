@@ -119,7 +119,7 @@ config: |-
       region: us-east-1
       bucket: gatehouse-example
       credentials:
-        access_key_id: example-access-key
+        access_key_id: env:GATEHOUSE_STORAGE_ACCESS_KEY_ID
         secret_access_key:
           keychain: default
           sources:
@@ -143,6 +143,8 @@ env:
     value: replace-with-initial-password
   - name: OPENAI_API_KEY
     value: replace-with-provider-key
+  - name: GATEHOUSE_STORAGE_ACCESS_KEY_ID
+    value: example-access-key
   - name: GATEHOUSE_STORAGE_SECRET
     value: replace-with-storage-secret
 

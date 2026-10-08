@@ -96,6 +96,13 @@ to Helm release data must be protected when using credentials in `env`. The
 chart does not install PostgreSQL. A PostgreSQL deployment normally does not
 need an application data volume.
 
+S3 credentials can also come from these environment values. Set
+`credentials.access_key_id` to `env:VARIABLE_NAME` and
+`credentials.secret_access_key.sources` to a list of `env:VARIABLE_NAME`
+sources; include both names in the chart's `env` list. When rotating an
+environment-backed credential, increment the storage provider's `revision` so
+Gatehouse reconciles the new value.
+
 ## Volumes
 
 Each `volumes` entry specifies a name, `mountPath`, and a Kubernetes volume
