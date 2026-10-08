@@ -4,59 +4,30 @@ set -eu
 
 SRC_DIR=$DYD_STEM
 DEST_DIR=$DYD_BUILD
-CONFIG_SCHEMA="$SRC_DIR/dyd/dependencies/gatehouse-config/dyd/assets/schema.json"
-JQ="$SRC_DIR/dyd/dependencies/jq/dyd/commands/dyd-stem-run"
+CONFIG_DEP="$SRC_DIR/dyd/dependencies/gatehouse-config"
+CODEGEN="$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets"
+DHALL="$SRC_DIR/dyd/dependencies/dhall/dyd/commands/dyd-stem-run"
+WORK_DIR="$DEST_DIR/render-work"
 
-if [ ! -f "$CONFIG_SCHEMA" ] || [ ! -x "$JQ" ]; then
-	printf '%s\n' 'missing Gatehouse config schema or jq dependency' >&2
+if [ ! -f "$CONFIG_DEP/dyd/assets/config/document.dhall" ] || [ ! -d "$CODEGEN/renderer-json-schema" ] || [ ! -x "$DHALL" ]; then
+	printf '%s\n' 'missing Gatehouse Dhall config model, dhall-codegen, or Dhall dependency' >&2
 	exit 1
 fi
 
-mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits"
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits" "$WORK_DIR/config"
+cp "$SRC_DIR/dyd/assets/document.dhall" "$WORK_DIR/document.dhall"
+cp "$CONFIG_DEP/dyd/assets/config/document.dhall" "$WORK_DIR/config/document.dhall"
+ln -s "$CODEGEN" "$WORK_DIR/dhall-codegen"
 
-"$JQ" --slurpfile app "$CONFIG_SCHEMA" '
-  def draft7:
-    if type == "object" then
-      with_entries(
-        if .key == "$defs" then .key = "definitions" | .value |= draft7
-        elif .key == "$schema" then .value = "http://json-schema.org/draft-07/schema#"
-        elif .key == "$id" then empty
-        elif .key == "$ref" then .value |= gsub("#/\\$defs/"; "#/definitions/")
-        else .value |= draft7
-        end
-      )
-    elif type == "array" then map(draft7)
-    else .
-    end;
-  ($app[0] | draft7) as $configSchema
-  | .definitions = ((.definitions // {}) + $configSchema.definitions)
-  | .definitions.GatehouseConfigForHelm = {
-      "allOf": [
-        {"$ref": "#/definitions/GatehouseConfig"},
-        {
-          "type": "object",
-          "required": ["database", "services"],
-          "properties": {
-            "services": {
-              "type": "object",
-              "required": ["http"],
-              "properties": {
-                "http": {
-                  "type": "object",
-                  "required": ["enabled", "listen"],
-                  "properties": {
-                    "enabled": {"const": true},
-                    "listen": {"const": "0.0.0.0:4283"}
-                  }
-                }
-              }
-            }
-          }
-        }
-      ]
-    }
-  | .properties.config = {"$ref": "#/definitions/GatehouseConfigForHelm"}
-  | .
-' "$SRC_DIR/dyd/assets/values.schema.json" > "$DEST_DIR/dyd/assets/values.schema.json"
+cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-json-schema/package.dhall
+
+in  renderer.render
+      renderer.options::{ variant = renderer.variant.DRAFT_07, main = Some "GatehouseHelmValues" }
+      ./document.dhall
+EOF
+
+"$DHALL" text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/values.schema.json"
+rm -rf "$WORK_DIR"
 
 printf '%s' helm-gatehouse-values-schema > "$DEST_DIR/dyd/traits/name"

@@ -6,9 +6,10 @@ chart renders it into a ConfigMap mounted at `/etc/gatehouse/config.yaml`.
 
 ## Outputs
 
-- `output=schema` builds the chart's Draft 7 `values.schema.json`. It composes
-  the Gatehouse configuration schema with chart-specific values and requires
-  an explicit database and HTTP listener configuration.
+- `output=schema` builds the chart's Draft 7 `values.schema.json` with
+  `dhall-codegen`. It composes the Gatehouse config schema directly from
+  `gatehouse-schema`'s Dhall document with the typed chart values schema; no
+  JSON Schema source file is maintained by hand.
 - `output=chart` builds and packages the application chart. Its assets contain
   both the unpacked chart under `dyd/assets/chart` and the versioned archive
   `dyd/assets/gatehouse-<version>.tgz`.
@@ -19,9 +20,11 @@ The release root collects the packaged chart and a standalone copy of
 ## Installation values
 
 Every install must provide `image.repository` and the complete `config`
-document. Helm validates `config` against the Gatehouse configuration schema,
-then the chart renders it into a ConfigMap mounted at
-`/etc/gatehouse/config.yaml`.
+document; the chart supplies no config defaults. Helm validates the document
+against the Dhall-generated Gatehouse configuration schema, then renders the
+entire nested value into a ConfigMap mounted at
+`/etc/gatehouse/config.yaml`. See `examples/complete-config-values.yaml` in the
+chart for a fixture exercising every field in the current config schema.
 
 An optional `env` array of `{name, value}` entries creates one Kubernetes
 Secret, injected into the Pod with `envFrom`. Values in this array are stored in

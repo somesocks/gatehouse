@@ -1,0 +1,15 @@
+image:
+  repository: example.invalid/gatehouse
+
+config:
+  api_version: v1
+  database:
+    kind: ephemeral
+  services:
+    http:
+      enabled: true
+      listen: 0.0.0.0:4283
+      web:
+        enabled: true
+      api:
+        enabled: true

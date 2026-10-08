@@ -13,6 +13,10 @@ if [ ! -f "$SCHEMA_DEP/dyd/assets/values.schema.json" ] || [ ! -x "$HELM" ]; the
 	printf '%s\n' 'missing chart schema or Helm dependency' >&2
 	exit 1
 fi
+if grep -Eq '^config:' "$SRC_DIR/dyd/assets/values.yaml"; then
+	printf '%s\n' 'chart values.yaml must not provide Gatehouse config defaults' >&2
+	exit 1
+fi
 
 VERSION=$(cat "$GATEHOUSE_DEP/dyd/traits/version")
 TMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/helm-gatehouse.XXXXXX")
@@ -35,17 +39,68 @@ EOF
 
 "$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" "$DEST_ASSETS"
 "$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/postgres-values.yaml" "$DEST_ASSETS"
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" "$DEST_ASSETS"
+"$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/complete-config-values.yaml" "$DEST_ASSETS"
 "$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-emptydir-overrides.yaml" "$DEST_ASSETS"
 "$HELM" lint --strict --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-existing-pvc-overrides.yaml" "$DEST_ASSETS"
 "$HELM" template gatehouse-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" > "$TMP_DIR/rendered.yaml"
-"$HELM" template gatehouse-postgres-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/postgres-values.yaml" > "$TMP_DIR/rendered-postgres.yaml"
+"$HELM" template gatehouse-postgres-test "$DEST_ASSETS" --show-only templates/configmap.yaml --values "$SRC_DIR/dyd/assets/examples/postgres-values.yaml" > "$TMP_DIR/rendered-postgres.yaml"
+"$HELM" template gatehouse-ephemeral-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/rendered-ephemeral.yaml"
+"$HELM" template gatehouse-complete-config-test "$DEST_ASSETS" --show-only templates/configmap.yaml --values "$SRC_DIR/dyd/assets/examples/complete-config-values.yaml" > "$TMP_DIR/rendered-complete-config.yaml"
 "$HELM" template gatehouse-sqlite-emptydir-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-emptydir-overrides.yaml" > "$TMP_DIR/rendered-sqlite-emptydir.yaml"
 "$HELM" template gatehouse-sqlite-existing-pvc-test "$DEST_ASSETS" --values "$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" --values "$SRC_DIR/dyd/assets/examples/sqlite-existing-pvc-overrides.yaml" > "$TMP_DIR/rendered-sqlite-existing-pvc.yaml"
+
+for config_field in \
+	api_version database kind path workspaces alias name enabled groups members \
+	principal grants role revision group agents model label system_prompt prelude \
+	default rate_limits workspace_input minimum_balance maximum_balance refill_per_minute \
+	workspace_output user_input user_output storage_providers provider priority principals \
+	identities key verifiers system_grants keychains id sources agent_providers protocol \
+	base_url api_key keychain agent_models parameters compaction algorithm history_bytes \
+	buffer_bytes max_output_tokens max_turns endpoint region bucket credentials \
+	access_key_id secret_access_key services http listen public_base_url web api; do
+	if ! grep -Eq "^[[:space:]]*(-[[:space:]]+)?${config_field}:" "$TMP_DIR/rendered-complete-config.yaml"; then
+		printf 'complete Gatehouse config was not rendered: missing %s\n' "$config_field" >&2
+		exit 1
+	fi
+done
+if ! grep -Fq 'url: env:GATEHOUSE_DATABASE_URL' "$TMP_DIR/rendered-postgres.yaml"; then
+	printf '%s\n' 'PostgreSQL URL config was not rendered' >&2
+	exit 1
+fi
+if ! grep -Fq 'kind: ephemeral' "$TMP_DIR/rendered-ephemeral.yaml"; then
+	printf '%s\n' 'ephemeral database config was not rendered' >&2
+	exit 1
+fi
 
 sed 's/^    kind: sqlite$/    kind: unknown/' \
 	"$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" > "$TMP_DIR/invalid-values.yaml"
 if "$HELM" template gatehouse-invalid "$DEST_ASSETS" --values "$TMP_DIR/invalid-values.yaml" > /dev/null 2>&1; then
 	printf '%s\n' 'Helm accepted invalid Gatehouse database config' >&2
+	exit 1
+fi
+sed '/^  api_version: v1$/a\  unsupported_config_field: true' \
+	"$SRC_DIR/dyd/assets/examples/complete-config-values.yaml" > "$TMP_DIR/invalid-config-field.yaml"
+if "$HELM" template gatehouse-invalid-config-field "$DEST_ASSETS" --values "$TMP_DIR/invalid-config-field.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted an unsupported Gatehouse config field' >&2
+	exit 1
+fi
+sed '/^  database:$/d; /^    kind: ephemeral$/d' \
+	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-missing-database.yaml"
+if "$HELM" template gatehouse-missing-database "$DEST_ASSETS" --values "$TMP_DIR/invalid-missing-database.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted Gatehouse config without an explicit database' >&2
+	exit 1
+fi
+sed 's/^      enabled: true$/      enabled: false/' \
+	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-disabled-http.yaml"
+if "$HELM" template gatehouse-disabled-http "$DEST_ASSETS" --values "$TMP_DIR/invalid-disabled-http.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted a disabled Gatehouse HTTP listener' >&2
+	exit 1
+fi
+sed 's/^      listen: 0.0.0.0:4283$/      listen: 127.0.0.1:4283/' \
+	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-listen-address.yaml"
+if "$HELM" template gatehouse-invalid-listen "$DEST_ASSETS" --values "$TMP_DIR/invalid-listen-address.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Helm accepted an incompatible Gatehouse HTTP listener address' >&2
 	exit 1
 fi
 if "$HELM" template gatehouse-duplicate-volumes "$DEST_ASSETS" \

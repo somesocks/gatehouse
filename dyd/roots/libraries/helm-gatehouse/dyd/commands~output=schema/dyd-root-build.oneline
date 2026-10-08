@@ -1,1 +1,1 @@
-Compose chart values schema with the Gatehouse config schema.
+Generate the chart values schema from Dhall with dhall-codegen.

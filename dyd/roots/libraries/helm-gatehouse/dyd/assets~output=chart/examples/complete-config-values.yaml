@@ -1,0 +1,155 @@
+image:
+  repository: example.invalid/gatehouse
+
+config:
+  api_version: v1
+  database:
+    kind: sqlite
+    path: /var/lib/gatehouse/gatehouse.db
+  workspaces:
+    - alias: engineering
+      name: Engineering
+      enabled: true
+      groups:
+        - alias: operators
+          name: Operators
+          enabled: true
+          members:
+            - principal: alice
+              enabled: true
+      grants:
+        - role: manager
+          principal: alice
+          revision: 1
+          enabled: true
+        - role: contributor
+          group: operators
+          revision: 2
+          enabled: true
+      agents:
+        - alias: assistant
+          model: assistant-model
+          revision: 1
+          enabled: true
+          label: Engineering assistant
+          system_prompt: Help the engineering team.
+          prelude: '(display "Ready")'
+          default: true
+          rate_limits:
+            workspace_input:
+              minimum_balance: 0
+              maximum_balance: 1000
+              refill_per_minute: 50
+            workspace_output:
+              minimum_balance: 0
+              maximum_balance: 2000
+              refill_per_minute: 50
+            user_input:
+              minimum_balance: 0
+              maximum_balance: 300
+              refill_per_minute: 20
+            user_output:
+              minimum_balance: 0
+              maximum_balance: 600
+              refill_per_minute: 20
+      storage_providers:
+        - provider: object-store
+          revision: 1
+          priority: 10
+          enabled: true
+  principals:
+    - alias: alice
+      name: Alice
+      revision: 1
+      enabled: true
+      identities:
+        - alias: alice-matrix
+          key: matrix:@alice:example.test
+          verifiers:
+            - kind: matrix
+          enabled: true
+          revision: 1
+        - alias: alice-password
+          key: gatehouse:alice
+          verifiers:
+            - algorithm: pbkdf2-hmac-sha256-v1
+              sources:
+                - env:GATEHOUSE_ALICE_PASSWORD
+                - "stdin:"
+          enabled: true
+          revision: 2
+  system_grants:
+    - principal: alice
+      revision: 1
+      enabled: true
+  keychains:
+    - id: default
+      sources:
+        - env:GATEHOUSE_KEYCHAIN
+        - "stdin:"
+  agent_providers:
+    - alias: openai
+      revision: 1
+      protocol: openai-responses
+      base_url: https://api.openai.com/v1
+      api_key:
+        keychain: default
+        sources:
+          - env:OPENAI_API_KEY
+      enabled: true
+  agent_models:
+    - alias: assistant-model
+      revision: 1
+      provider: openai
+      model: gpt-4.1
+      parameters:
+        reasoning_effort: high
+      compaction:
+        algorithm: mcmtr
+        history_bytes: 65536
+        buffer_bytes: 16384
+      enabled: true
+      max_output_tokens: 4096
+      max_turns: 12
+  storage_providers:
+    - alias: object-store
+      revision: 1
+      protocol: s3
+      endpoint: https://s3.example.test
+      region: us-east-1
+      bucket: gatehouse-example
+      credentials:
+        access_key_id: example-access-key
+        secret_access_key:
+          keychain: default
+          sources:
+            - env:GATEHOUSE_STORAGE_SECRET
+      enabled: true
+  services:
+    http:
+      enabled: true
+      listen: 0.0.0.0:4283
+      public_base_url: https://gatehouse.example.test
+      keychain: default
+      web:
+        enabled: true
+      api:
+        enabled: true
+
+env:
+  - name: GATEHOUSE_KEYCHAIN
+    value: replace-with-keychain-passphrase
+  - name: GATEHOUSE_ALICE_PASSWORD
+    value: replace-with-initial-password
+  - name: OPENAI_API_KEY
+    value: replace-with-provider-key
+  - name: GATEHOUSE_STORAGE_SECRET
+    value: replace-with-storage-secret
+
+volumes:
+  - name: data
+    mountPath: /var/lib/gatehouse
+    source:
+      persistentVolumeClaim:
+        create:
+          size: 8Gi
