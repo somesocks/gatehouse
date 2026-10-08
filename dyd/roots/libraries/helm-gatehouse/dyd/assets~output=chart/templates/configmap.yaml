@@ -1,14 +1,6 @@
 {{- $config := .Values.config -}}
-{{- if not (hasKey $config "database") -}}
-{{- fail "config.database must select a Gatehouse database for this chart" -}}
-{{- end -}}
-{{- $services := get $config "services" | default dict -}}
-{{- $http := get $services "http" | default dict -}}
-{{- if ne (get $http "enabled") true -}}
-{{- fail "config.services.http.enabled must be true for this chart" -}}
-{{- end -}}
-{{- if ne (get $http "listen") "0.0.0.0:4283" -}}
-{{- fail "config.services.http.listen must be 0.0.0.0:4283 for this chart" -}}
+{{- if hasPrefix "base64:" $config -}}
+{{- $config = trimPrefix "base64:" $config | b64dec -}}
 {{- end -}}
 apiVersion: v1
 kind: ConfigMap
@@ -19,4 +11,4 @@ metadata:
     {{- include "gatehouse.labels" . | nindent 4 }}
 data:
   config.yaml: |-
-{{ toYaml .Values.config | indent 4 }}
+{{ $config | indent 4 }}

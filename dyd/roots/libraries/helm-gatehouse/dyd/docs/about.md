@@ -1,15 +1,15 @@
 # Gatehouse Helm chart
 
 This multi-output root builds the Gatehouse Helm chart and its values schema.
-The chart's `config` value is the complete Gatehouse configuration document; the
-chart renders it into a ConfigMap mounted at `/etc/gatehouse/config.yaml`.
+The chart's `config` value is a string containing the Gatehouse YAML document;
+the chart passes it through into a ConfigMap mounted at
+`/etc/gatehouse/config.yaml`.
 
 ## Outputs
 
 - `output=schema` builds the chart's Draft 7 `values.schema.json` with
-  `dhall-codegen`. It composes the Gatehouse config schema directly from
-  `gatehouse-schema`'s Dhall document with the typed chart values schema; no
-  JSON Schema source file is maintained by hand.
+  `dhall-codegen`. The chart schema types `config` as an opaque string; it does
+  not duplicate or validate Gatehouse config fields.
 - `output=chart` builds and packages the application chart. Its assets contain
   both the unpacked chart under `dyd/assets/chart` and the versioned archive
   `dyd/assets/gatehouse-<version>.tgz`.
@@ -19,12 +19,12 @@ The release root collects the packaged chart and a standalone copy of
 
 ## Installation values
 
-Every install must provide `image.repository` and the complete `config`
-document; the chart supplies no config defaults. Helm validates the document
-against the Dhall-generated Gatehouse configuration schema, then renders the
-entire nested value into a ConfigMap mounted at
-`/etc/gatehouse/config.yaml`. See `examples/complete-config-values.yaml` in the
-chart for a fixture exercising every field in the current config schema.
+Every install must provide `image.repository` and `config`; the chart supplies
+no config defaults. Set `config` to a string containing the raw Gatehouse YAML.
+If it starts with `base64:`, the chart strips that prefix and decodes the
+remainder. Gatehouse validates the mounted file when the container starts. See
+`examples/complete-config-values.yaml` in the chart for a values example with
+the full Gatehouse document.
 
 An optional `env` array of `{name, value}` entries creates one Kubernetes
 Secret, injected into the Pod with `envFrom`. Values in this array are stored in
@@ -50,10 +50,10 @@ access modes are configurable; the selected storage backend must support them.
 Gatehouse's web assets are embedded in the executable; mounted volumes do not
 replace the built-in UI assets.
 
-The Gatehouse listener must be enabled and set to `0.0.0.0:4283`. Set
-`services.http.public_base_url` to the externally reachable origin when using
-Gatehouse input links. External routing is managed separately; this chart only
-creates an internal ClusterIP Service.
+For this chart, configure the Gatehouse listener in the config string as
+enabled at `0.0.0.0:4283`. Set `services.http.public_base_url` to the externally
+reachable origin when using Gatehouse input links. External routing is managed
+separately; this chart only creates an internal ClusterIP Service.
 
 `database.kind: ephemeral` is available for disposable test installs, but does
 not retain state.

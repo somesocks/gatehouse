@@ -4,19 +4,17 @@ set -eu
 
 SRC_DIR=$DYD_STEM
 DEST_DIR=$DYD_BUILD
-CONFIG_DEP="$SRC_DIR/dyd/dependencies/gatehouse-config"
 CODEGEN="$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets"
 DHALL="$SRC_DIR/dyd/dependencies/dhall/dyd/commands/dyd-stem-run"
 WORK_DIR="$DEST_DIR/render-work"
 
-if [ ! -f "$CONFIG_DEP/dyd/assets/config/document.dhall" ] || [ ! -d "$CODEGEN/renderer-json-schema" ] || [ ! -x "$DHALL" ]; then
-	printf '%s\n' 'missing Gatehouse Dhall config model, dhall-codegen, or Dhall dependency' >&2
+if [ ! -d "$CODEGEN/renderer-json-schema" ] || [ ! -x "$DHALL" ]; then
+	printf '%s\n' 'missing dhall-codegen or Dhall dependency' >&2
 	exit 1
 fi
 
-mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits" "$WORK_DIR/config"
+mkdir -p "$DEST_DIR/dyd/assets" "$DEST_DIR/dyd/traits" "$WORK_DIR"
 cp "$SRC_DIR/dyd/assets/document.dhall" "$WORK_DIR/document.dhall"
-cp "$CONFIG_DEP/dyd/assets/config/document.dhall" "$WORK_DIR/config/document.dhall"
 ln -s "$CODEGEN" "$WORK_DIR/dhall-codegen"
 
 cat > "$WORK_DIR/render.dhall" <<'EOF'

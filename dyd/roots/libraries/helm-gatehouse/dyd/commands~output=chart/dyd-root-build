@@ -73,34 +73,41 @@ if ! grep -Fq 'kind: ephemeral' "$TMP_DIR/rendered-ephemeral.yaml"; then
 	exit 1
 fi
 
-sed 's/^    kind: sqlite$/    kind: unknown/' \
-	"$SRC_DIR/dyd/assets/examples/sqlite-values.yaml" > "$TMP_DIR/invalid-values.yaml"
-if "$HELM" template gatehouse-invalid "$DEST_ASSETS" --values "$TMP_DIR/invalid-values.yaml" > /dev/null 2>&1; then
-	printf '%s\n' 'Helm accepted invalid Gatehouse database config' >&2
-	exit 1
-fi
 sed '/^  api_version: v1$/a\  unsupported_config_field: true' \
 	"$SRC_DIR/dyd/assets/examples/complete-config-values.yaml" > "$TMP_DIR/invalid-config-field.yaml"
-if "$HELM" template gatehouse-invalid-config-field "$DEST_ASSETS" --values "$TMP_DIR/invalid-config-field.yaml" > /dev/null 2>&1; then
-	printf '%s\n' 'Helm accepted an unsupported Gatehouse config field' >&2
+"$HELM" template gatehouse-unvalidated-config "$DEST_ASSETS" \
+	--show-only templates/configmap.yaml \
+	--values "$TMP_DIR/invalid-config-field.yaml" > "$TMP_DIR/rendered-unvalidated-config.yaml"
+if ! grep -Fq 'unsupported_config_field: true' "$TMP_DIR/rendered-unvalidated-config.yaml"; then
+	printf '%s\n' 'Helm did not pass Gatehouse config text through unchanged' >&2
 	exit 1
 fi
-sed '/^  database:$/d; /^    kind: ephemeral$/d' \
-	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-missing-database.yaml"
-if "$HELM" template gatehouse-missing-database "$DEST_ASSETS" --values "$TMP_DIR/invalid-missing-database.yaml" > /dev/null 2>&1; then
-	printf '%s\n' 'Helm accepted Gatehouse config without an explicit database' >&2
-	exit 1
-fi
-sed 's/^      enabled: true$/      enabled: false/' \
-	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-disabled-http.yaml"
-if "$HELM" template gatehouse-disabled-http "$DEST_ASSETS" --values "$TMP_DIR/invalid-disabled-http.yaml" > /dev/null 2>&1; then
-	printf '%s\n' 'Helm accepted a disabled Gatehouse HTTP listener' >&2
-	exit 1
-fi
-sed 's/^      listen: 0.0.0.0:4283$/      listen: 127.0.0.1:4283/' \
-	"$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" > "$TMP_DIR/invalid-listen-address.yaml"
-if "$HELM" template gatehouse-invalid-listen "$DEST_ASSETS" --values "$TMP_DIR/invalid-listen-address.yaml" > /dev/null 2>&1; then
-	printf '%s\n' 'Helm accepted an incompatible Gatehouse HTTP listener address' >&2
+
+CONFIG_TEXT=$(printf '%s\n' \
+	'api_version: v1' \
+	'database:' \
+	'  kind: ephemeral' \
+	'services:' \
+	'  http:' \
+	'    enabled: true' \
+	'    listen: 0.0.0.0:4283')
+CONFIG_BASE64=$(printf '%s' "$CONFIG_TEXT" | base64 | tr -d '\n')
+"$HELM" template gatehouse-base64-config "$DEST_ASSETS" \
+	--show-only templates/configmap.yaml \
+	--values "$SRC_DIR/dyd/assets/examples/ephemeral-values.yaml" \
+	--set-string "config=base64:$CONFIG_BASE64" > "$TMP_DIR/rendered-base64-config.yaml"
+for config_line in 'api_version: v1' 'kind: ephemeral' 'listen: 0.0.0.0:4283'; do
+	if ! grep -Fq "$config_line" "$TMP_DIR/rendered-base64-config.yaml"; then
+		printf 'base64 Gatehouse config was not decoded: missing %s\n' "$config_line" >&2
+		exit 1
+	fi
+done
+cat > "$TMP_DIR/invalid-gatehouse-config.yaml" <<'EOF'
+api_version: v1
+unsupported_config_field: true
+EOF
+if "$GATEHOUSE_DEP/dyd/commands/dyd-stem-run" config validate "$TMP_DIR/invalid-gatehouse-config.yaml" > /dev/null 2>&1; then
+	printf '%s\n' 'Gatehouse accepted an unsupported config field' >&2
 	exit 1
 fi
 if "$HELM" template gatehouse-duplicate-volumes "$DEST_ASSETS" \

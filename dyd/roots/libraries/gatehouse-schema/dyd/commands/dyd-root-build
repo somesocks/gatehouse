@@ -86,10 +86,6 @@ EOF
 esac
 
 dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/$OUTPUT_FILE"
-if [ "$OUTPUT/$RENDERER" = config/json-schema ]; then
-	mkdir -p "$DEST_DIR/dyd/assets/config"
-	cp "$SRC_DIR/dyd/assets/config/document.dhall" "$DEST_DIR/dyd/assets/config/document.dhall"
-fi
 rm -rf "$WORK_DIR"
 
 printf '%s' gatehouse-schema > "$DEST_DIR/dyd/traits/name"

@@ -1,7 +1,5 @@
 let Grammar = ./dhall-codegen/grammar.dhall
 
-let GatehouseDocument = ./config/document.dhall
-
 let s = Grammar.Schema
 
 let text =
@@ -110,17 +108,12 @@ let Volumes =
         }
         s.list.meta::{=}
 
-let GatehouseConfigReference =
-      s.reference.from
-        s.reference.props::{ to = "GatehouseConfig" }
-        s.reference.meta::{=}
-
 let HelmValues =
       s.record.from
         s.record.props::{
         , required =
             toMap
-              { config = GatehouseConfigReference
+              { config = text
               , image = Image
               , replicaCount = integer
               , service = Service
@@ -148,4 +141,4 @@ let HelmValues =
 let HelmValuesRoot =
       s.root.from HelmValues s.root.meta::{ name = "GatehouseHelmValues" }
 
-in  GatehouseDocument // { schemas = GatehouseDocument.schemas # [ HelmValuesRoot ] }
+in  Grammar.Document::{ schemas = [ HelmValuesRoot ] }

@@ -1,6 +1,6 @@
 # image.repository and config are intentionally required by values.schema.json.
-# Set image.repository to the published Gatehouse container image, and provide
-# a complete Gatehouse config including an explicit database choice.
+# Set image.repository to the published Gatehouse image, and config to a string
+# containing the Gatehouse YAML document.
 image:
   repository: ""
   tag: ""

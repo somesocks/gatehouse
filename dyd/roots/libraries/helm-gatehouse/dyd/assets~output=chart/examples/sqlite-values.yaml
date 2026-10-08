@@ -4,7 +4,7 @@ image:
 deploymentStrategy:
   type: Recreate
 
-config:
+config: |-
   api_version: v1
   database:
     kind: sqlite
