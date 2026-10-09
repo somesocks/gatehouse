@@ -706,6 +706,7 @@
                   </UI.Message>
                   {#each agentRequests(tree) as request (request.event.ref.id)}<UI.Stack
                       as="section"
+                      gap="small"
                     >
                       <UI.Row as="header" gap="small">
                         {cancellationRequest(request) !== undefined
@@ -723,8 +724,7 @@
                             as="small"
                             size="small"
                             >{workingReplyDuration(request)}</UI.Text
-                          >{/if}{#if replyCanBeCancelled(request)}<UI.Button
-                            variant="default"
+                          >{/if}{#if replyCanBeCancelled(request)}<UI.InlineButton
                             type="button"
                             disabled={controller.state.cancellingReplyFor.has(
                               request.event.ref.id,
@@ -734,23 +734,23 @@
                               request.event.ref.id,
                             )
                               ? "Cancelling..."
-                              : "Cancel"}</UI.Button
+                              : "Cancel"}</UI.InlineButton
                           >{/if}
                       </UI.Row>
                       {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined || cancellationRequest(request) !== undefined}<UI.Stack
                           indent
+                          gap="small"
                         >
                           {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<UI.Row
                               as="p"
                             >
                               <UI.Text
                                 >({renderedActivityEvents(request).length - 5} more)</UI.Text
-                              ><UI.Button
-                                variant="default"
+                              ><UI.InlineButton
                                 type="button"
                                 onclick={() =>
                                   controller.toggleActivity(request)}
-                                >Show all</UI.Button
+                                >Show all</UI.InlineButton
                               >
                             </UI.Row>{/if}{#each displayedActivityEvents(request, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<UI.Row
                                 tone="muted"
@@ -899,12 +899,11 @@
                             >
                               <UI.Text
                                 >({renderedActivityEvents(request).length} steps)</UI.Text
-                              ><UI.Button
-                                variant="default"
+                              ><UI.InlineButton
                                 type="button"
                                 onclick={() =>
                                   controller.toggleActivity(request)}
-                                >Show less</UI.Button
+                                >Show less</UI.InlineButton
                               >
                             </UI.Row>{/if}
                           {#if cancellationRequest(request) !== undefined}
