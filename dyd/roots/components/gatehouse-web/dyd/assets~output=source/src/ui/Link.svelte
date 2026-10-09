@@ -29,7 +29,7 @@
 {:else}
   <a
     class={variant === "navigation"
-      ? "flex rounded-md px-3 py-2 text-sm hover:bg-accent aria-[current=page]:bg-accent aria-[current=page]:font-medium"
+      ? "flex rounded-md px-3 py-2 text-sm hover:underline aria-[current=page]:font-medium aria-[current=page]:text-sidebar-primary"
       : variant === "item" || variant === "entry" || variant === "card"
         ? cn(
             itemVariants({

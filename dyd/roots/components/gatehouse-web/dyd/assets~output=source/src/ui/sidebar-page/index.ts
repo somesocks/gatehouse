@@ -8,5 +8,5 @@ export { default as SidebarHeader } from "./SidebarHeader.svelte"
 export {
   Content as SidebarBody,
   Footer as SidebarFooter,
-  Trigger as Toggle,
 } from "../../lib/vendor/shadcn/sidebar"
+export { default as Toggle } from "./Toggle.svelte"

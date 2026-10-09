@@ -25,13 +25,37 @@ export function workspaceNavigation(
   const base = `/app/wsp/${encodeURIComponent(workspace.id)}`
   return {
     title: workspace.name ?? workspace.id,
-    items: [
-      { label: "Overview", href: base, active: active === undefined },
-      { label: "Chats", href: `${base}/ses`, active: active === "chats" },
-      { label: "Projects", href: `${base}/prj`, active: active === "projects" },
-      { label: "Groups", href: `${base}/grp`, active: active === "groups" },
+    workspaceSwitcher: {
+      currentID: workspace.id,
+      currentName: workspace.name ?? "Workspace",
+      workspaces: runtime.access.state.workspaces.map((item) => ({
+        id: item.id,
+        name: item.name ?? "Workspace",
+      })),
+      onSelect: (workspaceID) =>
+        runtime.navigate(`/app/wsp/${encodeURIComponent(workspaceID)}`),
+    },
+    sections: [
+      {
+        title: "Workspace",
+        items: [
+          { label: "Overview", href: base, active: active === undefined },
+          { label: "Chats", href: `${base}/ses`, active: active === "chats" },
+          {
+            label: "Projects",
+            href: `${base}/prj`,
+            active: active === "projects",
+          },
+          { label: "Groups", href: `${base}/grp`, active: active === "groups" },
+        ],
+      },
       ...(runtime.access.state.systemAccess === "available"
-        ? [{ label: "System", href: "/app/system", external: true }]
+        ? [
+            {
+              title: "Administration",
+              items: [{ label: "System", href: "/app/system", external: true }],
+            },
+          ]
         : []),
     ],
     ...account(runtime),
@@ -62,11 +86,15 @@ export function systemNavigation(
   ]
   return {
     title: "System",
-    items: items.map(([key, label, path]) => ({
-      label,
-      href: `/app/system${path}`,
-      active: active === key,
-    })),
+    sections: [
+      {
+        items: items.map(([key, label, path]) => ({
+          label,
+          href: `/app/system${path}`,
+          active: active === key,
+        })),
+      },
+    ],
     ...account(runtime),
   }
 }
