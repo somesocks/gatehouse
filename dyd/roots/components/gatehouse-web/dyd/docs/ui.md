@@ -25,8 +25,8 @@ the access gate, the application entry point, and the standalone file picker.
 
 ## Theming
 
-`src/app.css` uses shadcn-svelte's documented Neutral light/dark preset and standard
-Tailwind mappings. No application-specific CSS variables or palette are defined.
+`src/app.css` uses the supplied shadcn-generated default light/dark palette and
+standard Tailwind mappings. No application-specific CSS variables are defined.
 Typography for rendered Markdown uses Tailwind's typography plugin.
 
 `Theme` applies the active workspace theme to the document root, including

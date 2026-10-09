@@ -7,6 +7,7 @@
     justify = "start",
     align = "center",
     wrap = true,
+    push = false,
     tone,
     children,
     ...rest
@@ -27,6 +28,7 @@
     justify?: "start" | "end" | "between"
     align?: "center" | "end" | "start"
     wrap?: boolean
+    push?: boolean
     tone?: "muted"
   } = $props()
 </script>
@@ -37,6 +39,7 @@
     "flex min-w-0",
     gaps[gap],
     wrap && "flex-wrap",
+    push && "ms-auto",
     { start: "justify-start", end: "justify-end", between: "justify-between" }[
       justify
     ],

@@ -615,7 +615,7 @@
               )}
           />{/if}
       </SidebarPage.Header>
-      <SidebarPage.Body>
+      <SidebarPage.Body padding="none">
         {#if sessionStatus === "unavailable"}<UI.Text as="p" tone="muted">
             This chat could not be loaded.
           </UI.Text>
@@ -707,7 +707,7 @@
                   {#each agentRequests(tree) as request (request.event.ref.id)}<UI.Stack
                       as="section"
                     >
-                      <UI.Group as="header">
+                      <UI.Row as="header" gap="small">
                         {cancellationRequest(request) !== undefined
                           ? activityAgentLabel(request)
                           : agentFailures(request).length > 0
@@ -736,7 +736,7 @@
                               ? "Cancelling..."
                               : "Cancel"}</UI.Button
                           >{/if}
-                      </UI.Group>
+                      </UI.Row>
                       {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined || cancellationRequest(request) !== undefined}<UI.Stack
                           indent
                         >
@@ -1076,7 +1076,7 @@
                     ></UI.Chip
                   >{/each}
               </UI.Row>{/if}
-            <UI.Row wrap={false} align="end">
+            <UI.Row wrap={false} align="center" gap="small">
               <UI.Button
                 variant="ghost"
                 size="icon"

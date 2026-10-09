@@ -48,7 +48,7 @@
   }
 </script>
 
-<Row as="nav" aria-label="View navigation" justify="end">
+<Row as="nav" aria-label="View navigation" justify="end" push>
   <Menu.Root>
     <Menu.Trigger aria-label="View navigation"
       ><MenuIcon aria-hidden="true" /></Menu.Trigger

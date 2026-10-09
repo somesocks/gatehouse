@@ -19,12 +19,12 @@
   data-slot="message"
   data-align={align}
   class={align === "end"
-    ? "relative w-fit min-w-0 max-w-[min(42rem,88%)] self-end"
-    : "relative w-fit min-w-0 max-w-[min(42rem,88%)] self-start"}
+    ? "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-end"
+    : "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-start"}
   {...rest}
 >
-  <Panel>
-    {#if header}<header class="pr-8 text-sm font-medium text-muted-foreground">
+  <Panel tone={align === "end" ? "primary-tint" : "secondary"}>
+    {#if header}<header class="pr-8 text-base font-semibold text-foreground">
         {@render header()}
       </header>{/if}
     {@render children?.()}

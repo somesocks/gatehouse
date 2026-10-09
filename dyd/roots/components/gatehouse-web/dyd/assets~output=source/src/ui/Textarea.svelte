@@ -19,6 +19,8 @@
       ref = value ?? undefined
     }
   }
-  class={mode === "inline" ? "min-h-8 max-h-40 resize-none" : undefined}
+  class={mode === "inline"
+    ? "h-8 min-h-8 max-h-40 py-1 text-sm leading-5 resize-none"
+    : undefined}
   {...rest}
 />
