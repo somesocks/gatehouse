@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gatehouse/config"
+	"gatehouse/configschema"
 	"gatehouse/database"
 	"gatehouse/identity"
 	"gatehouse/keychain"
@@ -446,12 +447,11 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	algorithm := "pbkdf2-hmac-sha256-v1"
 	identityAlias := "alice-gatehouse"
 	state := config.State{Principals: []config.Principal{{
 		Alias: "alice", Enabled: true, Identities: []config.Identity{{
 			Alias: "alice-gatehouse", Key: "gatehouse:alice", Revision: 1, Enabled: true,
-			Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:IDENTITY_PASSWORD"}}},
+			PasswordSources: []config.PasswordSource{"env:IDENTITY_PASSWORD"},
 		}},
 	}}}
 	run := func() {
@@ -478,9 +478,9 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	if first == nil || len(first.Verifiers) != 1 {
 		t.Fatalf("active identity = %#v, want one verifier", first)
 	}
-	firstVerifier, ok := first.Verifiers[0].(string)
+	firstVerifier, ok := storedPasswordVerifier(first.Verifiers[0])
 	if !ok {
-		t.Fatalf("identity verifier = %#v, want string", first.Verifiers[0])
+		t.Fatalf("identity verifier = %#v, want password verifier record", first.Verifiers[0])
 	}
 	if err, valid := identity.VerifyPassword(firstVerifier, []byte("first password")); err != nil || !valid {
 		t.Fatalf("first verifier validation = (%v, %t), want (nil, true)", err, valid)
@@ -492,21 +492,25 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if unchanged == nil || unchanged.Verifiers[0] != firstVerifier {
+	if unchanged == nil || len(unchanged.Verifiers) != 1 {
+		t.Fatalf("identity at unchanged revision = %#v, want one verifier", unchanged)
+	}
+	unchangedVerifier, unchangedVerifierOK := storedPasswordVerifier(unchanged.Verifiers[0])
+	if !unchangedVerifierOK || unchangedVerifier != firstVerifier {
 		t.Fatalf("identity at unchanged revision = %#v, want verifier %q", unchanged, firstVerifier)
 	}
 
 	state.Principals[0].Identities = append(state.Principals[0].Identities, config.Identity{
-		Alias: "alice-matrix", Key: "matrix:@alice:example.org", Revision: 1, Enabled: true,
-		Verifiers: []config.Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+		Alias: "alice-secondary", Key: "gatehouse:alice-secondary", Revision: 1, Enabled: true,
+		Verifiers: []configschema.Verifier{testPasswordVerifier("gh-ver:secondary")},
 	})
 	run()
-	var matrixRevision int
-	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE alias = 'alice-matrix'`).Scan(&matrixRevision); err != nil {
+	var secondaryRevision int
+	if err := store.QueryRow(`SELECT revision FROM gatehouse_identities WHERE alias = 'alice-secondary'`).Scan(&secondaryRevision); err != nil {
 		t.Fatal(err)
 	}
-	if matrixRevision != 1 {
-		t.Fatalf("matrix identity revision = %d, want 1", matrixRevision)
+	if secondaryRevision != 1 {
+		t.Fatalf("secondary identity revision = %d, want 1", secondaryRevision)
 	}
 
 	state.Principals[0].Identities[0].Revision = 2
@@ -516,9 +520,9 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	updatedVerifier, ok := updated.Verifiers[0].(string)
+	updatedVerifier, ok := storedPasswordVerifier(updated.Verifiers[0])
 	if !ok {
-		t.Fatalf("updated identity verifier = %#v, want string", updated.Verifiers[0])
+		t.Fatalf("updated identity verifier = %#v, want password verifier record", updated.Verifiers[0])
 	}
 	if err, valid := identity.VerifyPassword(updatedVerifier, []byte("second password")); err != nil || !valid {
 		t.Fatalf("updated verifier validation = (%v, %t), want (nil, true)", err, valid)
@@ -528,7 +532,7 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	}
 
 	if err := store.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
-		Id: first.ID, Alias: &identityAlias, Key: identityKey, Principal: first.Principal.Ref, Revision: 3, Verifiers: []interface{}{updatedVerifier}, Enabled: true,
+		Id: first.ID, Alias: &identityAlias, Key: identityKey, Principal: first.Principal.Ref, Revision: 3, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": updatedVerifier}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -540,6 +544,25 @@ func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	}
 	if revision != 3 {
 		t.Fatalf("stored identity revision = %d, want 3", revision)
+	}
+}
+
+func storedPasswordVerifier(value any) (string, bool) {
+	record, ok := value.(map[string]any)
+	if !ok || record["kind"] != "password" {
+		return "", false
+	}
+	verifier, ok := record["password_verifier"].(string)
+	return verifier, ok
+}
+
+func testPasswordVerifier(value string) configschema.Verifier {
+	return configschema.Verifier{
+		Kind: configschema.VerifierKindPasswordVerifier,
+		PasswordVerifier: &configschema.PasswordVerifier{
+			Kind:             "password",
+			PasswordVerifier: value,
+		},
 	}
 }
 

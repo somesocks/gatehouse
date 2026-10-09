@@ -434,7 +434,7 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := fixture.store.IdentitiesUpsertRevisions(ctx, []model.Identity{{
-		Id: identity, Key: "gatehouse:bob", Principal: bob, Revision: 1, Verifiers: []interface{}{"gh-ver:invalid"}, Enabled: true,
+		Id: identity, Key: "gatehouse:bob", Principal: bob, Revision: 1, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": "gh-ver:invalid"}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}

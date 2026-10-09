@@ -3,10 +3,6 @@ principals:
   - alias: alice
     name: Alice
     identities:
-      - alias: alice-matrix
-        key: "matrix:@alice:example.org"
-        verifiers:
-          - kind: matrix
       - alias: alice-gatehouse
         key: gatehouse:alice
         verifiers:

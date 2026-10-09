@@ -13,12 +13,23 @@ import (
 
 	"gatehouse/authz"
 	"gatehouse/config"
+	"gatehouse/configschema"
 	"gatehouse/database"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
+
+func testPasswordVerifierRecord(value string) configschema.Verifier {
+	return configschema.Verifier{
+		Kind: configschema.VerifierKindPasswordVerifier,
+		PasswordVerifier: &configschema.PasswordVerifier{
+			Kind:             "password",
+			PasswordVerifier: value,
+		},
+	}
+}
 
 func TestMigrateAppliesConfiguredMigrations(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -89,10 +100,10 @@ func TestSQLiteIDFunctions(t *testing.T) {
 		t.Fatal("gh_id_timestamp accepted an invalid ID")
 	}
 	var verifiers string
-	if err := store.QueryRowContext(ctx, `SELECT gh_identity_verifiers('gatehouse:alice', '[{"Value":"gh-ver:AAAA"}]')`).Scan(&verifiers); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT gh_identity_verifiers('gatehouse:alice', '{"verifiers":[{"kind":"password","password_verifier":"gh-ver:AAAA"}]}')`).Scan(&verifiers); err != nil {
 		t.Fatal(err)
 	}
-	if verifiers != `["gh-ver:AAAA"]` {
+	if verifiers != `[{"kind":"password","password_verifier":"gh-ver:AAAA"}]` {
 		t.Fatalf("gh_identity_verifiers() = %q, want static verifier", verifiers)
 	}
 }
@@ -111,8 +122,11 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 		Principals: []config.Principal{{
 			Alias: "alice", Revision: 1, Enabled: true,
 			Identities: []config.Identity{{
-				Alias: "alice-matrix", Key: "matrix:@alice:example.org", Revision: 1, Enabled: true,
-				Verifiers: []config.Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+				Alias:     "alice-gatehouse",
+				Key:       "gatehouse:alice",
+				Revision:  1,
+				Enabled:  true,
+				Verifiers: []configschema.Verifier{testPasswordVerifierRecord("gh-ver:activity-test")},
 			}},
 		}},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
@@ -129,7 +143,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 
 	principal := principalRef(t, ctx, store, "alice")
 	var identityID, providerID, modelID, storageProviderID string
-	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_identities WHERE alias = 'alice-matrix'`).Scan(&identityID); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_identities WHERE alias = 'alice-gatehouse'`).Scan(&identityID); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_agent_providers WHERE alias = 'builtin'`).Scan(&providerID); err != nil {
@@ -673,7 +687,7 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	alice := principalRef(t, context.Background(), first, "alice")
 	identityID := newTypedID(t, typed_id.Identity)
 	if err := first.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
-		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 1, Verifiers: []interface{}{"gh-ver:first"}, Enabled: true,
+		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 1, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": "gh-ver:first"}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -697,7 +711,7 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	defer second.Close()
 	alice = principalRef(t, context.Background(), second, "alice")
 	if err := second.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
-		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 2, Verifiers: []interface{}{"gh-ver:second"}, Enabled: false,
+		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 2, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": "gh-ver:second"}}, Enabled: false,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -719,7 +733,7 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 	`, alice.Id, identityID).Scan(&principalName, &principalOn, &principalRevision, &identityOwner, &verifiers, &identityOn, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if principalName != "Alice Example" || principalOn || principalRevision != 2 || identityOwner != alice.Id || verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
+	if principalName != "Alice Example" || principalOn || principalRevision != 2 || identityOwner != alice.Id || verifiers != `[{"kind":"password","password_verifier":"gh-ver:second"}]` || identityOn || revision != 2 {
 		t.Fatalf("reconciled principal and identity = (%q, %t, %d, %q, %q, %t, %d)", principalName, principalOn, principalRevision, identityOwner, verifiers, identityOn, revision)
 	}
 	if err := migrateState(context.Background(), second, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.State{Principals: []config.Principal{{
@@ -734,24 +748,24 @@ func TestOpenSQLiteReconcilesPrincipalsAndIdentities(t *testing.T) {
 		t.Fatalf("older principal revision replaced principal = (%q, %t, %d)", principalName, principalOn, principalRevision)
 	}
 	if err := second.IdentitiesUpsertRevisions(context.Background(), []model.Identity{{
-		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 1, Verifiers: []interface{}{"gh-ver:older"}, Enabled: true,
+		Id: identityID, Alias: stringPointer("alice-gatehouse"), Key: "gatehouse:alice", Principal: alice, Revision: 1, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": "gh-ver:older"}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := second.QueryRow(`SELECT verifiers, enabled, revision FROM gatehouse_identities WHERE id = ?`, identityID).Scan(&verifiers, &identityOn, &revision); err != nil {
 		t.Fatal(err)
 	}
-	if verifiers != `["gh-ver:second"]` || identityOn || revision != 2 {
+	if verifiers != `[{"kind":"password","password_verifier":"gh-ver:second"}]` || identityOn || revision != 2 {
 		t.Fatalf("lower revision replaced identity = (%q, %t, %d)", verifiers, identityOn, revision)
 	}
 
-	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES (?, 'matrix:@unknown:example.org', ?, '[{"kind":"matrix"}]', TRUE)`, newTypedID(t, typed_id.Identity), newTypedID(t, typed_id.Principal)); err == nil {
+	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES (?, 'gatehouse:unknown', ?, '[{"kind":"password","password_verifier":"gh-ver:unknown"}]', TRUE)`, newTypedID(t, typed_id.Identity), newTypedID(t, typed_id.Principal)); err == nil {
 		t.Fatal("identity without a principal was accepted")
 	}
 	if _, err := second.Exec(`INSERT INTO gatehouse_principals (id, revision, enabled) VALUES ('alice', 1, TRUE)`); err == nil {
 		t.Fatal("natural principal ID was accepted")
 	}
-	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES ('gatehouse:alice', 'matrix:@invalid:example.org', ?, '[{"kind":"matrix"}]', TRUE)`, alice.Id); err == nil {
+	if _, err := second.Exec(`INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled) VALUES ('gatehouse:alice', 'gatehouse:invalid', ?, '[{"kind":"password","password_verifier":"gh-ver:invalid"}]', TRUE)`, alice.Id); err == nil {
 		t.Fatal("natural identity ID was accepted")
 	}
 }
@@ -765,7 +779,7 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 			Alias:     "alice-gatehouse",
 			Key:       "gatehouse:alice",
 			Revision:  1,
-			Verifiers: []config.Verifier{{Value: stringPointer("gh-ver:configured"), Stored: "gh-ver:configured"}},
+			Verifiers: []configschema.Verifier{testPasswordVerifierRecord("gh-ver:configured")},
 			Enabled:   true,
 		}},
 	}}
@@ -786,7 +800,7 @@ func TestOpenSQLitePreservesUnconfiguredPrincipals(t *testing.T) {
 	}
 	if _, err := first.Exec(`
 		INSERT INTO gatehouse_identities (id, key, principal_id, verifiers, enabled)
-		VALUES (?, 'matrix:@bob:example.org', ?, '[{"kind":"matrix"}]', TRUE)
+		VALUES (?, 'gatehouse:bob', ?, '[{"kind":"password","password_verifier":"gh-ver:bob"}]', TRUE)
 	`, bobIdentityID, bobID); err != nil {
 		t.Fatal(err)
 	}

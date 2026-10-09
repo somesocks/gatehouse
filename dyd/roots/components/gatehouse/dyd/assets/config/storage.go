@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 
@@ -64,17 +63,12 @@ func ResolveStorageProviders(document configschema.GatehouseConfig) (error, []St
 			if configured.Endpoint == nil || configured.Region == nil || configured.Bucket == nil || configured.Credentials == nil {
 				return fmt.Errorf("storage_providers[%d] S3 providers require endpoint, region, bucket, and credentials", index), nil
 			}
-			accessKeyID := configured.Credentials.AccessKeyId
-			if strings.HasPrefix(accessKeyID, "env:") {
-				if !environmentReference.MatchString(accessKeyID) {
-					return fmt.Errorf("storage_providers[%d].credentials.access_key_id must be an env:VARIABLE_NAME reference", index), nil
-				}
-				name := strings.TrimPrefix(accessKeyID, "env:")
-				value, exists := os.LookupEnv(name)
-				if !exists || strings.TrimSpace(value) == "" {
-					return fmt.Errorf("storage_providers[%d].credentials.access_key_id references unset or empty environment variable %q", index, name), nil
-				}
-				accessKeyID = value
+			accessKeyID, err := resolveEnvironmentReference(
+				configured.Credentials.AccessKeyId,
+				fmt.Sprintf("storage_providers[%d].credentials.access_key_id", index),
+			)
+			if err != nil {
+				return err, nil
 			}
 			parsed, err := url.ParseRequestURI(*configured.Endpoint)
 			if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {

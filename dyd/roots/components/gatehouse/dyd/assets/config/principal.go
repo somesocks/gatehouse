@@ -18,18 +18,12 @@ type Principal struct {
 }
 
 type Identity struct {
-	Alias     string
-	Key       string
-	Revision  int
-	Verifiers []Verifier
-	Enabled   bool
-}
-
-type Verifier struct {
-	Value     *string
-	Algorithm *string
-	Sources   []PasswordSource
-	Stored    any
+	Alias                  string
+	Key                    string
+	Revision               int
+	Verifiers              []configschema.Verifier
+	PasswordSources        []PasswordSource
+	Enabled                bool
 }
 
 type PasswordSource string
@@ -38,13 +32,11 @@ var principalID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 var principalAlias = principalID
 var identityAlias = principalID
 var identityKey = regexp.MustCompile(`^[a-z][a-z0-9+.-]*:.+$`)
-var verifierKind = regexp.MustCompile(`^[a-z][a-z0-9+.-]*$`)
 
 const (
 	defaultPrincipalAlias    = "root"
 	DefaultPrincipalRevision = 1
 	defaultIdentityRevision  = 1
-	passwordAlgorithm        = "pbkdf2-hmac-sha256-v1"
 )
 
 func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principal) {
@@ -54,14 +46,11 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 			Revision: DefaultPrincipalRevision,
 			Enabled:  true,
 			Identities: []Identity{{
-				Alias:    "root",
-				Key:      "gatehouse:root",
-				Revision: defaultIdentityRevision,
-				Verifiers: []Verifier{{
-					Algorithm: stringValue(passwordAlgorithm),
-					Sources:   []PasswordSource{"env:GATEHOUSE_ROOT_PASSWORD", "stdin:"},
-				}},
-				Enabled: true,
+				Alias:                  "root",
+				Key:                    "gatehouse:root",
+				Revision:               defaultIdentityRevision,
+				PasswordSources: []PasswordSource{"env:GATEHOUSE_ROOT_PASSWORD", "stdin:"},
+				Enabled:         true,
 			}},
 		}}
 	}
@@ -91,6 +80,7 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 		if revision <= 0 {
 			return fmt.Errorf("principals[%d].revision must be positive", principalIndex), nil
 		}
+
 		identities := make([]Identity, 0)
 		if configured.Identities != nil {
 			identities = make([]Identity, 0, len(*configured.Identities))
@@ -109,31 +99,31 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 				}
 
 				namespace := configuredIdentity.Key[:strings.IndexByte(configuredIdentity.Key, ':')]
-				verifiers := make([]Verifier, 0, len(configuredIdentity.Verifiers))
-				for verifierIndex, value := range configuredIdentity.Verifiers {
-					verifier, err := resolveVerifier(namespace, value)
+				verifiers := make([]configschema.Verifier, 0, len(configuredIdentity.Verifiers))
+				for verifierIndex, verifier := range configuredIdentity.Verifiers {
+					resolved, err := resolveVerifier(namespace, verifier)
 					if err != nil {
 						return fmt.Errorf("principals[%d].identities[%d].verifiers[%d]: %w", principalIndex, identityIndex, verifierIndex, err), nil
 					}
-					verifiers = append(verifiers, verifier)
+					verifiers = append(verifiers, resolved)
 				}
 
 				identityEnabled := true
 				if configuredIdentity.Enabled != nil {
 					identityEnabled = *configuredIdentity.Enabled
 				}
-				revision := defaultIdentityRevision
+				identityRevision := defaultIdentityRevision
 				if configuredIdentity.Revision != nil {
-					revision = *configuredIdentity.Revision
+					identityRevision = *configuredIdentity.Revision
 				}
-				if revision <= 0 {
+				if identityRevision <= 0 {
 					return fmt.Errorf("principals[%d].identities[%d].revision must be positive", principalIndex, identityIndex), nil
 				}
 				identityAliases[configuredIdentity.Alias] = struct{}{}
 				identities = append(identities, Identity{
 					Alias:     configuredIdentity.Alias,
 					Key:       configuredIdentity.Key,
-					Revision:  revision,
+					Revision:  identityRevision,
 					Verifiers: verifiers,
 					Enabled:   identityEnabled,
 				})
@@ -158,95 +148,28 @@ func ResolvePrincipals(document configschema.GatehouseConfig) (error, []Principa
 	return nil, principals
 }
 
-func stringValue(value string) *string {
-	return &value
-}
-
-func resolveVerifier(namespace string, value any) (Verifier, error) {
-	verifier, ok := value.(map[string]any)
-	if !ok {
-		return Verifier{}, fmt.Errorf("must be an object")
+func resolveVerifier(namespace string, configured configschema.Verifier) (configschema.Verifier, error) {
+	if namespace != "gatehouse" {
+		return configschema.Verifier{}, fmt.Errorf("password verifiers are supported only for gatehouse identities")
 	}
-	if direct, exists := verifier["value"]; exists {
-		if len(verifier) != 1 {
-			return Verifier{}, fmt.Errorf("value verifier must not have additional fields")
-		}
-		text, ok := direct.(string)
-		if !ok || strings.TrimSpace(text) == "" {
-			return Verifier{}, fmt.Errorf("value must be a non-blank string")
-		}
-		if namespace != "gatehouse" {
-			return Verifier{}, fmt.Errorf("value verifiers are supported only for gatehouse identities")
-		}
-		if !strings.HasPrefix(text, "gh-ver:") {
-			return Verifier{}, fmt.Errorf("gatehouse verifier value must use the gh-ver scheme")
-		}
-		return Verifier{Value: &text, Stored: text}, nil
-	}
-	if algorithm, exists := verifier["algorithm"]; exists {
-		if len(verifier) != 2 {
-			return Verifier{}, fmt.Errorf("source verifier must have algorithm and sources only")
-		}
-		if namespace != "gatehouse" {
-			return Verifier{}, fmt.Errorf("source verifiers are supported only for gatehouse identities")
-		}
-		algorithmText, ok := algorithm.(string)
-		if !ok || algorithmText != passwordAlgorithm {
-			return Verifier{}, fmt.Errorf("algorithm must be %q", passwordAlgorithm)
-		}
-		sourceValues, ok := verifier["sources"].([]any)
-		if !ok || len(sourceValues) == 0 {
-			return Verifier{}, fmt.Errorf("sources must be a non-empty list")
-		}
-		sources := make([]PasswordSource, 0, len(sourceValues))
-		seen := make(map[string]struct{}, len(sourceValues))
-		for sourceIndex, sourceValue := range sourceValues {
-			source, ok := sourceValue.(string)
-			if !ok {
-				return Verifier{}, fmt.Errorf("sources[%d] must be a string", sourceIndex)
-			}
-			if _, exists := seen[source]; exists {
-				return Verifier{}, fmt.Errorf("sources[%d] %q is duplicated", sourceIndex, source)
-			}
-			switch {
-			case environmentReference.MatchString(source):
-			case source == "stdin:":
-			default:
-				return Verifier{}, fmt.Errorf("sources[%d] must be an env:VARIABLE_NAME or stdin: source", sourceIndex)
-			}
-			seen[source] = struct{}{}
-			sources = append(sources, PasswordSource(source))
-		}
-		return Verifier{Algorithm: &algorithmText, Sources: sources}, nil
-	}
-	if err := validateVerifier(namespace, verifier); err != nil {
-		return Verifier{}, err
-	}
-	return Verifier{Stored: verifier}, nil
-}
-
-func validateVerifier(namespace string, verifier map[string]any) error {
-	kind, ok := verifier["kind"].(string)
-	if !ok || !verifierKind.MatchString(kind) {
-		return fmt.Errorf("kind must match %q", verifierKind.String())
+	if configured.Kind != configschema.VerifierKindPasswordVerifier || configured.PasswordVerifier == nil {
+		return configschema.Verifier{}, fmt.Errorf("password verifier configuration is missing")
 	}
 
-	switch namespace {
-	case "matrix":
-		if kind != "matrix" {
-			return fmt.Errorf("kind %q is not supported for matrix identities", kind)
-		}
-		return nil
-	case "gatehouse":
-		if kind != "password" {
-			return fmt.Errorf("kind %q is not supported for gatehouse identities", kind)
-		}
-		passwordVerifier, ok := verifier["password_verifier"].(string)
-		if !ok || strings.TrimSpace(passwordVerifier) == "" {
-			return fmt.Errorf("password verifier requires a non-blank password_verifier")
-		}
-		return nil
-	default:
-		return fmt.Errorf("identity namespace %q is not supported", namespace)
+	passwordVerifier := *configured.PasswordVerifier
+	if passwordVerifier.Kind != "password" {
+		return configschema.Verifier{}, fmt.Errorf("verifier kind must be %q", "password")
 	}
+	resolved, err := resolveEnvironmentReference(passwordVerifier.PasswordVerifier, "password_verifier")
+	if err != nil {
+		return configschema.Verifier{}, err
+	}
+	if !strings.HasPrefix(resolved, "gh-ver:") {
+		return configschema.Verifier{}, fmt.Errorf("password_verifier must use the gh-ver scheme")
+	}
+	passwordVerifier.PasswordVerifier = resolved
+	return configschema.Verifier{
+		Kind:             configschema.VerifierKindPasswordVerifier,
+		PasswordVerifier: &passwordVerifier,
+	}, nil
 }

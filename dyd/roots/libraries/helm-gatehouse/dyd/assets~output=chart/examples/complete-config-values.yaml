@@ -63,21 +63,13 @@ config: |-
       revision: 1
       enabled: true
       identities:
-        - alias: alice-matrix
-          key: matrix:@alice:example.test
-          verifiers:
-            - kind: matrix
-          enabled: true
-          revision: 1
         - alias: alice-password
           key: gatehouse:alice
           verifiers:
-            - algorithm: pbkdf2-hmac-sha256-v1
-              sources:
-                - env:GATEHOUSE_ALICE_PASSWORD
-                - "stdin:"
+            - kind: password
+              password_verifier: env:GATEHOUSE_ALICE_PASSWORD_VERIFIER
           enabled: true
-          revision: 2
+          revision: 1
   system_grants:
     - principal: alice
       revision: 1
@@ -139,8 +131,8 @@ config: |-
 env:
   - name: GATEHOUSE_KEYCHAIN
     value: replace-with-keychain-passphrase
-  - name: GATEHOUSE_ALICE_PASSWORD
-    value: replace-with-initial-password
+  - name: GATEHOUSE_ALICE_PASSWORD_VERIFIER
+    value: gh-ver:replace-with-a-generated-verifier
   - name: OPENAI_API_KEY
     value: replace-with-provider-key
   - name: GATEHOUSE_STORAGE_ACCESS_KEY_ID

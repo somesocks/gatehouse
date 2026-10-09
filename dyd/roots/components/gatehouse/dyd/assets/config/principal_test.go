@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -12,25 +14,23 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 	disabled := false
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
-		Principals: &[]configschema.GatehouseConfigPrincipalsValues{
+		Principals: &[]configschema.Principal{
 			{
 				Alias: "zebra",
-				Identities: &[]configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-					Alias:     "zebra-matrix",
-					Key:       "matrix:@zebra:example.org",
-					Verifiers: []interface{}{map[string]any{"kind": "matrix"}},
+				Identities: &[]configschema.Identity{{
+					Alias:     "zebra-gatehouse",
+					Key:       "gatehouse:zebra",
+					Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:zebra")},
 				}},
 			},
 			{
 				Alias:   "alpha-2",
 				Name:    stringPointer("Alpha"),
 				Enabled: &disabled,
-				Identities: &[]configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-					Alias: "alpha-gatehouse",
-					Key:   "gatehouse:alpha",
-					Verifiers: []interface{}{map[string]any{
-						"value": "gh-ver:AAAA",
-					}},
+				Identities: &[]configschema.Identity{{
+					Alias:     "alpha-gatehouse",
+					Key:       "gatehouse:alpha",
+					Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:alpha")},
 				}},
 			},
 		},
@@ -50,7 +50,7 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 				Alias:     "alpha-gatehouse",
 				Key:       "gatehouse:alpha",
 				Revision:  1,
-				Verifiers: []Verifier{{Value: stringPointer("gh-ver:AAAA"), Stored: "gh-ver:AAAA"}},
+				Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:alpha")},
 				Enabled:   true,
 			}},
 		},
@@ -59,10 +59,10 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 			Revision: 1,
 			Enabled:  true,
 			Identities: []Identity{{
-				Alias:     "zebra-matrix",
-				Key:       "matrix:@zebra:example.org",
+				Alias:     "zebra-gatehouse",
+				Key:       "gatehouse:zebra",
 				Revision:  1,
-				Verifiers: []Verifier{{Stored: map[string]any{"kind": "matrix"}}},
+				Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:zebra")},
 				Enabled:   true,
 			}},
 		},
@@ -72,11 +72,103 @@ func TestResolvePrincipalsDefaultsEnabledAndSortsByAlias(t *testing.T) {
 	}
 }
 
+func TestResolvePrincipalsResolvesPrecomputedVerifierFromEnvironment(t *testing.T) {
+	t.Setenv("GATEHOUSE_ALICE_VERIFIER", "gh-ver:configured-from-env")
+	document := principalDocument("alice", []configschema.Identity{{
+		Alias:     "alice-gatehouse",
+		Key:       "gatehouse:alice",
+		Verifiers: []configschema.Verifier{passwordVerifierRecord("env:GATEHOUSE_ALICE_VERIFIER")},
+	}})
+
+	err, principals := ResolvePrincipals(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := principals[0].Identities[0].Verifiers; !reflect.DeepEqual(got, []configschema.Verifier{passwordVerifierRecord("gh-ver:configured-from-env")}) {
+		t.Fatalf("resolved verifiers = %#v", got)
+	}
+}
+
+func TestResolvePrincipalsRejectsMissingPrecomputedVerifierEnvironment(t *testing.T) {
+	const variable = "GATEHOUSE_TEST_UNSET_PASSWORD_VERIFIER"
+	t.Setenv(variable, "set-before-unset")
+	if err := os.Unsetenv(variable); err != nil {
+		t.Fatal(err)
+	}
+	document := principalDocument("alice", []configschema.Identity{{
+		Alias:     "alice-gatehouse",
+		Key:       "gatehouse:alice",
+		Verifiers: []configschema.Verifier{passwordVerifierRecord("env:" + variable)},
+	}})
+
+	if err, _ := ResolvePrincipals(document); err == nil || !strings.Contains(err.Error(), variable) {
+		t.Fatalf("ResolvePrincipals() error = %v, want missing %s", err, variable)
+	}
+}
+
+func TestValidateFileRejectsBareStringVerifier(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+api_version: v1
+principals:
+  - alias: alice
+    identities:
+      - alias: alice-gatehouse
+        key: gatehouse:alice
+        verifiers:
+          - gh-ver:precomputed
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := ValidateFile(path); err == nil {
+		t.Fatal("ValidateFile() accepted a bare string verifier")
+	}
+}
+
+func TestValidateFileRejectsUnsupportedVerifierKind(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+api_version: v1
+principals:
+  - alias: alice
+    identities:
+      - alias: alice-gatehouse
+        key: gatehouse:alice
+        verifiers:
+          - kind: matrix
+            password_verifier: gh-ver:precomputed
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := ValidateFile(path); err == nil {
+		t.Fatal("ValidateFile() accepted an unsupported verifier kind")
+	}
+}
+
+func TestValidateFileRejectsUnknownPasswordVerifierProperty(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+api_version: v1
+principals:
+  - alias: alice
+    identities:
+      - alias: alice-gatehouse
+        key: gatehouse:alice
+        verifiers:
+          - kind: password
+            password_verifier: gh-ver:precomputed
+            sources:
+              - env:ALICE_PASSWORD
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := ValidateFile(path); err == nil {
+		t.Fatal("ValidateFile() accepted an unknown password verifier property")
+	}
+}
+
 func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 	invalidRevision := 0
-	validGatehouseVerifier := []interface{}{map[string]any{
-		"value": "gh-ver:AAAA",
-	}}
 	tests := []struct {
 		name     string
 		document configschema.GatehouseConfig
@@ -84,14 +176,14 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 	}{
 		{
 			name: "invalid principal alias",
-			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
+			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.Principal{{
 				Alias: "Alice",
 			}}},
 			contains: "must match",
 		},
 		{
 			name: "duplicate principal alias",
-			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{
+			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.Principal{
 				{Alias: "alice"},
 				{Alias: "alice"},
 			}},
@@ -99,91 +191,68 @@ func TestResolvePrincipalsRejectsInvalidValues(t *testing.T) {
 		},
 		{
 			name: "non-positive principal revision",
-			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
+			document: configschema.GatehouseConfig{ApiVersion: "v1", Principals: &[]configschema.Principal{{
 				Alias: "alice", Revision: &invalidRevision,
 			}}},
 			contains: "revision must be positive",
 		},
 		{
 			name: "identity key without namespace",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias:     "alice-gatehouse",
-				Key:       "alice",
-				Verifiers: validGatehouseVerifier,
+			document: principalDocument("alice", []configschema.Identity{{
+				Alias: "alice-gatehouse", Key: "alice", Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:configured")},
 			}}),
 			contains: "namespaced identity",
 		},
 		{
 			name: "empty verifiers",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias: "alice-matrix",
-				Key:   "matrix:@alice:example.org",
+			document: principalDocument("alice", []configschema.Identity{{
+				Alias: "alice-gatehouse", Key: "gatehouse:alice",
 			}}),
 			contains: "must not be empty",
 		},
 		{
-			name: "verifier is not an object",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias:     "alice-matrix",
-				Key:       "matrix:@alice:example.org",
-				Verifiers: []interface{}{"matrix"},
-			}}),
-			contains: "must be an object",
-		},
-		{
-			name: "verifier without kind",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias:     "alice-matrix",
-				Key:       "matrix:@alice:example.org",
-				Verifiers: []interface{}{map[string]any{}},
-			}}),
-			contains: "kind must match",
-		},
-		{
-			name: "unsupported gatehouse verifier",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias:     "alice-gatehouse",
-				Key:       "gatehouse:alice",
-				Verifiers: []interface{}{map[string]any{"kind": "matrix"}},
-			}}),
-			contains: "not supported",
-		},
-		{
 			name: "unsupported identity namespace",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
-				Alias:     "alice-unknown",
-				Key:       "unknown:alice",
-				Verifiers: []interface{}{map[string]any{"kind": "unknown"}},
+			document: principalDocument("alice", []configschema.Identity{{
+				Alias: "alice-matrix", Key: "matrix:@alice:example.org", Verifiers: []configschema.Verifier{passwordVerifierRecord("gh-ver:configured")},
 			}}),
-			contains: "namespace",
+			contains: "supported only for gatehouse identities",
 		},
 		{
-			name: "gatehouse verifier without canonical value",
-			document: principalDocument("alice", []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues{{
+			name: "missing password verifier option",
+			document: principalDocument("alice", []configschema.Identity{{
 				Alias:     "alice-gatehouse",
 				Key:       "gatehouse:alice",
-				Verifiers: []interface{}{map[string]any{"kind": "argon2id"}},
+				Verifiers: []configschema.Verifier{{Kind: configschema.VerifierKindPasswordVerifier}},
 			}}),
-			contains: "not supported",
+			contains: "configuration is missing",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err, _ := ResolvePrincipals(test.document)
-			if err == nil || !strings.Contains(err.Error(), test.contains) {
+			if err, _ := ResolvePrincipals(test.document); err == nil || !strings.Contains(err.Error(), test.contains) {
 				t.Fatalf("ResolvePrincipals() error = %v, want %q", err, test.contains)
 			}
 		})
 	}
 }
 
-func principalDocument(alias string, identities []configschema.GatehouseConfigPrincipalsValuesIdentitiesValues) configschema.GatehouseConfig {
+func principalDocument(alias string, identities []configschema.Identity) configschema.GatehouseConfig {
 	return configschema.GatehouseConfig{
 		ApiVersion: "v1",
-		Principals: &[]configschema.GatehouseConfigPrincipalsValues{{
+		Principals: &[]configschema.Principal{{
 			Alias:      alias,
 			Identities: &identities,
 		}},
+	}
+}
+
+func passwordVerifierRecord(value string) configschema.Verifier {
+	return configschema.Verifier{
+		Kind: configschema.VerifierKindPasswordVerifier,
+		PasswordVerifier: &configschema.PasswordVerifier{
+			Kind:             "password",
+			PasswordVerifier: value,
+		},
 	}
 }

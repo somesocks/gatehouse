@@ -249,15 +249,53 @@ let Workspaces =
         s.list.props::{ values = Workspace }
         s.list.meta::{ description = Some "configured workspaces" }
 
+let PasswordVerifier =
+      s.record.from
+        s.record.props::{
+        , required =
+            toMap
+              { kind =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.literal "password" }
+                    s.text.meta::{ description = Some "verifier kind" }
+              , password_verifier =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "precomputed gh-ver password verifier or env:VARIABLE_NAME reference" }
+              }
+        }
+        s.record.meta::{ name = Some "PasswordVerifier" }
+
+let PasswordVerifierRoot =
+      s.root.from PasswordVerifier s.root.meta::{ name = "PasswordVerifier" }
+
+let PasswordVerifierReference =
+      s.reference.from
+        s.reference.props::{ to = "PasswordVerifier" }
+        s.reference.meta::{ name = Some "PasswordVerifier" }
+
+let Verifier =
+      s.oneOf.from
+        { options = [ PasswordVerifierReference ] }
+        s.oneOf.meta::{ name = Some "Verifier" }
+
+let VerifierRoot =
+      s.root.from Verifier s.root.meta::{ name = "Verifier" }
+
+let VerifierReference =
+      s.reference.from
+        s.reference.props::{ to = "Verifier" }
+        s.reference.meta::{=}
+
 let Verifiers =
       s.list.from
-        s.list.props::{
-        , values =
-            s.any.from
-              s.any.props::{ variant = s.any.variants.permissive }
-              s.any.meta::{ description = Some "provider-defined verifier object" }
-        }
-        s.list.meta::{ description = Some "verification methods that can prove control of the identity" }
+        s.list.props::{ values = VerifierReference }
+        s.list.meta::{ description = Some "password verifier records that can prove control of the identity" }
+
+let IdentityReference =
+      s.reference.from
+        s.reference.props::{ to = "Identity" }
+        s.reference.meta::{=}
 
 let Identity =
       s.record.from
@@ -290,8 +328,16 @@ let Identity =
 
 let Identities =
       s.list.from
-        s.list.props::{ values = Identity }
+        s.list.props::{ values = IdentityReference }
         s.list.meta::{ description = Some "configured principal identities" }
+
+let IdentityRoot =
+      s.root.from Identity s.root.meta::{ name = "Identity" }
+
+let PrincipalReference =
+      s.reference.from
+        s.reference.props::{ to = "Principal" }
+        s.reference.meta::{=}
 
 let Principal =
       s.record.from
@@ -317,14 +363,17 @@ let Principal =
                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the principal is enabled" }
-              , identities = Identities
-              }
+               , identities = Identities
+               }
         }
         s.record.meta::{ name = Some "Principal" }
 
+let PrincipalRoot =
+      s.root.from Principal s.root.meta::{ name = "Principal" }
+
 let Principals =
       s.list.from
-        s.list.props::{ values = Principal }
+        s.list.props::{ values = PrincipalReference }
         s.list.meta::{ description = Some "configured principals" }
 
 let SystemGrant =
@@ -577,4 +626,13 @@ let GatehouseConfig =
 let GatehouseConfig =
       s.root.from GatehouseConfig s.root.meta::{ name = "GatehouseConfig" }
 
-in  Document::{ headers = [] : List Text, schemas = [ GatehouseConfig ] }
+in  Document::{
+      , headers = [] : List Text
+      , schemas =
+          [ PasswordVerifierRoot
+          , VerifierRoot
+          , IdentityRoot
+          , PrincipalRoot
+          , GatehouseConfig
+          ]
+      }

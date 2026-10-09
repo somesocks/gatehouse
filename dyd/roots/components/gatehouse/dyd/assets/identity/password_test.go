@@ -7,7 +7,7 @@ func TestPasswordVerifierVerifiesOnlyItsPassword(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifier := value.(string)
+	verifier := value
 	if err, valid := VerifyPassword(verifier, []byte("correct horse battery staple")); err != nil || !valid {
 		t.Fatalf("VerifyPassword() = (%v, %t), want (nil, true)", err, valid)
 	}

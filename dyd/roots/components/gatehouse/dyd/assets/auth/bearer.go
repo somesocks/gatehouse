@@ -258,7 +258,15 @@ func (tokens *BearerTokens) seal(ctx context.Context, associatedData []byte, val
 func verifyPassword(verifiers []interface{}, password []byte) (bool, bool) {
 	verified := false
 	for _, verifier := range verifiers {
-		value, ok := verifier.(string)
+		record, ok := verifier.(map[string]any)
+		if !ok {
+			continue
+		}
+		kind, ok := record["kind"].(string)
+		if !ok || kind != "password" {
+			continue
+		}
+		value, ok := record["password_verifier"].(string)
 		if !ok || !strings.HasPrefix(value, "gh-ver:") {
 			continue
 		}

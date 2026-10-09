@@ -78,7 +78,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	principalRef := model.PrincipalRef{Id: principalID}
 	if err := store.IdentitiesUpsertRevisions(ctx, []model.Identity{{
 		Id: identityID, Key: "gatehouse:alice", Principal: principalRef, Revision: 1,
-		Verifiers: []interface{}{"gh-ver:invalid"}, Enabled: true,
+		Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": "gh-ver:invalid"}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}

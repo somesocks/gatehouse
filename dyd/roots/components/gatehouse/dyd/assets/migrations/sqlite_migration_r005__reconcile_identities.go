@@ -2,10 +2,10 @@ package migrations
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"gatehouse/config"
+	"gatehouse/identity"
 )
 
 func sqliteMigrationR005ReconcileIdentities(state config.State) RepeatableMigration {
@@ -30,12 +30,12 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 		identities := make([]sqliteMigrationR005IdentityValue, 0)
 		for _, principal := range principals {
 			for _, configured := range principal.Identities {
-				encoded, err := json.Marshal(configured.Verifiers)
+				err, verifierSource := identity.EncodeVerifierSources(configured.Verifiers, configured.PasswordSources)
 				if err != nil {
 					return fmt.Errorf("encode verifier sources for identity %q: %w", configured.Key, err), ""
 				}
 				identities = append(identities, sqliteMigrationR005IdentityValue{
-					PrincipalAlias: principal.Alias, Alias: configured.Alias, Key: configured.Key, Revision: configured.Revision, VerifierSource: string(encoded), Enabled: configured.Enabled,
+					PrincipalAlias: principal.Alias, Alias: configured.Alias, Key: configured.Key, Revision: configured.Revision, VerifierSource: verifierSource, Enabled: configured.Enabled,
 				})
 			}
 		}

@@ -7,6 +7,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/identity"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -41,6 +42,10 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	verifierErr, passwordVerifier := identity.NewDummyPasswordVerifier()
+	if verifierErr != nil {
+		t.Fatal(verifierErr)
+	}
 	identityID, err := typed_id.New(typed_id.Identity)
 	if err != nil {
 		t.Fatal(err)
@@ -50,13 +55,19 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	}
 	principal := model.Principal{Ref: model.PrincipalRef{Id: principalID}, Enabled: true}
 	if err := store.IdentitiesUpsertRevisions(ctx, []model.Identity{{
-		Id: identityID, Key: "gatehouse:alice", Principal: model.PrincipalRef{Id: principalID}, Revision: 1, Verifiers: []interface{}{"gh-ver:invalid"}, Enabled: true,
+		Id: identityID, Key: "gatehouse:alice", Principal: model.PrincipalRef{Id: principalID}, Revision: 1, Verifiers: []interface{}{map[string]any{"kind": "password", "password_verifier": passwordVerifier}}, Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
 	err, tokens := Prepare(ctx, store, keyring, "test")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if loginErr, _ := tokens.Login(ctx, "gatehouse:alice", []byte("gatehouse dummy password verifier")); loginErr != nil {
+		t.Fatalf("Login() with typed password verifier error = %v", loginErr)
+	}
+	if loginErr, _ := tokens.Login(ctx, "gatehouse:alice", []byte("wrong password")); !errors.Is(loginErr, ErrInvalidCredentials) {
+		t.Fatalf("Login() with wrong password error = %v, want invalid credentials", loginErr)
 	}
 	err, token := tokens.Mint(ctx, Claims{Principal: principal, Identity: identityID})
 	if err != nil {

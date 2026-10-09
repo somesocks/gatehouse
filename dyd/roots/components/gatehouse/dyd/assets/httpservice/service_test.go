@@ -1888,7 +1888,6 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	configured := []config.Keychain{{
 		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
-	algorithm := "pbkdf2-hmac-sha256-v1"
 	alice := "Alice"
 	engineering := "Engineering"
 	private := "Private"
@@ -1905,7 +1904,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 		Principals: []config.Principal{{
 			Alias: "alice", Name: &alice, Enabled: true, Identities: []config.Identity{{
 				Alias: "alice-gatehouse", Key: "gatehouse:alice", Revision: 1, Enabled: true,
-				Verifiers: []config.Verifier{{Algorithm: &algorithm, Sources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"}}},
+				PasswordSources: []config.PasswordSource{"env:GATEHOUSE_TEST_PASSWORD"},
 			}},
 		}, {Alias: "bob", Enabled: true}},
 		Groups: []config.Group{

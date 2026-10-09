@@ -63,7 +63,7 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 						return err, ""
 					}
 				}
-				err, verifiers := identity.ResolveVerifiers(configured.Key, configured.Verifiers, resolver)
+				err, verifiers := identity.ResolveVerifiers(configured.Key, configured.Verifiers, configured.PasswordSources, resolver)
 				if err != nil {
 					return fmt.Errorf("resolve verifiers for identity %q: %w", configured.Key, err), ""
 				}

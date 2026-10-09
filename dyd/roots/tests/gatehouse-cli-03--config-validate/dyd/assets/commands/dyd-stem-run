@@ -40,7 +40,7 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid-workspaces.yaml" >"$TEMP_DIR/valid-workspaces.stdout" 2>"$TEMP_DIR/valid-workspaces.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-workspaces.stderr")" "configuration is valid" "workspace validation"
 
-    gatehouse config validate "$TEMP_DIR/valid-principals.yaml" >"$TEMP_DIR/valid-principals.stdout" 2>"$TEMP_DIR/valid-principals.stderr"
+    GATEHOUSE_ALICE_PASSWORD_VERIFIER=gh-ver:placeholder gatehouse config validate "$TEMP_DIR/valid-principals.yaml" >"$TEMP_DIR/valid-principals.stdout" 2>"$TEMP_DIR/valid-principals.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-principals.stderr")" "configuration is valid" "principal identity validation"
 
     gatehouse config validate "$TEMP_DIR/valid-groups.yaml" >"$TEMP_DIR/valid-groups.stdout" 2>"$TEMP_DIR/valid-groups.stderr"

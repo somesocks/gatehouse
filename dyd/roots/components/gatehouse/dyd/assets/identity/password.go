@@ -16,6 +16,7 @@ import (
 
 	"crypto/pbkdf2"
 	"gatehouse/config"
+	"gatehouse/configschema"
 )
 
 const (
@@ -56,61 +57,108 @@ func (resolver *PasswordSourceResolver) Resolve(identityID string, sources []con
 	return fmt.Errorf("resolve password for identity %q: no source provided a password", identityID), nil
 }
 
-func ResolveVerifiers(identityID string, configured []config.Verifier, resolver *PasswordSourceResolver) (error, []interface{}) {
-	verifiers := make([]interface{}, 0, len(configured))
-	for _, verifier := range configured {
-		resolved, err := resolveVerifier(identityID, verifier, resolver)
+func ResolveVerifiers(identityID string, configured []configschema.Verifier, passwordSources []config.PasswordSource, resolver *PasswordSourceResolver) (error, []interface{}) {
+	verifiers := make([]interface{}, 0, len(configured)+1)
+	for index, verifier := range configured {
+		record, err := configuredPasswordVerifier(verifier)
 		if err != nil {
-			return err, nil
+			return fmt.Errorf("resolve verifier %d for identity %q: %w", index, identityID, err), nil
 		}
-		verifiers = append(verifiers, resolved)
+		verifiers = append(verifiers, record)
+	}
+	if len(passwordSources) > 0 {
+		resolveErr, passwordVerifier := resolveDefaultPasswordVerifier(identityID, passwordSources, resolver)
+		if resolveErr != nil {
+			return resolveErr, nil
+		}
+		verifiers = append(verifiers, passwordVerifier)
 	}
 	return nil, verifiers
 }
 
-// ResolveVerifiersJSON resolves stable verifier source descriptors at SQL execution time.
-func ResolveVerifiersJSON(identityID, source string, resolver *PasswordSourceResolver) (error, string) {
-	var configured []config.Verifier
-	if err := json.Unmarshal([]byte(source), &configured); err != nil {
-		return fmt.Errorf("decode verifier sources for identity %q: %w", identityID, err), ""
+func configuredPasswordVerifier(configured configschema.Verifier) (configschema.PasswordVerifier, error) {
+	if configured.Kind != configschema.VerifierKindPasswordVerifier || configured.PasswordVerifier == nil {
+		return configschema.PasswordVerifier{}, fmt.Errorf("unsupported verifier kind")
 	}
-	err, verifiers := ResolveVerifiers(identityID, configured, resolver)
-	if err != nil {
-		return err, ""
+	record := *configured.PasswordVerifier
+	if record.Kind != "password" || !strings.HasPrefix(record.PasswordVerifier, "gh-ver:") {
+		return configschema.PasswordVerifier{}, fmt.Errorf("invalid password verifier record")
 	}
-	encoded, err := json.Marshal(verifiers)
+	return record, nil
+}
+
+func resolveDefaultPasswordVerifier(identityID string, sources []config.PasswordSource, resolver *PasswordSourceResolver) (error, configschema.PasswordVerifier) {
+	passwordErr, password := resolver.Resolve(identityID, sources)
+	if passwordErr != nil {
+		return passwordErr, configschema.PasswordVerifier{}
+	}
+	defer clear(password)
+	if bytes.IndexByte(password, 0) >= 0 {
+		return fmt.Errorf("password for identity %q must not contain NUL", identityID), configschema.PasswordVerifier{}
+	}
+	verifier, err := passwordVerifier(password)
 	if err != nil {
-		return fmt.Errorf("encode verifiers for identity %q: %w", identityID, err), ""
+		return err, configschema.PasswordVerifier{}
+	}
+	return nil, configschema.PasswordVerifier{Kind: "password", PasswordVerifier: verifier}
+}
+
+type verifierSourceDocument struct {
+	Verifiers       []configschema.PasswordVerifier `json:"verifiers"`
+	PasswordSources []config.PasswordSource          `json:"password_sources,omitempty"`
+}
+
+func EncodeVerifierSources(configured []configschema.Verifier, passwordSources []config.PasswordSource) (error, string) {
+	records := make([]configschema.PasswordVerifier, 0, len(configured))
+	for index, verifier := range configured {
+		record, err := configuredPasswordVerifier(verifier)
+		if err != nil {
+			return fmt.Errorf("encode verifier %d: %w", index, err), ""
+		}
+		records = append(records, record)
+	}
+	encoded, err := json.Marshal(verifierSourceDocument{Verifiers: records, PasswordSources: passwordSources})
+	if err != nil {
+		return fmt.Errorf("encode verifier sources: %w", err), ""
 	}
 	return nil, string(encoded)
 }
 
-func resolveVerifier(identityID string, configured config.Verifier, resolver *PasswordSourceResolver) (interface{}, error) {
-	if configured.Value != nil {
-		return *configured.Value, nil
+// ResolveVerifiersJSON resolves default password sources while preserving typed verifier records.
+func ResolveVerifiersJSON(identityID, source string, resolver *PasswordSourceResolver) (error, string) {
+	var configured verifierSourceDocument
+	if err := json.Unmarshal([]byte(source), &configured); err != nil {
+		return fmt.Errorf("decode verifier sources for identity %q: %w", identityID, err), ""
 	}
-	if configured.Algorithm == nil {
-		return configured.Stored, nil
+	verifiers := make([]interface{}, 0, len(configured.Verifiers)+1)
+	for index, verifier := range configured.Verifiers {
+		if verifier.Kind != "password" || !strings.HasPrefix(verifier.PasswordVerifier, "gh-ver:") {
+			return fmt.Errorf("identity %q verifier %d has an invalid password verifier", identityID, index), ""
+		}
+		verifiers = append(verifiers, verifier)
 	}
-	passwordErr, password := resolver.Resolve(identityID, configured.Sources)
-	if passwordErr != nil {
-		return nil, passwordErr
+	if len(configured.PasswordSources) > 0 {
+		resolveErr, verifier := resolveDefaultPasswordVerifier(identityID, configured.PasswordSources, resolver)
+		if resolveErr != nil {
+			return resolveErr, ""
+		}
+		verifiers = append(verifiers, verifier)
 	}
-	defer clear(password)
-	if bytes.IndexByte(password, 0) >= 0 {
-		return nil, fmt.Errorf("password for identity %q must not contain NUL", identityID)
+	encoded, err := json.Marshal(verifiers)
+	if err != nil {
+		return fmt.Errorf("encode verifier sources for identity %q: %w", identityID, err), ""
 	}
-	return passwordVerifier(password)
+	return nil, string(encoded)
 }
 
-func passwordVerifier(password []byte) (interface{}, error) {
+func passwordVerifier(password []byte) (string, error) {
 	salt := make([]byte, passwordSaltSize)
 	if _, err := rand.Read(salt); err != nil {
-		return nil, fmt.Errorf("generate password verifier salt: %w", err)
+		return "", fmt.Errorf("generate password verifier salt: %w", err)
 	}
 	digest, err := pbkdf2.Key(sha256.New, string(password), salt, passwordIterations, passwordDigestSize)
 	if err != nil {
-		return nil, fmt.Errorf("derive password verifier: %w", err)
+		return "", fmt.Errorf("derive password verifier: %w", err)
 	}
 	return "gh-ver:" + base64.RawURLEncoding.EncodeToString(salt) + "." + base64.RawURLEncoding.EncodeToString(digest) + "?alg=" + passwordAlgorithm, nil
 }
@@ -120,7 +168,7 @@ func NewDummyPasswordVerifier() (error, string) {
 	if err != nil {
 		return err, ""
 	}
-	return nil, value.(string)
+	return nil, value
 }
 
 func VerifyPassword(value string, password []byte) (error, bool) {
