@@ -8,7 +8,7 @@ ARG TARGETARCH
 COPY "bin/${TARGETARCH}/gatehouse" /usr/local/bin/gatehouse
 COPY entrypoint.sh /entrypoint.sh
 
-RUN chmod +x /entrypoint.sh
+RUN chmod 0555 /entrypoint.sh
 
 EXPOSE 4283
 ENTRYPOINT ["/entrypoint.sh"]
