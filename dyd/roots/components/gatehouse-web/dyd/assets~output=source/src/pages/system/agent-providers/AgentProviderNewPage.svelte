@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
-  import SelectControl from "../../../components/SelectControl.svelte"
+
   import { createAgentProviderFormController } from "./agent-provider-form-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -25,72 +26,80 @@
   }
 </script>
 
-<SystemFrame active="agent-providers" title="New agent provider">
-  <section class="stack">
-    <div class="stack">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>New agent provider</h2>
-        <p>
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "agent-providers")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "New agent provider" },
+  ]}
+>
+  <UI.Stack as="section">
+    <UI.Stack>
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>New agent provider</UI.Heading>
+        <UI.Text as="p">
           Credentials are write-only and cannot be viewed after saving.
-        </p>
-      </div>
-    </div>
-    <form
-      class="stack"
+        </UI.Text>
+      </UI.Group>
+    </UI.Stack>
+    <UI.Form
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
-      <label class="field"
-        ><span>Alias</span><input
+      <UI.Label layout="field"
+        ><UI.Text>Alias</UI.Text><UI.Input
           required
           bind:value={controller.state.form.alias}
-        /></label
-      ><label class="field"
-        ><span>Protocol</span><SelectControl><select
+        /></UI.Label
+      ><UI.Label layout="field"
+        ><UI.Text>Protocol</UI.Text><UI.Select
           bind:value={controller.state.form.protocol}
-          ><option value="builtin">Built-in</option><option
-            value="openai-chat-completions">OpenAI chat completions</option
-          ><option value="openai-responses">OpenAI responses</option></select
-        ></SelectControl></label
-      ><label class="field"
-        ><span>Base URL</span><input
+          ><UI.Option value="builtin">Built-in</UI.Option><UI.Option
+            value="openai-chat-completions">OpenAI chat completions</UI.Option
+          ><UI.Option value="openai-responses">OpenAI responses</UI.Option
+          ></UI.Select
+        ></UI.Label
+      ><UI.Label layout="field"
+        ><UI.Text>Base URL</UI.Text><UI.Input
           bind:value={controller.state.form.baseURL}
-        /></label
-      >{#if controller.state.form.protocol !== "builtin"}<label class="field"
-          ><span>Keychain</span><SelectControl><select
+        /></UI.Label
+      >{#if controller.state.form.protocol !== "builtin"}<UI.Label
+          layout="field"
+          ><UI.Text>Keychain</UI.Text><UI.Select
             required
             bind:value={controller.state.form.keychain}
-            ><option value="">Select keychain</option
-            >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<option
+            ><UI.Option value="">Select keychain</UI.Option
+            >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<UI.Option
                 value={keychain.id}
-                >{keychain.id} / version {keychain.version}</option
-              >{/each}</select
-          ></SelectControl></label
-        ><label class="field"
-          ><span>API key</span><input
+                >{keychain.id} / version {keychain.version}</UI.Option
+              >{/each}</UI.Select
+          ></UI.Label
+        ><UI.Label layout="field"
+          ><UI.Text>API key</UI.Text><UI.Input
             type="password"
             autocomplete="new-password"
             required
             bind:value={controller.state.form.apiKey}
-          /></label
-        >{/if}<button
-        class="primary"
+          /></UI.Label
+        >{/if}<UI.Button
+        variant="default"
         type="submit"
         disabled={controller.state.saving}
-        >{controller.state.saving ? "Saving..." : "Add provider"}</button
-      ><RouterLink class="secondary" href="/app/system/agent-providers"
+        >{controller.state.saving ? "Saving..." : "Add provider"}</UI.Button
+      ><RouterLink variant="outline" href="/app/system/agent-providers"
         >Cancel</RouterLink
       >
-    </form>
-    {#if controller.state.error !== ""}<p
-        class="field-help"
+    </UI.Form>
+    {#if controller.state.error !== ""}<UI.Text
+        as="p"
+        size="small"
         role="alert"
         aria-live="polite"
       >
         {controller.state.error}
-      </p>{/if}
-  </section>
-</SystemFrame>
+      </UI.Text>{/if}
+  </UI.Stack>
+</UI.AppFrame>

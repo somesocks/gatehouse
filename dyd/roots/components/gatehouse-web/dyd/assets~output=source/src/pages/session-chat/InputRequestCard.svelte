@@ -1,4 +1,5 @@
 <script lang="ts">
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
   import { fetchChatInputLaunch, type ChatEventTree } from "../../app/chat"
   import InputForm from "../input-form/InputForm.svelte"
@@ -24,13 +25,27 @@
   const responseKind = $derived(response?.event.kind)
   type FormController = ReturnType<typeof createInputFormController>
   let controller = $state<FormController | null>(null)
-  let state = $state<"loading" | "ready" | "error" | "denied" | "resolved">("loading")
+  let formStatus = $state<
+    "loading" | "ready" | "error" | "denied" | "resolved"
+  >("loading")
   let retry = $state(0)
   const localStatus = $derived(controller?.state.status)
-  const resolved = $derived(response !== undefined || state === "resolved" || localStatus === "submitted" || localStatus === "cancelled" || localStatus === "resolved")
+  const resolved = $derived(
+    response !== undefined ||
+      formStatus === "resolved" ||
+      localStatus === "submitted" ||
+      localStatus === "cancelled" ||
+      localStatus === "resolved",
+  )
 
-  async function load(signal: AbortSignal, workspace: string, session: string, id: string, opened: (value: FormController) => void): Promise<void> {
-    state = "loading"
+  async function load(
+    signal: AbortSignal,
+    workspace: string,
+    session: string,
+    id: string,
+    opened: (value: FormController) => void,
+  ): Promise<void> {
+    formStatus = "loading"
     controller = null
     try {
       const launched = await fetchChatInputLaunch(
@@ -45,26 +60,27 @@
         return
       }
       if (launched.status === 409) {
-        state = "resolved"
+        formStatus = "resolved"
         onResolved()
         return
       }
       if (launched.status === 403 || launched.status === 404) {
-        state = "denied"
+        formStatus = "denied"
         return
       }
       if (!launched.ok) throw new Error("input could not be opened")
       const result = (await launched.json()) as { capability: string }
       if (signal.aborted) return
       const capability = result.capability
-      if (typeof capability !== "string" || capability === "") throw new Error("invalid input capability")
+      if (typeof capability !== "string" || capability === "")
+        throw new Error("invalid input capability")
       const form = createInputFormController(createInputTransport(capability))
       opened(form)
       controller = form
-      state = "ready"
+      formStatus = "ready"
       await form.load()
     } catch {
-      if (!signal.aborted) state = "error"
+      if (!signal.aborted) formStatus = "error"
     }
   }
 
@@ -80,7 +96,9 @@
     }
     const abort = new AbortController()
     let form: FormController | null = null
-    void load(abort.signal, workspace, session, id, (value) => { form = value })
+    void load(abort.signal, workspace, session, id, (value) => {
+      form = value
+    })
     return () => {
       abort.abort()
       form?.dispose()
@@ -88,23 +106,33 @@
   })
 
   $effect(() => {
-    if (localStatus === "submitted" || localStatus === "cancelled" || localStatus === "resolved")
+    if (
+      localStatus === "submitted" ||
+      localStatus === "cancelled" ||
+      localStatus === "resolved"
+    )
       untrack(onResolved)
   })
 </script>
 
 {#if !resolved}
-  <section class="conversation-message conversation-input card stack" aria-label={request.event.payload.description ?? "Input form"}>
-    <h2>{controller?.state.form?.title ?? request.event.payload.description ?? "Input form"}</h2>
-    {#if state === "ready" && controller !== null}
+  <UI.Message aria-label={request.event.payload.description ?? "Input form"}>
+    <UI.Heading level={2}
+      >{controller?.state.form?.title ??
+        request.event.payload.description ??
+        "Input form"}</UI.Heading
+    >
+    {#if formStatus === "ready" && controller !== null}
       <InputForm {controller} {inputID} depth={2} />
-    {:else if state === "loading"}
-      <p role="status">Loading the form...</p>
-    {:else if state === "denied"}
-      <p role="alert">Unavailable or already resolved.</p>
+    {:else if formStatus === "loading"}
+      <UI.Text as="p" role="status">Loading the form...</UI.Text>
+    {:else if formStatus === "denied"}
+      <UI.Text as="p" role="alert">Unavailable or already resolved.</UI.Text>
     {:else}
-      <p role="alert">The form could not be loaded.</p>
-      <button class="secondary" type="button" onclick={() => retry += 1}>Try again</button>
+      <UI.Text as="p" role="alert">The form could not be loaded.</UI.Text>
+      <UI.Button variant="outline" type="button" onclick={() => (retry += 1)}
+        >Try again</UI.Button
+      >
     {/if}
-  </section>
+  </UI.Message>
 {/if}

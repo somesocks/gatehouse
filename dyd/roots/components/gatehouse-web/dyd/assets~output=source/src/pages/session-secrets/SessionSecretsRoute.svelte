@@ -1,11 +1,16 @@
 <script lang="ts">
+  import { RouterLink, StatusPage } from "../../ui"
+  import {
+    workspaceNavigation,
+    sessionViews,
+    renameSession,
+  } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { fetchChatSession } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import SessionNavigation from "../../components/SessionNavigation.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
   import SessionSecretsPage from "./SessionSecretsPage.svelte"
 
@@ -192,77 +197,138 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "chats")}
+      /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={workspacePath(workspace.id)}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if session !== null}
               {#if session.project !== undefined}
-                <li><RouterLink href={projectPath(workspace.id, session.project.id)}>{session.project.name ?? "New Project"}</RouterLink></li>
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  ><RouterLink
+                    href={projectPath(workspace.id, session.project.id)}
+                    >{session.project.name ?? "New Project"}</RouterLink
+                  ></UI.Breadcrumb.Item
+                >
               {/if}
-              <li><RouterLink href={sessionPath(workspace.id, session.id)}>{session.name ?? "New Chat"}</RouterLink></li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={sessionPath(workspace.id, session.id)}
+                  >{session.name ?? "New Chat"}</RouterLink
+                ></UI.Breadcrumb.Item
+              >
               {#if currentRoute.kind === "session-secrets"}
-                <li aria-current="page">Secrets</li>
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  aria-current="page"
+                  ><UI.Breadcrumb.Page>Secrets</UI.Breadcrumb.Page
+                  ></UI.Breadcrumb.Item
+                >
               {:else}
-                <li><RouterLink href={sessionSecretsPath(workspace.id, session.id)}>Secrets</RouterLink></li>
-                {#if secretBreadcrumb !== null}<li aria-current="page">{secretBreadcrumb}</li>{/if}
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  ><RouterLink
+                    href={sessionSecretsPath(workspace.id, session.id)}
+                    >Secrets</RouterLink
+                  ></UI.Breadcrumb.Item
+                >
+                {#if secretBreadcrumb !== null}<UI.Breadcrumb.Separator
+                  /><UI.Breadcrumb.Item aria-current="page"
+                    ><UI.Breadcrumb.Page>{secretBreadcrumb}</UI.Breadcrumb.Page
+                    ></UI.Breadcrumb.Item
+                  >{/if}
               {/if}
             {/if}
-          </ol>
-        </nav>
-        {#if session !== null}<SessionNavigation
-            workspaceID={workspace.id}
-            sessionID={session.id}
-            active="secrets"
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
+        {#if session !== null}<UI.ViewNavigation
+            items={sessionViews(workspace.id, session.id, "secrets")}
             name={session.name}
-            onRenamed={updateSessionName}
+            onRename={(name) =>
+              renameSession(
+                runtime,
+                workspace.id,
+                currentRoute.sessionID,
+                name,
+                updateSessionName,
+              )}
           />{/if}</SidebarPage.Header
       >
       <SidebarPage.Body
-        >{#if sessionStatus === "checking"}<p
-            class="muted"
+        >{#if sessionStatus === "checking"}<UI.Text
+            as="p"
+            tone="muted"
             aria-busy="true"
             aria-live="polite"
           >
             Loading chat...
-          </p>
-        {:else if sessionStatus === "unavailable"}<p class="muted">
+          </UI.Text>
+        {:else if sessionStatus === "unavailable"}<UI.Text as="p" tone="muted">
             This chat could not be loaded.
-          </p>
-          <button
-            class="primary"
+          </UI.Text>
+          <UI.Button
+            variant="default"
             type="button"
             onclick={() => {
               const signal = abortController?.signal
               if (signal !== undefined)
                 void loadRoute(currentRoute, generation, signal)
-            }}>Try again</button
+            }}>Try again</UI.Button
           >
         {:else if session !== null && routeSignal !== null}<SessionSecretsPage
             workspaceID={workspace.id}

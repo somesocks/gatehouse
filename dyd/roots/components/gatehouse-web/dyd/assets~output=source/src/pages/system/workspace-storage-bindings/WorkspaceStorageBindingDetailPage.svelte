@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import {
     systemAdministration,
     type SystemWorkspaceStorageProvider,
@@ -70,95 +72,102 @@
   })
 </script>
 
-<SystemFrame
-  active="workspace-storage-bindings"
-  title="Workspace storage binding"
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "workspace-storage-bindings")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Workspace storage binding" },
+  ]}
 >
-  <section class="stack">
+  <UI.Stack as="section">
     {#if loading}
-      <p class="muted">Loading binding...</p>
+      <UI.Text as="p" tone="muted">Loading binding...</UI.Text>
     {:else if binding === null}
-      <p class="field-help" role="alert">
+      <UI.Text as="p" size="small" role="alert">
         {error || "Workspace storage binding was not found."}
-      </p>
-      <RouterLink class="secondary" href="/app/system/workspace-storage-bindings"
+      </UI.Text>
+      <RouterLink
+        variant="outline"
+        href="/app/system/workspace-storage-bindings"
         >Back to bindings</RouterLink
       >
     {:else if !editing}
-      <div class="split">
-        <div>
-          <p class="eyebrow">Workspace storage binding</p>
-          <h2>{binding.workspace} / {binding.provider}</h2>
-        </div>
-        <button
-          class="secondary"
+      <UI.Row justify="between">
+        <UI.Group>
+          <UI.Text as="p" size="eyebrow">Workspace storage binding</UI.Text>
+          <UI.Heading level={2}
+            >{binding.workspace} / {binding.provider}</UI.Heading
+          >
+        </UI.Group>
+        <UI.Button
+          variant="outline"
           type="button"
           onclick={() => {
             priority = binding!.priority
             enabled = binding!.enabled
             editing = true
-          }}>Edit</button
+          }}>Edit</UI.Button
         >
-      </div>
-      <dl>
-        <div class="field">
-          <dt>Priority</dt>
-          <dd>{binding.priority}</dd>
-        </div>
-        <div class="field">
-          <dt>Status</dt>
-          <dd>{binding.enabled ? "Enabled" : "Disabled"}</dd>
-        </div>
-        <div class="field">
-          <dt>Revision</dt>
-          <dd>{binding.revision}</dd>
-        </div>
-      </dl>
+      </UI.Row>
+      <UI.Stack as="dl">
+        <UI.Field>
+          <UI.Text as="dt" size="small">Priority</UI.Text>
+          <UI.Text as="dd">{binding.priority}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Status</UI.Text>
+          <UI.Text as="dd">{binding.enabled ? "Enabled" : "Disabled"}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Revision</UI.Text>
+          <UI.Text as="dd">{binding.revision}</UI.Text>
+        </UI.Field>
+      </UI.Stack>
     {:else}
-      <div class="stack">
-        <div>
-          <p class="eyebrow">Workspace storage binding</p>
-          <h2>Edit binding</h2>
-        </div>
-      </div>
-      <form
-        class="stack"
+      <UI.Stack>
+        <UI.Group>
+          <UI.Text as="p" size="eyebrow">Workspace storage binding</UI.Text>
+          <UI.Heading level={2}>Edit binding</UI.Heading>
+        </UI.Group>
+      </UI.Stack>
+      <UI.Form
         onsubmit={(event) => {
           event.preventDefault()
           void save()
         }}
       >
-        <div class="field">
-          <label class="choice"
-            ><input type="checkbox" bind:checked={enabled} /> Enabled</label
+        <UI.Field>
+          <UI.Label layout="choice"
+            ><UI.Checkbox bind:checked={enabled} /> Enabled</UI.Label
           >
-        </div>
-        <div class="field">
-          <label for="storage-binding-priority">Priority</label>
-          <div>
-            <input
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="storage-binding-priority">Priority</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="storage-binding-priority"
               type="number"
               bind:value={priority}
             />
-          </div>
-        </div>
-        <div class="cluster">
-          <div>
-            <button class="primary" disabled={saving}
-              >Save changes</button
+          </UI.Group>
+        </UI.Field>
+        <UI.Row>
+          <UI.Group>
+            <UI.Button variant="default" type="submit" disabled={saving}
+              >Save changes</UI.Button
             >
-          </div>
-          <div>
-            <button
-              class="secondary"
+          </UI.Group>
+          <UI.Group>
+            <UI.Button
+              variant="outline"
               type="button"
-              onclick={() => (editing = false)}>Cancel</button
+              onclick={() => (editing = false)}>Cancel</UI.Button
             >
-          </div>
-        </div>
-      </form>
-      {#if error}<p class="field-help" role="alert">{error}</p>{/if}
+          </UI.Group>
+        </UI.Row>
+      </UI.Form>
+      {#if error}<UI.Text as="p" size="small" role="alert">{error}</UI.Text
+        >{/if}
     {/if}
-  </section>
-</SystemFrame>
+  </UI.Stack>
+</UI.AppFrame>

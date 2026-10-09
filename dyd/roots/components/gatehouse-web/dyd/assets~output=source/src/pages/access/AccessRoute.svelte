@@ -1,8 +1,8 @@
 <script lang="ts">
+  import { RouterLink, StatusPage } from "../../ui"
+  import * as UI from "../../ui"
   import { signOut } from "../../app/auth"
   import { useRuntime } from "../../app/runtime.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
   import LoginPage from "../login/LoginPage.svelte"
   import { loginDestination } from "./login-destination"
 
@@ -35,11 +35,11 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
@@ -48,7 +48,13 @@
     title="Connection unavailable"
     description="Gatehouse could not load your account."
   >
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
@@ -59,8 +65,17 @@
     description={`Ask an administrator to add ${auth.state.claims?.principal.name ?? "User"} to a workspace group.`}
   >
     {#snippet children()}
-      {#if access.state.systemAccess === "available"}<div><RouterLink class="primary" href="/app/system">System</RouterLink></div>{/if}
-      <div><button class="secondary" type="button" onclick={() => void logout()}>Log out</button></div>
+      {#if access.state.systemAccess === "available"}<UI.Group
+          ><RouterLink variant="default" href="/app/system">System</RouterLink
+          ></UI.Group
+        >{/if}
+      <UI.Group
+        ><UI.Button
+          variant="outline"
+          type="button"
+          onclick={() => void logout()}>Log out</UI.Button
+        ></UI.Group
+      >
     {/snippet}
   </StatusPage>
 {/if}

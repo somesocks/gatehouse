@@ -1,9 +1,9 @@
 <script lang="ts">
+  import { PageBody, PageHeading } from "../../ui"
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
   import type { Workspace } from "../../app/access"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
   import { createGroupsController } from "./groups-controller.svelte"
 
   let {
@@ -39,23 +39,26 @@
 
 <PageBody>
   <PageHeading>
-    <h1>Groups</h1>
+    <UI.Heading level={1}>Groups</UI.Heading>
   </PageHeading>
-  <div class="field">
-    <label class="field"
-      ><span>Search groups</span><input
+  <UI.Field>
+    <UI.Label layout="field"
+      ><UI.Text>Search groups</UI.Text><UI.Input
         type="search"
         autocomplete="off"
         placeholder="Search groups"
         bind:value={controller.state.search}
-      /></label
+      /></UI.Label
     >
-  </div>
-  <div class="list">
+  </UI.Field>
+  <UI.List>
     {#each ordered(controller.state.groups.filter( (group) => matchesSearch(group, controller.state.search), )) as group}
-      <div class="list-item surface split">
-        <span>{group.name ?? "New Group"}</span><small>{group.id}</small>
-      </div>
-    {:else}<p class="notice">No groups match your search.</p>{/each}
-  </div>
+      <UI.Item>
+        <UI.Text>{group.name ?? "New Group"}</UI.Text><UI.Text
+          as="small"
+          size="small">{group.id}</UI.Text
+        >
+      </UI.Item>
+    {:else}<UI.Notice>No groups match your search.</UI.Notice>{/each}
+  </UI.List>
 </PageBody>

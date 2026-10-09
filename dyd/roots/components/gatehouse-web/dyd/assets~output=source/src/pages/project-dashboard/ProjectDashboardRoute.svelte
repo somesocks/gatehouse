@@ -1,6 +1,16 @@
 <script lang="ts">
-  import { Button, Dialog as Modal, DropdownMenu } from "bits-ui"
-  import { Menu, X } from "@lucide/svelte"
+  import {
+    Dialog as Modal,
+    DropdownMenu,
+    Menu,
+    X,
+    PageBody,
+    PageHeading,
+    RouterLink,
+    StatusPage,
+  } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import {
     createProjectChat,
     fetchProjectChats,
@@ -30,12 +40,8 @@
     type TaskStatus,
   } from "../../app/project-tasks"
   import { useRuntime } from "../../app/runtime.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
 
   type DashboardRoute = Extract<Route, { kind: "project" }>
@@ -647,146 +653,185 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
-      ><WorkspaceNavigation
-        {workspace}
-        active="projects"
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "projects")}
       /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
         ><SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb"><ol><li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li><li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li><li aria-current="page">{project?.name ?? "New Project"}</li></ol></nav></SidebarPage.Header
+        <UI.Breadcrumb.Root aria-label="Breadcrumb"
+          ><UI.Breadcrumb.List
+            ><UI.Breadcrumb.Item
+              ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
+                >Projects</RouterLink
+              ></UI.Breadcrumb.Item
+            ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+              ><UI.Breadcrumb.Page
+                >{project?.name ?? "New Project"}</UI.Breadcrumb.Page
+              ></UI.Breadcrumb.Item
+            ></UI.Breadcrumb.List
+          ></UI.Breadcrumb.Root
+        ></SidebarPage.Header
       ><SidebarPage.Body
         ><PageBody fluid>
-          {#if projectStatus === "checking"}<section class="notice">
-              <p>Loading project...</p>
-            </section>
-          {:else if projectStatus === "unavailable"}<section class="notice stack">
-              <p>Project unavailable.</p>
-              <Button.Root
-                class="primary"
+          {#if projectStatus === "checking"}<UI.Notice>
+              <UI.Text as="p">Loading project...</UI.Text>
+            </UI.Notice>
+          {:else if projectStatus === "unavailable"}<UI.Notice>
+              <UI.Text as="p">Project unavailable.</UI.Text>
+              <UI.Button
+                variant="default"
                 type="button"
                 onclick={() =>
                   void loadRoute(
                     currentRoute,
                     generation,
                     abortController!.signal,
-                  )}>Try again</Button.Root
+                  )}>Try again</UI.Button
               >
-            </section>
+            </UI.Notice>
           {:else if project !== null}
-            <section class="stack">
-              {#snippet projectActions()}<DropdownMenu.Root
-                  ><DropdownMenu.Trigger
-                    class="icon inline"
-                    aria-label="Project actions"
-                    title="Project actions"
-                    ><Menu
-                      size={22}
-                      strokeWidth={2}
-                      aria-hidden="true"
-                    /></DropdownMenu.Trigger
-                  ><DropdownMenu.Portal
-                    ><DropdownMenu.Content
-                      class="list dropdown-menu-content"
-                      sideOffset={6}
-                      align="end"
-                      ><DropdownMenu.Item
-                        class="list-item"
-                        onSelect={openEdit}>Edit project</DropdownMenu.Item
-                      ></DropdownMenu.Content
-                    ></DropdownMenu.Portal
-                  ></DropdownMenu.Root
-                >{/snippet}
+            {#snippet projectActions()}<DropdownMenu.Root
+                ><DropdownMenu.Trigger
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Project actions"
+                  title="Project actions"
+                  ><Menu
+                    size={22}
+                    strokeWidth={2}
+                    aria-hidden="true"
+                  /></DropdownMenu.Trigger
+                ><DropdownMenu.Content sideOffset={6} align="end"
+                  ><DropdownMenu.Item onSelect={openEdit}
+                    >Edit project</DropdownMenu.Item
+                  ></DropdownMenu.Content
+                ></DropdownMenu.Root
+              >{/snippet}
+            <UI.Stack as="section">
               <PageHeading as="header" actions={projectActions}>
-                <p class="eyebrow">Project</p>
-                <h2>
+                <UI.Text as="p" size="eyebrow">Project</UI.Text>
+                <UI.Heading level={2}>
                   {project.name ?? "New Project"}
-                </h2>
-                <p class="subtitle">
+                </UI.Heading>
+                <UI.Text as="p" tone="muted">
                   {project.description ?? "No description yet."}
-                </p>
+                </UI.Text>
               </PageHeading>
-              <section class="grid" data-columns="2">
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Chats</h2>
-                    <Button.Root
-                      class="primary small"
+              <UI.Grid columns={2}>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Chats</UI.Heading>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       disabled={creatingChat}
                       onclick={() => void createChat()}
-                      >{creatingChat ? "Creating..." : "New chat"}</Button.Root
+                      >{creatingChat ? "Creating..." : "New chat"}</UI.Button
                     >
-                  </div>
+                  </UI.Row>
                   {#each chats as chat (chat.id)}<RouterLink
-                      class="list-entry"
+                      variant="entry"
                       href={chatPath(workspace.id, chat.id)}
-                      ><span class="stack" style:--space="calc(var(--space) / 4)"
-                        ><span class="truncate">{chat.name ?? "New Chat"}</span><span
-                          class="field-help truncate"
-                          ><time datetime={chat.created_at}
-                            >{dateLabel(chat.created_at)}</time
-                          ></span
-                        ></span
+                      ><UI.Stack as="span" gap="tight"
+                        ><UI.Text truncate>{chat.name ?? "New Chat"}</UI.Text
+                        ><UI.Text size="small" truncate
+                          ><UI.Text as="time" datetime={chat.created_at}
+                            >{dateLabel(chat.created_at)}</UI.Text
+                          ></UI.Text
+                        ></UI.Stack
                       ></RouterLink
-                    >{:else}<p class="notice">
+                    >{:else}<UI.Notice>
                       No project chats yet.
-                    </p>{/each}<RouterLink
-                    class="navigation-link"
+                    </UI.Notice>{/each}<RouterLink
                     href={chatsPath(workspace.id)}>View all chats</RouterLink
                   >
-                </section>
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Files</h2>
-                    <Button.Root
-                      class="primary small"
+                </UI.Panel>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Files</UI.Heading>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       disabled={uploadingFiles > 0}
                       onclick={() => fileInput?.click()}
                       >{uploadingFiles > 0
                         ? "Uploading..."
-                        : "Upload files"}</Button.Root
+                        : "Upload files"}</UI.Button
                     >
-                  </div>
-                  <input
-                    class="visually-hidden"
+                  </UI.Row>
+                  <UI.FileInput
+                    hidden
                     type="file"
                     autocomplete="off"
                     multiple
-                    bind:this={fileInput}
+                    bind:ref={fileInput}
                     onchange={(event) => void uploadFiles(event.currentTarget)}
-                  />{#if filesStatus === "checking"}<p class="notice">
+                  />{#if filesStatus === "checking"}<UI.Notice>
                       Loading files...
-                    </p>{:else if filesStatus === "unavailable"}<p
-                      class="notice"
+                    </UI.Notice>{:else if filesStatus === "unavailable"}<UI.Notice
                     >
                       Files could not be loaded.
-                    </p>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         void loadFiles(
@@ -794,52 +839,54 @@
                           currentRoute.workspaceID,
                           currentRoute.projectID,
                           abortController!.signal,
-                        )}>Try again</Button.Root
+                        )}>Try again</UI.Button
                     >{:else}{#each files.slice(0, 5) as file (file.id)}<RouterLink
-                        class="list-entry"
+                        variant="entry"
                         href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files/${encodeURIComponent(file.id)}`}
-                        ><span class="stack" style:--space="calc(var(--space) / 4)"
-                          ><span class="truncate">{file.name}</span><span
-                            class="field-help truncate"
-                            ><time datetime={file.created_at}
-                              >{dateLabel(file.created_at)}</time
-                            > / {file.size} bytes{#if file.media_type !== undefined} / {file.media_type}{/if}</span
-                          ></span
+                        ><UI.Stack as="span" gap="tight"
+                          ><UI.Text truncate>{file.name}</UI.Text><UI.Text
+                            size="small"
+                            truncate
+                            ><UI.Text as="time" datetime={file.created_at}
+                              >{dateLabel(file.created_at)}</UI.Text
+                            > / {file.size} bytes{#if file.media_type !== undefined}
+                              / {file.media_type}{/if}</UI.Text
+                          ></UI.Stack
                         ></RouterLink
-                      >{:else}<p class="notice">
+                      >{:else}<UI.Notice>
                         No files yet.
-                      </p>{/each}{/if}<RouterLink
-                    class="navigation-link"
+                      </UI.Notice>{/each}{/if}<RouterLink
                     href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(project.id)}/files`}
                     >View all files</RouterLink
-                  >{#if filesError !== ""}<p
-                      class="notice action"
+                  >{#if filesError !== ""}<UI.Notice
+                      variant="destructive"
                       aria-live="polite"
                     >
                       {filesError}
-                    </p>{/if}
-                </section>
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Notes</h2>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>{/if}
+                </UI.Panel>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Notes</UI.Heading>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         runtime.navigate(
-                          `${notesPath(workspace.id, project.id)}/new`,
-                        )}>New note</Button.Root
+                          `${notesPath(workspace.id, currentRoute.projectID)}/new`,
+                        )}>New note</UI.Button
                     >
-                  </div>
-                  {#if notesStatus === "checking"}<p class="notice">
+                  </UI.Row>
+                  {#if notesStatus === "checking"}<UI.Notice>
                       Loading notes...
-                    </p>{:else if notesStatus === "unavailable"}<p
-                      class="notice"
+                    </UI.Notice>{:else if notesStatus === "unavailable"}<UI.Notice
                     >
                       Notes could not be loaded.
-                    </p>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         void loadNotes(
@@ -847,49 +894,53 @@
                           currentRoute.workspaceID,
                           currentRoute.projectID,
                           abortController!.signal,
-                        )}>Try again</Button.Root
+                        )}>Try again</UI.Button
                     >{:else}{#each notes as note (note.id)}<RouterLink
-                        class="list-entry"
+                        variant="entry"
                         href={notePath(workspace.id, project.id, note.id)}
                       >
-                        <span class="stack" style:--space="calc(var(--space) / 4)">
-                          <span class="truncate">{note.title}</span>
+                        <UI.Stack as="span" gap="tight">
+                          <UI.Text truncate>{note.title}</UI.Text>
                           {#if note.description !== "" || note.sensitive}
-                            <span class="field-help truncate"
-                              >{note.sensitive ? "Sensitive" : ""}{#if note.sensitive && note.description !== ""} / {/if}{note.description}</span
+                            <UI.Text size="small" truncate
+                              >{note.sensitive
+                                ? "Sensitive"
+                                : ""}{#if note.sensitive && note.description !== ""}
+                                /
+                              {/if}{note.description}</UI.Text
                             >
                           {/if}
-                        </span>
+                        </UI.Stack>
                       </RouterLink>
-                      {:else}<p class="notice">
+                    {:else}<UI.Notice>
                         No notes yet.
-                      </p>{/each}{/if}<RouterLink
-                    class="navigation-link"
-                    href={notesPath(workspace.id, project.id)}
+                      </UI.Notice>{/each}{/if}<RouterLink
+                    href={notesPath(workspace.id, currentRoute.projectID)}
                     >View all notes</RouterLink
                   >
-                </section>
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Tasks</h2>
-                    <Button.Root
-                      class="primary small"
+                </UI.Panel>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Tasks</UI.Heading>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         runtime.navigate(
-                          `${tasksPath(workspace.id, project.id)}/new`,
-                        )}>New task</Button.Root
+                          `${tasksPath(workspace.id, currentRoute.projectID)}/new`,
+                        )}>New task</UI.Button
                     >
-                  </div>
-                  {#if tasksStatus === "checking"}<p class="notice">
+                  </UI.Row>
+                  {#if tasksStatus === "checking"}<UI.Notice>
                       Loading tasks...
-                    </p>{:else if tasksStatus === "unavailable"}<p
-                      class="notice"
+                    </UI.Notice>{:else if tasksStatus === "unavailable"}<UI.Notice
                     >
                       Tasks could not be loaded.
-                    </p>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         void loadTasks(
@@ -897,45 +948,47 @@
                           currentRoute.workspaceID,
                           currentRoute.projectID,
                           abortController!.signal,
-                        )}>Try again</Button.Root
+                        )}>Try again</UI.Button
                     >{:else}{#each tasks.slice(0, 5) as task (task.id)}<RouterLink
-                        class="list-entry"
+                        variant="entry"
                         href={taskPath(workspace.id, project.id, task.id)}
-                        ><span class="stack" style:--space="calc(var(--space) / 4)"
-                          ><span class="truncate">{task.title}</span
-                          ><span class="field-help truncate"
-                            >{statusLabel(task.status)}{#if task.sensitive} / Sensitive{/if}</span
-                          ></span
+                        ><UI.Stack as="span" gap="tight"
+                          ><UI.Text truncate>{task.title}</UI.Text><UI.Text
+                            size="small"
+                            truncate
+                            >{statusLabel(task.status)}{#if task.sensitive}
+                              / Sensitive{/if}</UI.Text
+                          ></UI.Stack
                         ></RouterLink
-                      >{:else}<p class="notice">
+                      >{:else}<UI.Notice>
                         No tasks yet.
-                      </p>{/each}{/if}<RouterLink
-                    class="navigation-link"
-                    href={tasksPath(workspace.id, project.id)}
+                      </UI.Notice>{/each}{/if}<RouterLink
+                    href={tasksPath(workspace.id, currentRoute.projectID)}
                     >View all tasks</RouterLink
                   >
-                </section>
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Secrets</h2>
-                    <Button.Root
-                      class="primary small"
+                </UI.Panel>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Secrets</UI.Heading>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         runtime.navigate(
-                          `${secretsPath(workspace.id, project.id)}/new`,
-                        )}>New secret</Button.Root
+                          `${secretsPath(workspace.id, currentRoute.projectID)}/new`,
+                        )}>New secret</UI.Button
                     >
-                  </div>
-                  {#if secretsStatus === "checking"}<p class="notice">
+                  </UI.Row>
+                  {#if secretsStatus === "checking"}<UI.Notice>
                       Loading secrets...
-                    </p>{:else if secretsStatus === "unavailable"}<p
-                      class="notice"
+                    </UI.Notice>{:else if secretsStatus === "unavailable"}<UI.Notice
                     >
                       Secrets could not be loaded.
-                    </p>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         void loadSecrets(
@@ -943,44 +996,41 @@
                           currentRoute.workspaceID,
                           currentRoute.projectID,
                           abortController!.signal,
-                        )}>Try again</Button.Root
+                        )}>Try again</UI.Button
                     >{:else}{#each secrets as secret (secret.id)}<RouterLink
-                        class="list-entry"
+                        variant="entry"
                         href={secretPath(workspace.id, project.id, secret.id)}
-                        ><span class="stack" style:--space="calc(var(--space) / 4)"
-                          ><span>{secret.description}</span><span
-                            class="cluster"
-                            style:--space="calc(var(--space) / 2)"
-                            ><span
-                              >{secret.author.name ?? secret.author.id}</span
-                            ><time datetime={secret.updated_at}
-                              >Updated {dateLabel(secret.updated_at)}</time
-                            ></span
-                          ></span
+                        ><UI.Stack as="span" gap="tight"
+                          ><UI.Text>{secret.description}</UI.Text><UI.Row
+                            as="span"
+                            gap="small"
+                            ><UI.Text
+                              >{secret.author.name ?? secret.author.id}</UI.Text
+                            ><UI.Text as="time" datetime={secret.updated_at}
+                              >Updated {dateLabel(secret.updated_at)}</UI.Text
+                            ></UI.Row
+                          ></UI.Stack
                         ></RouterLink
-                      >{:else}<p class="notice">
+                      >{:else}<UI.Notice>
                         No secrets yet.
-                      </p>{/each}{/if}<RouterLink
-                    class="navigation-link"
-                    href={secretsPath(workspace.id, project.id)}
+                      </UI.Notice>{/each}{/if}<RouterLink
+                    href={secretsPath(workspace.id, currentRoute.projectID)}
                     >View all secrets</RouterLink
                   >
-                </section>
-                <section class="card surface stack">
-                  <div class="split">
-                    <h2>Project Records</h2>
-                  </div>
-                  {#if recordSchemasStatus === "checking"}<p
-                      class="notice"
-                    >
+                </UI.Panel>
+                <UI.Panel>
+                  <UI.Row justify="between">
+                    <UI.Heading level={2}>Project Records</UI.Heading>
+                  </UI.Row>
+                  {#if recordSchemasStatus === "checking"}<UI.Notice>
                       Loading record types...
-                    </p>{:else if recordSchemasStatus === "unavailable"}<p
-                      class="notice"
+                    </UI.Notice>{:else if recordSchemasStatus === "unavailable"}<UI.Notice
                     >
                       Record types could not be loaded.
-                    </p>
-                    <Button.Root
-                      class="primary small"
+                    </UI.Notice>
+                    <UI.Button
+                      variant="default"
+                      size="sm"
                       type="button"
                       onclick={() =>
                         void loadRecordSchemas(
@@ -988,93 +1038,93 @@
                           currentRoute.workspaceID,
                           currentRoute.projectID,
                           abortController!.signal,
-                        )}>Try again</Button.Root
+                        )}>Try again</UI.Button
                     >{:else}{#each recordSchemas.slice(0, 5) as schema (schema.id)}<RouterLink
-                        class="list-entry"
+                        variant="entry"
                         href={recordSchemaPath(
                           workspace.id,
                           project.id,
                           schema.id,
                         )}
-                        ><span class="stack" style:--space="calc(var(--space) / 4)"
-                          ><span>{schema.label}</span
-                          >{#if schema.description !== ""}<span
-                              class="field-help"
-                              >{schema.description}</span
-                            >{/if}</span
+                        ><UI.Stack as="span" gap="tight"
+                          ><UI.Text>{schema.label}</UI.Text
+                          >{#if schema.description !== ""}<UI.Text size="small"
+                              >{schema.description}</UI.Text
+                            >{/if}</UI.Stack
                         ></RouterLink
-                      >{:else}<p class="notice">
+                      >{:else}<UI.Notice>
                         No record types yet.
-                      </p>{/each}<RouterLink
-                      class="navigation-link"
+                      </UI.Notice>{/each}<RouterLink
                       href={recordsPath(workspace.id, project.id)}
                       >View all records</RouterLink
                     >{/if}
-                </section>
-              </section>
-              {#if actionError !== ""}<p class="notice action" aria-live="polite">
+                </UI.Panel>
+              </UI.Grid>
+              {#if actionError !== ""}<UI.Notice
+                  variant="destructive"
+                  aria-live="polite"
+                >
                   {actionError}
-                </p>{/if}
-            </section>
+                </UI.Notice>{/if}
+            </UI.Stack>
           {/if}
         </PageBody></SidebarPage.Body
       ></SidebarPage.Page
     ></SidebarPage.Root
   >
   <Modal.Root bind:open={editOpen}
-    ><Modal.Portal
-        ><Modal.Overlay class="modal-overlay" /><Modal.Content
-          class="modal"
-        ><form
-          class="modal-body stack"
-          onsubmit={(event) => {
-            event.preventDefault()
-            void saveProject()
-          }}
-        >
-          <div class="modal-header">
-            <Modal.Title>Edit project</Modal.Title
-            ><Button.Root
-              class="icon"
-              type="button"
-              aria-label="Close"
-              onclick={closeEdit}
-              ><X size={18} strokeWidth={2} aria-hidden="true" /></Button.Root
-            >
-          </div>
-          <div class="field">
-            <label for="project-edit-name">Name</label><input
-              id="project-edit-name"
-              autocomplete="off"
-              maxlength="256"
-              bind:value={editName}
-            />
-          </div>
-          <div class="field">
-            <label for="project-edit-description">Description</label><textarea
-              id="project-edit-description"
-              autocomplete="off"
-              rows="4"
-              maxlength="4096"
-              bind:value={editDescription}></textarea>
-          </div>
-          {#if editError !== ""}<p class="notice action" aria-live="polite">
-              {editError}
-            </p>{/if}
-          <div class="modal-footer">
-            <Button.Root
-              type="button"
-              disabled={updatingProject}
-              onclick={closeEdit}>Cancel</Button.Root
-            ><Button.Root
-              class="primary"
-              type="submit"
-              disabled={updatingProject}
-              >{updatingProject ? "Saving..." : "Save changes"}</Button.Root
-            >
-          </div>
-        </form></Modal.Content
-      ></Modal.Portal
+    ><Modal.Content
+      ><UI.Form
+        onsubmit={(event) => {
+          event.preventDefault()
+          void saveProject()
+        }}
+      >
+        <UI.Row justify="between">
+          <Modal.Title>Edit project</Modal.Title><UI.Button
+            variant="ghost"
+            size="icon"
+            type="button"
+            aria-label="Close"
+            onclick={closeEdit}
+            ><X size={18} strokeWidth={2} aria-hidden="true" /></UI.Button
+          >
+        </UI.Row>
+        <UI.Field>
+          <UI.Label for="project-edit-name">Name</UI.Label><UI.Input
+            id="project-edit-name"
+            autocomplete="off"
+            maxlength={256}
+            bind:value={editName}
+          />
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="project-edit-description">Description</UI.Label
+          ><UI.Textarea
+            id="project-edit-description"
+            autocomplete="off"
+            rows={4}
+            maxlength={4096}
+            bind:value={editDescription}
+          ></UI.Textarea>
+        </UI.Field>
+        {#if editError !== ""}<UI.Notice
+            variant="destructive"
+            aria-live="polite"
+          >
+            {editError}
+          </UI.Notice>{/if}
+        <UI.Row justify="end">
+          <UI.Button
+            variant="outline"
+            type="button"
+            disabled={updatingProject}
+            onclick={closeEdit}>Cancel</UI.Button
+          ><UI.Button variant="default" type="submit" disabled={updatingProject}
+            >{updatingProject ? "Saving..." : "Save changes"}</UI.Button
+          >
+        </UI.Row>
+      </UI.Form></Modal.Content
     ></Modal.Root
   >
 {/if}

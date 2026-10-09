@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import { createStorageProviderListController } from "./storage-provider-list-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -30,44 +32,50 @@
   $effect(() => controller.start())
 </script>
 
-<SystemFrame active="storage-providers" title="Storage providers"
-  ><section class="stack">
-    <div class="split">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>Storage providers</h2>
-        <p>Configure embedded and S3 storage.</p>
-      </div>
-      <RouterLink
-        class="primary"
-        href="/app/system/storage-providers/new">Add provider</RouterLink
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "storage-providers")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Storage providers" },
+  ]}
+  ><UI.Stack as="section">
+    <UI.Row justify="between">
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>Storage providers</UI.Heading>
+        <UI.Text as="p">Configure embedded and S3 storage.</UI.Text>
+      </UI.Group>
+      <RouterLink variant="default" href="/app/system/storage-providers/new"
+        >Add provider</RouterLink
       >
-    </div>
-    <div class="field">
-      <label
-        ><span>Search storage providers</span><input
+    </UI.Row>
+    <UI.Field>
+      <UI.Label
+        ><UI.Text>Search storage providers</UI.Text><UI.Input
           type="search"
           bind:value={controller.state.search}
-        /></label
+        /></UI.Label
       >
-    </div>
-    {#if controller.state.error}<p class="field-help" role="alert">
+    </UI.Field>
+    {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
         {controller.state.error}
-      </p>{/if}
-    <div class="list">
+      </UI.Text>{/if}
+    <UI.List>
       {#each controller.state.providers.filter( (p) => matches(p, controller.state.search), ) as p (p.id)}<RouterLink
-          class="list-item surface split"
+          variant="item"
           data-disabled={!p.enabled || undefined}
           href={`/app/system/storage-providers/${encodeURIComponent(p.id)}`}
-          ><div class="stack">
-            <strong>{p.alias}</strong><small
-              >{p.id} / {p.protocol} / {p.bucket ?? "no bucket"}</small
+          ><UI.Stack>
+            <UI.Text as="strong" emphasis="strong">{p.alias}</UI.Text><UI.Text
+              as="small"
+              size="small"
+              >{p.id} / {p.protocol} / {p.bucket ?? "no bucket"}</UI.Text
             >
-          </div>
-          <span>{p.enabled ? "Enabled" : "Disabled"}</span></RouterLink
-        >{:else}<p class="muted">
+          </UI.Stack>
+          <UI.Text>{p.enabled ? "Enabled" : "Disabled"}</UI.Text></RouterLink
+        >{:else}<UI.Text as="p" tone="muted">
           No storage providers match your search.
-        </p>{/each}
-    </div>
-  </section></SystemFrame
+        </UI.Text>{/each}
+    </UI.List>
+  </UI.Stack></UI.AppFrame
 >

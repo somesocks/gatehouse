@@ -1,67 +1,83 @@
 <script lang="ts">
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+  import { RouterLink } from "../../../ui"
+  import { useRuntime } from "../../../app/runtime.svelte"
+  const runtime = useRuntime()
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
 </script>
 
-<SystemFrame active="overview" title="Overview">
-  <section class="stack">
-    <hgroup>
-      <p class="eyebrow">System</p>
-      <h2>System administration</h2>
-      <p>Manage global Gatehouse state.</p>
-    </hgroup>
-    <RouterLink class="list-item surface stack" href="/app/system/principals"
-      ><span class="stack"
-        ><strong>Principals</strong><small
-          >View and enable or disable principals and their identities.</small
-        ></span
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "overview")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Overview" },
+  ]}
+>
+  <UI.Stack as="section">
+    <UI.Stack as="hgroup">
+      <UI.Text as="p" size="eyebrow">System</UI.Text>
+      <UI.Heading level={2}>System administration</UI.Heading>
+      <UI.Text as="p">Manage global Gatehouse state.</UI.Text>
+    </UI.Stack>
+    <RouterLink variant="item" href="/app/system/principals"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">Principals</UI.Text><UI.Text
+          as="small"
+          size="small"
+          >View and enable or disable principals and their identities.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink class="list-item surface stack" href="/app/system/grants"
-      ><span class="stack"
-        ><strong>System grants</strong><small
-          >Grant or revoke system-manager access.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/grants"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">System grants</UI.Text><UI.Text
+          as="small"
+          size="small">Grant or revoke system-manager access.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink class="list-item surface stack" href="/app/system/agent-providers"
-      ><span class="stack"
-        ><strong>Agent providers</strong><small
-          >Configure model-provider protocols and credentials.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/agent-providers"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">Agent providers</UI.Text
+        ><UI.Text as="small" size="small"
+          >Configure model-provider protocols and credentials.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink class="list-item surface stack" href="/app/system/agent-models"
-      ><span class="stack"
-        ><strong>Agent models</strong><small
-          >Configure models available for workspace bindings.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/agent-models"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">Agent models</UI.Text><UI.Text
+          as="small"
+          size="small"
+          >Configure models available for workspace bindings.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink class="list-item surface stack" href="/app/system/storage-providers"
-      ><span class="stack"
-        ><strong>Storage providers</strong><small
-          >Configure embedded or S3 storage.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/storage-providers"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">Storage providers</UI.Text
+        ><UI.Text as="small" size="small"
+          >Configure embedded or S3 storage.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink
-      class="list-item surface stack"
-      href="/app/system/workspace-agent-bindings"
-      ><span class="stack"
-        ><strong>Workspace agent bindings</strong><small
-          >Assign agent models to workspaces.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/workspace-agent-bindings"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong"
+          >Workspace agent bindings</UI.Text
+        ><UI.Text as="small" size="small"
+          >Assign agent models to workspaces.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-    <RouterLink
-      class="list-item surface stack"
-      href="/app/system/workspace-storage-bindings"
-      ><span class="stack"
-        ><strong>Workspace storage bindings</strong><small
-          >Assign storage providers to workspaces.</small
-        ></span
+    <RouterLink variant="item" href="/app/system/workspace-storage-bindings"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong"
+          >Workspace storage bindings</UI.Text
+        ><UI.Text as="small" size="small"
+          >Assign storage providers to workspaces.</UI.Text
+        ></UI.Stack
       ></RouterLink
     >
-  </section>
-</SystemFrame>
+  </UI.Stack>
+</UI.AppFrame>

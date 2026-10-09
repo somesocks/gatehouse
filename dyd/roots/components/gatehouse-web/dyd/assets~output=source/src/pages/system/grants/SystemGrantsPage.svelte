@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
+
   import { createSystemGrantsController } from "./system-grants-controller.svelte"
 
   const runtime = useRuntime()
@@ -19,60 +21,67 @@
   $effect(() => controller.start())
 </script>
 
-<SystemFrame active="grants" title="System grants">
-  <section class="stack">
-    <div class="stack">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>System grants</h2>
-        <p>
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "grants")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "System grants" },
+  ]}
+>
+  <UI.Stack as="section">
+    <UI.Stack>
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>System grants</UI.Heading>
+        <UI.Text as="p">
           System managers can modify global Gatehouse state.
-        </p>
-      </div>
-    </div>
-    <form
-      class="cluster"
+        </UI.Text>
+      </UI.Group>
+    </UI.Stack>
+    <UI.Form
+      layout="row"
       onsubmit={(event) => {
         event.preventDefault()
         void controller.create()
       }}
     >
-      <label class="field"
-        ><span>Principal ID</span><input
+      <UI.Label layout="field"
+        ><UI.Text>Principal ID</UI.Text><UI.Input
           autocomplete="off"
           placeholder="prn_..."
           bind:value={controller.state.principal}
-        /></label
-      ><button
-        class="primary"
+        /></UI.Label
+      ><UI.Button
+        variant="default"
         type="submit"
         disabled={controller.state.creating}
-        >{controller.state.creating ? "Granting..." : "Add manager"}</button
+        >{controller.state.creating ? "Granting..." : "Add manager"}</UI.Button
       >
-    </form>
-    {#if controller.state.error !== ""}<p
-        class="field-help"
+    </UI.Form>
+    {#if controller.state.error !== ""}<UI.Text
+        as="p"
+        size="small"
         role="alert"
         aria-live="polite"
       >
         {controller.state.error}
-      </p>{/if}
-    <div class="list">
-      {#each controller.state.grants as grant (grant.ref.id)}<article
-          class="list-item surface split"
+      </UI.Text>{/if}
+    <UI.List>
+      {#each controller.state.grants as grant (grant.ref.id)}<UI.Item
           data-disabled={!grant.enabled || undefined}
         >
-          <div class="stack">
-            <strong>{grant.principal.id}</strong><small
-              >{grant.ref.id} / revision {grant.revision}</small
+          <UI.Stack>
+            <UI.Text as="strong" emphasis="strong">{grant.principal.id}</UI.Text
+            ><UI.Text as="small" size="small"
+              >{grant.ref.id} / revision {grant.revision}</UI.Text
             >
-          </div>
-          <div class="cluster">
-            <span
-              class:muted={!grant.enabled}
-              >{grant.enabled ? "Enabled" : "Disabled"}</span
-            ><button
-              class="small"
+          </UI.Stack>
+          <UI.Row>
+            <UI.Text tone={!grant.enabled ? "muted" : "default"}
+              >{grant.enabled ? "Enabled" : "Disabled"}</UI.Text
+            ><UI.Button
+              variant="outline"
+              size="sm"
               type="button"
               disabled={controller.state.updatingIDs.has(grant.ref.id)}
               onclick={() => void controller.setEnabled(grant, !grant.enabled)}
@@ -80,12 +89,12 @@
                 ? "Saving..."
                 : grant.enabled
                   ? "Disable"
-                  : "Enable"}</button
+                  : "Enable"}</UI.Button
             >
-          </div>
-        </article>{:else}<p class="muted">
+          </UI.Row>
+        </UI.Item>{:else}<UI.Text as="p" tone="muted">
           No system grants are configured.
-        </p>{/each}
-    </div>
-  </section>
-</SystemFrame>
+        </UI.Text>{/each}
+    </UI.List>
+  </UI.Stack>
+</UI.AppFrame>

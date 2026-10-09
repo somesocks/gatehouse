@@ -1,9 +1,8 @@
 <script lang="ts">
+  import { PageBody, PageHeading, RouterLink } from "../../ui"
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
   import type { Route } from "../../route"
   import { createSessionSecretsController } from "./session-secrets-controller.svelte"
 
@@ -76,127 +75,138 @@
 
 <PageBody fluid>
   {#if controller.state.editing}
-    <form
-      class="stack"
+    <UI.Form
       onsubmit={(event) => {
         event.preventDefault()
         void controller.save()
       }}
     >
       <PageHeading>
-        <p class="eyebrow">Session Secret</p>
-        <h2>{controller.state.creating ? "New Secret" : "Edit Secret"}</h2>
-      </PageHeading>
-      <div class="field">
-        <label for="session-secret-description">Description</label
+        <UI.Text as="p" size="eyebrow">Session Secret</UI.Text>
+        <UI.Heading level={2}
+          >{controller.state.creating
+            ? "New Secret"
+            : "Edit Secret"}</UI.Heading
         >
-        <textarea
+      </PageHeading>
+      <UI.Field>
+        <UI.Label for="session-secret-description">Description</UI.Label>
+        <UI.Textarea
           id="session-secret-description"
           autocomplete="off"
-          rows="3"
-          maxlength="4096"
+          rows={3}
+          maxlength={4096}
           required
-          bind:value={controller.state.description}></textarea>
-      </div>
-      <div class="field">
-        <label for="session-secret-value"
-          >{controller.state.creating ? "Value" : "New value (optional)"}</label
+          bind:value={controller.state.description}
+        ></UI.Textarea>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="session-secret-value"
+          >{controller.state.creating
+            ? "Value"
+            : "New value (optional)"}</UI.Label
         >
-        <textarea
+        <UI.Textarea
           id="session-secret-value"
           autocomplete="new-password"
-          rows="5"
-          maxlength="1048576"
+          rows={5}
+          maxlength={1048576}
           required={controller.state.creating}
-          bind:value={controller.state.value}></textarea>
-        {#if !controller.state.creating}<p class="field-help">
+          bind:value={controller.state.value}
+        ></UI.Textarea>
+        {#if !controller.state.creating}<UI.Text as="p" size="small">
             Leave blank to keep the current value.
-          </p>{/if}
-      </div>
-      {#if controller.state.error !== ""}<p
-          class="field-help"
+          </UI.Text>{/if}
+      </UI.Field>
+      {#if controller.state.error !== ""}<UI.Text
+          as="p"
+          size="small"
           role="alert"
           aria-live="polite"
         >
           {controller.state.error}
-        </p>{/if}
-      <div class="cluster">
-        <button
+        </UI.Text>{/if}
+      <UI.Row>
+        <UI.Button
+          variant="outline"
           type="button"
           disabled={controller.state.saving}
-          onclick={() => controller.cancelEdit()}>Cancel</button
-        ><button
-          class="primary"
+          onclick={() => controller.cancelEdit()}>Cancel</UI.Button
+        ><UI.Button
+          variant="default"
           type="submit"
           disabled={controller.state.saving}
-          >{controller.state.saving ? "Saving..." : "Save secret"}</button
+          >{controller.state.saving ? "Saving..." : "Save secret"}</UI.Button
         >
-      </div>
-    </form>
+      </UI.Row>
+    </UI.Form>
   {:else if controller.state.active !== null}
-    <article class="stack">
-      {#snippet secretActions()}<button
-          class="small"
-          type="button"
-          onclick={() => controller.startEdit()}>Edit</button
-        ><button
-          class="secondary small"
-          type="button"
-          disabled={controller.state.deleting}
-          onclick={() => void controller.remove()}
-          >{controller.state.deleting ? "Removing..." : "Remove"}</button
-        >{/snippet}
+    {#snippet secretActions()}<UI.Button
+        variant="outline"
+        size="sm"
+        type="button"
+        onclick={() => controller.startEdit()}>Edit</UI.Button
+      ><UI.Button
+        variant="outline"
+        size="sm"
+        type="button"
+        disabled={controller.state.deleting}
+        onclick={() => void controller.remove()}
+        >{controller.state.deleting ? "Removing..." : "Remove"}</UI.Button
+      >{/snippet}
+    <UI.Stack as="article">
       <PageHeading as="header" actions={secretActions}>
-        <p class="eyebrow">Session Secret</p>
-        <h2>{controller.state.active.description}</h2>
-        <small
+        <UI.Text as="p" size="eyebrow">Session Secret</UI.Text>
+        <UI.Heading level={2}>{controller.state.active.description}</UI.Heading>
+        <UI.Text as="small" size="small"
           >By {controller.state.active.author.name ??
             controller.state.active.author.id} on {createdAtLabel(
             controller.state.active.created_at,
           )}{#if controller.state.active.updated_at !== controller.state.active.created_at}
             / Updated {createdAtLabel(
               controller.state.active.updated_at,
-            )}{/if}</small
+            )}{/if}</UI.Text
         >
       </PageHeading>
-      {#if controller.state.error !== ""}<p
-          class="field-help"
+      {#if controller.state.error !== ""}<UI.Text
+          as="p"
+          size="small"
           role="alert"
           aria-live="polite"
         >
           {controller.state.error}
-        </p>{/if}
-    </article>
-  {:else}{#snippet collectionActions()}<button
-        class="primary small"
+        </UI.Text>{/if}
+    </UI.Stack>
+  {:else}{#snippet collectionActions()}<UI.Button
+        variant="default"
+        size="sm"
         type="button"
-        onclick={() => controller.startCreate()}>New secret</button
+        onclick={() => controller.startCreate()}>New secret</UI.Button
       >{/snippet}
     <PageHeading actions={collectionActions}>
-      <h2>Session Secrets</h2>
+      <UI.Heading level={2}>Session Secrets</UI.Heading>
     </PageHeading>
-    <div class="list">
+    <UI.List>
       {#if controller.state.status === "checking"}
-        <p class="muted">Loading secrets...</p>
+        <UI.Text as="p" tone="muted">Loading secrets...</UI.Text>
       {:else if controller.state.status === "unavailable"}
-        <p class="muted">Secrets could not be loaded.</p>
+        <UI.Text as="p" tone="muted">Secrets could not be loaded.</UI.Text>
       {:else}
         {#each controller.state.secrets as secret (secret.id)}
-          <RouterLink
-            class="list-item surface stack"
-            href={secretPath(secret.id)}
-            ><span class="stack"
-              ><span>{secret.description}</span><small
-                class="cluster muted"
-                ><span>{secret.author.name ?? secret.author.id}</span><time
-                  datetime={secret.updated_at}
-                  >Updated {createdAtLabel(secret.updated_at)}</time
-                ></small
-              ></span
+          <RouterLink variant="item" href={secretPath(secret.id)}
+            ><UI.Stack as="span"
+              ><UI.Text>{secret.description}</UI.Text><UI.Row
+                tone="muted"
+                as="small"
+                ><UI.Text>{secret.author.name ?? secret.author.id}</UI.Text
+                ><UI.Text as="time" datetime={secret.updated_at}
+                  >Updated {createdAtLabel(secret.updated_at)}</UI.Text
+                ></UI.Row
+              ></UI.Stack
             ></RouterLink
           >
-        {:else}<p class="muted">No secrets yet.</p>{/each}
+        {:else}<UI.Text as="p" tone="muted">No secrets yet.</UI.Text>{/each}
       {/if}
-    </div>
+    </UI.List>
   {/if}
 </PageBody>

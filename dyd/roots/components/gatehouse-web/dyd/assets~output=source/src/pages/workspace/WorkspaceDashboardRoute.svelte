@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { RouterLink, StatusPage } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { signOut } from "../../app/auth"
   import {
     createChat,
@@ -13,10 +16,8 @@
     type ProjectSearchResponse,
   } from "../../app/projects"
   import { useRuntime } from "../../app/runtime.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
   import LoginPage from "../login/LoginPage.svelte"
   import WorkspaceDashboardPage from "./WorkspaceDashboardPage.svelte"
@@ -300,34 +301,67 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
     {#snippet children()}
-      {#if access.state.systemAccess === "available"}<div><RouterLink class="primary" href="/app/system">System</RouterLink></div>{/if}
-      <div><button class="secondary" type="button" onclick={() => void logout()}>Log out</button></div>
+      {#if access.state.systemAccess === "available"}<UI.Group
+          ><RouterLink variant="default" href="/app/system">System</RouterLink
+          ></UI.Group
+        >{/if}
+      <UI.Group
+        ><UI.Button
+          variant="outline"
+          type="button"
+          onclick={() => void logout()}>Log out</UI.Button
+        ></UI.Group
+      >
     {/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
-      ><WorkspaceNavigation {workspace} /></SidebarPage.Sidebar
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, undefined)}
+      /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
         ><SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb"><ol><li aria-current="page">{workspace.name ?? workspace.id}</li></ol></nav></SidebarPage.Header
+        <UI.Breadcrumb.Root aria-label="Breadcrumb"
+          ><UI.Breadcrumb.List
+            ><UI.Breadcrumb.Item aria-current="page"
+              ><UI.Breadcrumb.Page
+                >{workspace.name ?? workspace.id}</UI.Breadcrumb.Page
+              ></UI.Breadcrumb.Item
+            ></UI.Breadcrumb.List
+          ></UI.Breadcrumb.Root
+        ></SidebarPage.Header
       ><SidebarPage.Body
         ><WorkspaceDashboardPage
           {workspace}

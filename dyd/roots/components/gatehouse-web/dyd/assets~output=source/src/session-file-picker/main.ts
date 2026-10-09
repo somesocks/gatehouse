@@ -1,4 +1,3 @@
-import "../gatehouse.css"
 import "../app.css"
 import { mount } from "svelte"
 import SessionFilePicker from "./SessionFilePicker.svelte"

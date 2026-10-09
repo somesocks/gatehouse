@@ -1,7 +1,8 @@
 <script lang="ts">
+  import { StatusPage } from "../../ui"
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
   import type { Auth } from "../../app/auth.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
   import { createLoginController } from "./login-controller.svelte"
 
   let { auth, onAuthenticated }: { auth: Auth; onAuthenticated: () => void } =
@@ -15,27 +16,26 @@
   description="Sign in to continue to your workspace."
 >
   {#snippet children()}
-    <form
-      class="stack"
+    <UI.Form
       autocomplete="off"
       onsubmit={(event) => {
         event.preventDefault()
         void controller.submit()
       }}
     >
-      <div class="field">
-        <label for="identity">Username</label>
-        <input
+      <UI.Field>
+        <UI.Label for="identity">Username</UI.Label>
+        <UI.Input
           id="identity"
           name="identity"
           autocomplete="off"
           required
           bind:value={controller.state.identity}
         />
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="password">Password</UI.Label>
+        <UI.Input
           id="password"
           name="password"
           type="password"
@@ -43,15 +43,19 @@
           required
           bind:value={controller.state.password}
         />
-      </div>
+      </UI.Field>
       {#if controller.state.error !== ""}
-        <p class="field-help" role="alert" aria-live="polite">
+        <UI.Text as="p" size="small" role="alert" aria-live="polite">
           {controller.state.error}
-        </p>
+        </UI.Text>
       {/if}
-      <button class="primary" type="submit" disabled={controller.state.submitting}>
+      <UI.Button
+        variant="default"
+        type="submit"
+        disabled={controller.state.submitting}
+      >
         {controller.state.submitting ? "Signing in..." : "Sign in"}
-      </button>
-    </form>
+      </UI.Button>
+    </UI.Form>
   {/snippet}
 </StatusPage>

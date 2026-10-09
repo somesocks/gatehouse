@@ -14,8 +14,13 @@ export type ChatAgent = {
 
 export type ChatFile = TranscriptFile
 export type ChatEvent = TranscriptEvent
-export type ChatEventTree<K extends ChatEvent["kind"] = ChatEvent["kind"]> = {
-  event: Extract<ChatEvent, { kind: K }>
+type ChatEventsByKind = {
+  [K in ChatEvent["kind"]]: Extract<ChatEvent, { kind: K }>
+}
+export interface ChatEventTree<
+  out K extends ChatEvent["kind"] = ChatEvent["kind"],
+> {
+  event: ChatEventsByKind[K]
   children: ChatEventTree[]
 }
 

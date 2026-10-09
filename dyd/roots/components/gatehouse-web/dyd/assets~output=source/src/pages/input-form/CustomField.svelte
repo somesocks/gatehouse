@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { X } from "@lucide/svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
+  import { X, RouterLink } from "../../ui"
+  import * as UI from "../../ui"
 
-  let { path, value, busy, onOpen, onRemove, label }: {
+  let {
+    path,
+    value,
+    busy,
+    onOpen,
+    onRemove,
+    label,
+  }: {
     path: string[]
     label: string
     value: unknown
@@ -23,9 +30,20 @@
     let active = true
     url = ""
     error = ""
-    void opener(JSON.parse(key)).then((destination) => { if (active) url = destination })
-      .catch((reason) => { if (active) error = reason instanceof Error ? reason.message : "The tool could not be opened." })
-    return () => { active = false }
+    void opener(JSON.parse(key))
+      .then((destination) => {
+        if (active) url = destination
+      })
+      .catch((reason) => {
+        if (active)
+          error =
+            reason instanceof Error
+              ? reason.message
+              : "The tool could not be opened."
+      })
+    return () => {
+      active = false
+    }
   })
 
   async function clearValue(): Promise<void> {
@@ -39,27 +57,51 @@
   }
 </script>
 
-<div class="stack custom-field-control">
-  <div class="cluster">
+<UI.Stack>
+  <UI.Row>
     {#if busy}
-      <span class="field-help">Tool unavailable while the form is busy.</span>
+      <UI.Text size="small">Tool unavailable while the form is busy.</UI.Text>
     {:else if saving}
-      <span role="status">Wait for the field update to finish.</span>
+      <UI.Text role="status">Wait for the field update to finish.</UI.Text>
     {:else if url !== ""}
-      <RouterLink class="secondary" href={url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">Open</RouterLink>
+      <RouterLink
+        variant="outline"
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerpolicy="no-referrer">Open</RouterLink
+      >
     {:else if error === ""}
-      <span role="status">Preparing tool link…</span>
+      <UI.Text role="status">Preparing tool link…</UI.Text>
     {/if}
     {#if value !== undefined || saving}
-      {#if value !== undefined}<span class="field-help" role="status">Saved</span>{/if}
-      <button class="icon inline" type="button" aria-label={`Clear ${label}`} title={`Clear ${label}`} disabled={busy || saving} onclick={() => void clearValue()}>
-        {#if saving}<span class="spinner input-action-spinner" aria-hidden="true"></span><span class="visually-hidden">Clearing {label}</span>
+      {#if value !== undefined}<UI.Text size="small" role="status"
+          >Saved</UI.Text
+        >{/if}
+      <UI.Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        aria-label={`Clear ${label}`}
+        title={`Clear ${label}`}
+        disabled={busy || saving}
+        onclick={() => void clearValue()}
+      >
+        {#if saving}<UI.Spinner aria-hidden="true"></UI.Spinner><UI.Text hidden
+            >Clearing {label}</UI.Text
+          >
         {:else}<X size={16} strokeWidth={2} aria-hidden="true" />{/if}
-      </button>
+      </UI.Button>
     {/if}
-  </div>
+  </UI.Row>
   {#if error !== ""}
-    <p role="alert">{error}</p>
-    <button type="button" class="secondary small" disabled={busy} onclick={() => retry += 1}>Retry tool link</button>
+    <UI.Text as="p" role="alert">{error}</UI.Text>
+    <UI.Button
+      variant="outline"
+      size="sm"
+      type="button"
+      disabled={busy}
+      onclick={() => (retry += 1)}>Retry tool link</UI.Button
+    >
   {/if}
-</div>
+</UI.Stack>

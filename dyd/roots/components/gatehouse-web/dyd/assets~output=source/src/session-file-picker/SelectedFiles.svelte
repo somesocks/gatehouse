@@ -1,8 +1,15 @@
 <script lang="ts">
-  import { Paperclip, X, Download } from "@lucide/svelte"
+  import * as UI from "../ui"
+  import { Paperclip, X, Download } from "../ui"
   import type { SessionFile } from "./controller.svelte"
 
-  let { files, busy = false, opening = "", onRemove, onOpen }: {
+  let {
+    files,
+    busy = false,
+    opening = "",
+    onRemove,
+    onOpen,
+  }: {
     files: SessionFile[]
     busy?: boolean
     opening?: string
@@ -11,17 +18,49 @@
   } = $props()
 </script>
 
-<div class="attachment-list" aria-label="Selected files">
+<UI.Row aria-label="Selected files">
   {#each files as file (file.id)}
-    <span class="attachment-chip badge">
-      <span class="attachment-chip-icon"><Paperclip size={14} strokeWidth={2} aria-hidden="true" /></span>
-      <span class="attachment-chip-label"><span>{file.name}</span><small>{file.unavailable ? "Unavailable" : file.size === undefined ? file.id : `${file.size} bytes${file.media_type ? ` · ${file.media_type}` : ""}`}</small></span>
+    <UI.Chip>
+      <UI.Text
+        ><Paperclip size={14} strokeWidth={2} aria-hidden="true" /></UI.Text
+      >
+      <UI.Row as="span"
+        ><UI.Text>{file.name}</UI.Text><UI.Text as="small" size="small"
+          >{file.unavailable
+            ? "Unavailable"
+            : file.size === undefined
+              ? file.id
+              : `${file.size} bytes${file.media_type ? ` · ${file.media_type}` : ""}`}</UI.Text
+        ></UI.Row
+      >
       {#if onOpen !== undefined && !file.unavailable}
-        <button class="icon inline secondary" type="button" disabled={busy || opening !== ""} aria-label={`Download ${file.name}`} title={`Download ${file.name}`} onclick={() => void onOpen?.(file)}>
-          {#if opening === file.id}<span class="spinner" aria-hidden="true"></span>{:else}<Download size={14} strokeWidth={2} aria-hidden="true" />{/if}
-        </button>
+        <UI.Button
+          variant="ghost"
+          size="icon"
+          type="button"
+          disabled={busy || opening !== ""}
+          aria-label={`Download ${file.name}`}
+          title={`Download ${file.name}`}
+          onclick={() => void onOpen?.(file)}
+        >
+          {#if opening === file.id}<UI.Spinner aria-hidden="true"
+            ></UI.Spinner>{:else}<Download
+              size={14}
+              strokeWidth={2}
+              aria-hidden="true"
+            />{/if}
+        </UI.Button>
       {/if}
-      <button class="icon inline secondary" type="button" disabled={busy} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} onclick={() => onRemove(file.id)}><X size={14} strokeWidth={2} aria-hidden="true" /></button>
-    </span>
+      <UI.Button
+        variant="ghost"
+        size="icon"
+        type="button"
+        disabled={busy}
+        aria-label={`Remove ${file.name}`}
+        title={`Remove ${file.name}`}
+        onclick={() => onRemove(file.id)}
+        ><X size={14} strokeWidth={2} aria-hidden="true" /></UI.Button
+      >
+    </UI.Chip>
   {/each}
-</div>
+</UI.Row>

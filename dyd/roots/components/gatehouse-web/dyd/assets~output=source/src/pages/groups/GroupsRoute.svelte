@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { RouterLink, StatusPage } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { useRuntime } from "../../app/runtime.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
   import GroupsPage from "./GroupsPage.svelte"
 
@@ -78,33 +79,73 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root
     ><SidebarPage.Sidebar
-      ><WorkspaceNavigation {workspace} active="groups" /></SidebarPage.Sidebar
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "groups")}
+      /></SidebarPage.Sidebar
     ><SidebarPage.Page
       ><SidebarPage.Header
         ><SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb"><ol><li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li><li aria-current="page">Groups</li></ol></nav></SidebarPage.Header
+        <UI.Breadcrumb.Root aria-label="Breadcrumb"
+          ><UI.Breadcrumb.List
+            ><UI.Breadcrumb.Item
+              ><RouterLink href={workspacePath(workspace.id)}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+              ><UI.Breadcrumb.Page>Groups</UI.Breadcrumb.Page
+              ></UI.Breadcrumb.Item
+            ></UI.Breadcrumb.List
+          ></UI.Breadcrumb.Root
+        ></SidebarPage.Header
       ><SidebarPage.Body
         >{#if routeSignal !== null}<GroupsPage
             {workspace}

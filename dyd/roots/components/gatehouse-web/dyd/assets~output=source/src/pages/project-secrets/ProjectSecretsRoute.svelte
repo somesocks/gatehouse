@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { fetchProject, type Project } from "../../app/projects"
   import {
     createProjectSecret,
@@ -9,12 +12,8 @@
     type ProjectSecret,
   } from "../../app/project-secrets"
   import { useRuntime } from "../../app/runtime.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
 
   type SecretsRoute = Extract<
@@ -410,134 +409,198 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation
-        {workspace}
-        active="projects"
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "projects")}
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li>
-            <li><RouterLink href={projectPath(workspace.id, currentRoute.projectID)}>{project?.name ?? "New Project"}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
+                >Projects</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={projectPath(workspace.id, currentRoute.projectID)}
+                >{project?.name ?? "New Project"}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if currentRoute.kind === "project-secrets"}
-              <li aria-current="page">Secrets</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page>Secrets</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {:else}
-              <li><RouterLink href={listPath(workspace.id, currentRoute.projectID)}>Secrets</RouterLink></li>
-              <li aria-current="page">{currentRoute.kind === "project-secret-new" ? "New Secret" : (active?.description ?? "Secret")}</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink
+                  href={listPath(workspace.id, currentRoute.projectID)}
+                  >Secrets</RouterLink
+                ></UI.Breadcrumb.Item
+              >
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page
+                  >{currentRoute.kind === "project-secret-new"
+                    ? "New Secret"
+                    : (active?.description ?? "Secret")}</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {/if}
-          </ol>
-        </nav>
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
-          {#if projectStatus === "checking"}<p class="muted">
+          {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
-            </p>
-          {:else if projectStatus === "unavailable"}<p class="muted">
+            </UI.Text>
+          {:else if projectStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
+            >
               Project unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() =>
                 void loadRoute(
                   currentRoute,
                   generation,
                   abortController!.signal,
-                )}>Try again</button
+                )}>Try again</UI.Button
             >
-          {:else if editing}<form
-              class="stack"
+          {:else if editing}<UI.Form
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
               <PageHeading>
-                <p class="eyebrow">Project Secret</p>
-                <h2>{creating ? "New Secret" : "Edit Secret"}</h2>
-              </PageHeading>
-              <div class="field">
-                <label for="project-secret-description"
-                  >Description</label
+                <UI.Text as="p" size="eyebrow">Project Secret</UI.Text>
+                <UI.Heading level={2}
+                  >{creating ? "New Secret" : "Edit Secret"}</UI.Heading
                 >
-                <textarea
+              </PageHeading>
+              <UI.Field>
+                <UI.Label for="project-secret-description">Description</UI.Label
+                >
+                <UI.Textarea
                   id="project-secret-description"
                   autocomplete="off"
-                  rows="3"
-                  maxlength="4096"
+                  rows={3}
+                  maxlength={4096}
                   required
-                  bind:value={description}></textarea>
-              </div>
-              <div class="field">
-                <label for="project-secret-value"
-                  >{creating ? "Value" : "New value (optional)"}</label
+                  bind:value={description}
+                ></UI.Textarea>
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="project-secret-value"
+                  >{creating ? "Value" : "New value (optional)"}</UI.Label
                 >
-                <textarea
+                <UI.Textarea
                   id="project-secret-value"
                   autocomplete="new-password"
-                  rows="5"
-                  maxlength="1048576"
+                  rows={5}
+                  maxlength={1048576}
                   required={creating}
-                  bind:value={secretValue}></textarea>
-                {#if !creating}<p class="field-help">
+                  bind:value={secretValue}
+                ></UI.Textarea>
+                {#if !creating}<UI.Text as="p" size="small">
                     Leave blank to keep the current value.
-                  </p>{/if}
-              </div>
-              {#if error !== ""}<p class="field-help" role="alert" aria-live="polite">
+                  </UI.Text>{/if}
+              </UI.Field>
+              {#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
+                  role="alert"
+                  aria-live="polite"
+                >
                   {error}
-                </p>{/if}
-              <div class="cluster">
-                <button
+                </UI.Text>{/if}
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
                   type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</button
-                ><button
-                  class="primary"
-                  type="submit"
-                  disabled={saving}
-                  >{saving ? "Saving..." : "Save secret"}</button
+                  onclick={cancelEdit}>Cancel</UI.Button
+                ><UI.Button variant="default" type="submit" disabled={saving}
+                  >{saving ? "Saving..." : "Save secret"}</UI.Button
                 >
-              </div>
-            </form>
-          {:else if currentRoute.kind === "project-secret" && detailStatus === "checking"}<p
-              class="muted"
+              </UI.Row>
+            </UI.Form>
+          {:else if currentRoute.kind === "project-secret" && detailStatus === "checking"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Loading secret...
-            </p>
-          {:else if currentRoute.kind === "project-secret" && detailStatus === "unavailable"}<p
-              class="muted"
+            </UI.Text>
+          {:else if currentRoute.kind === "project-secret" && detailStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Secret unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() =>
                 void loadDetail(
@@ -546,55 +609,65 @@
                   currentRoute.workspaceID,
                   currentRoute.projectID,
                   abortController!.signal,
-                )}>Try again</button
+                )}>Try again</UI.Button
             >
-          {:else if active !== null}<article class="stack">
-              {#snippet secretActions()}<button
-                  class="small"
-                  type="button"
-                  onclick={startEdit}>Edit</button
-                ><button
-                  class="secondary small"
-                  type="button"
-                  disabled={deleting}
-                  onclick={() => void remove()}
-                  >{deleting ? "Removing..." : "Remove"}</button
-                >{/snippet}
+          {:else if active !== null}{#snippet secretActions()}<UI.Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onclick={startEdit}>Edit</UI.Button
+              ><UI.Button
+                variant="outline"
+                size="sm"
+                type="button"
+                disabled={deleting}
+                onclick={() => void remove()}
+                >{deleting ? "Removing..." : "Remove"}</UI.Button
+              >{/snippet}
+            <UI.Stack as="article">
               <PageHeading as="header" actions={secretActions}>
-                <p class="eyebrow">Project Secret</p>
-                <h2>{active.description}</h2>
-                <small
+                <UI.Text as="p" size="eyebrow">Project Secret</UI.Text>
+                <UI.Heading level={2}>{active.description}</UI.Heading>
+                <UI.Text as="small" size="small"
                   >By {authorLabel(active.author)} on {dateLabel(
                     active.created_at,
                   )}{#if active.updated_at !== active.created_at}
-                    / Updated {dateLabel(active.updated_at)}{/if}</small
+                    / Updated {dateLabel(active.updated_at)}{/if}</UI.Text
                 >
               </PageHeading>
-              {#if error !== ""}<p class="field-help" role="alert" aria-live="polite">
+              {#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
+                  role="alert"
+                  aria-live="polite"
+                >
                   {error}
-                </p>{/if}
-            </article>
-          {:else}{#snippet collectionActions()}<button
-                class="primary small"
+                </UI.Text>{/if}
+            </UI.Stack>
+          {:else}{#snippet collectionActions()}<UI.Button
+                variant="default"
+                size="sm"
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${listPath(workspace.id, currentRoute.projectID)}/new`,
-                  )}>New secret</button
+                  )}>New secret</UI.Button
               >{/snippet}
             <PageHeading actions={collectionActions}>
-              <h2>Project Secrets</h2>
+              <UI.Heading level={2}>Project Secrets</UI.Heading>
             </PageHeading>
-            <div class="list">
-              {#if secretsStatus === "checking"}<p class="muted">
+            <UI.List>
+              {#if secretsStatus === "checking"}<UI.Text as="p" tone="muted">
                   Loading secrets...
-                </p>{:else if secretsStatus === "unavailable"}<p
-                  class="muted"
+                </UI.Text>{:else if secretsStatus === "unavailable"}<UI.Text
+                  as="p"
+                  tone="muted"
                 >
                   Secrets could not be loaded.
-                </p>
-                <button
-                  class="primary small"
+                </UI.Text>
+                <UI.Button
+                  variant="default"
+                  size="sm"
                   type="button"
                   onclick={() =>
                     void loadSecrets(
@@ -602,28 +675,29 @@
                       currentRoute.workspaceID,
                       currentRoute.projectID,
                       abortController!.signal,
-                    )}>Try again</button
+                    )}>Try again</UI.Button
                 >{:else}{#each secrets as secret (secret.id)}<RouterLink
-                    class="list-item surface stack"
+                    variant="item"
                     href={detailPath(
                       workspace.id,
                       currentRoute.projectID,
                       secret.id,
                     )}
-                    ><span class="stack"
-                      ><span
-                        >{secret.description}</span
-                      ><small class="cluster muted"
-                        ><span>{authorLabel(secret.author)}</span><time
+                    ><UI.Stack as="span"
+                      ><UI.Text>{secret.description}</UI.Text><UI.Row
+                        tone="muted"
+                        as="small"
+                        ><UI.Text>{authorLabel(secret.author)}</UI.Text><UI.Text
+                          as="time"
                           datetime={secret.updated_at}
-                          >Updated {dateLabel(secret.updated_at)}</time
-                        ></small
-                      ></span
+                          >Updated {dateLabel(secret.updated_at)}</UI.Text
+                        ></UI.Row
+                      ></UI.Stack
                     ></RouterLink
-                  >{:else}<p class="muted">
+                  >{:else}<UI.Text as="p" tone="muted">
                     No secrets yet.
-                  </p>{/each}{/if}
-            </div>{/if}
+                  </UI.Text>{/each}{/if}
+            </UI.List>{/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>

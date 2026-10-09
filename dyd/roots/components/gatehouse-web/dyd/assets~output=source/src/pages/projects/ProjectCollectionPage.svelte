@@ -1,10 +1,8 @@
 <script lang="ts">
+  import { Search, PageBody, PageHeading, RouterLink } from "../../ui"
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
-  import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
   import { createProjectCollectionController } from "./project-collection-controller.svelte"
 
   let {
@@ -59,60 +57,64 @@
   }
 </script>
 
+{#snippet projectActions()}<UI.Button
+    variant="default"
+    size="sm"
+    type="button"
+    disabled={creating}
+    onclick={() => void onCreate()}>New project</UI.Button
+  >{/snippet}
 <PageBody fluid>
-  {#snippet projectActions()}<button
-      class="primary small"
-      type="button"
-      disabled={creating}
-      onclick={() => void onCreate()}>New project</button
-    >{/snippet}
   <PageHeading actions={projectActions}>
-    <h1>Projects</h1>
+    <UI.Heading level={1}>Projects</UI.Heading>
   </PageHeading>
-  <form
-    class="split"
+  <UI.Form
+    layout="search"
     onsubmit={(event) => {
       event.preventDefault()
       onNavigate(searchPath())
     }}
   >
-    <label class="field"
-      ><span>Search projects</span><input
+    <UI.Label layout="field"
+      ><UI.Text>Search projects</UI.Text><UI.Input
         type="search"
         autocomplete="off"
         placeholder="Search projects"
         bind:value={controller.state.search}
-      /></label
+      /></UI.Label
     >
-    <button
-      class="icon"
+    <UI.Button
+      variant="ghost"
+      size="icon"
       type="submit"
       aria-label="Search projects"
       title="Search projects"
-      ><Search size={20} strokeWidth={2} aria-hidden="true" /></button
+      ><Search size={20} strokeWidth={2} aria-hidden="true" /></UI.Button
     >
-  </form>
-  <div class="list">
+  </UI.Form>
+  <UI.List>
     {#each controller.state.projects as project}
-      <RouterLink class="list-item surface" href={projectPath(project.id)}
-        ><span class="stack" style:--space="calc(var(--space) / 4)"
-          ><span>{project.name ?? "New Project"}</span><time
+      <RouterLink variant="item" href={projectPath(project.id)}
+        ><UI.Stack as="span" gap="tight"
+          ><UI.Text>{project.name ?? "New Project"}</UI.Text><UI.Text
+            as="time"
             datetime={project.created_at}
-            >{createdAtLabel(project.created_at)}</time
-          ></span
+            >{createdAtLabel(project.created_at)}</UI.Text
+          ></UI.Stack
         ></RouterLink
       >
-    {:else}<p class="notice">
+    {:else}<UI.Notice>
         {controller.state.loading
           ? "Searching projects..."
           : "No projects match your search."}
-      </p>{/each}
-  </div>
-  {#if controller.state.cursor !== null}<button
-      class="small"
+      </UI.Notice>{/each}
+  </UI.List>
+  {#if controller.state.cursor !== null}<UI.Button
+      variant="outline"
+      size="sm"
       type="button"
       disabled={controller.state.loading}
       onclick={() => controller.loadMore(workspace.id, search, signal)}
-      >{controller.state.loading ? "Loading..." : "Show more"}</button
+      >{controller.state.loading ? "Loading..." : "Show more"}</UI.Button
     >{/if}
 </PageBody>

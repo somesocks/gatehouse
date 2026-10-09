@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import { createWorkspaceAgentBindingsController } from "./workspace-agent-bindings-controller.svelte"
 
   const runtime = useRuntime()
@@ -21,115 +23,121 @@
   }
 </script>
 
-<SystemFrame
-  active="workspace-agent-bindings"
-  title="New workspace agent binding"
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "workspace-agent-bindings")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "New workspace agent binding" },
+  ]}
 >
-  <section class="stack">
-    <div class="stack">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>New workspace agent binding</h2>
-      </div>
-    </div>
-    <form
-      class="stack"
+  <UI.Stack as="section">
+    <UI.Stack>
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>New workspace agent binding</UI.Heading>
+      </UI.Group>
+    </UI.Stack>
+    <UI.Form
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
-      <div class="field">
-        <label for="agent-binding-workspace">Workspace ID</label>
-        <div>
-          <input
+      <UI.Field>
+        <UI.Label for="agent-binding-workspace">Workspace ID</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-binding-workspace"
             required
             bind:value={controller.state.form.workspace}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-alias">Binding alias</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-alias">Binding alias</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-binding-alias"
             required
             bind:value={controller.state.form.alias}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-model">Model ID</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-model">Model ID</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-binding-model"
             required
             bind:value={controller.state.form.model}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-label">Label</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-label">Label</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-binding-label"
             bind:value={controller.state.form.label}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-system-prompt"
-          >Custom system prompt</label
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-system-prompt"
+          >Custom system prompt</UI.Label
         >
-        <div>
-          <textarea
+        <UI.Group>
+          <UI.Textarea
             id="agent-binding-system-prompt"
-            rows="4"
-            bind:value={controller.state.form.systemPrompt}></textarea>
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-prelude">Lisp prelude</label>
-        <div>
-          <textarea
+            rows={4}
+            bind:value={controller.state.form.systemPrompt}
+          ></UI.Textarea>
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-prelude">Lisp prelude</UI.Label>
+        <UI.Group>
+          <UI.Textarea
             id="agent-binding-prelude"
-            rows="4"
-            bind:value={controller.state.form.prelude}></textarea>
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-binding-rate-limits">Token rate limits</label>
-        <div>
-          <textarea
+            rows={4}
+            bind:value={controller.state.form.prelude}
+          ></UI.Textarea>
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-binding-rate-limits">Token rate limits</UI.Label>
+        <UI.Group>
+          <UI.Textarea
             id="agent-binding-rate-limits"
-            rows="10"
+            rows={10}
             placeholder={'{"workspace_input":{"minimum_balance":-60000,"maximum_balance":120000,"refill_per_minute":60000}}'}
-            bind:value={controller.state.form.rateLimits}></textarea>
-        </div>
-        <p class="field-help">Optional JSON with workspace/user input/output buckets.</p>
-      </div>
-      <div class="field">
-        <label class="choice"
-          ><input
-            type="checkbox"
-            bind:checked={controller.state.form.default}
-          /> Default automatic-reply agent</label
+            bind:value={controller.state.form.rateLimits}
+          ></UI.Textarea>
+        </UI.Group>
+        <UI.Text as="p" size="small"
+          >Optional JSON with workspace/user input/output buckets.</UI.Text
         >
-      </div>
-      <div class="cluster">
-        <div>
-          <button class="primary">Add binding</button>
-        </div>
-        <div>
-          <RouterLink class="secondary" href="/app/system/workspace-agent-bindings"
-            >Cancel</RouterLink
+      </UI.Field>
+      <UI.Field>
+        <UI.Label layout="choice"
+          ><UI.Checkbox bind:checked={controller.state.form.default} /> Default automatic-reply
+          agent</UI.Label
+        >
+      </UI.Field>
+      <UI.Row>
+        <UI.Group>
+          <UI.Button variant="default" type="submit">Add binding</UI.Button>
+        </UI.Group>
+        <UI.Group>
+          <RouterLink
+            variant="outline"
+            href="/app/system/workspace-agent-bindings">Cancel</RouterLink
           >
-        </div>
-      </div>
-    </form>
-    {#if controller.state.error}<p class="field-help" role="alert">
+        </UI.Group>
+      </UI.Row>
+    </UI.Form>
+    {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
         {controller.state.error}
-      </p>{/if}
-  </section>
-</SystemFrame>
+      </UI.Text>{/if}
+  </UI.Stack>
+</UI.AppFrame>

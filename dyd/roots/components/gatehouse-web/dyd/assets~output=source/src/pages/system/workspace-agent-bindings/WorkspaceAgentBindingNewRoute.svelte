@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SystemAccessGate from "../../../components/SystemAccessGate.svelte"
+  import SystemAccessGate from "../../../app/SystemAccessGate.svelte"
   import WorkspaceAgentBindingNewPage from "./WorkspaceAgentBindingNewPage.svelte"
 </script>
 

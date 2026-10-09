@@ -1,10 +1,8 @@
 <script lang="ts">
+  import { Search, PageBody, PageHeading, RouterLink } from "../../ui"
+  import * as UI from "../../ui"
   import { untrack } from "svelte"
-  import { Search } from "@lucide/svelte"
   import type { Workspace } from "../../app/access"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
   import { createChatCollectionController } from "./chat-collection-controller.svelte"
 
   let {
@@ -57,63 +55,68 @@
   }
 </script>
 
+{#snippet chatActions()}<UI.Button
+    variant="default"
+    size="sm"
+    type="button"
+    onclick={() => void onCreate()}>New chat</UI.Button
+  >{/snippet}
 <PageBody fluid>
-  {#snippet chatActions()}<button
-      class="primary small"
-      type="button"
-      onclick={() => void onCreate()}>New chat</button
-    >{/snippet}
   <PageHeading actions={chatActions}>
-    <h1>Chats</h1>
+    <UI.Heading level={1}>Chats</UI.Heading>
   </PageHeading>
-  <form
-    class="split"
+  <UI.Form
+    layout="search"
     onsubmit={(event) => {
       event.preventDefault()
       onNavigate(searchPath())
     }}
   >
-    <label class="field"
-      ><span>Search chats</span><input
+    <UI.Label layout="field"
+      ><UI.Text>Search chats</UI.Text><UI.Input
         type="search"
         autocomplete="off"
         placeholder="Search chats"
         bind:value={controller.state.search}
-      /></label
+      /></UI.Label
     >
-    <button
-      class="icon"
+    <UI.Button
+      variant="ghost"
+      size="icon"
       type="submit"
       aria-label="Search chats"
       title="Search chats"
-      ><Search size={20} strokeWidth={2} aria-hidden="true" /></button
+      ><Search size={20} strokeWidth={2} aria-hidden="true" /></UI.Button
     >
-  </form>
-  <div class="list">
+  </UI.Form>
+  <UI.List>
     {#each controller.state.chats as chat}
-      <RouterLink class="list-item surface" href={sessionPath(chat.id)}
-        ><span class="stack" style:--space="calc(var(--space) / 4)"
-          ><span>{chat.name ?? "New Chat"}</span><span
-            class="cluster"
-            style:--space="calc(var(--space) / 2)"
-            ><time datetime={chat.created_at}
-              >{createdAtLabel(chat.created_at)}</time
-            >{#if chat.project !== undefined}<span aria-hidden="true">/</span
-              ><span>{chat.project.name ?? "New Project"}</span>{/if}</span
-          ></span
+      <RouterLink variant="item" href={sessionPath(chat.id)}
+        ><UI.Stack as="span" gap="tight"
+          ><UI.Text>{chat.name ?? "New Chat"}</UI.Text><UI.Row
+            as="span"
+            gap="small"
+            ><UI.Text as="time" datetime={chat.created_at}
+              >{createdAtLabel(chat.created_at)}</UI.Text
+            >{#if chat.project !== undefined}<UI.Text aria-hidden="true"
+                >/</UI.Text
+              ><UI.Text>{chat.project.name ?? "New Project"}</UI.Text
+              >{/if}</UI.Row
+          ></UI.Stack
         ></RouterLink
       >
-    {:else}<p class="notice">
+    {:else}<UI.Notice>
         {controller.state.loading
           ? "Searching chats..."
           : "No chats match your search."}
-      </p>{/each}
-  </div>
-  {#if controller.state.cursor !== null}<button
-      class="small"
+      </UI.Notice>{/each}
+  </UI.List>
+  {#if controller.state.cursor !== null}<UI.Button
+      variant="outline"
+      size="sm"
       type="button"
       disabled={controller.state.loading}
       onclick={() => controller.loadMore(workspace.id, search, signal)}
-      >{controller.state.loading ? "Loading..." : "Show more"}</button
+      >{controller.state.loading ? "Loading..." : "Show more"}</UI.Button
     >{/if}
 </PageBody>

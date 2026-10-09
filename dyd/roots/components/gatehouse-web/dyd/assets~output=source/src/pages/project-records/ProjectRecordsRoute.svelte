@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { fetchProject, type Project } from "../../app/projects"
 
   import { fetchProjectFiles, type ProjectFile } from "../../app/project-files"
@@ -26,13 +29,8 @@
     type ProjectRecordValue,
   } from "../../app/project-records"
   import { useRuntime } from "../../app/runtime.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import SelectControl from "../../components/SelectControl.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
 
   type RecordsRoute = Extract<
@@ -555,6 +553,7 @@
     attribute: ProjectRecordAttribute,
     value: ProjectRecordValue,
   ): string | undefined {
+    if (workspace === null) return undefined
     if (attribute.type === "file" && typeof value.value === "string")
       return projectFilePath(workspace.id, currentRoute.projectID, value.value)
     return attribute.type === "record" &&
@@ -913,7 +912,9 @@
         abortController?.signal,
       )
       if (!response.ok) throw new Error()
-      runtime.navigate(schemaPath(route.workspaceID, route.projectID))
+      runtime.navigate(
+        schemaPath(route.workspaceID, route.projectID, route.schemaID),
+      )
     } catch {
       error = "The record could not be removed."
     } finally {
@@ -925,295 +926,346 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage busy>
     {#snippet children()}
-      <p>Loading your workspaces.</p>
+      <UI.Text as="p">Loading your workspaces.</UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
   <StatusPage title="Connection unavailable">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
   <StatusPage title="No workspace access" />
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation
-        {workspace}
-        active="projects"
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "projects")}
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li>
-            <li><RouterLink href={projectPath(workspace.id, currentRoute.projectID)}>{project?.name ?? "Project"}</RouterLink></li>
-            <li aria-current="page">Records</li>
-          </ol>
-        </nav>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
+                >Projects</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={projectPath(workspace.id, currentRoute.projectID)}
+                >{project?.name ?? "Project"}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+              ><UI.Breadcrumb.Page>Records</UI.Breadcrumb.Page
+              ></UI.Breadcrumb.Item
+            >
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
-          {#if projectStatus === "checking"}<p class="muted">
+          {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
-            </p>
-          {:else if projectStatus === "unavailable"}<p class="muted">
+            </UI.Text>
+          {:else if projectStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
+            >
               Project unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() =>
                 void loadRoute(
                   currentRoute,
                   generation,
                   abortController!.signal,
-                )}>Try again</button
+                )}>Try again</UI.Button
             >
-          {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}<form
-              class="stack"
+          {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}{#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<UI.Button
+                  variant="outline"
+                  type="button"
+                  disabled={saving}
+                  onclick={() => void deleteSchema()}
+                  >Remove record type</UI.Button
+                >{/if}{/snippet}
+            <UI.Form
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveSchema()
               }}
             >
-              {#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<button
-                    class="secondary"
-                    type="button"
-                    disabled={saving}
-                    onclick={() => void deleteSchema()}
-                    >Remove record type</button
-                  >{/if}{/snippet}
               <PageHeading actions={schemaActions}>
-                <p class="eyebrow">Record type</p>
-                <h2>
+                <UI.Text as="p" size="eyebrow">Record type</UI.Text>
+                <UI.Heading level={2}>
                   {currentRoute.kind === "project-record-schema-new"
                     ? "New record type"
                     : `Edit ${schema?.label ?? "record type"}`}
-                </h2>
+                </UI.Heading>
               </PageHeading>
-              <div class="field">
-                <label for="schema-name">Name</label>
-                <input
+              <UI.Field>
+                <UI.Label for="schema-name">Name</UI.Label>
+                <UI.Input
                   id="schema-name"
                   required
                   disabled={currentRoute.kind !== "project-record-schema-new"}
-                  maxlength="64"
+                  maxlength={64}
                   bind:value={schemaName}
                   placeholder="contacts"
                 />
-                <p class="field-help">
+                <UI.Text as="p" size="small">
                   Lowercase letters, numbers, and underscores only.
-                </p>
-              </div>
-              <div class="field">
-                <label for="schema-label">Label</label>
-                <input
+                </UI.Text>
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="schema-label">Label</UI.Label>
+                <UI.Input
                   id="schema-label"
                   required
-                  maxlength="256"
+                  maxlength={256}
                   bind:value={schemaLabel}
                 />
-              </div>
-              <div class="field">
-                <label for="schema-description">Description</label
-                >
-                <textarea
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="schema-description">Description</UI.Label>
+                <UI.Textarea
                   id="schema-description"
-                  rows="3"
-                  maxlength="4096"
-                  bind:value={schemaDescription}></textarea>
-              </div>
-              {#if error !== ""}<p class="field-help" role="alert">{error}</p>{/if}
-              <div class="cluster">
-                <button
+                  rows={3}
+                  maxlength={4096}
+                  bind:value={schemaDescription}
+                ></UI.Textarea>
+              </UI.Field>
+              {#if error !== ""}<UI.Text as="p" size="small" role="alert"
+                  >{error}</UI.Text
+                >{/if}
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
                   type="button"
                   onclick={() =>
                     runtime.navigate(
                       recordsPath(workspace.id, currentRoute.projectID),
-                    )}>Cancel</button
-                ><button
-                  class="small"
+                    )}>Cancel</UI.Button
+                ><UI.Button
+                  variant="outline"
+                  size="sm"
                   type="submit"
                   disabled={saving}
-                  >{saving ? "Saving..." : "Save record type"}</button
+                  >{saving ? "Saving..." : "Save record type"}</UI.Button
                 >
-              </div>
-            </form>
-          {:else if currentRoute.kind === "project-record"}<section class="stack">
-              {#snippet recordActions()}<button
-                  class="primary"
-                  type="button"
-                  onclick={() =>
-                    runtime.navigate(
-                      `${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`,
-                    )}>Edit record</button
-                >{/snippet}
+              </UI.Row>
+            </UI.Form>
+          {:else if currentRoute.kind === "project-record"}{#snippet recordActions()}<UI.Button
+                variant="default"
+                type="button"
+                onclick={() =>
+                  runtime.navigate(
+                    `${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`,
+                  )}>Edit record</UI.Button
+              >{/snippet}
+            <UI.Stack as="section">
               <PageHeading as="header" actions={recordActions}>
-                <p class="eyebrow">{schema?.label ?? "Record"}</p>
-                <h2>
-                  {#if recordsStatus === "checking"}Loading record...{:else}<span
-                      class="stack"
-                      >{#each primaryLines(activeValues) as line}<span
-                          >{line}</span
-                        >{/each}</span
+                <UI.Text as="p" size="eyebrow"
+                  >{schema?.label ?? "Record"}</UI.Text
+                >
+                <UI.Heading level={2}>
+                  {#if recordsStatus === "checking"}Loading record...{:else}<UI.Stack
+                      as="span"
+                      >{#each primaryLines(activeValues) as line}<UI.Text
+                          >{line}</UI.Text
+                        >{/each}</UI.Stack
                     >{/if}
-                </h2>
+                </UI.Heading>
               </PageHeading>
-              <section class="stack" aria-labelledby="record-heading">
-                <h3 id="record-heading">Record</h3>
-                {#if recordsStatus === "checking"}<p class="muted">
+              <UI.Stack as="section" aria-labelledby="record-heading">
+                <UI.Heading level={3} id="record-heading">Record</UI.Heading>
+                {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
                     Loading record...
-                  </p>{:else if activeValues.length === 0}<p class="muted">
+                  </UI.Text>{:else if activeValues.length === 0}<UI.Text
+                    as="p"
+                    tone="muted"
+                  >
                     This record has no values.
-                  </p>{:else}{#each attributes as attribute (attribute.id)}{@const items =
+                  </UI.Text>{:else}{#each attributes as attribute (attribute.id)}{@const items =
                       activeValues.filter(
                         (item) => item.attribute === attribute.id,
-                      )}{#if items.length !== 0}<section class="stack" data-compact>
-                        <p class="eyebrow">{attribute.label}</p>
-                        <div class="list">
+                      )}{#if items.length !== 0}<UI.Stack
+                        as="section"
+                        gap="tight"
+                      >
+                        <UI.Text as="p" size="eyebrow"
+                          >{attribute.label}</UI.Text
+                        >
+                        <UI.List>
                           {#each items as item (item.id)}{@const href =
-                              referencePath(attribute, item)}{#if href}<RouterLink
-                                class="navigation-link truncate"
-                                {href}
-                                >{valueLines(attribute, item).join(" / ")}</RouterLink
-                              >{:else}<div>
-                                <span class="stack"
-                                  >{#each valueLines(attribute, item) as line}<span
-                                      >{line}</span
-                                    >{/each}</span
+                              referencePath(
+                                attribute,
+                                item,
+                              )}{#if href}<RouterLink {href}
+                                >{valueLines(attribute, item).join(
+                                  " / ",
+                                )}</RouterLink
+                              >{:else}<UI.Group>
+                                <UI.Stack as="span"
+                                  >{#each valueLines(attribute, item) as line}<UI.Text
+                                      >{line}</UI.Text
+                                    >{/each}</UI.Stack
                                 >
-                              </div>{/if}{/each}
-                        </div>
-                      </section>{/if}{/each}{/if}
-              </section>
-              {#if incomingReferences.length !== 0}<section
-                  class="stack"
+                              </UI.Group>{/if}{/each}
+                        </UI.List>
+                      </UI.Stack>{/if}{/each}{/if}
+              </UI.Stack>
+              {#if incomingReferences.length !== 0}<UI.Stack
+                  as="section"
                   aria-labelledby="referenced-by-heading"
                 >
-                  <h3 id="referenced-by-heading">Referenced by</h3>
-                  {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<section
-                      class="stack"
-                      data-compact
+                  <UI.Heading level={3} id="referenced-by-heading"
+                    >Referenced by</UI.Heading
+                  >
+                  {#each incomingReferences as group (`${group.source_schema.id}-${group.source_attribute.id}`)}<UI.Stack
+                      as="section"
+                      gap="tight"
                     >
-                      <p class="eyebrow">
+                      <UI.Text as="p" size="eyebrow">
                         {group.source_schema.label} / {group.source_attribute
                           .label}
-                      </p>
-                      <div class="list">
+                      </UI.Text>
+                      <UI.List>
                         {#each group.references as reference, index (`${reference.id}-${index}`)}<RouterLink
-                            class="navigation-link"
                             href={recordPath(
                               workspace.id,
                               currentRoute.projectID,
                               group.source_schema.id,
                               reference.id,
                             )}
-                            >{incomingReferenceLabel(group, reference)}</RouterLink
+                            >{incomingReferenceLabel(
+                              group,
+                              reference,
+                            )}</RouterLink
                           >{/each}
-                      </div>
-                    </section>{/each}
-                  {#if incomingReferencesNextCursor !== undefined}<button
-                      class="small"
+                      </UI.List>
+                    </UI.Stack>{/each}
+                  {#if incomingReferencesNextCursor !== undefined}<UI.Button
+                      variant="outline"
+                      size="sm"
                       type="button"
                       disabled={incomingReferencesLoading}
                       onclick={() => void loadMoreIncomingReferences()}
                       >{incomingReferencesLoading
                         ? "Loading..."
-                        : "Show more"}</button
+                        : "Show more"}</UI.Button
                     >{/if}
-                </section>{/if}
-            </section>
-          {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}<form
-              class="stack"
+                </UI.Stack>{/if}
+            </UI.Stack>
+          {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}{#snippet recordActions()}{#if currentRoute.kind === "project-record-edit"}<UI.Button
+                  variant="outline"
+                  type="button"
+                  disabled={saving}
+                  onclick={() => void deleteRecord()}>Remove record</UI.Button
+                >{/if}{/snippet}
+            <UI.Form
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveRecord()
               }}
             >
-              {#snippet recordActions()}{#if currentRoute.kind === "project-record-edit"}<button
-                    class="secondary"
-                    type="button"
-                    disabled={saving}
-                    onclick={() => void deleteRecord()}>Remove record</button
-                  >{/if}{/snippet}
               <PageHeading actions={recordActions}>
-                <p class="eyebrow">{schema?.label ?? "Record"}</p>
-                <h2>
+                <UI.Text as="p" size="eyebrow"
+                  >{schema?.label ?? "Record"}</UI.Text
+                >
+                <UI.Heading level={2}>
                   {currentRoute.kind === "project-record-new"
                     ? "New record"
                     : "Edit record"}
-                </h2>
+                </UI.Heading>
               </PageHeading>
-              {#if recordsStatus === "checking"}<p class="muted">
+              {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
                   Loading record...
-                </p>{:else if attributes.length === 0}<p
-                  class="muted"
+                </UI.Text>{:else if attributes.length === 0}<UI.Text
+                  as="p"
+                  tone="muted"
                 >
                   Add fields to this record type before creating records.
-                </p>{:else}{#each attributes as attribute (attribute.id)}<fieldset
-                    class="stack"
-                    data-compact
+                </UI.Text>{:else}{#each attributes as attribute (attribute.id)}<UI.FieldSet
                   >
-                    <legend class="eyebrow">{attribute.label}</legend>
-                    {#if attribute.description !== ""}<p>
+                    <UI.FieldLegend>{attribute.label}</UI.FieldLegend>
+                    {#if attribute.description !== ""}<UI.Text as="p">
                         {attribute.description}
-                      </p>{/if}{#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index =
+                      </UI.Text>{/if}{#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index =
                         draftIndex(draft)}
-                      <div class="stack" data-compact>
-                        <div class="split">
-                          <div class="field" style="flex: 1">
-                        {#if attribute.type === "boolean"}<label
-                            class="choice"
-                            ><input
-                              type="checkbox"
-                              checked={draft.value === true}
-                              onchange={(event) =>
-                                setDraft(index, {
-                                  value: event.currentTarget.checked,
-                                })}
-                            /> Yes</label
-                           >{:else if attribute.type === "file"}<SelectControl><select
-                              required
-                              value={valueLabel(draft.value)}
-                              onchange={(event) =>
-                                setDraft(index, {
-                                  value: event.currentTarget.value,
-                                })}
-                              ><option value="" disabled
-                                >Select project file</option
-                              >{#each projectFiles as file (file.id)}<option
-                                  value={file.id}>{file.name}</option
-                                 >{/each}</select
-                             ></SelectControl>
-                          {:else}<input
-                            required
-                            value={valueLabel(draft.value)}
-                            type={attribute.type === "number"
-                              ? "number"
-                              : "text"}
-                            placeholder={attribute.type === "datetime"
-                              ? "RFC 3339 timestamp"
-                              : attribute.type === "record"
-                                ? "Record ID"
-                                : ""}
-                            oninput={(event) =>
-                              setDraft(index, {
-                                value: typedValue(
-                                  attribute,
-                                  event.currentTarget.value,
-                                ),
-                              })}
-                          />{/if}
-                          </div>
-                          <button
-                            class="secondary"
+                      <UI.Stack gap="tight">
+                        <UI.Row justify="between">
+                          <UI.Field grow>
+                            {#if attribute.type === "boolean"}<UI.Label
+                                layout="choice"
+                                ><UI.Checkbox
+                                  checked={draft.value === true}
+                                  onCheckedChange={(checked) =>
+                                    setDraft(index, {
+                                      value: checked,
+                                    })}
+                                /> Yes</UI.Label
+                              >{:else if attribute.type === "file"}<UI.Select
+                                required
+                                value={valueLabel(draft.value)}
+                                onchange={(event) =>
+                                  setDraft(index, {
+                                    value: event.currentTarget.value,
+                                  })}
+                                ><UI.Option value="" disabled
+                                  >Select project file</UI.Option
+                                >{#each projectFiles as file (file.id)}<UI.Option
+                                    value={file.id}>{file.name}</UI.Option
+                                  >{/each}</UI.Select
+                              >
+                            {:else}<UI.Input
+                                required
+                                value={valueLabel(draft.value)}
+                                type={attribute.type === "number"
+                                  ? "number"
+                                  : "text"}
+                                placeholder={attribute.type === "datetime"
+                                  ? "RFC 3339 timestamp"
+                                  : attribute.type === "record"
+                                    ? "Record ID"
+                                    : ""}
+                                oninput={(event) =>
+                                  setDraft(index, {
+                                    value: typedValue(
+                                      attribute,
+                                      event.currentTarget.value,
+                                    ),
+                                  })}
+                              />{/if}
+                          </UI.Field>
+                          <UI.Button
+                            variant="outline"
                             type="button"
                             onclick={() =>
                               draft.id === undefined
@@ -1221,34 +1273,36 @@
                                     (candidate) => candidate !== draft,
                                   ))
                                 : setDraft(index, { removed: true })}
-                            >Remove</button
+                            >Remove</UI.Button
                           >
-                        </div>
-                        <label class="choice"
-                          ><input
-                            type="checkbox"
+                        </UI.Row>
+                        <UI.Label layout="choice"
+                          ><UI.Checkbox
                             checked={draft.sensitive}
-                            onchange={(event) =>
+                            onCheckedChange={(checked) =>
                               setDraft(index, {
-                                sensitive: event.currentTarget.checked,
+                                sensitive: checked,
                               })}
-                          /> Sensitive</label
+                          /> Sensitive</UI.Label
                         >
-                      </div>{/each}{#if attribute.cardinality === "many"}<button
-                        class="small"
+                      </UI.Stack>{/each}{#if attribute.cardinality === "many"}<UI.Button
+                        variant="outline"
+                        size="sm"
                         type="button"
                         onclick={() =>
                           (drafts = [...drafts, emptyDraft(attribute)])}
-                        >Add value</button
+                        >Add value</UI.Button
                       >{/if}
-                  </fieldset>{/each}{/if}{#if error !== ""}<p
-                  class="field-help"
+                  </UI.FieldSet>{/each}{/if}{#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
                   role="alert"
                 >
                   {error}
-                </p>{/if}
-              <div class="cluster">
-                <button
+                </UI.Text>{/if}
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
                   type="button"
                   onclick={() =>
                     runtime.navigate(
@@ -1264,214 +1318,213 @@
                             currentRoute.projectID,
                             currentRoute.schemaID,
                           ),
-                    )}>Cancel</button
-                ><button
-                  class="primary"
+                    )}>Cancel</UI.Button
+                ><UI.Button
+                  variant="default"
                   type="submit"
                   disabled={saving || attributes.length === 0}
-                  >{saving ? "Saving..." : "Save record"}</button
+                  >{saving ? "Saving..." : "Save record"}</UI.Button
                 >
-              </div>
-            </form>
-          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<button
-                class="small"
+              </UI.Row>
+            </UI.Form>
+          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<UI.Button
+                variant="outline"
+                size="sm"
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`,
-                  )}>Edit record type</button
-              ><button
-                class="primary small"
+                  )}>Edit record type</UI.Button
+              ><UI.Button
+                variant="default"
+                size="sm"
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`,
-                  )}>New record</button
+                  )}>New record</UI.Button
               >{/snippet}
             <PageHeading as="header" actions={schemaListActions}>
-              <p class="eyebrow">Record type</p>
-              <h2>{schema?.label ?? "Records"}</h2>
-              {#if schema?.description}<p class="subtitle">
-                {schema.description}
-              </p>{/if}
+              <UI.Text as="p" size="eyebrow">Record type</UI.Text>
+              <UI.Heading level={2}>{schema?.label ?? "Records"}</UI.Heading>
+              {#if schema?.description}<UI.Text as="p" tone="muted">
+                  {schema.description}
+                </UI.Text>{/if}
             </PageHeading>
-            {#if recordsStatus === "checking"}<p class="muted">
+            {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
                 Loading records...
-              </p>{:else if recordsStatus === "unavailable"}<p
-                class="muted"
+              </UI.Text>{:else if recordsStatus === "unavailable"}<UI.Text
+                as="p"
+                tone="muted"
               >
                 Records could not be loaded.
-              </p>{:else}<div class="grid">
+              </UI.Text>{:else}<UI.Grid>
                 {#each records as record (record.id)}<RouterLink
-                    class="card card-link stack"
+                    variant="card"
                     href={recordPath(
                       workspace.id,
                       currentRoute.projectID,
                       currentRoute.schemaID,
                       record.id,
                     )}
-                    ><h4 class="card-heading stack" style:--space="calc(var(--space) / 4)">
-                      {#each primaryLines(record.values ?? []) as line}<span
-                          >{line}</span
+                    ><UI.Heading level={4}>
+                      {#each primaryLines(record.values ?? []) as line}<UI.Text
+                          >{line}</UI.Text
                         >{/each}
-                    </h4>
+                    </UI.Heading>
                     {#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}{@const item =
                         record.values?.find(
                           (candidate) => candidate.attribute === attribute.id,
-                        )}{#if item !== undefined}<section
-                          class="stack"
-                          style:--space="calc(var(--space) / 4)"
+                        )}{#if item !== undefined}<UI.Stack
+                          as="section"
+                          gap="tight"
                         >
-                          <span class="eyebrow">{attribute.label}</span>
-                          <span class="stack" style:--space="calc(var(--space) / 4)">
-                            {#each valueLines(attribute, item) as line}<span
-                                >{line}</span
+                          <UI.Text size="eyebrow">{attribute.label}</UI.Text>
+                          <UI.Stack as="span" gap="tight">
+                            {#each valueLines(attribute, item) as line}<UI.Text
+                                >{line}</UI.Text
                               >{/each}
-                          </span>
-                        </section>{/if}{/each}</RouterLink
-                  >{:else}<p class="muted">
+                          </UI.Stack>
+                        </UI.Stack>{/if}{/each}</RouterLink
+                  >{:else}<UI.Text as="p" tone="muted">
                     No records yet.
-                  </p>{/each}
-              </div>{/if}
-          {:else}{#snippet recordTypesActions()}<button
-                class="primary"
+                  </UI.Text>{/each}
+              </UI.Grid>{/if}
+          {:else}{#snippet recordTypesActions()}<UI.Button
+                variant="default"
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${recordsPath(workspace.id, currentRoute.projectID)}/new`,
-                  )}>New record type</button
+                  )}>New record type</UI.Button
               >{/snippet}
             <PageHeading as="header" actions={recordTypesActions}>
-              <p class="eyebrow">Project records</p>
-              <h2>Record Types</h2>
-              <p class="subtitle">
+              <UI.Text as="p" size="eyebrow">Project records</UI.Text>
+              <UI.Heading level={2}>Record Types</UI.Heading>
+              <UI.Text as="p" tone="muted">
                 Define reusable record types and their fields.
-              </p>
+              </UI.Text>
             </PageHeading>
-            {#if schemasStatus === "checking"}<p class="muted">
+            {#if schemasStatus === "checking"}<UI.Text as="p" tone="muted">
                 Loading record types...
-              </p>{:else if schemasStatus === "unavailable"}<p
-                class="muted"
+              </UI.Text>{:else if schemasStatus === "unavailable"}<UI.Text
+                as="p"
+                tone="muted"
               >
                 Record types could not be loaded.
-              </p>{:else}<div class="grid">
+              </UI.Text>{:else}<UI.Grid>
                 {#each schemas as item (item.id)}<RouterLink
-                    class="card card-link stack"
+                    variant="card"
                     href={schemaPath(
                       workspace.id,
                       currentRoute.projectID,
                       item.id,
                     )}
-                    ><h4 class="card-heading">{item.label}</h4>
-                    {#if item.description !== ""}<span class="field-help">
+                    ><UI.Heading level={4}>{item.label}</UI.Heading>
+                    {#if item.description !== ""}<UI.Text size="small">
                         {item.description}
-                      </span>{/if}</RouterLink
-                  >{:else}<p class="muted">
+                      </UI.Text>{/if}</RouterLink
+                  >{:else}<UI.Text as="p" tone="muted">
                     No record types yet. Create one to begin tracking records.
-                  </p>{/each}
-              </div>{/if}{/if}
+                  </UI.Text>{/each}
+              </UI.Grid>{/if}{/if}
           {#if currentRoute.kind === "project-record-schema-edit" && schema !== null}
-            <section class="stack">
+            <UI.Stack as="section">
               <PageHeading>
-                <p class="eyebrow">Record type fields</p>
-                <h2>
+                <UI.Text as="p" size="eyebrow">Record type fields</UI.Text>
+                <UI.Heading level={2}>
                   {attributeForm.id === undefined
                     ? "Add field"
                     : `Edit ${attributeForm.label}`}
-                </h2>
+                </UI.Heading>
               </PageHeading>
-              <form
-                class="stack"
+              <UI.Form
                 onsubmit={(event) => {
                   event.preventDefault()
                   void saveAttribute()
                 }}
               >
-                <div class="grid">
-                  <div class="field">
-                    <label for="attribute-name">Name</label><input
+                <UI.Grid>
+                  <UI.Field>
+                    <UI.Label for="attribute-name">Name</UI.Label><UI.Input
                       id="attribute-name"
                       required
                       disabled={attributeForm.id !== undefined}
                       bind:value={attributeForm.name}
                     />
-                  </div>
-                  <div class="field">
-                    <label for="attribute-label">Label</label
-                    ><input
+                  </UI.Field>
+                  <UI.Field>
+                    <UI.Label for="attribute-label">Label</UI.Label><UI.Input
                       id="attribute-label"
                       required
                       bind:value={attributeForm.label}
                     />
-                  </div>
-                  <div class="field">
-                    <label for="attribute-type">Type</label>
-                      <SelectControl><select
-                        id="attribute-type"
-                        bind:value={attributeForm.type}
-                        ><option value="text">Text</option><option
-                          value="number">Number</option
-                        ><option value="boolean">Boolean</option><option
-                          value="datetime">Date and time</option
-                        ><option value="record">Record reference</option><option
-                          value="file">Project file reference</option
-                         ></select
-                      ></SelectControl>
-                  </div>
-                  {#if attributeForm.type === "record"}<div class="field">
-                      <label for="attribute-target"
-                        >Target record type</label
+                  </UI.Field>
+                  <UI.Field>
+                    <UI.Label for="attribute-type">Type</UI.Label>
+                    <UI.Select
+                      id="attribute-type"
+                      bind:value={attributeForm.type}
+                      ><UI.Option value="text">Text</UI.Option><UI.Option
+                        value="number">Number</UI.Option
+                      ><UI.Option value="boolean">Boolean</UI.Option><UI.Option
+                        value="datetime">Date and time</UI.Option
+                      ><UI.Option value="record">Record reference</UI.Option
+                      ><UI.Option value="file">Project file reference</UI.Option
+                      ></UI.Select
+                    >
+                  </UI.Field>
+                  {#if attributeForm.type === "record"}<UI.Field>
+                      <UI.Label for="attribute-target"
+                        >Target record type</UI.Label
                       >
-                         <SelectControl><select
-                          id="attribute-target"
-                          required
-                          bind:value={attributeForm.target_schema}
-                          ><option value="" disabled>Select record type</option
-                          >{#each schemas as item (item.id)}<option
-                              value={item.id}>{item.label}</option
-                             >{/each}</select
-                         ></SelectControl>
-                    </div>{/if}
-                  <div class="field">
-                    <label for="attribute-cardinality"
-                      >Values</label
+                      <UI.Select
+                        id="attribute-target"
+                        required
+                        bind:value={attributeForm.target_schema}
+                        ><UI.Option value="" disabled
+                          >Select record type</UI.Option
+                        >{#each schemas as item (item.id)}<UI.Option
+                            value={item.id}>{item.label}</UI.Option
+                          >{/each}</UI.Select
+                      >
+                    </UI.Field>{/if}
+                  <UI.Field>
+                    <UI.Label for="attribute-cardinality">Values</UI.Label>
+                    <UI.Select
+                      id="attribute-cardinality"
+                      bind:value={attributeForm.cardinality}
+                      ><UI.Option value="one">One</UI.Option><UI.Option
+                        value="many">Many</UI.Option
+                      ></UI.Select
                     >
-                       <SelectControl><select
-                        id="attribute-cardinality"
-                        bind:value={attributeForm.cardinality}
-                        ><option value="one">One</option><option value="many"
-                          >Many</option
-                         ></select
-                       ></SelectControl>
-                  </div>
-                  <div class="field">
-                    <label for="attribute-uniqueness"
-                      >Uniqueness</label
+                  </UI.Field>
+                  <UI.Field>
+                    <UI.Label for="attribute-uniqueness">Uniqueness</UI.Label>
+                    <UI.Select
+                      id="attribute-uniqueness"
+                      bind:value={attributeForm.uniqueness}
+                      ><UI.Option value="none">None</UI.Option><UI.Option
+                        value="record">Within record</UI.Option
+                      ><UI.Option value="global">Across records</UI.Option
+                      ></UI.Select
                     >
-                       <SelectControl><select
-                        id="attribute-uniqueness"
-                        bind:value={attributeForm.uniqueness}
-                        ><option value="none">None</option><option
-                          value="record">Within record</option
-                         ><option value="global">Across records</option></select
-                       ></SelectControl>
-                  </div>
-                  <div class="field">
-                    <label for="attribute-display"
-                      >Card display</label
+                  </UI.Field>
+                  <UI.Field>
+                    <UI.Label for="attribute-display">Card display</UI.Label>
+                    <UI.Select
+                      id="attribute-display"
+                      bind:value={attributeForm.display}
+                      ><UI.Option value="none">Hidden</UI.Option><UI.Option
+                        value="primary">Primary</UI.Option
+                      ><UI.Option value="secondary">Secondary</UI.Option
+                      ></UI.Select
                     >
-                       <SelectControl><select
-                        id="attribute-display"
-                        bind:value={attributeForm.display}
-                        ><option value="none">Hidden</option><option
-                          value="primary">Primary</option
-                         ><option value="secondary">Secondary</option></select
-                       ></SelectControl>
-                  </div>
-                  <div class="field">
-                    <label for="attribute-display-order"
-                      >Display order</label
-                    ><input
+                  </UI.Field>
+                  <UI.Field>
+                    <UI.Label for="attribute-display-order"
+                      >Display order</UI.Label
+                    ><UI.Input
                       id="attribute-display-order"
                       type="number"
                       min="0"
@@ -1479,56 +1532,56 @@
                       required
                       bind:value={attributeForm.display_order}
                     />
-                    <p class="field-help">
+                    <UI.Text as="p" size="small">
                       Lower numbers appear first; name breaks ties.
-                    </p>
-                  </div>
-                </div>
-                <div class="field">
-                  <label for="attribute-description"
-                    >Description</label
-                  ><textarea
+                    </UI.Text>
+                  </UI.Field>
+                </UI.Grid>
+                <UI.Field>
+                  <UI.Label for="attribute-description">Description</UI.Label
+                  ><UI.Textarea
                     id="attribute-description"
-                    rows="2"
-                    bind:value={attributeForm.description}></textarea>
-                </div>
-                <div class="cluster">
-                  <button
+                    rows={2}
+                    bind:value={attributeForm.description}
+                  ></UI.Textarea>
+                </UI.Field>
+                <UI.Row>
+                  <UI.Button
+                    variant="outline"
                     type="button"
-                    onclick={resetAttributeForm}>Cancel</button
-                  ><button
-                    class="primary"
-                    type="submit"
-                    disabled={saving}
-                    >{saving ? "Saving..." : "Save field"}</button
+                    onclick={resetAttributeForm}>Cancel</UI.Button
+                  ><UI.Button variant="default" type="submit" disabled={saving}
+                    >{saving ? "Saving..." : "Save field"}</UI.Button
                   >
-                </div>
-              </form>
-              <div class="list">
-                {#each attributes as attribute (attribute.id)}<div
-                    class="list-item surface split"
-                  >
-                    <span class="stack"
-                      ><strong>{attribute.label}</strong><span
-                        >{attribute.name} · {attribute.type} · {attribute.cardinality}</span
-                      ></span
-                    ><span class="cluster"
-                      ><button
-                        class="small"
+                </UI.Row>
+              </UI.Form>
+              <UI.List>
+                {#each attributes as attribute (attribute.id)}<UI.Item>
+                    <UI.Stack as="span"
+                      ><UI.Text as="strong" emphasis="strong"
+                        >{attribute.label}</UI.Text
+                      ><UI.Text
+                        >{attribute.name} · {attribute.type} · {attribute.cardinality}</UI.Text
+                      ></UI.Stack
+                    ><UI.Row as="span"
+                      ><UI.Button
+                        variant="outline"
+                        size="sm"
                         type="button"
-                        onclick={() => editAttribute(attribute)}>Edit</button
-                      ><button
-                        class="secondary small"
+                        onclick={() => editAttribute(attribute)}>Edit</UI.Button
+                      ><UI.Button
+                        variant="outline"
+                        size="sm"
                         type="button"
                         onclick={() => void deleteAttribute(attribute)}
-                        >Remove</button
-                      ></span
+                        >Remove</UI.Button
+                      ></UI.Row
                     >
-                  </div>{:else}<p class="muted">
+                  </UI.Item>{:else}<UI.Text as="p" tone="muted">
                     No fields yet.
-                  </p>{/each}
-              </div>
-            </section>
+                  </UI.Text>{/each}
+              </UI.List>
+            </UI.Stack>
           {/if}
         </PageBody></SidebarPage.Body
       >

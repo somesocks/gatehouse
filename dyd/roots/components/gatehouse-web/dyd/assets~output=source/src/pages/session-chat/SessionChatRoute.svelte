@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from "svelte"
   import {
     Bot,
     CircleCheck,
@@ -11,8 +10,19 @@
     ShieldQuestionMark,
     ShieldX,
     X,
-  } from "@lucide/svelte"
-  import { Command, Dialog } from "bits-ui"
+    Command,
+    Dialog,
+    RouterLink,
+    StatusPage,
+    renderMarkdown,
+  } from "../../ui"
+  import {
+    workspaceNavigation,
+    sessionViews,
+    renameSession,
+  } from "../../app/navigation"
+  import * as UI from "../../ui"
+  import { onMount, tick, untrack } from "svelte"
   import {
     chatFileDownloadPath,
     fetchChatSession,
@@ -20,14 +30,11 @@
     type ChatEventTree,
   } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import SessionNavigation from "../../components/SessionNavigation.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
+
   import InputRequestCard from "./InputRequestCard.svelte"
   import InputRequestActivity from "./InputRequestActivity.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
-  import { renderMarkdown } from "../../markdown"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
   import {
     activityDuration,
@@ -126,7 +133,11 @@
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
     await tick()
-    if (document.activeElement instanceof Element && document.activeElement.closest(".input-form") !== null) return
+    if (
+      document.activeElement instanceof Element &&
+      document.activeElement.closest("[data-input-form]") !== null
+    )
+      return
     const scrollingElement = document.scrollingElement
     scrollingElement?.scrollTo({
       top: scrollingElement.scrollHeight,
@@ -164,8 +175,10 @@
   const groupDeliveryVisible = $derived(
     "group chat".includes(deliveryQuery.trim().toLowerCase()),
   )
-  let directAgentID = $state<string | null>(currentRoute.agent)
-  let deliveryMode = $state<ChatDelivery["mode"]>(currentRoute.mode)
+  let directAgentID = $state<string | null>(untrack(() => currentRoute.agent))
+  let deliveryMode = $state<ChatDelivery["mode"]>(
+    untrack(() => currentRoute.mode),
+  )
   const directAgent = $derived.by(() => {
     if (deliveryMode !== "direct") return undefined
     return controller.state.agents.find((agent) =>
@@ -205,9 +218,7 @@
   onMount(() => {
     const copyCodeBlock = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return
-      const button = event.target.closest<HTMLButtonElement>(
-        ".code-copy",
-      )
+      const button = event.target.closest<HTMLButtonElement>("[data-copy-code]")
       const code = button?.parentElement?.querySelector("pre > code")
       if (code !== null && code !== undefined)
         void copyMarkdown(code.textContent ?? "")
@@ -432,12 +443,14 @@
   }
   function approvalDescription(
     approval: ChatEventTree<"approval.request">,
-    task: ChatEventTree<"tool.request">,
+    task: ChatEventTree<"tool.request" | "thinking.request">,
   ): string {
     return (
       approval.event.payload.description ??
-      task.event.payload.reason ??
-      `Run ${task.event.payload.name ?? "tool"}`
+      (task.event.kind === "tool.request"
+        ? task.event.payload.reason
+        : undefined) ??
+      `Run ${task.event.kind === "tool.request" ? (task.event.payload.name ?? "tool") : "tool"}`
     )
   }
   function handleMentionKeydown(event: KeyboardEvent): void {
@@ -509,108 +522,161 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "chats")}
+      /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header placement="floating">
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb" data-page-breadcrumb>
-          <ol>
-            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb" data-page-breadcrumb>
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={workspacePath(workspace.id)}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if session !== null}
               {#if session.project !== undefined}
-                <li><RouterLink href={projectPath(workspace.id, session.project.id)}>{session.project.name ?? "New Project"}</RouterLink></li>
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  ><RouterLink
+                    href={projectPath(workspace.id, session.project.id)}
+                    >{session.project.name ?? "New Project"}</RouterLink
+                  ></UI.Breadcrumb.Item
+                >
               {/if}
-              <li aria-current="page">{session.name ?? "New Chat"}</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page
+                  >{session.name ?? "New Chat"}</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {/if}
-          </ol>
-        </nav>
-        {#if session !== null}<SessionNavigation
-            workspaceID={workspace.id}
-            sessionID={session.id}
-            active="chat"
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
+        {#if session !== null}<UI.ViewNavigation
+            items={sessionViews(workspace.id, session.id, "chat")}
             name={session.name}
-            onRenamed={updateSessionName}
+            onRename={(name) =>
+              renameSession(
+                runtime,
+                workspace.id,
+                currentRoute.sessionID,
+                name,
+                updateSessionName,
+              )}
           />{/if}
       </SidebarPage.Header>
       <SidebarPage.Body>
-        {#if sessionStatus === "unavailable"}<p class="muted">
+        {#if sessionStatus === "unavailable"}<UI.Text as="p" tone="muted">
             This chat could not be loaded.
-          </p>
-          <button
-            class="primary"
+          </UI.Text>
+          <UI.Button
+            variant="default"
             type="button"
             onclick={() =>
               void loadRoute(currentRoute, generation, abortController!.signal)}
-            >Try again</button
+            >Try again</UI.Button
           >
-        {:else if sessionStatus === "checking" || controller.state.status === "checking"}<div
-            class="conversation-feed"
+        {:else if sessionStatus === "checking" || controller.state.status === "checking"}<UI.Feed
             data-loading
             aria-busy="true"
             aria-live="polite"
           >
-            <p class="conversation-status"><span class="spinner" role="status"
-                ><span class="visually-hidden">Loading</span></span
-              > Loading chat...</p
+            <UI.Text as="p" tone="muted"
+              ><UI.Spinner role="status"
+                ><UI.Text hidden>Loading</UI.Text></UI.Spinner
+              > Loading chat...</UI.Text
             >
-          </div>
+          </UI.Feed>
         {:else if session !== null}
-          <div class="conversation-feed" aria-live="polite">
-            {#if controller.state.status === "unavailable"}<p
-                class="conversation-status"
+          <UI.Feed aria-live="polite">
+            {#if controller.state.status === "unavailable"}<UI.Text
+                as="p"
+                tone="muted"
               >
                 This chat could not be loaded.
-              </p>{:else if controller.state.events.length === 0}<p
-                class="conversation-status"
+              </UI.Text>{:else if controller.state.events.length === 0}<UI.Text
+                as="p"
+                tone="muted"
               >
                 Send the first message to begin.
-              </p>{:else}{#each controller.state.events as tree (tree.event.ref.id)}{#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0))}<article
-                    class="conversation-message card"
-                    data-align="end"
+              </UI.Text>{:else}{#each controller.state.events as tree (tree.event.ref.id)}{#if tree.event.kind === "message.text" && (tree.event.payload.text !== undefined || (tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0))}<UI.Message
+                    align="end"
                   >
-                    <header>
+                    {#snippet header()}
                       {tree.event.author_principal?.name ?? "User"}
-                    </header>
-                    {#if tree.event.payload.text !== undefined}<button
-                        class="icon inline small"
-                        type="button"
-                        aria-label="Copy message Markdown"
-                        title="Copy Markdown"
-                        onclick={() =>
-                          void copyMarkdown(tree.event.payload.text)}
-                        ><Copy size={16} strokeWidth={2} /></button
-                      >
-                      <div class="prose">
-                        {@html renderMarkdown(tree.event.payload.text)}
-                      </div>{/if}{#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}<div
-                        class="attachment-list"
+                    {/snippet}
+                    {#snippet actions()}{#if tree.event.kind === "message.text" && tree.event.payload.text !== undefined}<UI.Button
+                          variant="ghost"
+                          size="icon-sm"
+                          type="button"
+                          aria-label="Copy message Markdown"
+                          title="Copy Markdown"
+                          onclick={() =>
+                            void copyMarkdown(
+                              "text" in tree.event.payload
+                                ? (tree.event.payload.text ?? "")
+                                : "",
+                            )}><Copy size={16} strokeWidth={2} /></UI.Button
+                        >
+                      {/if}{/snippet}
+                    {#if tree.event.payload.text !== undefined}
+                      <UI.RichText
+                        html={renderMarkdown(tree.event.payload.text)}
+
+                      ></UI.RichText>{/if}{#if tree.event.payload.attachments !== undefined && tree.event.payload.attachments.length > 0}<UI.Row
                         aria-label="Attached files"
                       >
-                        {#each tree.event.payload.attachments as file (file.id)}<a
-                            class="attachment-chip badge"
+                        {#each tree.event.payload.attachments as file (file.id)}<UI.Chip
                             href={chatFileDownloadPath(
                               workspace.id,
                               session.id,
@@ -620,32 +686,45 @@
                             rel="noopener noreferrer"
                             download={file.name}
                             title={file.fingerprint}
-                            ><span class="attachment-chip-icon"><Paperclip
-                              size={14}
-                              strokeWidth={2}
-                              aria-hidden="true"
-                            /></span><span class="attachment-chip-label"><span>{file.name}</span><small
-                              >{file.size} bytes{file.media_type === undefined
-                                ? ""
-                                : ` · ${file.media_type}`}</small
-                            ></span></a
+                            ><UI.Text
+                              ><Paperclip
+                                size={14}
+                                strokeWidth={2}
+                                aria-hidden="true"
+                              /></UI.Text
+                            ><UI.Row as="span"
+                              ><UI.Text>{file.name}</UI.Text><UI.Text
+                                as="small"
+                                size="small"
+                                >{file.size} bytes{file.media_type === undefined
+                                  ? ""
+                                  : ` · ${file.media_type}`}</UI.Text
+                              ></UI.Row
+                            ></UI.Chip
                           >{/each}
-                      </div>{/if}
-                  </article>
-                  {#each agentRequests(tree) as request (request.event.ref.id)}<section
-                      class="event-log"
+                      </UI.Row>{/if}
+                  </UI.Message>
+                  {#each agentRequests(tree) as request (request.event.ref.id)}<UI.Stack
+                      as="section"
                     >
-                      <header>
+                      <UI.Group as="header">
                         {cancellationRequest(request) !== undefined
-                            ? activityAgentLabel(request)
-                            : agentFailures(request).length > 0
-                              ? `${activityAgentLabel(request)} failed`
+                          ? activityAgentLabel(request)
+                          : agentFailures(request).length > 0
+                            ? `${activityAgentLabel(request)} failed`
                             : finalReplies(request).length === 0
                               ? `${activityAgentLabel(request)} is working`
                               : activityAgentLabel(
                                   request,
-                                )}{#if finalReplies(request).length > 0 && replyDuration(request) !== ""}<small>{replyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request) && workingReplyDuration(request) !== ""}<small>{workingReplyDuration(request)}</small>{/if}{#if replyCanBeCancelled(request)}<button
-                             class="primary inline"
+                                )}{#if finalReplies(request).length > 0 && replyDuration(request) !== ""}<UI.Text
+                            as="small"
+                            size="small">{replyDuration(request)}</UI.Text
+                          >{/if}{#if replyCanBeCancelled(request) && workingReplyDuration(request) !== ""}<UI.Text
+                            as="small"
+                            size="small"
+                            >{workingReplyDuration(request)}</UI.Text
+                          >{/if}{#if replyCanBeCancelled(request)}<UI.Button
+                            variant="default"
                             type="button"
                             disabled={controller.state.cancellingReplyFor.has(
                               request.event.ref.id,
@@ -655,33 +734,34 @@
                               request.event.ref.id,
                             )
                               ? "Cancelling..."
-                              : "Cancel"}</button
+                              : "Cancel"}</UI.Button
                           >{/if}
-                      </header>
-                      {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined || cancellationRequest(request) !== undefined}<div
-                          class="event-list"
+                      </UI.Group>
+                      {#if renderedActivityEvents(request).length > 0 || agentFailureSummary(request) !== undefined || cancellationRequest(request) !== undefined}<UI.Stack
+                          indent
                         >
-                          {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<p
-                              class="event-more"
+                          {#if renderedActivityEvents(request).length > 5 && !controller.state.expandedActivity.has(request.event.ref.id)}<UI.Row
+                              as="p"
                             >
-                              <span
-                                >({renderedActivityEvents(request).length - 5} more)</span
-                               ><button
-                                class="primary inline"
+                              <UI.Text
+                                >({renderedActivityEvents(request).length - 5} more)</UI.Text
+                              ><UI.Button
+                                variant="default"
                                 type="button"
-                              onclick={() => controller.toggleActivity(request)}
-                                >Show all</button
+                                onclick={() =>
+                                  controller.toggleActivity(request)}
+                                >Show all</UI.Button
                               >
-                            </p>{/if}{#each displayedActivityEvents(request, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<p
-                                class="event-summary"
+                            </UI.Row>{/if}{#each displayedActivityEvents(request, controller.state.expandedActivity) as event (event.event.ref.id)}{#if event.event.kind === "tool.request"}<UI.Row
+                                tone="muted"
+                                as="p"
                                 data-state={toolStatus(event)}
                                 title={event.event.payload.name ?? "tool"}
                               >
-                                {#if toolStatus(event) === "working"}<span
-                                    class="spinner"
+                                {#if toolStatus(event) === "working"}<UI.Spinner
                                     aria-hidden="true"
 
-                                  ></span>{:else if toolStatus(event) === "succeeded"}<CircleCheck
+                                  ></UI.Spinner>{:else if toolStatus(event) === "succeeded"}<CircleCheck
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
@@ -690,27 +770,38 @@
                                     strokeWidth={2}
                                     aria-hidden="true"
                                   />{/if}Task: {event.event.payload.reason ??
-                                  `Running ${event.event.payload.name ?? "tool"}`}{#if activityDuration(event, "tool.success", "tool.failure") !== ""}<small>{activityDuration(
+                                  `Running ${event.event.payload.name ?? "tool"}`}{#if activityDuration(event, "tool.success", "tool.failure") !== ""}<UI.Text
+                                    as="small"
+                                    size="small"
+                                    >{activityDuration(
                                       event,
                                       "tool.success",
                                       "tool.failure",
-                                    )}</small>{/if}
-                              </p>
+                                    )}</UI.Text
+                                  >{/if}
+                              </UI.Row>
                               {#each approvalRequests(event) as approval (approval.event.ref.id)}{@const response =
                                   approvalResponse(approval)}
-                                <section class="event-request" data-resolved={response !== undefined || undefined}>
+                                <UI.Row
+                                  tone="muted"
+                                  data-resolved={response !== undefined ||
+                                    undefined}
+                                >
                                   {#if response === undefined}<ShieldQuestionMark
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><strong>Action approval required:</strong
-                                    ><span>{approvalDescription(
+                                    /><UI.Text as="strong" emphasis="strong"
+                                      >Action approval required:</UI.Text
+                                    ><UI.Text
+                                      >{approvalDescription(
                                         approval,
                                         event,
-                                      )}</span
-                                    ><span data-actions
-                                      ><button
-                                        class="primary small"
+                                      )}</UI.Text
+                                    ><UI.Text data-actions
+                                      ><UI.Button
+                                        variant="default"
+                                        size="sm"
                                         type="button"
                                         disabled={controller.state.submittingApprovals.has(
                                           approval.event.ref.id,
@@ -724,9 +815,10 @@
                                           approval.event.ref.id,
                                         )
                                           ? "Submitting..."
-                                          : "Approve"}</button
-                                      ><button
-                                        class="secondary small"
+                                          : "Approve"}</UI.Button
+                                      ><UI.Button
+                                        variant="outline"
+                                        size="sm"
                                         type="button"
                                         disabled={controller.state.submittingApprovals.has(
                                           approval.event.ref.id,
@@ -735,47 +827,55 @@
                                           void controller.respondToApproval(
                                             approval,
                                             "rejected",
-                                          )}>Reject</button
-                                      ></span
+                                          )}>Reject</UI.Button
+                                      ></UI.Text
                                     >{:else if response.event.kind === "approval.success"}<ShieldCheck
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><strong>Action approved:</strong
-                                    ><span>{approvalDescription(
+                                    /><UI.Text as="strong" emphasis="strong"
+                                      >Action approved:</UI.Text
+                                    ><UI.Text
+                                      >{approvalDescription(
                                         approval,
                                         event,
-                                      )}</span
+                                      )}</UI.Text
                                     >{:else}<ShieldX
                                       size={15}
                                       strokeWidth={2}
                                       aria-hidden="true"
-                                    /><strong>{response.event.payload.code === "cancelled" ? "Action cancelled:" : "Action rejected:"}</strong
-                                    ><span>{approvalDescription(
+                                    /><UI.Text as="strong" emphasis="strong"
+                                      >{response.event.payload.code ===
+                                      "cancelled"
+                                        ? "Action cancelled:"
+                                        : "Action rejected:"}</UI.Text
+                                    ><UI.Text
+                                      >{approvalDescription(
                                         approval,
                                         event,
-                                      )}</span
+                                      )}</UI.Text
                                     >{/if}
-                                </section>
-                                {#if response === undefined && (controller.state.approvalErrors.get(approval.event.ref.id) ?? "") !== ""}<p
-                                    class="event-error"
+                                </UI.Row>
+                                {#if response === undefined && (controller.state.approvalErrors.get(approval.event.ref.id) ?? "") !== ""}<UI.Row
+                                    tone="muted"
+                                    as="p"
                                     role="alert"
                                   >
                                     {controller.state.approvalErrors.get(
                                       approval.event.ref.id,
                                     )}
-                               </p>{/if}{/each}
+                                  </UI.Row>{/if}{/each}
                               {#each inputRequests(event) as input (input.event.ref.id)}
                                 <InputRequestActivity request={input} />
-                              {/each}{:else if event.event.kind === "thinking.request"}<p
-                                class="event-summary"
+                              {/each}{:else if event.event.kind === "thinking.request"}<UI.Row
+                                tone="muted"
+                                as="p"
                                 data-state={thinkingStatus(event)}
                               >
-                                {#if thinkingStatus(event) === "working"}<span
-                                    class="spinner"
+                                {#if thinkingStatus(event) === "working"}<UI.Spinner
                                     aria-hidden="true"
 
-                                  ></span>{:else if thinkingStatus(event) === "succeeded"}<CircleCheck
+                                  ></UI.Spinner>{:else if thinkingStatus(event) === "succeeded"}<CircleCheck
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
@@ -783,106 +883,147 @@
                                     size={14}
                                     strokeWidth={2}
                                     aria-hidden="true"
-                                  />{/if}{thinkingSummary(event)}{#if activityDuration(event, "thinking.success", "thinking.failure") !== ""}<small>{activityDuration(
-                                       event,
-                                       "thinking.success",
-                                       "thinking.failure",
-                                    )}</small>{/if}
-                              </p>{/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<p
-                              class="event-more"
+                                  />{/if}{thinkingSummary(
+                                  event,
+                                )}{#if activityDuration(event, "thinking.success", "thinking.failure") !== ""}<UI.Text
+                                    as="small"
+                                    size="small"
+                                    >{activityDuration(
+                                      event,
+                                      "thinking.success",
+                                      "thinking.failure",
+                                    )}</UI.Text
+                                  >{/if}
+                              </UI.Row>{/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<UI.Row
+                              as="p"
                             >
-                              <span
-                                >({renderedActivityEvents(request).length} steps)</span
-                               ><button
-                                  class="primary inline"
-                                  type="button"
-                                onclick={() => controller.toggleActivity(request)}
-                                 >Show less</button
+                              <UI.Text
+                                >({renderedActivityEvents(request).length} steps)</UI.Text
+                              ><UI.Button
+                                variant="default"
+                                type="button"
+                                onclick={() =>
+                                  controller.toggleActivity(request)}
+                                >Show less</UI.Button
                               >
-                            </p>{/if}
-                            {#if cancellationRequest(request) !== undefined}
-                              <p class="event-summary" role="status">
-                                {#if hasCancellationSuccess(request)}
-                                  <CircleX size={14} strokeWidth={2} aria-hidden="true" />
-                                  <span>Cancelled</span>
-                                {:else if hasCancellationFailure(request)}
-                                  <CircleX size={14} strokeWidth={2} aria-hidden="true" />
-                                  <span>Cancellation failed</span>
-                                {:else}
-                                  <span class="spinner" aria-hidden="true"></span>
-                                  <span>Cancellation requested</span>
-                                {/if}
-                              </p>
-                            {/if}
-                            {#if agentFailureSummary(request) !== undefined}<p
-                              class="event-summary event-failure"
+                            </UI.Row>{/if}
+                          {#if cancellationRequest(request) !== undefined}
+                            <UI.Row tone="muted" as="p" role="status">
+                              {#if hasCancellationSuccess(request)}
+                                <CircleX
+                                  size={14}
+                                  strokeWidth={2}
+                                  aria-hidden="true"
+                                />
+                                <UI.Text>Cancelled</UI.Text>
+                              {:else if hasCancellationFailure(request)}
+                                <CircleX
+                                  size={14}
+                                  strokeWidth={2}
+                                  aria-hidden="true"
+                                />
+                                <UI.Text>Cancellation failed</UI.Text>
+                              {:else}
+                                <UI.Spinner aria-hidden="true"></UI.Spinner>
+                                <UI.Text>Cancellation requested</UI.Text>
+                              {/if}
+                            </UI.Row>
+                          {/if}
+                          {#if agentFailureSummary(request) !== undefined}<UI.Row
+                              tone="muted"
+                              as="p"
                               data-state="failed"
-                            ><CircleX size={14} strokeWidth={2} aria-hidden="true" /><span>{agentFailureSummary(request)}</span></p>{/if}
-                          </div>{/if}
-                    </section>
-                    {#each pendingReplyInputRequests(request) as input (input.event.ref.id)}
-                      <InputRequestCard request={input} workspaceID={workspace.id} sessionID={session.id} onAuthenticationLost={runtime.requireLogin} onResolved={() => void controller.refreshEvents()} />
-                    {/each}
-                    {#each finalReplies(request) as reply (reply.event.ref.id)}<article
-                      class="conversation-message card"
-                    >
-                      <header>
-                        {reply.event.author_agent === undefined
-                          ? "Gatehouse"
-                          : agentLabel(reply.event.author_agent.id)}
-                      </header>
-                      {#if reply.event.payload.text !== ""}<button
-                          class="icon inline small"
-                          type="button"
-                          aria-label="Copy response Markdown"
-                          title="Copy Markdown"
-                          onclick={() =>
-                            void copyMarkdown(reply.event.payload.text ?? "")}
-                          ><Copy size={16} strokeWidth={2} /></button
-                        >
-                        <div class="prose">
-                          {@html renderMarkdown(reply.event.payload.text ?? "")}
-                        </div>{:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}<div
-                        >
-                          <em>No reply.</em>
-                        </div>{/if}{#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}<div
-                          class="attachment-list"
-                          aria-label="Attached files"
-                        >
-                          {#each reply.event.payload.attachments as file (file.id)}<a
-                              class="attachment-chip badge"
-                              href={chatFileDownloadPath(
-                                workspace.id,
-                                session.id,
-                                file.id,
-                              )}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              download={file.name}
-                              title={file.fingerprint}
-                              ><span class="attachment-chip-icon"><Paperclip
+                              ><CircleX
                                 size={14}
                                 strokeWidth={2}
                                 aria-hidden="true"
-                              /></span><span class="attachment-chip-label"><span>{file.name}</span><small
-                                >{file.size} bytes{file.media_type === undefined
-                                  ? ""
-                                  : ` · ${file.media_type}`}</small
-                              ></span></a
-                            >{/each}
-                        </div>{/if}
-                    </article>{/each}{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<button
-                class="primary small conversation-jump"
+                              /><UI.Text>{agentFailureSummary(request)}</UI.Text
+                              ></UI.Row
+                            >{/if}
+                        </UI.Stack>{/if}
+                    </UI.Stack>
+                    {#each pendingReplyInputRequests(request) as input (input.event.ref.id)}
+                      <InputRequestCard
+                        request={input}
+                        workspaceID={workspace.id}
+                        sessionID={session.id}
+                        onAuthenticationLost={runtime.requireLogin}
+                        onResolved={() => void controller.refreshEvents()}
+                      />
+                    {/each}
+                    {#each finalReplies(request) as reply (reply.event.ref.id)}<UI.Message
+                      >
+                        {#snippet header()}
+                          {reply.event.author_agent === undefined
+                            ? "Gatehouse"
+                            : agentLabel(reply.event.author_agent.id)}
+                        {/snippet}
+                        {#snippet actions()}{#if reply.event.payload.text !== ""}<UI.Button
+                              variant="ghost"
+                              size="icon-sm"
+                              type="button"
+                              aria-label="Copy response Markdown"
+                              title="Copy Markdown"
+                              onclick={() =>
+                                void copyMarkdown(
+                                  reply.event.payload.text ?? "",
+                                )}><Copy size={16} strokeWidth={2} /></UI.Button
+                            >
+                          {/if}{/snippet}
+                        {#if reply.event.payload.text !== ""}
+                          <UI.RichText
+                            html={renderMarkdown(
+                              reply.event.payload.text ?? "",
+                            )}
+
+                          ></UI.RichText>{:else if reply.event.payload.attachments === undefined || reply.event.payload.attachments.length === 0}<UI.Group
+                          >
+                            <UI.Text as="em">No reply.</UI.Text>
+                          </UI.Group>{/if}{#if reply.event.payload.attachments !== undefined && reply.event.payload.attachments.length > 0}<UI.Row
+                            aria-label="Attached files"
+                          >
+                            {#each reply.event.payload.attachments as file (file.id)}<UI.Chip
+                                href={chatFileDownloadPath(
+                                  workspace.id,
+                                  session.id,
+                                  file.id,
+                                )}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                download={file.name}
+                                title={file.fingerprint}
+                                ><UI.Text
+                                  ><Paperclip
+                                    size={14}
+                                    strokeWidth={2}
+                                    aria-hidden="true"
+                                  /></UI.Text
+                                ><UI.Row as="span"
+                                  ><UI.Text>{file.name}</UI.Text><UI.Text
+                                    as="small"
+                                    size="small"
+                                    >{file.size} bytes{file.media_type ===
+                                    undefined
+                                      ? ""
+                                      : ` · ${file.media_type}`}</UI.Text
+                                  ></UI.Row
+                                ></UI.Chip
+                              >{/each}
+                          </UI.Row>{/if}
+                      </UI.Message>{/each}{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<UI.FloatingAction
+                variant="default"
+                size="sm"
                 type="button"
                 onclick={() => void controller.jumpToLatest()}
-                >Jump to latest</button
+                >Jump to latest</UI.FloatingAction
               >{/if}
-          </div>
+          </UI.Feed>
         {/if}
       </SidebarPage.Body>
-      {#if session !== null}<SidebarPage.Footer placement="floating" surface={false}
-          ><form
-            class="input-group"
+      {#if session !== null}<SidebarPage.Footer
+          placement="floating"
+          surface={false}
+          ><UI.InputBar
             data-pending={controller.state.sendingMessage || undefined}
             autocomplete="off"
             onsubmit={(event) => {
@@ -890,50 +1031,55 @@
               void controller.sendMessage(delivery)
             }}
           >
-            <label class="visually-hidden" for="message">Message</label><input
-              class="visually-hidden"
+            <UI.Label hidden for="message">Message</UI.Label><UI.FileInput
+              hidden
               id="files"
               type="file"
               autocomplete="off"
               multiple
-              bind:this={fileInputElement}
+              bind:ref={fileInputElement}
               onchange={(event) =>
                 controller.selectComposerFiles(event.currentTarget)}
-            />{#if controller.state.composerFiles.length > 0}<div
-                class="attachment-list"
+            />{#if controller.state.composerFiles.length > 0}<UI.Row
                 aria-label="Selected files"
               >
-                {#each controller.state.composerFiles as entry (entry.file)}<span
-                    class="attachment-chip badge"
+                {#each controller.state.composerFiles as entry (entry.file)}<UI.Chip
                     data-state={entry.status}
-                    ><span class="attachment-chip-icon">{#if entry.status === "uploading"}<span
-                        class="spinner"
-                        aria-hidden="true"
-                      ></span>{:else}<Paperclip
-                        size={14}
-                        strokeWidth={2}
-                        aria-hidden="true"
-                      />{/if}</span><span class="attachment-chip-label"><span>{entry.file.name}</span><small
-                      >{entry.status === "uploading"
-                        ? "Uploading"
-                        : entry.status === "failed"
-                          ? entry.error
-                          : entry.id === undefined
-                            ? `${entry.file.size} bytes`
-                            : "Ready"}</small
-                    ></span><button
-                      class="icon inline secondary"
+                    ><UI.Text
+                      >{#if entry.status === "uploading"}<UI.Spinner
+                          aria-hidden="true"
+                        ></UI.Spinner>{:else}<Paperclip
+                          size={14}
+                          strokeWidth={2}
+                          aria-hidden="true"
+                        />{/if}</UI.Text
+                    ><UI.Row as="span"
+                      ><UI.Text>{entry.file.name}</UI.Text><UI.Text
+                        as="small"
+                        size="small"
+                        >{entry.status === "uploading"
+                          ? "Uploading"
+                          : entry.status === "failed"
+                            ? entry.error
+                            : entry.id === undefined
+                              ? `${entry.file.size} bytes`
+                              : "Ready"}</UI.Text
+                      ></UI.Row
+                    ><UI.Button
+                      variant="ghost"
+                      size="icon"
                       type="button"
                       aria-label={`Remove ${entry.file.name}`}
                       disabled={controller.state.sendingMessage}
                       onclick={() => controller.removeComposerFile(entry.file)}
-                      ><X size={14} strokeWidth={2} /></button
-                    ></span
+                      ><X size={14} strokeWidth={2} /></UI.Button
+                    ></UI.Chip
                   >{/each}
-              </div>{/if}
-            <div class="input-group-controls">
-              <button
-                class="icon secondary"
+              </UI.Row>{/if}
+            <UI.Row wrap={false} align="end">
+              <UI.Button
+                variant="ghost"
+                size="icon"
                 type="button"
                 aria-label="Attach files"
                 title="Attach files"
@@ -943,24 +1089,30 @@
                   size={20}
                   strokeWidth={2.25}
                   aria-hidden="true"
-                /></button
+                /></UI.Button
               >
-              <button
-                class={deliveryMode === "direct" ? "icon primary" : "icon secondary"}
+              <UI.Button
+                variant={deliveryMode === "direct" ? "default" : "outline"}
+                size="icon"
                 type="button"
                 aria-label={deliveryTitle}
                 title={deliveryTitle}
                 data-selected={deliveryMode === "direct" || undefined}
                 disabled={controller.state.sendingMessage}
                 onclick={openDelivery}
-                ><Bot size={20} strokeWidth={2.25} aria-hidden="true" /></button
+                ><Bot
+                  size={20}
+                  strokeWidth={2.25}
+                  aria-hidden="true"
+                /></UI.Button
               >
-              <textarea
+              <UI.Textarea
+                mode="inline"
                 id="message"
-                rows="1"
+                rows={1}
                 autocomplete="off"
                 placeholder="Write a message"
-                bind:this={messageInputElement}
+                bind:ref={messageInputElement}
                 bind:value={controller.state.messageText}
                 disabled={controller.state.sendingMessage}
                 onkeydown={(event) => {
@@ -971,8 +1123,10 @@
                     void controller.sendMessage(delivery)
                   }
                 }}
-                oninput={openMentionAfterInput}></textarea><button
-                class="icon primary"
+                oninput={openMentionAfterInput}
+              ></UI.Textarea><UI.Button
+                variant="default"
+                size="icon"
                 type="submit"
                 aria-label="Send message"
                 title="Send message"
@@ -983,152 +1137,142 @@
                   size={20}
                   strokeWidth={2.25}
                   aria-hidden="true"
-                /></button
-                >
-            </div>
-            {#if controller.state.messageError !== ""}<p
-                class="field-help"
+                /></UI.Button
+              >
+            </UI.Row>
+            {#if controller.state.messageError !== ""}<UI.Text
+                as="p"
+                size="small"
                 role="alert"
                 aria-live="polite"
               >
                 {controller.state.messageError}
-              </p>{/if}
+              </UI.Text>{/if}
             <Dialog.Root bind:open={mentionOpen}>
-              <Dialog.Portal>
-                <Dialog.Overlay
-                  class="modal-overlay"
-                  onclick={() => (mentionOpen = false)}
-                />
-                <Dialog.Content
-                  class="modal mention-command"
-                  preventScroll={false}
-                  onOpenAutoFocus={(event) => {
-                    event.preventDefault()
-                    requestAnimationFrame(() =>
-                      mentionSearchInputElement?.focus({ preventScroll: true }),
-                    )
-                  }}
-                  onCloseAutoFocus={(event) => {
-                    event.preventDefault()
-                    focusComposer()
-                  }}
-                  onkeydown={(event) => {
-                    if (event.key !== "Escape") return
-                    event.preventDefault()
-                    mentionOpen = false
-                    focusComposer()
-                  }}
-                >
-                  <Dialog.Title class="visually-hidden"
-                    >Choose an agent</Dialog.Title
-                  >
-                  <Command.Root label="Choose an agent" shouldFilter={false}>
-                    <Command.Input
-                      bind:this={mentionSearchInputElement}
-                      bind:value={mentionQuery}
-                      autofocus
-                      placeholder="Search agents"
-                    />
-                    <Command.List>
-                      <Command.Viewport>
-                        {#if filteredMentionAgents.length === 0}<p
-                            class="mention-command-empty"
-                          >No agents found.</p
-                        >{:else}<Command.Group>
-                          <Command.GroupHeading>Agents</Command.GroupHeading>
-                          <Command.GroupItems>
-                            {#each filteredMentionAgents as agent (agent.id)}
-                              <Command.Item
-                                value={agent.id}
-                                keywords={[
-                                  agent.alias,
-                                  ...(agent.label === undefined
-                                    ? []
-                                    : [agent.label]),
-                                ]}
-                                onSelect={() => selectMention(agent)}
-                                onclick={() => selectMention(agent)}
-                              >
-                                <strong>@{agent.alias}</strong>
-                                {#if agent.label !== undefined}<small
-                                    >{agent.label}</small
-                                  >{/if}
-                              </Command.Item>
-                            {/each}
-                          </Command.GroupItems>
-                        </Command.Group>{/if}
-                      </Command.Viewport>
-                    </Command.List>
-                  </Command.Root>
-                </Dialog.Content>
-              </Dialog.Portal>
+              <Dialog.Content
+                preventScroll={false}
+                onOpenAutoFocus={(event) => {
+                  event.preventDefault()
+                  requestAnimationFrame(() =>
+                    mentionSearchInputElement?.focus({ preventScroll: true }),
+                  )
+                }}
+                onCloseAutoFocus={(event) => {
+                  event.preventDefault()
+                  focusComposer()
+                }}
+                onkeydown={(event) => {
+                  if (event.key !== "Escape") return
+                  event.preventDefault()
+                  mentionOpen = false
+                  focusComposer()
+                }}
+              >
+                <UI.DialogTitle hidden>Choose an agent</UI.DialogTitle>
+                <Command.Root label="Choose an agent" shouldFilter={false}>
+                  <Command.Input
+                    bind:ref={mentionSearchInputElement}
+                    bind:value={mentionQuery}
+                    autofocus
+                    placeholder="Search agents"
+                  />
+                  <Command.List>
+                    {#if filteredMentionAgents.length === 0}<UI.Text as="p"
+                        >No agents found.</UI.Text
+                      >{:else}<Command.Group>
+                        <UI.Text size="eyebrow">Agents</UI.Text>
+
+                        {#each filteredMentionAgents as agent (agent.id)}
+                          <Command.Item
+                            value={agent.id}
+                            keywords={[
+                              agent.alias,
+                              ...(agent.label === undefined
+                                ? []
+                                : [agent.label]),
+                            ]}
+                            onSelect={() => selectMention(agent)}
+                            onclick={() => selectMention(agent)}
+                          >
+                            <UI.Text as="strong" emphasis="strong"
+                              >@{agent.alias}</UI.Text
+                            >
+                            {#if agent.label !== undefined}<UI.Text
+                                as="small"
+                                size="small">{agent.label}</UI.Text
+                              >{/if}
+                          </Command.Item>
+                        {/each}
+                      </Command.Group>{/if}
+                  </Command.List>
+                </Command.Root>
+              </Dialog.Content>
             </Dialog.Root>
             <Dialog.Root bind:open={deliveryOpen}>
-              <Dialog.Portal>
-                <Dialog.Overlay
-                  class="modal-overlay"
-                  onclick={() => (deliveryOpen = false)}
-                />
-                <Dialog.Content
-                  class="modal mention-command delivery-command"
-                  preventScroll={false}
-                  onOpenAutoFocus={(event) => {
-                    event.preventDefault()
-                    requestAnimationFrame(() =>
-                      deliverySearchInputElement?.focus({ preventScroll: true }),
-                    )
-                  }}
-                  onkeydown={(event) => {
-                    if (event.key === "Escape") deliveryOpen = false
-                  }}
+              <Dialog.Content
+                preventScroll={false}
+                onOpenAutoFocus={(event) => {
+                  event.preventDefault()
+                  requestAnimationFrame(() =>
+                    deliverySearchInputElement?.focus({ preventScroll: true }),
+                  )
+                }}
+                onkeydown={(event) => {
+                  if (event.key === "Escape") deliveryOpen = false
+                }}
+              >
+                <UI.DialogTitle hidden>Message delivery</UI.DialogTitle>
+                <Command.Root
+                  label="Choose message delivery"
+                  shouldFilter={false}
                 >
-                  <Dialog.Title class="visually-hidden"
-                    >Message delivery</Dialog.Title
-                  >
-                  <Command.Root label="Choose message delivery" shouldFilter={false}>
-                    <Command.Input
-                      bind:this={deliverySearchInputElement}
-                      bind:value={deliveryQuery}
-                      autofocus
-                      placeholder="Search chat modes"
-                    />
-                    <Command.List>
-                      <Command.Viewport>
-                        {#if groupDeliveryVisible || filteredDeliveryAgents.length > 0}<Command.Group>
-                            <Command.GroupItems>
-                              {#if groupDeliveryVisible}<Command.Item
-                                  value="group"
-                                  keywords={["group", "human", "explicit"]}
-                                  onSelect={setGroupDelivery}
-                                >
-                                  <strong>Group chat</strong>
-                                  <small
-                                    >Only explicit @mentions receive a message.</small
-                                  >
-                                </Command.Item>{/if}{#each filteredDeliveryAgents as agent (agent.id)}<Command.Item
-                                  value={`direct-${agent.id}`}
-                                  keywords={[agent.alias, ...(agent.label === undefined ? [] : [agent.label]) ]}
-                                  onSelect={() => setDirectDelivery(agent.id)}
-                                >
-                                  <strong>Direct chat</strong>
-                                  <small
-                                    >@{agent.alias}{agent.label === undefined
-                                      ? ""
-                                      : ` · ${agent.label}`}</small
-                                  >
-                                </Command.Item
-                              >{/each}
-                            </Command.GroupItems>
-                          </Command.Group>{:else}<p class="mention-command-empty"
-                            >No chat modes found.</p
-                          >{/if}
-                      </Command.Viewport>
-                    </Command.List>
-                  </Command.Root>
-                </Dialog.Content>
-              </Dialog.Portal>
+                  <Command.Input
+                    bind:ref={deliverySearchInputElement}
+                    bind:value={deliveryQuery}
+                    autofocus
+                    placeholder="Search chat modes"
+                  />
+                  <Command.List>
+                    {#if groupDeliveryVisible || filteredDeliveryAgents.length > 0}<Command.Group
+                      >
+                        {#if groupDeliveryVisible}<Command.Item
+                            value="group"
+                            keywords={["group", "human", "explicit"]}
+                            onSelect={setGroupDelivery}
+                          >
+                            <UI.Text as="strong" emphasis="strong"
+                              >Group chat</UI.Text
+                            >
+                            <UI.Text as="small" size="small"
+                              >Only explicit @mentions receive a message.</UI.Text
+                            >
+                          </Command.Item>{/if}{#each filteredDeliveryAgents as agent (agent.id)}<Command.Item
+                            value={`direct-${agent.id}`}
+                            keywords={[
+                              agent.alias,
+                              ...(agent.label === undefined
+                                ? []
+                                : [agent.label]),
+                            ]}
+                            onSelect={() => setDirectDelivery(agent.id)}
+                          >
+                            <UI.Text as="strong" emphasis="strong"
+                              >Direct chat</UI.Text
+                            >
+                            <UI.Text as="small" size="small"
+                              >@{agent.alias}{agent.label === undefined
+                                ? ""
+                                : ` · ${agent.label}`}</UI.Text
+                            >
+                          </Command.Item>{/each}
+                      </Command.Group>{:else}<UI.Text as="p"
+                        >No chat modes found.</UI.Text
+                      >{/if}
+                  </Command.List>
+                </Command.Root>
+              </Dialog.Content>
             </Dialog.Root>
-          </form></SidebarPage.Footer
+          </UI.InputBar></SidebarPage.Footer
         >{/if}
     </SidebarPage.Page>
   </SidebarPage.Root>

@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
-  import SelectControl from "../../../components/SelectControl.svelte"
+
   import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -25,130 +26,133 @@
   }
 </script>
 
-<SystemFrame active="agent-models" title="New agent model"
-  ><section class="stack">
-    <div class="stack">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>New agent model</h2>
-        <p>
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "agent-models")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "New agent model" },
+  ]}
+  ><UI.Stack as="section">
+    <UI.Stack>
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>New agent model</UI.Heading>
+        <UI.Text as="p">
           Configure a model available for workspace bindings.
-        </p>
-      </div>
-    </div>
-    <form
-      class="stack"
+        </UI.Text>
+      </UI.Group>
+    </UI.Stack>
+    <UI.Form
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
-      <div class="field">
-        <label for="agent-model-alias">Alias</label>
-        <div>
-          <input
+      <UI.Field>
+        <UI.Label for="agent-model-alias">Alias</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-model-alias"
             required
             bind:value={controller.state.form.alias}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-provider">Provider</label>
-        <div>
-          <div>
-            <SelectControl>
-              <select
-                id="agent-model-provider"
-                required
-                bind:value={controller.state.form.provider}
-                ><option value="">Select provider</option
-                >{#each controller.state.providers as provider (provider.id)}<option
-                    value={provider.id}
-                    disabled={!provider.enabled}
-                    >{provider.alias} / {provider.id}{provider.enabled
-                      ? ""
-                      : " / Disabled"}</option
-                  >{/each}</select
-              >
-            </SelectControl>
-          </div>
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-name">Model</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-provider">Provider</UI.Label>
+        <UI.Group>
+          <UI.Group>
+            <UI.Select
+              id="agent-model-provider"
+              required
+              bind:value={controller.state.form.provider}
+              ><UI.Option value="">Select provider</UI.Option
+              >{#each controller.state.providers as provider (provider.id)}<UI.Option
+                  value={provider.id}
+                  disabled={!provider.enabled}
+                  >{provider.alias} / {provider.id}{provider.enabled
+                    ? ""
+                    : " / Disabled"}</UI.Option
+                >{/each}</UI.Select
+            >
+          </UI.Group>
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-name">Model</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-model-name"
             required
             bind:value={controller.state.form.model}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-parameters">Parameters</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-parameters">Parameters</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-model-parameters"
             bind:value={controller.state.form.parameters}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-compaction">Compaction</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-compaction">Compaction</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-model-compaction"
             bind:value={controller.state.form.compaction}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-max-turns">Max turns</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-max-turns">Max turns</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="agent-model-max-turns"
             type="number"
             min="0"
             bind:value={controller.state.form.maxTurns}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="agent-model-max-output-tokens"
-          >Max output tokens</label
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="agent-model-max-output-tokens"
+          >Max output tokens</UI.Label
         >
-        <div>
-          <input
+        <UI.Group>
+          <UI.Input
             id="agent-model-max-output-tokens"
             type="number"
             min="0"
             bind:value={controller.state.form.maxOutputTokens}
           />
-        </div>
-      </div>
-      <div class="cluster">
-        <div>
-          <button
-            class="primary"
+        </UI.Group>
+      </UI.Field>
+      <UI.Row>
+        <UI.Group>
+          <UI.Button
+            variant="default"
             type="submit"
             disabled={controller.state.saving}
-            >{controller.state.saving ? "Saving..." : "Add model"}</button
+            >{controller.state.saving ? "Saving..." : "Add model"}</UI.Button
           >
-        </div>
-        <div>
-          <RouterLink class="secondary" href="/app/system/agent-models"
+        </UI.Group>
+        <UI.Group>
+          <RouterLink variant="outline" href="/app/system/agent-models"
             >Cancel</RouterLink
           >
-        </div>
-      </div>
-    </form>
-    {#if controller.state.error !== ""}<p
-        class="field-help"
+        </UI.Group>
+      </UI.Row>
+    </UI.Form>
+    {#if controller.state.error !== ""}<UI.Text
+        as="p"
+        size="small"
         role="alert"
         aria-live="polite"
       >
         {controller.state.error}
-      </p>{/if}
-  </section></SystemFrame
+      </UI.Text>{/if}
+  </UI.Stack></UI.AppFrame
 >

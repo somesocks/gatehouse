@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import { createWorkspaceStorageBindingsController } from "./workspace-storage-bindings-controller.svelte"
 
   const runtime = useRuntime()
@@ -21,71 +23,70 @@
   }
 </script>
 
-<SystemFrame
-  active="workspace-storage-bindings"
-  title="New workspace storage binding"
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "workspace-storage-bindings")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "New workspace storage binding" },
+  ]}
 >
-  <section class="stack">
-    <div class="stack">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>New workspace storage binding</h2>
-      </div>
-    </div>
-    <form
-      class="stack"
+  <UI.Stack as="section">
+    <UI.Stack>
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>New workspace storage binding</UI.Heading>
+      </UI.Group>
+    </UI.Stack>
+    <UI.Form
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
     >
-      <div class="field">
-        <label for="storage-binding-workspace">Workspace ID</label
-        >
-        <div>
-          <input
+      <UI.Field>
+        <UI.Label for="storage-binding-workspace">Workspace ID</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="storage-binding-workspace"
             required
             bind:value={controller.state.form.workspace}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="storage-binding-provider"
-          >Storage provider ID</label
-        >
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="storage-binding-provider">Storage provider ID</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="storage-binding-provider"
             required
             bind:value={controller.state.form.provider}
           />
-        </div>
-      </div>
-      <div class="field">
-        <label for="storage-binding-priority">Priority</label>
-        <div>
-          <input
+        </UI.Group>
+      </UI.Field>
+      <UI.Field>
+        <UI.Label for="storage-binding-priority">Priority</UI.Label>
+        <UI.Group>
+          <UI.Input
             id="storage-binding-priority"
             type="number"
             bind:value={controller.state.form.priority}
           />
-        </div>
-      </div>
-      <div class="cluster">
-        <div>
-          <button class="primary">Add binding</button>
-        </div>
-        <div>
+        </UI.Group>
+      </UI.Field>
+      <UI.Row>
+        <UI.Group>
+          <UI.Button variant="default" type="submit">Add binding</UI.Button>
+        </UI.Group>
+        <UI.Group>
           <RouterLink
-            class="secondary"
+            variant="outline"
             href="/app/system/workspace-storage-bindings">Cancel</RouterLink
           >
-        </div>
-      </div>
-    </form>
-    {#if controller.state.error}<p class="field-help" role="alert">
+        </UI.Group>
+      </UI.Row>
+    </UI.Form>
+    {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
         {controller.state.error}
-      </p>{/if}
-  </section>
-</SystemFrame>
+      </UI.Text>{/if}
+  </UI.Stack>
+</UI.AppFrame>

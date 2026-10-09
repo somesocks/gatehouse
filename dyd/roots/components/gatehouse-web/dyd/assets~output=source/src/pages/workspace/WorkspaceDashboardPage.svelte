@@ -1,8 +1,7 @@
 <script lang="ts">
+  import { PageBody, PageHeading, RouterLink } from "../../ui"
+  import * as UI from "../../ui"
   import type { Workspace } from "../../app/access"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
 
   type Session = {
     id: string
@@ -50,74 +49,82 @@
 
 <PageBody fluid>
   <PageHeading as="header">
-    <p class="eyebrow">Workspace</p>
-    <h1>{workspace.name ?? workspace.id}</h1>
-    <p class="subtitle">{workspace.description ?? "\u00a0"}</p>
+    <UI.Text as="p" size="eyebrow">Workspace</UI.Text>
+    <UI.Heading level={1}>{workspace.name ?? workspace.id}</UI.Heading>
+    <UI.Text as="p" tone="muted">{workspace.description ?? "\u00a0"}</UI.Text>
   </PageHeading>
-  <section class="grid">
-    <section class="card surface stack">
-      <div class="split">
-        <h2>Latest Chats</h2>
-        <button
-          class="primary small"
+  <UI.Grid>
+    <UI.Panel>
+      <UI.Row justify="between">
+        <UI.Heading level={2}>Latest Chats</UI.Heading>
+        <UI.Button
+          variant="default"
+          size="sm"
           type="button"
-          onclick={() => void onCreateSession()}>New chat</button
+          onclick={() => void onCreateSession()}>New chat</UI.Button
         >
-      </div>
-      <div class="list">
+      </UI.Row>
+      <UI.List>
         {#each sessions as session}
           <RouterLink
-            class="list-entry"
+            variant="entry"
             href={`${sessionsPath()}/${encodeURIComponent(session.id)}`}
-            ><span class="stack" style:--space="calc(var(--space) / 4)"
-              ><span class="truncate">{session.name ?? "New Chat"}</span><small
-                class="muted truncate"
-                ><time datetime={session.created_at}
-                  >{createdAtLabel(session.created_at)}</time
-                >{#if session.project !== undefined} / {session.project.name ?? "New Project"}{/if}</small
-              ></span
+            ><UI.Stack as="span" gap="tight"
+              ><UI.Text truncate>{session.name ?? "New Chat"}</UI.Text><UI.Text
+                as="small"
+                size="small"
+                tone="muted"
+                truncate
+                ><UI.Text as="time" datetime={session.created_at}
+                  >{createdAtLabel(session.created_at)}</UI.Text
+                >{#if session.project !== undefined}
+                  / {session.project.name ?? "New Project"}{/if}</UI.Text
+              ></UI.Stack
             ></RouterLink
           >
-        {:else}<p class="notice">No chats yet.</p>{/each}
-      </div>
-      {#if sessions.length > 0}<RouterLink
-          class="navigation-link"
-          href={sessionsPath()}>View all chats</RouterLink
+        {:else}<UI.Notice>No chats yet.</UI.Notice>{/each}
+      </UI.List>
+      {#if sessions.length > 0}<RouterLink href={sessionsPath()}
+          >View all chats</RouterLink
         >{/if}
-    </section>
-    <section class="card surface stack">
-      <div class="split">
-        <h2>Latest Projects</h2>
-        <button
-          class="primary small"
+    </UI.Panel>
+    <UI.Panel>
+      <UI.Row justify="between">
+        <UI.Heading level={2}>Latest Projects</UI.Heading>
+        <UI.Button
+          variant="default"
+          size="sm"
           type="button"
           disabled={creatingProject}
-          onclick={() => void onCreateProject()}>New project</button
+          onclick={() => void onCreateProject()}>New project</UI.Button
         >
-      </div>
-      <div class="list">
+      </UI.Row>
+      <UI.List>
         {#each projects as project}
           <RouterLink
-            class="list-entry"
+            variant="entry"
             href={`${projectsPath()}/${encodeURIComponent(project.id)}`}
-            ><span class="stack" style:--space="calc(var(--space) / 4)"
-              ><span class="truncate">{project.name ?? "New Project"}</span><small
-                class="muted truncate"
-                ><time datetime={project.created_at}
-                  >{createdAtLabel(project.created_at)}</time
-                ></small
-              ></span
+            ><UI.Stack as="span" gap="tight"
+              ><UI.Text truncate>{project.name ?? "New Project"}</UI.Text
+              ><UI.Text as="small" size="small" tone="muted" truncate
+                ><UI.Text as="time" datetime={project.created_at}
+                  >{createdAtLabel(project.created_at)}</UI.Text
+                ></UI.Text
+              ></UI.Stack
             ></RouterLink
           >
-        {:else}<p class="notice">No projects yet.</p>{/each}
-      </div>
-      {#if projects.length > 0}<RouterLink
-          class="navigation-link"
-          href={projectsPath()}>View all projects</RouterLink
+        {:else}<UI.Notice>No projects yet.</UI.Notice>{/each}
+      </UI.List>
+      {#if projects.length > 0}<RouterLink href={projectsPath()}
+          >View all projects</RouterLink
         >{/if}
-    </section>
-    {#if error !== ""}<p class="notice action" role="alert" aria-live="polite">
+    </UI.Panel>
+    {#if error !== ""}<UI.Notice
+        variant="destructive"
+        role="alert"
+        aria-live="polite"
+      >
         {error}
-      </p>{/if}
-  </section>
+      </UI.Notice>{/if}
+  </UI.Grid>
 </PageBody>

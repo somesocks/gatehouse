@@ -30,7 +30,12 @@ chmod -R u+w "$WORK_DIR"
 ln -s "$DEPENDENCIES_DIR/node_modules" "$WORK_DIR/node_modules"
 
 cd "$WORK_DIR"
-PATH="$NODE_DIR:$PATH" npm run test -- "$@"
+if [ "${1-}" = "--check" ]; then
+  shift
+  PATH="$NODE_DIR:$PATH" npm run check -- "$@"
+else
+  PATH="$NODE_DIR:$PATH" npm run test -- "$@"
+fi
 EOF
 
 chmod +x "$DYD_BUILD/dyd/commands/dyd-stem-run"

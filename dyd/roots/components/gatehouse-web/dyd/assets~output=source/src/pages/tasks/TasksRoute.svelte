@@ -1,4 +1,17 @@
 <script lang="ts">
+  import {
+    PageBody,
+    PageHeading,
+    RouterLink,
+    StatusPage,
+    renderMarkdown,
+  } from "../../ui"
+  import {
+    workspaceNavigation,
+    sessionViews,
+    renameSession,
+  } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { fetchChatSession } from "../../app/chat"
   import { fetchProject, type Project } from "../../app/projects"
   import {
@@ -20,15 +33,9 @@
     updateSessionTask,
   } from "../../app/session-tasks"
   import { useRuntime } from "../../app/runtime.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import SelectControl from "../../components/SelectControl.svelte"
-  import SessionNavigation from "../../components/SessionNavigation.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
-  import { renderMarkdown } from "../../markdown"
+
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
 
   type TaskRoute = Extract<
@@ -91,6 +98,13 @@
   )
   const isProjectRoute = (route: TaskRoute): route is ProjectTaskRoute =>
     route.kind.startsWith("project-")
+  const isDetailRoute = (
+    route: TaskRoute,
+  ): route is Extract<TaskRoute, { kind: "project-task" | "session-task" }> =>
+    route.kind === "project-task" || route.kind === "session-task"
+  const ownerProject = $derived(
+    owner !== null && "project" in owner ? owner.project : undefined,
+  )
   function updateSessionName(name: string): void {
     if (!isProjectRoute(currentRoute) && owner !== null)
       owner = { ...owner, name }
@@ -195,7 +209,7 @@
     if (!isCurrent(value, route, signal)) return
     subscribe(route, value, signal)
     const listed = await loadTasks(route, value, signal)
-    if (listed && route.kind.endsWith("-task"))
+    if (listed && isDetailRoute(route))
       await loadDetail(route.taskID, route, value, signal)
   }
 
@@ -257,7 +271,7 @@
         const refreshed = await Promise.all([
           loadOwner(route, value, signal, false),
           loadTasks(route, value, signal, false),
-          ...(route.kind.endsWith("-task")
+          ...(isDetailRoute(route)
             ? [loadDetail(route.taskID, route, value, signal)]
             : []),
         ])
@@ -469,279 +483,347 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage busy>
     {#snippet children()}
-      <p>Loading your workspaces.</p>
+      <UI.Text as="p">Loading your workspaces.</UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
   <StatusPage title="Connection unavailable">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
   <StatusPage title="No workspace access">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation
-        {workspace}
-        active={isProjectRoute(currentRoute) ? "projects" : "chats"}
+      ><UI.Navigation
+        {...workspaceNavigation(
+          runtime,
+          workspace,
+          isProjectRoute(currentRoute) ? "projects" : "chats",
+        )}
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={workspacePath(workspace.id)}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if isProjectRoute(currentRoute)}
-              <li><RouterLink href={`${workspacePath(workspace.id)}/prj`}>Projects</RouterLink></li>
-              <li><RouterLink href={ownerPath(currentRoute)}>{owner?.name ?? "New Project"}</RouterLink></li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={`${workspacePath(workspace.id)}/prj`}
+                  >Projects</RouterLink
+                ></UI.Breadcrumb.Item
+              >
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={ownerPath(currentRoute)}
+                  >{owner?.name ?? "New Project"}</RouterLink
+                ></UI.Breadcrumb.Item
+              >
             {:else}
-              {#if owner?.project !== undefined}
-                <li><RouterLink href={`${workspacePath(workspace.id)}/prj/${encodeURIComponent(owner.project.id)}`}>{owner.project.name ?? "New Project"}</RouterLink></li>
+              {#if ownerProject !== undefined}
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  ><RouterLink
+                    href={`${workspacePath(workspace.id)}/prj/${encodeURIComponent(ownerProject.id)}`}
+                    >{ownerProject.name ?? "New Project"}</RouterLink
+                  ></UI.Breadcrumb.Item
+                >
               {/if}
-              <li><RouterLink href={ownerPath(currentRoute)}>{owner?.name ?? "New Chat"}</RouterLink></li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={ownerPath(currentRoute)}
+                  >{owner?.name ?? "New Chat"}</RouterLink
+                ></UI.Breadcrumb.Item
+              >
             {/if}
             {#if currentRoute.kind.endsWith("tasks")}
-              <li aria-current="page">Tasks</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page>Tasks</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {:else}
-              <li><RouterLink href={listPath(currentRoute)}>Tasks</RouterLink></li>
-              <li aria-current="page">{currentRoute.kind.endsWith("new") ? "New Task" : (active?.title ?? "Task")}</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={listPath(currentRoute)}>Tasks</RouterLink
+                ></UI.Breadcrumb.Item
+              >
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page
+                  >{currentRoute.kind.endsWith("new")
+                    ? "New Task"
+                    : (active?.title ?? "Task")}</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {/if}
-          </ol>
-        </nav>
-        {#if !isProjectRoute(currentRoute) && owner !== null}<SessionNavigation
-            workspaceID={workspace.id}
-            sessionID={currentRoute.sessionID}
-            active="tasks"
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
+        {#if !isProjectRoute(currentRoute) && owner !== null}<UI.ViewNavigation
+            items={sessionViews(
+              workspace.id,
+              "sessionID" in currentRoute ? currentRoute.sessionID : "",
+              "tasks",
+            )}
             name={owner.name}
-            onRenamed={updateSessionName}
+            onRename={(name) =>
+              renameSession(
+                runtime,
+                workspace.id,
+                "sessionID" in currentRoute ? currentRoute.sessionID : "",
+                name,
+                updateSessionName,
+              )}
           />{/if}</SidebarPage.Header
       >
       <SidebarPage.Body
         ><PageBody fluid>
-          {#if ownerStatus === "checking"}<p class="muted">
+          {#if ownerStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading {isProjectRoute(currentRoute) ? "project" : "chat"}...
-            </p>
-          {:else if ownerStatus === "unavailable"}<p class="muted">
+            </UI.Text>
+          {:else if ownerStatus === "unavailable"}<UI.Text as="p" tone="muted">
               This {isProjectRoute(currentRoute) ? "project" : "chat"} could not
               be loaded.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() => {
                 const signal = abortController?.signal
                 if (signal !== undefined)
                   void loadRoute(currentRoute, generation, signal)
-              }}>Try again</button
+              }}>Try again</UI.Button
             >
-          {:else if editing}<form
-              class="stack"
+          {:else if editing}<UI.Form
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
               <PageHeading>
-                <p class="eyebrow">
+                <UI.Text as="p" size="eyebrow">
                   {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-                </p>
-                <h2>
+                </UI.Text>
+                <UI.Heading level={2}>
                   {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
-                </h2>
+                </UI.Heading>
               </PageHeading>
-              <div class="field">
-                <label for="task-title">Title</label>
-                <input
+              <UI.Field>
+                <UI.Label for="task-title">Title</UI.Label>
+                <UI.Input
                   id="task-title"
                   autocomplete="off"
-                  maxlength="256"
+                  maxlength={256}
                   required
                   bind:value={title}
                 />
-              </div>
-              <div class="field">
-                <label for="task-status">Status</label>
-                <SelectControl>
-                  <select id="task-status" bind:value={status}
-                    >{#each statuses as option}<option value={option.value}
-                        >{option.label}</option
-                      >{/each}</select
-                  >
-                </SelectControl>
-              </div>
-              <div class="field">
-                <label for="task-description"
-                  >Description (optional Markdown)</label
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="task-status">Status</UI.Label>
+
+                <UI.Select id="task-status" bind:value={status}
+                  >{#each statuses as option}<UI.Option value={option.value}
+                      >{option.label}</UI.Option
+                    >{/each}</UI.Select
                 >
-                <textarea
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="task-description"
+                  >Description (optional Markdown)</UI.Label
+                >
+                <UI.Textarea
                   id="task-description"
                   autocomplete="off"
-                  rows="12"
-                  maxlength="4096"
-                  bind:value={description}></textarea>
-              </div>
-              <div class="field">
-                <label class="choice"
-                  ><input
-                    type="checkbox"
-                    autocomplete="off"
-                    bind:checked={sensitive}
-                  /> Sensitive: the description is marked sensitive when agents read
-                  it.</label
+                  rows={12}
+                  maxlength={4096}
+                  bind:value={description}
+                ></UI.Textarea>
+              </UI.Field>
+              <UI.Field>
+                <UI.Label layout="choice"
+                  ><UI.Checkbox bind:checked={sensitive} /> Sensitive: the description
+                  is marked sensitive when agents read it.</UI.Label
                 >
-              </div>
-              {#if error !== ""}<p class="field-help" role="alert" aria-live="polite">
+              </UI.Field>
+              {#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
+                  role="alert"
+                  aria-live="polite"
+                >
                   {error}
-                </p>{/if}
-              <div class="cluster">
-                <button
+                </UI.Text>{/if}
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
                   type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</button
-                ><button
-                  class="primary"
-                  type="submit"
-                  disabled={saving}>{saving ? "Saving..." : "Save task"}</button
+                  onclick={cancelEdit}>Cancel</UI.Button
+                ><UI.Button variant="default" type="submit" disabled={saving}
+                  >{saving ? "Saving..." : "Save task"}</UI.Button
                 >
-              </div>
-            </form>
-          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "checking"}<p
-              class="muted"
+              </UI.Row>
+            </UI.Form>
+          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "checking"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Loading task...
-            </p>
-          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "unavailable"}<p
-              class="muted"
+            </UI.Text>
+          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Task unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() => {
                 const signal = abortController?.signal
-                if (signal !== undefined && currentRoute.kind.endsWith("-task"))
+                if (signal !== undefined && isDetailRoute(currentRoute))
                   void loadDetail(
                     currentRoute.taskID,
                     currentRoute,
                     generation,
                     signal,
                   )
-              }}>Try again</button
+              }}>Try again</UI.Button
             >
-          {:else if active !== null}<article class="stack">
-              {#snippet taskActions()}<button
-                  class="small"
-                  type="button"
-                  onclick={startEdit}>Edit</button
-                ><button
-                  class="secondary small"
-                  type="button"
-                  disabled={deleting}
-                  onclick={() => void remove()}
-                  >{deleting ? "Removing..." : "Remove"}</button
-                >{/snippet}
+          {:else if active !== null}{#snippet taskActions()}<UI.Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onclick={startEdit}>Edit</UI.Button
+              ><UI.Button
+                variant="outline"
+                size="sm"
+                type="button"
+                disabled={deleting}
+                onclick={() => void remove()}
+                >{deleting ? "Removing..." : "Remove"}</UI.Button
+              >{/snippet}
+            <UI.Stack as="article">
               <PageHeading as="header" actions={taskActions}>
-                <p class="eyebrow">
+                <UI.Text as="p" size="eyebrow">
                   {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-                </p>
-                <h2>
+                </UI.Text>
+                <UI.Heading level={2}>
                   {active.title}
-                  <span class="badge"
-                    >{statusLabel(active.status)}</span
-                  >{#if active.sensitive}<span class="badge"
-                      >Sensitive</span
-                    >{/if}
-                </h2>
-                {#if isProjectRoute(currentRoute)}<small
-                    >{dateLabel(active.created_at)}</small
-                  >{:else}<small
+                  <UI.Badge>{statusLabel(active.status)}</UI.Badge
+                  >{#if active.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}
+                </UI.Heading>
+                {#if isProjectRoute(currentRoute)}<UI.Text
+                    as="small"
+                    size="small">{dateLabel(active.created_at)}</UI.Text
+                  >{:else}<UI.Text as="small" size="small"
                     >Created {dateLabel(active.created_at)} by {authorLabel(
                       active.creator,
                     )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
                       active.updater,
-                    )}.</small
+                    )}.</UI.Text
                   >{/if}
               </PageHeading>
-              {#if active.description !== undefined && active.description !== ""}<div
-                  class="prose"
-                >
-                  {@html renderMarkdown(active.description)}
-                </div>{:else}<p class="muted">
+              {#if active.description !== undefined && active.description !== ""}<UI.RichText
+                  html={renderMarkdown(active.description)}
+                ></UI.RichText>{:else}<UI.Text as="p" tone="muted">
                   No description.
-                </p>{/if}{#if error !== ""}<p
-                  class="field-help"
+                </UI.Text>{/if}{#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
                   role="alert"
                   aria-live="polite"
                 >
                   {error}
-                </p>{/if}
-            </article>
-          {:else}{#snippet collectionActions()}<button
-                class="primary small"
+                </UI.Text>{/if}
+            </UI.Stack>
+          {:else}{#snippet collectionActions()}<UI.Button
+                variant="default"
+                size="sm"
                 type="button"
                 onclick={() =>
                   runtime.navigate(`${listPath(currentRoute)}/new`)}
-                >New task</button
+                >New task</UI.Button
               >{/snippet}
             <PageHeading actions={collectionActions}>
-              <h2>
+              <UI.Heading level={2}>
                 {isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks
-              </h2>
+              </UI.Heading>
             </PageHeading>
-            <div class="list">
-              {#if tasksStatus === "checking"}<p class="muted">
+            <UI.List>
+              {#if tasksStatus === "checking"}<UI.Text as="p" tone="muted">
                   Loading tasks...
-                </p>{:else if tasksStatus === "unavailable"}<p
-                  class="muted"
+                </UI.Text>{:else if tasksStatus === "unavailable"}<UI.Text
+                  as="p"
+                  tone="muted"
                 >
                   Tasks could not be loaded.
-                </p>
-                <button
-                  class="primary small"
+                </UI.Text>
+                <UI.Button
+                  variant="default"
+                  size="sm"
                   type="button"
                   onclick={() => {
                     const signal = abortController?.signal
                     if (signal !== undefined)
                       void loadTasks(currentRoute, generation, signal)
-                  }}>Try again</button
+                  }}>Try again</UI.Button
                 >{:else}{#each tasks as task (task.id)}<RouterLink
-                    class="list-item surface stack"
+                    variant="item"
                     href={detailPath(currentRoute, task.id)}
-                    ><span class="stack"
-                      ><span
-                        ><strong>{task.title}</strong>
-                        <span class="badge"
-                          >{statusLabel(task.status)}</span
-                        >{#if task.sensitive}<span class="badge"
-                            >Sensitive</span
-                          >{/if}</span
-                      ><small class="cluster muted"
-                        >{#if isProjectRoute(currentRoute)}<time
+                    ><UI.Stack as="span"
+                      ><UI.Text
+                        ><UI.Text as="strong" emphasis="strong"
+                          >{task.title}</UI.Text
+                        >
+                        <UI.Badge>{statusLabel(task.status)}</UI.Badge
+                        >{#if task.sensitive}<UI.Badge>Sensitive</UI.Badge
+                          >{/if}</UI.Text
+                      ><UI.Row tone="muted" as="small"
+                        >{#if isProjectRoute(currentRoute)}<UI.Text
+                            as="time"
                             datetime={task.created_at}
-                            >{dateLabel(task.created_at)}</time
-                          >{:else}<span
+                            >{dateLabel(task.created_at)}</UI.Text
+                          >{:else}<UI.Text
                             >Created {dateLabel(task.created_at)} by {authorLabel(
                               task.creator,
-                            )}</span
-                          ><span
+                            )}</UI.Text
+                          ><UI.Text
                             >Updated {dateLabel(task.updated_at)} by {authorLabel(
                               task.updater,
-                            )}</span
-                          >{/if}</small
-                      ></span
+                            )}</UI.Text
+                          >{/if}</UI.Row
+                      ></UI.Stack
                     ></RouterLink
-                  >{:else}<p class="muted">
+                  >{:else}<UI.Text as="p" tone="muted">
                     No tasks yet.
-                  </p>{/each}{/if}
-            </div>{/if}
+                  </UI.Text>{/each}{/if}
+            </UI.List>{/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>

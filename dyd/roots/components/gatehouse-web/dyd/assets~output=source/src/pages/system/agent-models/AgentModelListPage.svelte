@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import { createAgentModelListController } from "./agent-model-list-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -30,51 +32,59 @@
   $effect(() => controller.start())
 </script>
 
-<SystemFrame active="agent-models" title="Agent models"
-  ><section class="stack">
-    <div class="split">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>Agent models</h2>
-        <p>
-			Workspace bindings designate the model used for automatic replies.
-        </p>
-      </div>
-      <RouterLink class="primary" href="/app/system/agent-models/new"
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "agent-models")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Agent models" },
+  ]}
+  ><UI.Stack as="section">
+    <UI.Row justify="between">
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>Agent models</UI.Heading>
+        <UI.Text as="p">
+          Workspace bindings designate the model used for automatic replies.
+        </UI.Text>
+      </UI.Group>
+      <RouterLink variant="default" href="/app/system/agent-models/new"
         >Add model</RouterLink
       >
-    </div>
-    <div class="field">
-      <label
-        ><span>Search agent models</span><input
+    </UI.Row>
+    <UI.Field>
+      <UI.Label
+        ><UI.Text>Search agent models</UI.Text><UI.Input
           type="search"
           autocomplete="off"
           placeholder="Search by ID, alias, provider, or model"
           bind:value={controller.state.search}
-        /></label
+        /></UI.Label
       >
-    </div>
-    {#if controller.state.error !== ""}<p
-        class="field-help"
+    </UI.Field>
+    {#if controller.state.error !== ""}<UI.Text
+        as="p"
+        size="small"
         role="alert"
         aria-live="polite"
       >
         {controller.state.error}
-      </p>{/if}
-    <div class="list">
+      </UI.Text>{/if}
+    <UI.List>
       {#each controller.state.models.filter( (model) => matches(model, controller.state.search), ) as model (model.id)}<RouterLink
-          class="list-item surface split"
+          variant="item"
           data-disabled={!model.enabled || undefined}
           href={`/app/system/agent-models/${encodeURIComponent(model.id)}`}
-          ><div class="stack">
-            <strong>{model.alias}</strong><small
-              >{model.id} / {model.provider} / {model.model} / revision {model.revision}</small
+          ><UI.Stack>
+            <UI.Text as="strong" emphasis="strong">{model.alias}</UI.Text
+            ><UI.Text as="small" size="small"
+              >{model.id} / {model.provider} / {model.model} / revision {model.revision}</UI.Text
             >
-          </div>
-          <span>{model.enabled ? "Enabled" : "Disabled"}</span></RouterLink
-        >{:else}<p class="muted">
+          </UI.Stack>
+          <UI.Text>{model.enabled ? "Enabled" : "Disabled"}</UI.Text
+          ></RouterLink
+        >{:else}<UI.Text as="p" tone="muted">
           No agent models match your search.
-        </p>{/each}
-    </div>
-  </section></SystemFrame
+        </UI.Text>{/each}
+    </UI.List>
+  </UI.Stack></UI.AppFrame
 >

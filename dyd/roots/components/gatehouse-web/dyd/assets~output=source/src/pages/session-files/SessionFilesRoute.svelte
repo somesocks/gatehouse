@@ -1,4 +1,11 @@
 <script lang="ts">
+  import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
+  import {
+    workspaceNavigation,
+    sessionViews,
+    renameSession,
+  } from "../../app/navigation"
+  import * as UI from "../../ui"
   import {
     chatFileDownloadPath,
     fetchChatFiles,
@@ -6,13 +13,9 @@
     type ChatFile,
   } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import SessionNavigation from "../../components/SessionNavigation.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import type { Route } from "../../route"
 
   type FilesRoute = Extract<Route, { kind: "session-files" }>
@@ -209,95 +212,140 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>Loading your workspace.</p>
+      <UI.Text as="p">Loading your workspace.</UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
   <StatusPage eyebrow="Gatehouse" title="Connection unavailable">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
   <StatusPage eyebrow="Gatehouse" title="No workspace access">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation {workspace} active="chats" /></SidebarPage.Sidebar
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "chats")}
+      /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={workspacePath(workspace.id)}>{workspace.name ?? workspace.id}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={workspacePath(workspace.id)}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if session !== null}
               {#if session.project !== undefined}
-                <li><RouterLink href={projectPath(workspace.id, session.project.id)}>{session.project.name ?? "New Project"}</RouterLink></li>
+                <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                  ><RouterLink
+                    href={projectPath(workspace.id, session.project.id)}
+                    >{session.project.name ?? "New Project"}</RouterLink
+                  ></UI.Breadcrumb.Item
+                >
               {/if}
-              <li><RouterLink href={sessionPath(workspace.id, session.id)}>{session.name ?? "New Chat"}</RouterLink></li>
-              <li aria-current="page">Files</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink href={sessionPath(workspace.id, session.id)}
+                  >{session.name ?? "New Chat"}</RouterLink
+                ></UI.Breadcrumb.Item
+              >
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page>Files</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {/if}
-          </ol>
-        </nav>
-        {#if session !== null}<SessionNavigation
-            workspaceID={workspace.id}
-            sessionID={session.id}
-            active="files"
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
+        {#if session !== null}<UI.ViewNavigation
+            items={sessionViews(workspace.id, session.id, "files")}
             name={session.name}
-            onRenamed={updateSessionName}
+            onRename={(name) =>
+              renameSession(
+                runtime,
+                workspace.id,
+                currentRoute.sessionID,
+                name,
+                updateSessionName,
+              )}
           />{/if}
       </SidebarPage.Header>
       <SidebarPage.Body>
         {#if sessionStatus === "checking"}
-          <p class="muted" aria-busy="true" aria-live="polite">
+          <UI.Text as="p" tone="muted" aria-busy="true" aria-live="polite">
             Loading chat...
-          </p>
+          </UI.Text>
         {:else if sessionStatus === "unavailable"}
-          <p class="muted">This chat could not be loaded.</p>
+          <UI.Text as="p" tone="muted">This chat could not be loaded.</UI.Text>
         {:else}
           <PageBody fluid>
             <PageHeading>
-              <h2>Files</h2>
+              <UI.Heading level={2}>Files</UI.Heading>
             </PageHeading>
-            <div class="list">
+            <UI.List>
               {#if filesStatus === "checking"}
-                <p class="muted" aria-busy="true">Loading files...</p>
+                <UI.Text as="p" tone="muted" aria-busy="true"
+                  >Loading files...</UI.Text
+                >
               {:else if filesStatus === "unavailable"}
-                <p class="muted">Files could not be loaded.</p>
+                <UI.Text as="p" tone="muted">Files could not be loaded.</UI.Text
+                >
               {:else}
                 {#each files as file (file.id)}
-                  <article class="list-item surface stack">
-                    <span class="stack"
-                      ><span>{file.name}</span><small
-                        class="cluster muted"
-                        ><span>{file.media_type ?? "Unknown type"}</span><span
-                          >{sizeLabel(file.size)}</span
-                        ></small
-                      ></span
+                  <UI.Item>
+                    <UI.Stack as="span"
+                      ><UI.Text>{file.name}</UI.Text><UI.Row
+                        tone="muted"
+                        as="small"
+                        ><UI.Text>{file.media_type ?? "Unknown type"}</UI.Text
+                        ><UI.Text>{sizeLabel(file.size)}</UI.Text></UI.Row
+                      ></UI.Stack
                     >
-                    <a
-                      class="small"
+                    <UI.Link
+                      size="sm"
                       href={chatFileDownloadPath(
                         workspace.id,
                         session?.id ?? "",
                         file.id,
                       )}
                       target="_blank"
-                      rel="noopener">Download</a
+                      rel="noopener">Download</UI.Link
                     >
-                  </article>
+                  </UI.Item>
                 {:else}
-                  <p class="muted">
+                  <UI.Text as="p" tone="muted">
                     No files attached to this session.
-                  </p>
+                  </UI.Text>
                 {/each}
               {/if}
-            </div>
+            </UI.List>
           </PageBody>
         {/if}
       </SidebarPage.Body>

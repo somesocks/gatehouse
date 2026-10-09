@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
+
   import { createWorkspaceAgentBindingsController } from "./workspace-agent-bindings-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -18,33 +20,40 @@
   $effect(() => controller.start())
 </script>
 
-<SystemFrame active="workspace-agent-bindings" title="Workspace agent bindings"
-  ><section class="stack">
-    <div class="split">
-      <div>
-        <p class="eyebrow">System</p>
-        <h2>Workspace agent bindings</h2>
-        <p>Bind global agent models to workspaces.</p>
-      </div>
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "workspace-agent-bindings")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Workspace agent bindings" },
+  ]}
+  ><UI.Stack as="section">
+    <UI.Row justify="between">
+      <UI.Group>
+        <UI.Text as="p" size="eyebrow">System</UI.Text>
+        <UI.Heading level={2}>Workspace agent bindings</UI.Heading>
+        <UI.Text as="p">Bind global agent models to workspaces.</UI.Text>
+      </UI.Group>
       <RouterLink
-        class="primary"
+        variant="default"
         href="/app/system/workspace-agent-bindings/new">Add binding</RouterLink
       >
-    </div>
-    <div class="list">
+    </UI.Row>
+    <UI.List>
       {#each controller.state.bindings as b (b.id)}<RouterLink
-          class="list-item surface split"
+          variant="item"
           data-disabled={!b.enabled || undefined}
           href={`/app/system/workspace-agent-bindings/${encodeURIComponent(b.workspace)}/${encodeURIComponent(b.id)}`}
-          ><div class="stack">
-            <strong>{b.workspace} / {b.alias}</strong><small
-              >{b.id} / {b.default ? "default" : "manual"} / revision {b.revision}</small
+          ><UI.Stack>
+            <UI.Text as="strong" emphasis="strong"
+              >{b.workspace} / {b.alias}</UI.Text
+            ><UI.Text as="small" size="small"
+              >{b.id} / {b.default ? "default" : "manual"} / revision {b.revision}</UI.Text
             >
-          </div>
-          <span>{b.enabled ? "Enabled" : "Disabled"}</span></RouterLink
-        >{:else}<p class="muted">
+          </UI.Stack>
+          <UI.Text>{b.enabled ? "Enabled" : "Disabled"}</UI.Text></RouterLink
+        >{:else}<UI.Text as="p" tone="muted">
           No workspace agent bindings are configured.
-        </p>{/each}
-    </div>
-  </section></SystemFrame
+        </UI.Text>{/each}
+    </UI.List>
+  </UI.Stack></UI.AppFrame
 >

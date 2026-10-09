@@ -1,13 +1,18 @@
 <script lang="ts">
-  import { X } from "@lucide/svelte"
+  import {
+    X,
+    Modal,
+    PageBody,
+    PageHeading,
+    RouterLink,
+    StatusPage,
+    renderMarkdown,
+  } from "../../ui"
+  import { workspaceNavigation } from "../../app/navigation"
+  import * as UI from "../../ui"
   import { useRuntime } from "../../app/runtime.svelte"
-  import Modal from "../../components/Modal.svelte"
-  import PageBody from "../../components/PageBody.svelte"
-  import PageHeading from "../../components/PageHeading.svelte"
-  import RouterLink from "../../components/RouterLink.svelte"
-  import StatusPage from "../../components/StatusPage.svelte"
-  import * as SidebarPage from "../../components/sidebar-page"
-  import WorkspaceNavigation from "../../components/WorkspaceNavigation.svelte"
+  import * as SidebarPage from "../../ui/sidebar-page"
+
   import { fetchProject, type Project } from "../../app/projects"
   import {
     createProjectNote,
@@ -19,7 +24,6 @@
     updateProjectNote,
     type ProjectNote,
   } from "../../app/project-notes"
-  import { renderMarkdown } from "../../markdown"
   import type { Route } from "../../route"
   import {
     acceptsProjectNotesResult,
@@ -54,7 +58,7 @@
   let body = $state("")
   let sensitive = $state(false)
   let error = $state("")
-  let historyModal = $state<HTMLDialogElement | undefined>()
+  let historyModal = $state<UI.DialogHandle | undefined>()
   let history = $state<Revision[]>([])
   let historyLoading = $state(false)
   let historyError = $state("")
@@ -523,147 +527,208 @@
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
-      <p>
+      <UI.Text as="p">
         {auth.state.status === "checking"
           ? "Checking your session."
           : "Loading your workspaces."}
-      </p>
+      </UI.Text>
     {/snippet}
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
-  <StatusPage eyebrow="Gatehouse" title="Connection unavailable" description="Gatehouse could not load your account.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => void runtime.refresh()}>Try again</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="Connection unavailable"
+    description="Gatehouse could not load your account."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => void runtime.refresh()}>Try again</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.requireLogin()}>Sign in</button></div>{/snippet}
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
-  <StatusPage eyebrow="Gatehouse" title="No workspace access" description="Ask an administrator to add you to a workspace group.">
-    {#snippet children()}<div><button class="primary" type="button" onclick={() => runtime.navigate("/app/no-access", true)}>Continue</button></div>{/snippet}
+  <StatusPage
+    eyebrow="Gatehouse"
+    title="No workspace access"
+    description="Ask an administrator to add you to a workspace group."
+  >
+    {#snippet children()}<UI.Group
+        ><UI.Button
+          variant="default"
+          type="button"
+          onclick={() => runtime.navigate("/app/no-access", true)}
+          >Continue</UI.Button
+        ></UI.Group
+      >{/snippet}
   </StatusPage>
 {:else}
   <SidebarPage.Root>
     <SidebarPage.Sidebar
-      ><WorkspaceNavigation
-        {workspace}
-        active="projects"
+      ><UI.Navigation
+        {...workspaceNavigation(runtime, workspace, "projects")}
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
       <SidebarPage.Header>
         <SidebarPage.Toggle />
-        <nav aria-label="Breadcrumb">
-          <ol>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}>{workspace.name ?? workspace.id}</RouterLink></li>
-            <li><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}>Projects</RouterLink></li>
-            <li><RouterLink href={projectPath(workspace.id, currentRoute.projectID)}>{project?.name ?? "New Project"}</RouterLink></li>
+        <UI.Breadcrumb.Root aria-label="Breadcrumb">
+          <UI.Breadcrumb.List>
+            <UI.Breadcrumb.Item
+              ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
+                >{workspace.name ?? workspace.id}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj`}
+                >Projects</RouterLink
+              ></UI.Breadcrumb.Item
+            >
+            <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              ><RouterLink
+                href={projectPath(workspace.id, currentRoute.projectID)}
+                >{project?.name ?? "New Project"}</RouterLink
+              ></UI.Breadcrumb.Item
+            >
             {#if currentRoute.kind === "project-notes"}
-              <li aria-current="page">Notes</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page>Notes</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {:else}
-              <li><RouterLink href={listPath(workspace.id, currentRoute.projectID)}>Notes</RouterLink></li>
-              <li aria-current="page">{currentRoute.kind === "project-note-new" ? "New Note" : (active?.title ?? "Note")}</li>
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+                ><RouterLink
+                  href={listPath(workspace.id, currentRoute.projectID)}
+                  >Notes</RouterLink
+                ></UI.Breadcrumb.Item
+              >
+              <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page
+                  >{currentRoute.kind === "project-note-new"
+                    ? "New Note"
+                    : (active?.title ?? "Note")}</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >
             {/if}
-          </ol>
-        </nav>
+          </UI.Breadcrumb.List>
+        </UI.Breadcrumb.Root>
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
-          {#if projectStatus === "checking"}<p class="muted">
+          {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
-            </p>
-          {:else if projectStatus === "unavailable"}<p class="muted">
+            </UI.Text>
+          {:else if projectStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
+            >
               Project unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() =>
                 void loadRoute(
                   currentRoute,
                   generation,
                   abortController!.signal,
-                )}>Try again</button
+                )}>Try again</UI.Button
             >
-          {:else if editing}<form
-              class="stack"
+          {:else if editing}<UI.Form
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
               <PageHeading>
-                <p class="eyebrow">Project Note</p>
-                <h2>{creating ? "New Note" : "Edit Note"}</h2>
+                <UI.Text as="p" size="eyebrow">Project Note</UI.Text>
+                <UI.Heading level={2}
+                  >{creating ? "New Note" : "Edit Note"}</UI.Heading
+                >
               </PageHeading>
-              <div class="field">
-                <label for="project-note-title">Title</label>
-                <input
+              <UI.Field>
+                <UI.Label for="project-note-title">Title</UI.Label>
+                <UI.Input
                   id="project-note-title"
                   autocomplete="off"
-                  maxlength="256"
+                  maxlength={256}
                   required
                   bind:value={title}
                 />
-              </div>
-              <div class="field">
-                <label for="project-note-description"
-                  >Description (optional)</label
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="project-note-description"
+                  >Description (optional)</UI.Label
                 >
-                <textarea
+                <UI.Textarea
                   id="project-note-description"
                   autocomplete="off"
-                  rows="3"
-                  maxlength="4096"
-                  bind:value={description}></textarea>
-              </div>
-              <div class="field">
-                <label for="project-note-body"
-                  >Content (optional)</label
-                >
-                <textarea
+                  rows={3}
+                  maxlength={4096}
+                  bind:value={description}
+                ></UI.Textarea>
+              </UI.Field>
+              <UI.Field>
+                <UI.Label for="project-note-body">Content (optional)</UI.Label>
+                <UI.Textarea
                   id="project-note-body"
                   autocomplete="off"
-                  rows="18"
-                  maxlength="1048576"
-                  bind:value={body}></textarea>
-              </div>
-              <div class="field">
-                <label class="choice"
-                  ><input
-                    type="checkbox"
-                    autocomplete="off"
-                    bind:checked={sensitive}
-                  /> Sensitive: content is marked sensitive when agents read it.</label
+                  rows={18}
+                  maxlength={1048576}
+                  bind:value={body}
+                ></UI.Textarea>
+              </UI.Field>
+              <UI.Field>
+                <UI.Label layout="choice"
+                  ><UI.Checkbox bind:checked={sensitive} /> Sensitive: content is
+                  marked sensitive when agents read it.</UI.Label
                 >
-              </div>
-              {#if error !== ""}<p class="field-help" role="alert" aria-live="polite">
+              </UI.Field>
+              {#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
+                  role="alert"
+                  aria-live="polite"
+                >
                   {error}
-                </p>{/if}
-              <div class="cluster">
-                <button
+                </UI.Text>{/if}
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
                   type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</button
-                ><button
-                  class="primary"
-                  type="submit"
-                  disabled={saving}>{saving ? "Saving..." : "Save note"}</button
+                  onclick={cancelEdit}>Cancel</UI.Button
+                ><UI.Button variant="default" type="submit" disabled={saving}
+                  >{saving ? "Saving..." : "Save note"}</UI.Button
                 >
-              </div>
-            </form>
-          {:else if currentRoute.kind === "project-note" && detailStatus === "checking"}<p
-              class="muted"
+              </UI.Row>
+            </UI.Form>
+          {:else if currentRoute.kind === "project-note" && detailStatus === "checking"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Loading note...
-            </p>
-          {:else if currentRoute.kind === "project-note" && detailStatus === "unavailable"}<p
-              class="muted"
+            </UI.Text>
+          {:else if currentRoute.kind === "project-note" && detailStatus === "unavailable"}<UI.Text
+              as="p"
+              tone="muted"
             >
               Note unavailable.
-            </p>
-            <button
-              class="primary"
+            </UI.Text>
+            <UI.Button
+              variant="default"
               type="button"
               onclick={() =>
                 void loadDetail(
@@ -672,85 +737,91 @@
                   currentRoute.workspaceID,
                   currentRoute.projectID,
                   abortController!.signal,
-                )}>Try again</button
+                )}>Try again</UI.Button
             >
           {:else if active !== null}{@const displayed =
               selectedRevision ?? active}
-            <article class="stack">
-              {#snippet noteActions()}{#if selectedRevision === null}<button
-                    class="small"
-                    type="button"
-                    onclick={startEdit}>Edit</button
-                  >{:else}<button
-                    class="small"
-                    type="button"
-                    onclick={() => (selectedRevision = null)}
-                    >Current revision</button
-                  >{/if}<button
-                  class="small"
+            {#snippet noteActions()}{#if selectedRevision === null}<UI.Button
+                  variant="outline"
+                  size="sm"
                   type="button"
-                  onclick={() => void openHistory()}>History</button
-                >{#if selectedRevision === null}<button
-                    class="secondary small"
-                    type="button"
-                    disabled={deleting}
-                    onclick={() => void remove()}
-                    >{deleting ? "Removing..." : "Remove"}</button
-                  >{/if}{/snippet}
+                  onclick={startEdit}>Edit</UI.Button
+                >{:else}<UI.Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  onclick={() => (selectedRevision = null)}
+                  >Current revision</UI.Button
+                >{/if}<UI.Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onclick={() => void openHistory()}>History</UI.Button
+              >{#if selectedRevision === null}<UI.Button
+                  variant="outline"
+                  size="sm"
+                  type="button"
+                  disabled={deleting}
+                  onclick={() => void remove()}
+                  >{deleting ? "Removing..." : "Remove"}</UI.Button
+                >{/if}{/snippet}
+            <UI.Stack as="article">
               <PageHeading as="header" actions={noteActions}>
-                <p class="eyebrow">
+                <UI.Text as="p" size="eyebrow">
                   {selectedRevision === null
                     ? "Project Note"
                     : `Project Note Revision ${selectedRevision.revision}`}
-                </p>
-                <h2>
-                  <span
-                    >{displayed.title}{#if displayed.sensitive}<span
-                        class="badge">Sensitive</span
-                      >{/if}</span
+                </UI.Text>
+                <UI.Heading level={2}>
+                  <UI.Text
+                    >{displayed.title}{#if displayed.sensitive}<UI.Badge
+                        >Sensitive</UI.Badge
+                      >{/if}</UI.Text
                   >
-                </h2>
-                {#if displayed.description !== ""}<p>
+                </UI.Heading>
+                {#if displayed.description !== ""}<UI.Text as="p">
                     {displayed.description}
-                  </p>{/if}<small
+                  </UI.Text>{/if}<UI.Text as="small" size="small"
                   >By {authorLabel(displayed.author)} on {dateLabel(
                     displayed.created_at,
-                  )}</small
+                  )}</UI.Text
                 >
               </PageHeading>
-              {#if displayed.body !== undefined && displayed.body !== ""}<div
-                  class="prose"
-                >
-                  {@html renderMarkdown(displayed.body)}
-                </div>{/if}{#if error !== ""}<p
-                  class="field-help"
+              {#if displayed.body !== undefined && displayed.body !== ""}<UI.RichText
+                  html={renderMarkdown(displayed.body)}
+                ></UI.RichText>{/if}{#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
                   role="alert"
                   aria-live="polite"
                 >
                   {error}
-                </p>{/if}
-            </article>
-          {:else}{#snippet collectionActions()}<button
-                class="primary small"
+                </UI.Text>{/if}
+            </UI.Stack>
+          {:else}{#snippet collectionActions()}<UI.Button
+                variant="default"
+                size="sm"
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${listPath(workspace.id, currentRoute.projectID)}/new`,
-                  )}>New note</button
+                  )}>New note</UI.Button
               >{/snippet}
             <PageHeading actions={collectionActions}>
-              <h2>Project Notes</h2>
+              <UI.Heading level={2}>Project Notes</UI.Heading>
             </PageHeading>
-            <div class="list">
-              {#if notesStatus === "checking"}<p class="muted">
+            <UI.List>
+              {#if notesStatus === "checking"}<UI.Text as="p" tone="muted">
                   Loading notes...
-                </p>{:else if notesStatus === "unavailable"}<p
-                  class="muted"
+                </UI.Text>{:else if notesStatus === "unavailable"}<UI.Text
+                  as="p"
+                  tone="muted"
                 >
                   Notes could not be loaded.
-                </p>
-                <button
-                class="primary small"
+                </UI.Text>
+                <UI.Button
+                  variant="default"
+                  size="sm"
                   type="button"
                   onclick={() =>
                     void loadNotes(
@@ -758,37 +829,37 @@
                       currentRoute.workspaceID,
                       currentRoute.projectID,
                       abortController!.signal,
-                    )}>Try again</button
+                    )}>Try again</UI.Button
                 >{:else}{#each notes as note (note.id)}<RouterLink
-                    class="list-item surface stack"
+                    variant="item"
                     href={detailPath(
                       workspace.id,
                       currentRoute.projectID,
                       note.id,
                     )}
-                    ><span class="stack"
-                      ><span
-                        >{note.title}{#if note.sensitive}<span
-                            class="badge">Sensitive</span
-                          >{/if}</span
-                      >{#if note.description !== ""}<span
-                          class="muted"
-                          >{note.description}</span
-                        >{/if}<small class="cluster muted"
-                        ><time datetime={note.created_at}
-                          >{dateLabel(note.created_at)}</time
-                        ></small
-                      ></span
+                    ><UI.Stack as="span"
+                      ><UI.Text
+                        >{note.title}{#if note.sensitive}<UI.Badge
+                            >Sensitive</UI.Badge
+                          >{/if}</UI.Text
+                      >{#if note.description !== ""}<UI.Text tone="muted"
+                          >{note.description}</UI.Text
+                        >{/if}<UI.Row tone="muted" as="small"
+                        ><UI.Text as="time" datetime={note.created_at}
+                          >{dateLabel(note.created_at)}</UI.Text
+                        ></UI.Row
+                      ></UI.Stack
                     ></RouterLink
-                  >{:else}<p class="muted">
+                  >{:else}<UI.Text as="p" tone="muted">
                     No notes yet.
-                  </p>{/each}{/if}
-            </div>{/if}
+                  </UI.Text>{/each}{/if}
+            </UI.List>{/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>
   </SidebarPage.Root>
   <Modal
+    title="Revision history"
     bind:modal={historyModal}
     labelledBy="note-history-heading"
     onClose={() => {
@@ -796,48 +867,56 @@
       revisionLoading = false
     }}
   >
-    {#snippet header()}<h2 id="note-history-heading">Revision history</h2>
-      <button
-        class="icon"
+    {#snippet header()}<UI.Heading level={2} id="note-history-heading"
+        >Revision history</UI.Heading
+      >
+      <UI.Button
+        variant="ghost"
+        size="icon"
         type="button"
         aria-label="Close"
         onclick={() => historyModal?.close()}
-        ><X size={18} strokeWidth={2} aria-hidden="true" /></button
+        ><X size={18} strokeWidth={2} aria-hidden="true" /></UI.Button
       >{/snippet}
-    {#if historyLoading}<p class="muted">
+    {#if historyLoading}<UI.Text as="p" tone="muted">
         Loading history...
-      </p>{:else}{#if historyError !== ""}<p
-          class="field-help"
+      </UI.Text>{:else}{#if historyError !== ""}<UI.Text
+          as="p"
+          size="small"
           role="alert"
           aria-live="polite"
         >
           {historyError}
-        </p>{/if}
-      <div class="list">
-        {#each history as revision (revision.revision)}<button
-            class="list-item surface up stack"
-            data-highlighted={selectedRevision?.revision === revision.revision || undefined}
+        </UI.Text>{/if}
+      <UI.List>
+        {#each history as revision (revision.revision)}<UI.Item
+            interactive
+            selected={Boolean(
+              selectedRevision?.revision === revision.revision || undefined,
+            )}
             type="button"
             disabled={revisionLoading}
             onclick={() => void selectRevision(revision.revision)}
-            ><span class="stack"
-              ><span
-                >Revision {revision.revision}: {revision.title}{#if revision.sensitive}<span
-                    class="badge">Sensitive</span
-                  >{/if}</span
-              >{#if revision.description !== ""}<span
-                  class="muted">{revision.description}</span
-                >{/if}<small class="cluster muted"
-                ><span>{authorLabel(revision.author)}</span><time
+            ><UI.Stack as="span"
+              ><UI.Text
+                >Revision {revision.revision}: {revision.title}{#if revision.sensitive}<UI.Badge
+                    >Sensitive</UI.Badge
+                  >{/if}</UI.Text
+              >{#if revision.description !== ""}<UI.Text tone="muted"
+                  >{revision.description}</UI.Text
+                >{/if}<UI.Row tone="muted" as="small"
+                ><UI.Text>{authorLabel(revision.author)}</UI.Text><UI.Text
+                  as="time"
                   datetime={revision.created_at}
-                  >{dateLabel(revision.created_at)}</time
-                ></small
-              ></span
-            ></button
-          >{:else}<p class="muted">No revisions found.</p>{/each}
-      </div>
-      {#if revisionLoading}<p class="muted">
+                  >{dateLabel(revision.created_at)}</UI.Text
+                ></UI.Row
+              ></UI.Stack
+            ></UI.Item
+          >{:else}<UI.Text as="p" tone="muted">No revisions found.</UI.Text
+          >{/each}
+      </UI.List>
+      {#if revisionLoading}<UI.Text as="p" tone="muted">
           Opening revision...
-        </p>{/if}{/if}
+        </UI.Text>{/if}{/if}
   </Modal>
 {/if}

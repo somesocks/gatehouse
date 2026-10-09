@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SystemAccessGate from "../../../components/SystemAccessGate.svelte"
+  import SystemAccessGate from "../../../app/SystemAccessGate.svelte"
   import WorkspaceStorageBindingDetailPage from "./WorkspaceStorageBindingDetailPage.svelte"
   let { workspaceID, providerID }: { workspaceID: string; providerID: string } =
     $props()

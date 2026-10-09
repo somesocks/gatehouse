@@ -1,10 +1,14 @@
 <script lang="ts">
-  import { Paperclip, X } from "@lucide/svelte"
-  import InputControl from "../../components/InputControl.svelte"
-  import SelectControl from "../../components/SelectControl.svelte"
+  import { Paperclip, X, InputControl } from "../../ui"
+  import * as UI from "../../ui"
   import FormField from "./FormField.svelte"
   import CustomField from "./CustomField.svelte"
-  import { initialListValue, patchDraft, type InputField, type InputFileSummary } from "./form-data"
+  import {
+    initialListValue,
+    patchDraft,
+    type InputField,
+    type InputFileSummary,
+  } from "./form-data"
 
   let {
     field,
@@ -28,13 +32,18 @@
     busy?: boolean
     onSet: (path: string[], value: unknown) => Promise<boolean>
     onRemove: (path: string[]) => Promise<boolean>
-    onUpload?: (path: string[], files: File[], save: (value: InputFileSummary) => Promise<boolean>) => Promise<boolean>
+    onUpload?: (
+      path: string[],
+      files: File[],
+      save: (value: InputFileSummary) => Promise<boolean>,
+    ) => Promise<boolean>
     onOpen?: (path: string[]) => Promise<string>
   } = $props()
 
   const entries = $derived(Array.isArray(value) ? value : [])
-  const headingTag = $derived(`h${Math.min(depth + 1, 6)}`)
-  const hasClearButton = $derived(field.type === "text" || field.type === "number")
+  const hasClearButton = $derived(
+    field.type === "text" || field.type === "number",
+  )
   const clearable = $derived(hasClearButton && value !== undefined)
   let addingEntry = $state(false)
   let savingCount = $state(0)
@@ -47,15 +56,26 @@
   async function uploadFiles(selected: File[]): Promise<void> {
     if (selected.length === 0 || onUpload === undefined) return
     const current: InputFileSummary[] = Array.isArray(value) ? [...value] : []
-    if (field.max_files !== undefined && BigInt(current.length + selected.length) > BigInt(field.max_files)) {
+    if (
+      field.max_files !== undefined &&
+      BigInt(current.length + selected.length) > BigInt(field.max_files)
+    ) {
       fileError = `Select no more than ${field.max_files} files.`
       return
     }
     fileError = ""
     savingCount += 1
     try {
-      const invalid = selected.find((file) => field.media_types !== undefined && !field.media_types.some((accepted) =>
-        accepted === file.type || accepted.endsWith("/*") && file.type.startsWith(accepted.slice(0, -1))))
+      const invalid = selected.find(
+        (file) =>
+          field.media_types !== undefined &&
+          !field.media_types.some(
+            (accepted) =>
+              accepted === file.type ||
+              (accepted.endsWith("/*") &&
+                file.type.startsWith(accepted.slice(0, -1))),
+          ),
+      )
       if (invalid !== undefined) {
         fileError = `${invalid.name} has an unsupported media type.`
         return
@@ -81,7 +101,12 @@
   function focusNextFormControl(button: HTMLButtonElement): void {
     const controls = Array.from(button.form?.elements ?? [])
     for (const next of controls.slice(controls.indexOf(button) + 1)) {
-      if (next instanceof HTMLElement && next.tabIndex >= 0 && !next.matches(":disabled") && next.getClientRects().length > 0) {
+      if (
+        next instanceof HTMLElement &&
+        next.tabIndex >= 0 &&
+        !next.matches(":disabled") &&
+        next.getClientRects().length > 0
+      ) {
         next.focus()
         return
       }
@@ -89,7 +114,11 @@
   }
 
   $effect(() => {
-    if ((saving || busy || !clearable) && clearButton === document.activeElement && clearButton !== undefined)
+    if (
+      (saving || busy || !clearable) &&
+      clearButton === document.activeElement &&
+      clearButton !== undefined
+    )
       focusNextFormControl(clearButton)
   })
 
@@ -121,146 +150,345 @@
     return value !== null && typeof value === "object" && !Array.isArray(value)
   }
 
-  function setEntry(index: number, childPath: string[], next: unknown, remove = false): Promise<boolean> {
+  function setEntry(
+    index: number,
+    childPath: string[],
+    next: unknown,
+    remove = false,
+  ): Promise<boolean> {
     const segments = childPath.slice(path.length)
     if (remove && segments.length === 0)
-      return onSet(path, entries.filter((_, position) => position !== index))
+      return onSet(
+        path,
+        entries.filter((_, position) => position !== index),
+      )
     const item = entries[index]
-    const updated = segments.length === 0
-      ? next
-      : patchDraft(isObject(item) ? item : {}, segments, next, remove)
-    return onSet(path, entries.map((entry, position) => position === index ? updated : entry))
+    const updated =
+      segments.length === 0
+        ? next
+        : patchDraft(isObject(item) ? item : {}, segments, next, remove)
+    return onSet(
+      path,
+      entries.map((entry, position) => (position === index ? updated : entry)),
+    )
   }
 </script>
 
 {#snippet fieldTitle()}
-  {label}{#if !field.optional} <span aria-hidden="true">*</span><span class="visually-hidden"> required</span>{/if}
+  {label}{#if !field.optional}
+    <UI.Text aria-hidden="true">*</UI.Text><UI.Text hidden>
+      required</UI.Text
+    >{/if}
 {/snippet}
 
 {#snippet clearAction()}
-  <button bind:this={clearButton} class="icon inline input-clear" type="button" aria-label={`Clear ${label}`} title={`Clear ${label}`}
-    data-empty={!clearable && !saving || undefined} aria-hidden={!clearable && !saving || undefined}
-    aria-disabled={busy || saving || undefined} tabindex={busy || saving || !clearable ? -1 : 0}
-    onfocus={(event) => { if (saving || busy || !clearable) focusNextFormControl(event.currentTarget) }}
-    onclick={clearAnswer}><X size={16} strokeWidth={2} aria-hidden="true" /></button>
+  <UI.Button
+    variant="ghost"
+    size="icon"
+    bind:ref={clearButton}
+    type="button"
+    aria-label={`Clear ${label}`}
+    title={`Clear ${label}`}
+    hidden={Boolean((!clearable && !saving) || undefined)}
+    aria-hidden={(!clearable && !saving) || undefined}
+    aria-disabled={busy || saving || undefined}
+    tabindex={busy || saving || !clearable ? -1 : 0}
+    onfocus={(event) => {
+      if (
+        (saving || busy || !clearable) &&
+        event.currentTarget instanceof HTMLButtonElement
+      )
+        focusNextFormControl(event.currentTarget)
+    }}
+    onclick={clearAnswer}
+    ><X size={16} strokeWidth={2} aria-hidden="true" /></UI.Button
+  >
 {/snippet}
 
 {#if field.type === "object"}
-  <section class="field-group input-object">
-    <svelte:element this={headingTag} class="input-section-heading">{@render fieldTitle()}</svelte:element>
-    <div class="field-group input-object-content">
+  <UI.Field>
+    <UI.Heading level={Math.min(depth + 1, 6)}
+      >{@render fieldTitle()}</UI.Heading
+    >
+    <UI.Field>
       {#if field.optional && value === undefined}
-        <div class="cluster">
-          <button class="secondary small" type="button" disabled={busy} onclick={() => void saveSet(path, {})}>Add {label}</button>
-          {#if saving}<span class="spinner input-action-spinner" role="status"><span class="visually-hidden">Saving {label}</span></span>{/if}
-        </div>
+        <UI.Row>
+          <UI.Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={busy}
+            onclick={() => void saveSet(path, {})}>Add {label}</UI.Button
+          >
+          {#if saving}<UI.Spinner role="status"
+              ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
+            >{/if}
+        </UI.Row>
       {:else}
         {#if field.optional}
-          <div class="cluster">
-            <button class="secondary small" type="button" disabled={busy} onclick={() => void saveRemove(path)}>Remove {label}</button>
-            {#if saving}<span class="spinner input-action-spinner" role="status"><span class="visually-hidden">Saving {label}</span></span>{/if}
-          </div>
+          <UI.Row>
+            <UI.Button
+              variant="outline"
+              size="sm"
+              type="button"
+              disabled={busy}
+              onclick={() => void saveRemove(path)}>Remove {label}</UI.Button
+            >
+            {#if saving}<UI.Spinner role="status"
+                ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
+              >{/if}
+          </UI.Row>
         {/if}
         {#each field.fields ?? [] as child (child.id)}
-            <FormField field={child} path={[...path, child.id ?? ""]} value={isObject(value) && Object.hasOwn(value, child.id ?? "") ? value[child.id ?? ""] : undefined} label={child.label ?? "Value"} controlID={`${controlID}-${child.id}`} depth={depth + 1} {busy} {onSet} {onRemove} {onUpload} {onOpen} />
+          <FormField
+            field={child}
+            path={[...path, child.id ?? ""]}
+            value={isObject(value) && Object.hasOwn(value, child.id ?? "")
+              ? value[child.id ?? ""]
+              : undefined}
+            label={child.label ?? "Value"}
+            controlID={`${controlID}-${child.id}`}
+            depth={depth + 1}
+            {busy}
+            {onSet}
+            {onRemove}
+            {onUpload}
+            {onOpen}
+          />
         {/each}
       {/if}
-    </div>
-  </section>
+    </UI.Field>
+  </UI.Field>
 {:else if field.type === "list"}
-  <fieldset class="field-group input-list">
-    <legend>{@render fieldTitle()}{#if saving} <span class="spinner input-action-spinner" role="status"><span class="visually-hidden">Saving {label}</span></span>{/if}</legend>
+  <UI.FieldSet>
+    <UI.FieldLegend
+      >{@render fieldTitle()}{#if saving}
+        <UI.Spinner role="status"
+          ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
+        >{/if}</UI.FieldLegend
+    >
     {#if field.optional && value === undefined}
-      <button class="secondary small" type="button" disabled={busy} onclick={() => void saveSet(path, [])}>Add {label}</button>
+      <UI.Button
+        variant="outline"
+        size="sm"
+        type="button"
+        disabled={busy}
+        onclick={() => void saveSet(path, [])}>Add {label}</UI.Button
+      >
     {:else}
       {#each entries as entry, index (index)}
-        <div class="input-list-entry">
+        <UI.Stack indent>
           {#if field.item !== undefined}
-            <FormField field={field.item} {path} value={entry} label={`Entry ${index + 1}`} controlID={`${controlID}-${index}`} {depth} {busy} {onUpload}
+            <FormField
+              field={field.item}
+              {path}
+              value={entry}
+              label={`Entry ${index + 1}`}
+              controlID={`${controlID}-${index}`}
+              {depth}
+              {busy}
+              {onUpload}
               onSet={(childPath, next) => setEntry(index, childPath, next)}
-              onRemove={(childPath) => setEntry(index, childPath, undefined, true)} />
+              onRemove={(childPath) =>
+                setEntry(index, childPath, undefined, true)}
+            />
           {/if}
-          <button class="secondary small" type="button" disabled={busy} onclick={() => void saveSet(path, entries.filter((_, position) => position !== index))}>Remove entry {index + 1}</button>
-        </div>
+          <UI.Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={busy}
+            onclick={() =>
+              void saveSet(
+                path,
+                entries.filter((_, position) => position !== index),
+              )}>Remove entry {index + 1}</UI.Button
+          >
+        </UI.Stack>
       {/each}
       {#if addingEntry && field.item !== undefined}
-        <div class="input-list-entry">
-          <FormField field={field.item} {path} value={undefined} label="New entry" controlID={`${controlID}-new`} {depth} {busy} {onUpload}
+        <UI.Stack indent>
+          <FormField
+            field={field.item}
+            {path}
+            value={undefined}
+            label="New entry"
+            controlID={`${controlID}-new`}
+            {depth}
+            {busy}
+            {onUpload}
             onSet={async (_childPath, next) => {
               const saved = await onSet(path, [...entries, next])
               if (saved) addingEntry = false
               return saved
             }}
-            onRemove={async () => { addingEntry = false; return true }} />
-          <button class="secondary small" type="button" onclick={() => (addingEntry = false)}>Discard new entry</button>
-        </div>
+            onRemove={async () => {
+              addingEntry = false
+              return true
+            }}
+          />
+          <UI.Button
+            variant="outline"
+            size="sm"
+            type="button"
+            onclick={() => (addingEntry = false)}>Discard new entry</UI.Button
+          >
+        </UI.Stack>
       {/if}
-      <div class="cluster">
-        <button class="secondary small" type="button" disabled={busy || addingEntry || field.item === undefined} onclick={() => {
-          if (field.item === undefined) return
-          if (field.item.type === "text" || field.item.type === "number" || field.item.type === "options" || field.item.type === "files") addingEntry = true
-          else void saveSet(path, [...entries, initialListValue(field.item)])
-        }}>Add entry</button>
-        {#if field.optional}<button class="secondary small" type="button" disabled={busy} onclick={() => void saveRemove(path)}>Remove {label}</button>{/if}
-      </div>
+      <UI.Row>
+        <UI.Button
+          variant="outline"
+          size="sm"
+          type="button"
+          disabled={busy || addingEntry || field.item === undefined}
+          onclick={() => {
+            if (field.item === undefined) return
+            if (
+              field.item.type === "text" ||
+              field.item.type === "number" ||
+              field.item.type === "options" ||
+              field.item.type === "files"
+            )
+              addingEntry = true
+            else void saveSet(path, [...entries, initialListValue(field.item)])
+          }}>Add entry</UI.Button
+        >
+        {#if field.optional}<UI.Button
+            variant="outline"
+            size="sm"
+            type="button"
+            disabled={busy}
+            onclick={() => void saveRemove(path)}>Remove {label}</UI.Button
+          >{/if}
+      </UI.Row>
     {/if}
-  </fieldset>
+  </UI.FieldSet>
 {:else}
-  <div class="field input-field">
+  <UI.Field>
     {#if field.type === "custom"}
-      <p>{@render fieldTitle()}</p>
+      <UI.Text as="p">{@render fieldTitle()}</UI.Text>
       <CustomField {path} {value} {busy} {onOpen} {onRemove} {label} />
     {:else if field.type === "files"}
-      <label for={controlID}>{@render fieldTitle()}</label>
-      <input bind:this={fileElement} class="visually-hidden" id={controlID} type="file" tabindex="-1" multiple={field.max_files === undefined || BigInt(field.max_files) > 1n} accept={field.media_types?.join(",")} disabled={busy || saving}
-        onchange={(event) => { const files = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; void uploadFiles(files) }} />
-      <div class="cluster">
-        <button class="secondary small" type="button" disabled={busy || saving || onUpload === undefined} onclick={() => fileElement?.click()}>Add files</button>
-        {#if saving}<span class="spinner input-action-spinner" role="status"><span class="visually-hidden">Uploading {label}</span></span>{/if}
-      </div>
+      <UI.Label for={controlID}>{@render fieldTitle()}</UI.Label>
+      <UI.FileInput
+        hidden
+        bind:ref={fileElement}
+        id={controlID}
+        type="file"
+        tabindex={-1}
+        multiple={field.max_files === undefined || BigInt(field.max_files) > 1n}
+        accept={field.media_types?.join(",")}
+        disabled={busy || saving}
+        onchange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? [])
+          event.currentTarget.value = ""
+          void uploadFiles(files)
+        }}
+      />
+      <UI.Row>
+        <UI.Button
+          variant="outline"
+          size="sm"
+          type="button"
+          disabled={busy || saving || onUpload === undefined}
+          onclick={() => fileElement?.click()}>Add files</UI.Button
+        >
+        {#if saving}<UI.Spinner role="status"
+            ><UI.Text hidden>Uploading {label}</UI.Text></UI.Spinner
+          >{/if}
+      </UI.Row>
       {#if Array.isArray(value) && value.length > 0}
-        <div class="attachment-list" aria-label={`${label} files`}>
+        <UI.Row aria-label={`${label} files`}>
           {#each value as file, index (file.id)}
-            <span class="attachment-chip badge"><span class="attachment-chip-icon"><Paperclip size={14} strokeWidth={2} aria-hidden="true" /></span><span class="attachment-chip-label"><span>{file.name}</span><small>{file.size} bytes</small></span>
-              <button class="icon inline secondary" type="button" aria-label={`Remove ${file.name}`} disabled={busy || saving} onclick={() => removeFile(index)}><X size={14} strokeWidth={2} aria-hidden="true" /></button>
-            </span>
+            <UI.Chip
+              ><UI.Text
+                ><Paperclip
+                  size={14}
+                  strokeWidth={2}
+                  aria-hidden="true"
+                /></UI.Text
+              ><UI.Row as="span"
+                ><UI.Text>{file.name}</UI.Text><UI.Text as="small" size="small"
+                  >{file.size} bytes</UI.Text
+                ></UI.Row
+              >
+              <UI.Button
+                variant="ghost"
+                size="icon"
+                type="button"
+                aria-label={`Remove ${file.name}`}
+                disabled={busy || saving}
+                onclick={() => removeFile(index)}
+                ><X size={14} strokeWidth={2} aria-hidden="true" /></UI.Button
+              >
+            </UI.Chip>
           {/each}
-        </div>
+        </UI.Row>
       {/if}
-      {#if fileError !== ""}<p class="field-help" role="alert">{fileError}</p>{/if}
+      {#if fileError !== ""}<UI.Text as="p" size="small" role="alert"
+          >{fileError}</UI.Text
+        >{/if}
     {:else if field.type === "boolean" && !field.optional}
-      <label class="choice" for={controlID}>
-        <input id={controlID} type="checkbox" checked={value === true} disabled={busy} onchange={(event) => void saveSet(path, event.currentTarget.checked)} />
+      <UI.Label layout="choice" for={controlID}>
+        <UI.Checkbox
+          id={controlID}
+          checked={value === true}
+          disabled={busy}
+          onCheckedChange={(checked) => void saveSet(path, checked)}
+        />
         {@render fieldTitle()}
-        {#if saving}<span class="spinner input-action-spinner" role="status"><span class="visually-hidden">Saving {label}</span></span>{/if}
-      </label>
+        {#if saving}<UI.Spinner role="status"
+            ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
+          >{/if}
+      </UI.Label>
     {:else}
-      <label for={controlID}>{@render fieldTitle()}</label>
-      <InputControl loading={saving} loadingLabel={`Saving ${label}`} trailing={hasClearButton ? clearAction : undefined}>
+      <UI.Label for={controlID}>{@render fieldTitle()}</UI.Label>
+      <InputControl
+        loading={saving}
+        loadingLabel={`Saving ${label}`}
+        trailing={hasClearButton ? clearAction : undefined}
+      >
         {#if field.type === "boolean"}
-          <SelectControl trailing={saving}>
-            <select id={controlID} disabled={busy} value={value === undefined ? "" : String(value)} onchange={(event) => {
+          <UI.Select
+            id={controlID}
+            disabled={busy}
+            value={value === undefined ? "" : String(value)}
+            onchange={(event) => {
               if (event.currentTarget.value === "") void saveRemove(path)
               else void saveSet(path, event.currentTarget.value === "true")
-            }}>
-              <option value="">Unanswered</option><option value="true">Yes</option><option value="false">No</option>
-            </select>
-          </SelectControl>
+            }}
+          >
+            <UI.Option value="">Unanswered</UI.Option><UI.Option value="true"
+              >Yes</UI.Option
+            ><UI.Option value="false">No</UI.Option>
+          </UI.Select>
         {:else if field.type === "options"}
-          <SelectControl trailing={saving}>
-            <select id={controlID} disabled={busy} value={typeof value === "string" ? value : ""} onchange={(event) => {
+          <UI.Select
+            id={controlID}
+            disabled={busy}
+            value={typeof value === "string" ? value : ""}
+            onchange={(event) => {
               if (event.currentTarget.value === "") void saveRemove(path)
               else void saveSet(path, event.currentTarget.value)
-            }}>
-              <option value="">Select an option</option>
-              {#each field.choices ?? [] as choice (choice)}<option value={choice}>{choice}</option>{/each}
-            </select>
-          </SelectControl>
+            }}
+          >
+            <UI.Option value="">Select an option</UI.Option>
+            {#each field.choices ?? [] as choice (choice)}<UI.Option
+                value={choice}>{choice}</UI.Option
+              >{/each}
+          </UI.Select>
         {:else}
-          <input bind:this={inputElement} id={controlID} type="text" inputmode={field.type === "number" ? "decimal" : undefined} value={typeof value === "string" ? value : ""} disabled={busy}
-            onchange={(event) => void saveSet(path, event.currentTarget.value)} />
+          <UI.Input
+            bind:ref={inputElement}
+            id={controlID}
+            type="text"
+            inputmode={field.type === "number" ? "decimal" : undefined}
+            value={typeof value === "string" ? value : ""}
+            disabled={busy}
+            onchange={(event) => void saveSet(path, event.currentTarget.value)}
+          />
         {/if}
       </InputControl>
     {/if}
-  </div>
+  </UI.Field>
 {/if}

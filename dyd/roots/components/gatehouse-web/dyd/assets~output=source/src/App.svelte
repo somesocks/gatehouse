@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte"
+  import { Theme } from "./ui"
   import {
     createApplicationRuntime,
     provideRuntime,
@@ -52,6 +53,12 @@
   <meta name="description" content="Gatehouse hosted chat" />
   <title>Gatehouse</title>
 </svelte:head>
+
+<Theme
+  workspaceID={"workspaceID" in runtime.state.route
+    ? runtime.state.route.workspaceID
+    : undefined}
+/>
 
 {#if owner === "project-dashboard"}
   <ProjectDashboardRoute />

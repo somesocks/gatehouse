@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { RouterLink } from "../../../ui"
+  import { systemNavigation } from "../../../app/navigation"
+  import * as UI from "../../../ui"
   import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import SystemFrame from "../../../components/SystemFrame.svelte"
-  import RouterLink from "../../../components/RouterLink.svelte"
-  import SelectControl from "../../../components/SelectControl.svelte"
+
   import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
   let { modelID }: { modelID: string } = $props()
   const runtime = useRuntime()
@@ -18,214 +19,211 @@
   })
 </script>
 
-<SystemFrame active="agent-models" title="Agent model"
-  ><section class="stack">
-    {#if controller.state.loading}<p class="muted">
+<UI.AppFrame
+  navigation={systemNavigation(runtime, "agent-models")}
+  breadcrumbs={[
+    { label: "System", href: "/app/system" },
+    { label: "Agent model" },
+  ]}
+  ><UI.Stack as="section">
+    {#if controller.state.loading}<UI.Text as="p" tone="muted">
         Loading agent model...
-      </p>{:else if controller.state.model === null}<p
-        class="field-help"
+      </UI.Text>{:else if controller.state.model === null}<UI.Text
+        as="p"
+        size="small"
         role="alert"
         aria-live="polite"
       >
         {controller.state.error === ""
           ? "Agent model was not found."
           : controller.state.error}
-      </p>
-      <RouterLink class="secondary" href="/app/system/agent-models"
+      </UI.Text>
+      <RouterLink variant="outline" href="/app/system/agent-models"
         >Back to models</RouterLink
-      >{:else if !controller.state.editing}<div
-        class="split"
-      >
-        <div>
-          <p class="eyebrow">Agent model</p>
-          <h2>{controller.state.model.alias}</h2>
-          <p>{controller.state.model.id}</p>
-        </div>
-        <button
-          class="secondary"
+      >{:else if !controller.state.editing}<UI.Row justify="between">
+        <UI.Group>
+          <UI.Text as="p" size="eyebrow">Agent model</UI.Text>
+          <UI.Heading level={2}>{controller.state.model.alias}</UI.Heading>
+          <UI.Text as="p">{controller.state.model.id}</UI.Text>
+        </UI.Group>
+        <UI.Button
+          variant="outline"
           type="button"
-          onclick={() => void controller.beginEdit()}>Edit</button
+          onclick={() => void controller.beginEdit()}>Edit</UI.Button
         >
-      </div>
-      <dl>
-        <div class="field">
-          <dt>Provider</dt>
-          <dd>{controller.state.model.provider}</dd>
-        </div>
-        <div class="field">
-          <dt>Model</dt>
-          <dd>{controller.state.model.model}</dd>
-        </div>
-        <div class="field">
-          <dt>Parameters</dt>
-          <dd>
+      </UI.Row>
+      <UI.Stack as="dl">
+        <UI.Field>
+          <UI.Text as="dt" size="small">Provider</UI.Text>
+          <UI.Text as="dd">{controller.state.model.provider}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Model</UI.Text>
+          <UI.Text as="dd">{controller.state.model.model}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Parameters</UI.Text>
+          <UI.Text as="dd">
             {controller.state.model.parameters === ""
               ? "Not configured"
               : controller.state.model.parameters}
-          </dd>
-        </div>
-        <div class="field">
-          <dt>Compaction</dt>
-          <dd>
+          </UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Compaction</UI.Text>
+          <UI.Text as="dd">
             {controller.state.model.compaction === ""
               ? "Not configured"
               : controller.state.model.compaction}
-          </dd>
-        </div>
-        <div class="field">
-          <dt>Max turns</dt>
-          <dd>{controller.state.model.max_turns}</dd>
-        </div>
-        <div class="field">
-          <dt>Max output tokens</dt>
-          <dd>{controller.state.model.max_output_tokens}</dd>
-        </div>
-        <div class="field">
-          <dt>Status</dt>
-          <dd>
+          </UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Max turns</UI.Text>
+          <UI.Text as="dd">{controller.state.model.max_turns}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Max output tokens</UI.Text>
+          <UI.Text as="dd">{controller.state.model.max_output_tokens}</UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Status</UI.Text>
+          <UI.Text as="dd">
             {controller.state.model.enabled ? "Enabled" : "Disabled"}
-          </dd>
-        </div>
-        <div class="field">
-          <dt>Revision</dt>
-          <dd>{controller.state.model.revision}</dd>
-        </div>
-      </dl>{:else}<div class="stack">
-        <div>
-          <p class="eyebrow">Agent model</p>
-          <h2>Edit {controller.state.model.alias}</h2>
-          <p>Update model settings.</p>
-        </div>
-      </div>
-      <form
-        class="stack"
+          </UI.Text>
+        </UI.Field>
+        <UI.Field>
+          <UI.Text as="dt" size="small">Revision</UI.Text>
+          <UI.Text as="dd">{controller.state.model.revision}</UI.Text>
+        </UI.Field>
+      </UI.Stack>{:else}<UI.Stack>
+        <UI.Group>
+          <UI.Text as="p" size="eyebrow">Agent model</UI.Text>
+          <UI.Heading level={2}>Edit {controller.state.model.alias}</UI.Heading>
+          <UI.Text as="p">Update model settings.</UI.Text>
+        </UI.Group>
+      </UI.Stack>
+      <UI.Form
         onsubmit={(event) => {
           event.preventDefault()
           void controller.update()
         }}
       >
-        <div class="field">
-          <label for="edit-agent-model-alias">Alias</label>
-          <div>
-            <input
+        <UI.Field>
+          <UI.Label for="edit-agent-model-alias">Alias</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-alias"
               disabled
               value={controller.state.form.alias}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-provider">Provider</label>
-          <div>
-            <div>
-              <SelectControl>
-                <select
-                  id="edit-agent-model-provider"
-                  required
-                  bind:value={controller.state.form.provider}
-                  ><option value="">Select provider</option
-                  >{#each controller.state.providers as provider (provider.id)}<option
-                      value={provider.id}
-                      disabled={!provider.enabled}
-                      >{provider.alias} / {provider.id}{provider.enabled
-                        ? ""
-                        : " / Disabled"}</option
-                    >{/each}</select
-                >
-              </SelectControl>
-            </div>
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-name">Model</label>
-          <div>
-            <input
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-provider">Provider</UI.Label>
+          <UI.Group>
+            <UI.Group>
+              <UI.Select
+                id="edit-agent-model-provider"
+                required
+                bind:value={controller.state.form.provider}
+                ><UI.Option value="">Select provider</UI.Option
+                >{#each controller.state.providers as provider (provider.id)}<UI.Option
+                    value={provider.id}
+                    disabled={!provider.enabled}
+                    >{provider.alias} / {provider.id}{provider.enabled
+                      ? ""
+                      : " / Disabled"}</UI.Option
+                  >{/each}</UI.Select
+              >
+            </UI.Group>
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-name">Model</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-name"
               required
               bind:value={controller.state.form.model}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-parameters"
-            >Parameters</label
-          >
-          <div>
-            <input
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-parameters">Parameters</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-parameters"
               bind:value={controller.state.form.parameters}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-compaction"
-            >Compaction</label
-          >
-          <div>
-            <input
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-compaction">Compaction</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-compaction"
               bind:value={controller.state.form.compaction}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-max-turns">Max turns</label
-          >
-          <div>
-            <input
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-max-turns">Max turns</UI.Label>
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-max-turns"
               type="number"
               min="0"
               bind:value={controller.state.form.maxTurns}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label for="edit-agent-model-max-output-tokens"
-            >Max output tokens</label
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="edit-agent-model-max-output-tokens"
+            >Max output tokens</UI.Label
           >
-          <div>
-            <input
+          <UI.Group>
+            <UI.Input
               id="edit-agent-model-max-output-tokens"
               type="number"
               min="0"
               bind:value={controller.state.form.maxOutputTokens}
             />
-          </div>
-        </div>
-        <div class="field">
-          <label class="choice"
-            ><input
-              type="checkbox"
-              bind:checked={controller.state.form.enabled}
-            /> Enabled</label
+          </UI.Group>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label layout="choice"
+            ><UI.Checkbox bind:checked={controller.state.form.enabled} /> Enabled</UI.Label
           >
-        </div>
-        <div class="cluster">
-          <div>
-            <button
-              class="primary"
+        </UI.Field>
+        <UI.Row>
+          <UI.Group>
+            <UI.Button
+              variant="default"
               type="submit"
               disabled={controller.state.saving}
-              >{controller.state.saving ? "Saving..." : "Save changes"}</button
+              >{controller.state.saving
+                ? "Saving..."
+                : "Save changes"}</UI.Button
             >
-          </div>
-          <div>
-            <button
-              class="secondary"
+          </UI.Group>
+          <UI.Group>
+            <UI.Button
+              variant="outline"
               type="button"
               disabled={controller.state.saving}
-              onclick={() => (controller.state.editing = false)}>Cancel</button
+              onclick={() => (controller.state.editing = false)}
+              >Cancel</UI.Button
             >
-          </div>
-        </div>
-      </form>
-      {#if controller.state.error !== ""}<p
-          class="field-help"
+          </UI.Group>
+        </UI.Row>
+      </UI.Form>
+      {#if controller.state.error !== ""}<UI.Text
+          as="p"
+          size="small"
           role="alert"
           aria-live="polite"
         >
           {controller.state.error}
-        </p>{/if}{/if}
-  </section></SystemFrame
+        </UI.Text>{/if}{/if}
+  </UI.Stack></UI.AppFrame
 >
