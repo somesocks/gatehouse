@@ -64,6 +64,10 @@ describe("routes", () => {
       route: { kind: "system-workspace-new" },
     },
     {
+      path: "/app/system/workspaces/wsp_01abc",
+      route: { kind: "system-workspace", workspaceID: "wsp_01abc" },
+    },
+    {
       path: "/app/system/workspace-agent-bindings",
       route: { kind: "system-workspace-agent-bindings" },
     },

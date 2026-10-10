@@ -21,6 +21,7 @@ export type Route =
   | { kind: "system-storage-provider"; providerID: string }
   | { kind: "system-workspaces" }
   | { kind: "system-workspace-new" }
+  | { kind: "system-workspace"; workspaceID: string }
   | { kind: "system-workspace-agent-bindings" }
   | { kind: "system-workspace-agent-binding-new" }
   | {
@@ -146,6 +147,12 @@ export function parseRoute(url: URL): Route {
     segments[3] === "new"
   )
     return { kind: "system-workspace-new" }
+  if (
+    segments.length === 4 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces"
+  )
+    return { kind: "system-workspace", workspaceID: segments[3] }
   if (
     segments.length === 3 &&
     segments[1] === "system" &&
@@ -559,6 +566,8 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system/workspaces"
     case "system-workspace-new":
       return "/app/system/workspaces/new"
+    case "system-workspace":
+      return `/app/system/workspaces/${segment(route.workspaceID)}`
     case "system-workspace-agent-bindings":
       return "/app/system/workspace-agent-bindings"
     case "system-workspace-agent-binding-new":

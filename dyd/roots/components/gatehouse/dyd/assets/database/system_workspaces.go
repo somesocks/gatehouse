@@ -86,6 +86,95 @@ func (store *Store) SystemWorkspacesSearch(ctx context.Context, search SystemWor
 	return nil, workspaces[:search.Limit], nextCursor
 }
 
+func (store *Store) SystemWorkspaceGet(ctx context.Context, id string) (error, *SystemWorkspace) {
+	if !typed_id.Valid(typed_id.Workspace, id) {
+		return nil, nil
+	}
+	var workspace SystemWorkspace
+	var alias, name sql.NullString
+	err := store.QueryRowContext(ctx, `SELECT id, alias, name, enabled FROM gatehouse_workspaces WHERE id = `+keychainPlaceholder(store.kind)(1), id).Scan(&workspace.ID, &alias, &name, &workspace.Enabled)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return fmt.Errorf("get system workspace: %w", err), nil
+	}
+	if alias.Valid {
+		workspace.Alias = &alias.String
+	}
+	if name.Valid {
+		workspace.Name = &name.String
+	}
+	return nil, &workspace
+}
+
+func (store *Store) SystemWorkspaceUpdate(ctx context.Context, id string, name *string, enabled *bool) (error, *SystemWorkspace) {
+	if !typed_id.Valid(typed_id.Workspace, id) {
+		return nil, nil
+	}
+	if name == nil && enabled == nil {
+		return fmt.Errorf("update system workspace: no fields supplied"), nil
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin system workspace update: %w", err), nil
+	}
+	defer transaction.Rollback()
+
+	workspace := SystemWorkspace{}
+	var alias, storedName sql.NullString
+	placeholder := keychainPlaceholder(store.kind)
+	err = transaction.QueryRowContext(ctx, `SELECT id, alias, name, enabled FROM gatehouse_workspaces WHERE id = `+placeholder(1), id).Scan(&workspace.ID, &alias, &storedName, &workspace.Enabled)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return fmt.Errorf("get system workspace for update: %w", err), nil
+	}
+	if alias.Valid {
+		workspace.Alias = &alias.String
+	}
+	if storedName.Valid {
+		workspace.Name = &storedName.String
+	}
+	changed := false
+	if name != nil {
+		trimmed := strings.TrimSpace(*name)
+		if trimmed == "" {
+			changed = storedName.Valid
+			workspace.Name = nil
+		} else if !storedName.Valid || storedName.String != trimmed {
+			changed = true
+			workspace.Name = &trimmed
+		}
+	}
+	if enabled != nil && workspace.Enabled != *enabled {
+		changed = true
+		workspace.Enabled = *enabled
+	}
+	if !changed {
+		if err := transaction.Commit(); err != nil {
+			return fmt.Errorf("commit unchanged system workspace: %w", err), nil
+		}
+		return nil, &workspace
+	}
+	if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspaces SET name = `+placeholder(1)+`, enabled = `+placeholder(2)+` WHERE id = `+placeholder(3), optionalStringValue(workspace.Name), workspace.Enabled, id); err != nil {
+		return fmt.Errorf("update system workspace: %w", err), nil
+	}
+	workspaceID := workspace.ID
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Event:             "workspace.update",
+		ResourceKind:      ActivityResourceKindWorkspace,
+		ResourceWorkspace: &workspaceID,
+	}, []string{ActivityTopicWorkspace(model.WorkspaceRef{Id: workspaceID})}); err != nil {
+		return fmt.Errorf("append system workspace update activity: %w", err), nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit system workspace update: %w", err), nil
+	}
+	return nil, &workspace
+}
+
 func (store *Store) SystemWorkspaceCreate(ctx context.Context, alias string, name *string, enabled bool) (error, *SystemWorkspace) {
 	if !config.ValidWorkspaceAlias(alias) {
 		return ErrWorkspaceAliasInvalid, nil

@@ -269,6 +269,9 @@ describe("route owner", () => {
     expect(routeOwner({ kind: "system-workspace-new" })).toBe(
       "system-workspace-new",
     )
+    expect(routeOwner({ kind: "system-workspace", workspaceID: "wsp_1" })).toBe(
+      "system-workspace-detail",
+    )
     expect(routeOwner({ kind: "system-workspace-agent-bindings" })).toBe(
       "workspace-agent-binding-list",
     )

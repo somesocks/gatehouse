@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { clearAccessToken } from "./api"
-import { createSystemWorkspace, fetchSystemWorkspaces } from "./system"
+import {
+  createSystemWorkspace,
+  fetchSystemWorkspace,
+  fetchSystemWorkspaces,
+  updateSystemWorkspace,
+} from "./system"
 
 afterEach(() => {
   clearAccessToken()
@@ -21,6 +26,11 @@ describe("system workspace API", () => {
       name: "Research",
       enabled: true,
     })
+    await fetchSystemWorkspace("wsp_detail")
+    await updateSystemWorkspace("wsp_detail", {
+      name: "Research Lab",
+      enabled: false,
+    })
 
     expect(request.mock.calls[0][0]).toBe(
       "/api/v1/system/workspaces?limit=50&name=research&cursor=wsp_cursor",
@@ -33,6 +43,16 @@ describe("system workspace API", () => {
         name: "Research",
         enabled: true,
       }),
+    })
+    expect(request.mock.calls[2][0]).toBe(
+      "/api/v1/system/workspaces/wsp_detail",
+    )
+    expect(request.mock.calls[3][0]).toBe(
+      "/api/v1/system/workspaces/wsp_detail",
+    )
+    expect(request.mock.calls[3][1]).toMatchObject({
+      method: "PATCH",
+      body: JSON.stringify({ name: "Research Lab", enabled: false }),
     })
   })
 })

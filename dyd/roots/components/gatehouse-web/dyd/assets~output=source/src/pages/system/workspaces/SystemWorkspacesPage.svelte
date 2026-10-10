@@ -72,8 +72,10 @@
     {#if controller.state.loading}<UI.Text as="p" tone="muted">
         Loading workspaces...
       </UI.Text>{:else}<UI.List>
-        {#each controller.state.workspaces as workspace (workspace.id)}<UI.Item
-            disabled={!workspace.enabled}
+        {#each controller.state.workspaces as workspace (workspace.id)}<UI.RouterLink
+            variant="item"
+            data-disabled={!workspace.enabled || undefined}
+            href={`/app/system/workspaces/${encodeURIComponent(workspace.id)}`}
           >
             <UI.Stack gap="small">
               <UI.Text as="strong" emphasis="strong"
@@ -86,7 +88,7 @@
             <UI.Text tone={workspace.enabled ? "default" : "muted"}>
               {workspace.enabled ? "Enabled" : "Disabled"}
             </UI.Text>
-          </UI.Item>{:else}<UI.Text as="p" tone="muted">
+          </UI.RouterLink>{:else}<UI.Text as="p" tone="muted">
             No workspaces match your search.
           </UI.Text>{/each}
       </UI.List>{/if}

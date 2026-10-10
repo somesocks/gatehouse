@@ -98,6 +98,7 @@ export async function systemAdministration(
   path: string,
   method = "GET",
   body?: unknown,
+  signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`/api/v1/system/${path}`, {
     method,
@@ -105,6 +106,7 @@ export async function systemAdministration(
     headers:
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
+    ...(signal === undefined ? {} : { signal }),
   })
 }
 
@@ -128,6 +130,31 @@ export async function createSystemWorkspace(input: {
   enabled: boolean
 }): Promise<Response> {
   return await systemAdministration("workspaces", "POST", input)
+}
+
+export async function fetchSystemWorkspace(
+  workspaceID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
+export async function updateSystemWorkspace(
+  workspaceID: string,
+  input: { name: string; enabled: boolean },
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}`,
+    "PATCH",
+    input,
+    signal,
+  )
 }
 
 export async function fetchSystemGrants(): Promise<Response> {

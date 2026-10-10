@@ -1862,6 +1862,17 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(createdWorkspace.Body.Bytes(), &workspace); err != nil || createdWorkspace.Code != http.StatusCreated || !typed_id.Valid(typed_id.Workspace, workspace.ID) || workspace.Alias == nil || *workspace.Alias != "sys-created" || workspace.Name == nil || *workspace.Name != "System Created" || workspace.Enabled {
 		t.Fatalf("POST system workspace = (%d, %#v, %v)", createdWorkspace.Code, workspace, err)
 	}
+	workspacePath := "/api/v1/system/workspaces/" + workspace.ID
+	if detail := request(http.MethodGet, workspacePath, ""); detail.Code != http.StatusOK || json.Unmarshal(detail.Body.Bytes(), &workspace) != nil {
+		t.Fatalf("GET system workspace = (%d, %q)", detail.Code, detail.Body.String())
+	}
+	updatedWorkspace := request(http.MethodPatch, workspacePath, `{"name":"Renamed workspace","enabled":true}`)
+	if err := json.Unmarshal(updatedWorkspace.Body.Bytes(), &workspace); err != nil || updatedWorkspace.Code != http.StatusOK || workspace.Name == nil || *workspace.Name != "Renamed workspace" || !workspace.Enabled {
+		t.Fatalf("PATCH system workspace = (%d, %#v, %v)", updatedWorkspace.Code, workspace, err)
+	}
+	if missingWorkspace := request(http.MethodGet, "/api/v1/system/workspaces/wsp_00000000000000000000000000", ""); missingWorkspace.Code != http.StatusNotFound {
+		t.Fatalf("GET missing system workspace = %d", missingWorkspace.Code)
+	}
 	if duplicate := request(http.MethodPost, "/api/v1/system/workspaces", `{"alias":"sys-created"}`); duplicate.Code != http.StatusConflict {
 		t.Fatalf("POST duplicate system workspace = %d", duplicate.Code)
 	}

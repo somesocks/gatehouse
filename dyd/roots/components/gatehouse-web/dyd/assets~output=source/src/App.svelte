@@ -20,6 +20,7 @@
   import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
   import SystemWorkspacesRoute from "./pages/system/workspaces/SystemWorkspacesRoute.svelte"
   import SystemWorkspaceNewRoute from "./pages/system/workspaces/SystemWorkspaceNewRoute.svelte"
+  import SystemWorkspaceDetailRoute from "./pages/system/workspaces/SystemWorkspaceDetailRoute.svelte"
   import WorkspaceAgentBindingDetailRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingDetailRoute.svelte"
   import WorkspaceAgentBindingListRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingListRoute.svelte"
   import WorkspaceAgentBindingNewRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingNewRoute.svelte"
@@ -121,6 +122,11 @@
   <SystemWorkspacesRoute />
 {:else if owner === "system-workspace-new"}
   <SystemWorkspaceNewRoute />
+{:else if owner === "system-workspace-detail"}<SystemWorkspaceDetailRoute
+    workspaceID={runtime.state.route.kind === "system-workspace"
+      ? runtime.state.route.workspaceID
+      : ""}
+  />
 {:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute
   />
 {:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute

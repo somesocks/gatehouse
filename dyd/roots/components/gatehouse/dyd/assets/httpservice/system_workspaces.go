@@ -20,6 +20,11 @@ type systemWorkspaceCreateRequest struct {
 	Enabled *bool   `json:"enabled"`
 }
 
+type systemWorkspaceUpdateRequest struct {
+	Name    *string `json:"name"`
+	Enabled *bool   `json:"enabled"`
+}
+
 func systemWorkspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodGet && request.Method != http.MethodPost {
@@ -73,5 +78,50 @@ func systemWorkspaces(store *database.Store, tokens *auth.BearerTokens) http.Han
 			return
 		}
 		writeJSONStatus(response, http.StatusCreated, workspace)
+	}
+}
+
+func systemWorkspace(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		if !systemManage(response, request, store, tokens) {
+			return
+		}
+		id := request.PathValue("workspace")
+		if request.Method == http.MethodGet {
+			err, workspace := store.SystemWorkspaceGet(request.Context(), id)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			if workspace == nil {
+				http.NotFound(response, request)
+				return
+			}
+			writeJSON(response, workspace)
+			return
+		}
+
+		var input systemWorkspaceUpdateRequest
+		if !adminDecode(response, request, &input) {
+			return
+		}
+		if input.Name == nil && input.Enabled == nil {
+			http.Error(response, "workspace update is empty", http.StatusBadRequest)
+			return
+		}
+		err, workspace := store.SystemWorkspaceUpdate(request.Context(), id, input.Name, input.Enabled)
+		if err != nil {
+			http.Error(response, "workspace could not be updated", http.StatusInternalServerError)
+			return
+		}
+		if workspace == nil {
+			http.NotFound(response, request)
+			return
+		}
+		writeJSON(response, workspace)
 	}
 }

@@ -29,9 +29,11 @@ func TestSystemWorkspacesSearchAndCreateWithoutMembership(t *testing.T) {
 	}
 	initialWorkspaceCount := len(workspaces)
 	foundEngineering := false
+	var engineeringID string
 	for _, workspace := range workspaces {
 		if workspace.Alias != nil && *workspace.Alias == "engineering" {
 			foundEngineering = true
+			engineeringID = workspace.ID
 		}
 	}
 	if !foundEngineering {
@@ -87,23 +89,41 @@ func TestSystemWorkspacesSearchAndCreateWithoutMembership(t *testing.T) {
 	if pageCursor != "" {
 		t.Fatalf("final workspace search cursor = %q, want empty", pageCursor)
 	}
+	updatedName := "Updated team"
+	enabled := true
+	err, updated := store.SystemWorkspaceUpdate(ctx, created.ID, &updatedName, &enabled)
+	if err != nil || updated == nil || updated.Alias == nil || *updated.Alias != "new-team" || updated.Name == nil || *updated.Name != updatedName || !updated.Enabled {
+		t.Fatalf("SystemWorkspaceUpdate() = (%#v, %v)", updated, err)
+	}
+	configuredName := "Changed in system administration"
+	disabled := false
+	if err, configuredWorkspace := store.SystemWorkspaceUpdate(ctx, engineeringID, &configuredName, &disabled); err != nil || configuredWorkspace == nil || configuredWorkspace.Name == nil || *configuredWorkspace.Name != configuredName || configuredWorkspace.Enabled {
+		t.Fatalf("configured SystemWorkspaceUpdate() = (%#v, %v)", configuredWorkspace, err)
+	}
 
 	var grants int
 	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_workspace_grants WHERE workspace = ?`, created.ID).Scan(&grants); err != nil || grants != 0 {
 		t.Fatalf("new workspace grants = (%d, %v), want no membership", grants, err)
 	}
 
+	configName := "Configuration wins on reconciliation"
+	state.Workspaces[0].Name = &configName
+	state.Workspaces[0].Enabled = false
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	err, workspaces, cursor = store.SystemWorkspacesSearch(ctx, database.SystemWorkspaceSearch{Limit: 50})
 	foundCreated := false
+	foundConfigRestored := false
 	for _, workspace := range workspaces {
 		if workspace.ID == created.ID {
-			foundCreated = true
+			foundCreated = workspace.Name != nil && *workspace.Name == updatedName && workspace.Enabled
+		}
+		if workspace.ID == engineeringID {
+			foundConfigRestored = workspace.Name != nil && *workspace.Name == configName && !workspace.Enabled
 		}
 	}
-	if err != nil || cursor != "" || len(workspaces) != initialWorkspaceCount+1 || !foundCreated {
+	if err != nil || cursor != "" || len(workspaces) != initialWorkspaceCount+1 || !foundCreated || !foundConfigRestored {
 		t.Fatalf("SystemWorkspacesSearch() after config reconciliation = (%#v, %q, %v)", workspaces, cursor, err)
 	}
 }
