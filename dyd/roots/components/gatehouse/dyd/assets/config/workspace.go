@@ -21,6 +21,10 @@ var workspaceAlias = workspaceID
 const gatehouseWorkspaceAlias = "gatehouse"
 const defaultWorkspaceAlias = "admin"
 
+func ValidWorkspaceAlias(alias string) bool {
+	return workspaceAlias.MatchString(alias) && alias != gatehouseWorkspaceAlias
+}
+
 func ResolveWorkspaces(document configschema.GatehouseConfig) (error, []Workspace) {
 	if document.Workspaces == nil {
 		return nil, []Workspace{{Alias: defaultWorkspaceAlias, Enabled: true}}

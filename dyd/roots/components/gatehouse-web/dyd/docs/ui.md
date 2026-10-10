@@ -30,6 +30,9 @@ page header. The chat shell is bounded to the viewport, with scrolling contained
 to its message feed so the header and composer remain stationary. The sidebar
 footer presents the signed-in user name and sign-out action in a dropdown.
 Login and full-page loading states use the centered muted-surface card layout.
+System administration lists every workspace and can create an enabled or disabled
+workspace without adding any workspace membership. Its inventory search and keyset
+pagination run on the server.
 
 ## Theming
 

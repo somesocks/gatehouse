@@ -19,6 +19,8 @@ export type Route =
   | { kind: "system-storage-providers" }
   | { kind: "system-storage-provider-new" }
   | { kind: "system-storage-provider"; providerID: string }
+  | { kind: "system-workspaces" }
+  | { kind: "system-workspace-new" }
   | { kind: "system-workspace-agent-bindings" }
   | { kind: "system-workspace-agent-binding-new" }
   | {
@@ -37,7 +39,11 @@ export type Route =
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "group-collection" } & WorkspaceRoute)
-  | ({ kind: "session-chat"; mode: ChatMode; agent: string | null } & SessionRoute)
+  | ({
+      kind: "session-chat"
+      mode: ChatMode
+      agent: string | null
+    } & SessionRoute)
   | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
   | ({ kind: "session-note-new" } & SessionRoute)
@@ -134,6 +140,13 @@ export function parseRoute(url: URL): Route {
     return { kind: "system" }
   }
   if (
+    segments.length === 4 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[3] === "new"
+  )
+    return { kind: "system-workspace-new" }
+  if (
     segments.length === 3 &&
     segments[1] === "system" &&
     segments[2] === "grants"
@@ -204,6 +217,12 @@ export function parseRoute(url: URL): Route {
     segments[2] === "storage-providers"
   )
     return { kind: "system-storage-provider", providerID: segments[3] }
+  if (
+    segments.length === 3 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces"
+  )
+    return { kind: "system-workspaces" }
   if (
     segments.length === 3 &&
     segments[1] === "system" &&
@@ -536,6 +555,10 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system/storage-providers/new"
     case "system-storage-provider":
       return `/app/system/storage-providers/${segment(route.providerID)}`
+    case "system-workspaces":
+      return "/app/system/workspaces"
+    case "system-workspace-new":
+      return "/app/system/workspaces/new"
     case "system-workspace-agent-bindings":
       return "/app/system/workspace-agent-bindings"
     case "system-workspace-agent-binding-new":

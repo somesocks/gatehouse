@@ -145,6 +145,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/agent-models/{model}", systemAgentModel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/storage-providers", systemStorageProviders(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/storage-providers/{provider}", systemStorageProvider(store, keyring, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces", systemWorkspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{binding}", systemWorkspaceAgent(store, tokens[0]))

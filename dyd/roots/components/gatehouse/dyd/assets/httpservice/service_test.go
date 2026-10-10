@@ -1728,6 +1728,9 @@ func TestSystemGrantAPI(t *testing.T) {
 	if denied := request(http.MethodGet, "/api/v1/system/grants", ""); denied.Code != http.StatusForbidden {
 		t.Fatalf("GET system grants without manager = %d", denied.Code)
 	}
+	if denied := request(http.MethodGet, "/api/v1/system/workspaces", ""); denied.Code != http.StatusForbidden {
+		t.Fatalf("GET system workspaces without manager = %d", denied.Code)
+	}
 }
 
 func TestSystemPrincipalAPI(t *testing.T) {
@@ -1832,6 +1835,43 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	keychains := request(http.MethodGet, "/api/v1/system/keychains", "")
 	if keychains.Code != http.StatusOK || strings.Contains(keychains.Body.String(), "passphrase") || !strings.Contains(keychains.Body.String(), `"id":"test"`) {
 		t.Fatalf("GET system keychains = status %d body %q", keychains.Code, keychains.Body.String())
+	}
+	listedWorkspaces := request(http.MethodGet, "/api/v1/system/workspaces", "")
+	var workspacePage systemWorkspaceSearchResponse
+	if err := json.Unmarshal(listedWorkspaces.Body.Bytes(), &workspacePage); err != nil || listedWorkspaces.Code != http.StatusOK || len(workspacePage.Workspaces) != 4 || workspacePage.NextCursor != "" {
+		t.Fatalf("GET system workspaces = (%d, %#v, %v)", listedWorkspaces.Code, workspacePage, err)
+	}
+	filteredWorkspaces := request(http.MethodGet, "/api/v1/system/workspaces?name=private", "")
+	if err := json.Unmarshal(filteredWorkspaces.Body.Bytes(), &workspacePage); err != nil || filteredWorkspaces.Code != http.StatusOK || len(workspacePage.Workspaces) != 1 || workspacePage.Workspaces[0].Alias == nil || *workspacePage.Workspaces[0].Alias != "private" {
+		t.Fatalf("GET filtered system workspaces = (%d, %#v, %v)", filteredWorkspaces.Code, workspacePage, err)
+	}
+	firstWorkspacePage := request(http.MethodGet, "/api/v1/system/workspaces?limit=1", "")
+	if err := json.Unmarshal(firstWorkspacePage.Body.Bytes(), &workspacePage); err != nil || firstWorkspacePage.Code != http.StatusOK || len(workspacePage.Workspaces) != 1 || workspacePage.NextCursor == "" {
+		t.Fatalf("GET first system workspace page = (%d, %#v, %v)", firstWorkspacePage.Code, workspacePage, err)
+	}
+	firstWorkspaceID := workspacePage.Workspaces[0].ID
+	secondWorkspacePage := request(http.MethodGet, "/api/v1/system/workspaces?limit=1&cursor="+workspacePage.NextCursor, "")
+	if err := json.Unmarshal(secondWorkspacePage.Body.Bytes(), &workspacePage); err != nil || secondWorkspacePage.Code != http.StatusOK || len(workspacePage.Workspaces) != 1 || workspacePage.Workspaces[0].ID == firstWorkspaceID {
+		t.Fatalf("GET second system workspace page = (%d, %#v, %v)", secondWorkspacePage.Code, workspacePage, err)
+	}
+	if invalidCursor := request(http.MethodGet, "/api/v1/system/workspaces?cursor=invalid", ""); invalidCursor.Code != http.StatusBadRequest {
+		t.Fatalf("GET system workspaces with invalid cursor = %d", invalidCursor.Code)
+	}
+	createdWorkspace := request(http.MethodPost, "/api/v1/system/workspaces", `{"alias":"sys-created","name":"System Created","enabled":false}`)
+	var workspace database.SystemWorkspace
+	if err := json.Unmarshal(createdWorkspace.Body.Bytes(), &workspace); err != nil || createdWorkspace.Code != http.StatusCreated || !typed_id.Valid(typed_id.Workspace, workspace.ID) || workspace.Alias == nil || *workspace.Alias != "sys-created" || workspace.Name == nil || *workspace.Name != "System Created" || workspace.Enabled {
+		t.Fatalf("POST system workspace = (%d, %#v, %v)", createdWorkspace.Code, workspace, err)
+	}
+	if duplicate := request(http.MethodPost, "/api/v1/system/workspaces", `{"alias":"sys-created"}`); duplicate.Code != http.StatusConflict {
+		t.Fatalf("POST duplicate system workspace = %d", duplicate.Code)
+	}
+	if invalid := request(http.MethodPost, "/api/v1/system/workspaces", `{"alias":"gatehouse"}`); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("POST reserved system workspace alias = %d", invalid.Code)
+	}
+	userWorkspaces := request(http.MethodGet, "/api/v1/workspaces", "")
+	var joinedWorkspaces []workspaceResponse
+	if err := json.Unmarshal(userWorkspaces.Body.Bytes(), &joinedWorkspaces); err != nil || userWorkspaces.Code != http.StatusOK || len(joinedWorkspaces) != 2 {
+		t.Fatalf("GET user workspaces after system create = (%d, %#v, %v)", userWorkspaces.Code, joinedWorkspaces, err)
 	}
 	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","api_key":"secret-value","enabled":true}`)
 	var provider database.SystemAgentProvider

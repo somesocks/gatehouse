@@ -56,6 +56,7 @@ describe("sidebar navigation", () => {
     )
     expect(navigation.workspaceSwitcher?.administration?.active).toBe(true)
     expect(navigation.sections[0]?.items.every((item) => item.icon)).toBe(true)
+    expect(navigation.sections[0]?.items.some((item) => item.icon === "workspaces")).toBe(true)
 
     navigation.workspaceSwitcher?.onSelect("wsp/two")
     expect(runtime.navigate).toHaveBeenCalledWith("/app/wsp/wsp%2Ftwo")

@@ -61,6 +61,14 @@
         ></UI.Stack
       ></RouterLink
     >
+    <RouterLink variant="item" href="/app/system/workspaces"
+      ><UI.Stack as="span"
+        ><UI.Text as="strong" emphasis="strong">Workspaces</UI.Text><UI.Text
+          as="small"
+          size="small">View all workspaces and create new ones.</UI.Text
+        ></UI.Stack
+      ></RouterLink
+    >
     <RouterLink variant="item" href="/app/system/workspace-agent-bindings"
       ><UI.Stack as="span"
         ><UI.Text as="strong" emphasis="strong"

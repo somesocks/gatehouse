@@ -265,6 +265,10 @@ describe("route owner", () => {
     expect(
       routeOwner({ kind: "system-storage-provider", providerID: "stp_1" }),
     ).toBe("storage-provider-detail")
+    expect(routeOwner({ kind: "system-workspaces" })).toBe("system-workspaces")
+    expect(routeOwner({ kind: "system-workspace-new" })).toBe(
+      "system-workspace-new",
+    )
     expect(routeOwner({ kind: "system-workspace-agent-bindings" })).toBe(
       "workspace-agent-binding-list",
     )

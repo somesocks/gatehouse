@@ -15,6 +15,7 @@ export type NavigationIcon =
   | "agent-providers"
   | "agent-models"
   | "storage-providers"
+  | "workspaces"
   | "workspace-agent-bindings"
   | "workspace-storage-bindings"
 export type SidebarNavigationItem = NavigationItem & { icon: NavigationIcon }

@@ -56,6 +56,14 @@ describe("routes", () => {
       route: { kind: "system-storage-provider", providerID: "stp_1" },
     },
     {
+      path: "/app/system/workspaces",
+      route: { kind: "system-workspaces" },
+    },
+    {
+      path: "/app/system/workspaces/new",
+      route: { kind: "system-workspace-new" },
+    },
+    {
       path: "/app/system/workspace-agent-bindings",
       route: { kind: "system-workspace-agent-bindings" },
     },

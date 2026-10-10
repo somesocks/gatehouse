@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Bot,
+    Building2,
     Cpu,
     Database,
     FolderKanban,
@@ -36,6 +37,7 @@
     "agent-providers": Bot,
     "agent-models": Cpu,
     "storage-providers": Database,
+    workspaces: Building2,
     "workspace-agent-bindings": Network,
     "workspace-storage-bindings": HardDrive,
   } satisfies Record<NavigationIcon, unknown>

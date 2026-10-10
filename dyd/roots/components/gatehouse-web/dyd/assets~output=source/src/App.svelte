@@ -18,6 +18,8 @@
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
   import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
+  import SystemWorkspacesRoute from "./pages/system/workspaces/SystemWorkspacesRoute.svelte"
+  import SystemWorkspaceNewRoute from "./pages/system/workspaces/SystemWorkspaceNewRoute.svelte"
   import WorkspaceAgentBindingDetailRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingDetailRoute.svelte"
   import WorkspaceAgentBindingListRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingListRoute.svelte"
   import WorkspaceAgentBindingNewRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingNewRoute.svelte"
@@ -115,6 +117,10 @@
   <SystemGrantsRoute />
 {:else if owner === "system-overview"}
   <SystemOverviewRoute />
+{:else if owner === "system-workspaces"}
+  <SystemWorkspacesRoute />
+{:else if owner === "system-workspace-new"}
+  <SystemWorkspaceNewRoute />
 {:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute
   />
 {:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute

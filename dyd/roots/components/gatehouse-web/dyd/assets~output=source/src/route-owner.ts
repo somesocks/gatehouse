@@ -27,6 +27,8 @@ export type RouteOwner =
   | "storage-provider-list"
   | "storage-provider-new"
   | "storage-provider-detail"
+  | "system-workspaces"
+  | "system-workspace-new"
   | "workspace-agent-binding-list"
   | "workspace-agent-binding-new"
   | "workspace-agent-binding-detail"
@@ -115,6 +117,10 @@ export function routeOwner(route: Route): RouteOwner {
       return "storage-provider-new"
     case "system-storage-provider":
       return "storage-provider-detail"
+    case "system-workspaces":
+      return "system-workspaces"
+    case "system-workspace-new":
+      return "system-workspace-new"
     case "system-workspace-agent-bindings":
       return "workspace-agent-binding-list"
     case "system-workspace-agent-binding-new":

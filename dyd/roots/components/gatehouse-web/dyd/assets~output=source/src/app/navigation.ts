@@ -139,6 +139,12 @@ export function systemNavigation(
       icon: "storage-providers",
     },
     {
+      key: "workspaces",
+      label: "Workspaces",
+      path: "/workspaces",
+      icon: "workspaces",
+    },
+    {
       key: "workspace-agent-bindings",
       label: "Workspace agent bindings",
       path: "/workspace-agent-bindings",

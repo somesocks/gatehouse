@@ -52,6 +52,16 @@ export type SystemStorageProvider = {
   credential_configured: boolean
   enabled: boolean
 }
+export type SystemWorkspace = {
+  id: string
+  alias?: string
+  name?: string
+  enabled: boolean
+}
+export type SystemWorkspaceSearchResponse = {
+  workspaces: SystemWorkspace[]
+  next_cursor?: string
+}
 export type TokenBucket = {
   minimum_balance: number
   maximum_balance: number
@@ -69,12 +79,12 @@ export type SystemWorkspaceAgent = {
   alias: string
   model: string
   revision: number
-	label?: string
-	system_prompt?: string
-	prelude?: string
-	rate_limits?: WorkspaceAgentRateLimits
-	default: boolean
-	enabled: boolean
+  label?: string
+  system_prompt?: string
+  prelude?: string
+  rate_limits?: WorkspaceAgentRateLimits
+  default: boolean
+  enabled: boolean
 }
 export type SystemWorkspaceStorageProvider = {
   workspace: string
@@ -96,6 +106,28 @@ export async function systemAdministration(
       body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+}
+
+export async function fetchSystemWorkspaces(
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const parameters = new URLSearchParams({ limit: "50" })
+  if (name.trim() !== "") parameters.set("name", name)
+  if (cursor !== "") parameters.set("cursor", cursor)
+  return await fetch(`/api/v1/system/workspaces?${parameters}`, {
+    credentials: "same-origin",
+    ...(signal === undefined ? {} : { signal }),
+  })
+}
+
+export async function createSystemWorkspace(input: {
+  alias: string
+  name?: string
+  enabled: boolean
+}): Promise<Response> {
+  return await systemAdministration("workspaces", "POST", input)
 }
 
 export async function fetchSystemGrants(): Promise<Response> {
