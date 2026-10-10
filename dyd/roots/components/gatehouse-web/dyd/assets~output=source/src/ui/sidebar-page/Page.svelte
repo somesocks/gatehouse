@@ -8,6 +8,7 @@
 </script>
 
 <Inset
+  class="min-h-0 min-w-0"
   bind:ref={
     () => element ?? null,
     (value) => {

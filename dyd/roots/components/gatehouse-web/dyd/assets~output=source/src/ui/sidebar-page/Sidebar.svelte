@@ -4,4 +4,4 @@
   let { children }: { children: Snippet } = $props()
 </script>
 
-<Root collapsible="offcanvas">{@render children()}</Root>
+<Root variant="inset" collapsible="offcanvas">{@render children()}</Root>

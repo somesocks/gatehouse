@@ -1,11 +1,23 @@
 <script lang="ts">
+  import {
+    Bot,
+    Cpu,
+    Database,
+    FolderKanban,
+    HardDrive,
+    House,
+    MessagesSquare,
+    Network,
+    ShieldCheck,
+    UserRound,
+    UsersRound,
+  } from "@lucide/svelte"
   import * as Sidebar from "../lib/vendor/shadcn/sidebar"
   import RouterLink from "./RouterLink.svelte"
   import Heading from "./Heading.svelte"
-  import Text from "./Text.svelte"
-  import { Button } from "../lib/vendor/shadcn/button"
   import WorkspaceSwitcher from "./WorkspaceSwitcher.svelte"
-  import type { NavigationOptions } from "./navigation"
+  import SidebarUser from "./SidebarUser.svelte"
+  import type { NavigationIcon, NavigationOptions } from "./navigation"
   let {
     title,
     sections,
@@ -13,6 +25,20 @@
     user,
     onSignOut,
   }: NavigationOptions = $props()
+
+  const icons = {
+    overview: House,
+    chats: MessagesSquare,
+    projects: FolderKanban,
+    groups: UsersRound,
+    principals: UserRound,
+    grants: ShieldCheck,
+    "agent-providers": Bot,
+    "agent-models": Cpu,
+    "storage-providers": Database,
+    "workspace-agent-bindings": Network,
+    "workspace-storage-bindings": HardDrive,
+  } satisfies Record<NavigationIcon, unknown>
 </script>
 
 <Sidebar.Header>
@@ -35,19 +61,24 @@
         >
           <Sidebar.Menu>
             {#each section.items as item (item.href)}
+              {@const Icon = icons[item.icon]}
               <Sidebar.MenuItem>
                 <Sidebar.MenuButton
                   isActive={item.active}
-                  class="data-active:bg-transparent data-active:text-sidebar-primary hover:bg-transparent"
+                  class="data-active:bg-transparent data-active:text-sidebar-foreground hover:bg-transparent"
                 >
                   {#snippet child({ props })}
                     <RouterLink
                       {...props}
                       href={item.href}
+                      variant="navigation"
                       aria-current={item.active ? "page" : undefined}
                       target={item.external ? "_blank" : undefined}
                       rel={item.external ? "noopener noreferrer" : undefined}
-                      >{item.label}</RouterLink
+                      ><Icon
+                        class="size-4 shrink-0"
+                        aria-hidden="true"
+                      />{item.label}</RouterLink
                     >
                   {/snippet}
                 </Sidebar.MenuButton>
@@ -60,10 +91,5 @@
   {/each}
 </Sidebar.Content>
 <Sidebar.Footer>
-  {#if user}<Text size="small">{user}</Text>{/if}
-  {#if onSignOut}<Button
-      variant="outline"
-      size="sm"
-      onclick={() => void onSignOut?.()}>Log out</Button
-    >{/if}
+  {#if user && onSignOut}<SidebarUser {user} {onSignOut} />{/if}
 </Sidebar.Footer>

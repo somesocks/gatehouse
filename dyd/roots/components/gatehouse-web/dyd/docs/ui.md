@@ -22,6 +22,13 @@ which otherwise makes every input repaint reprocess the page behind the modal.
 
 The AST-based `src/ui/architecture.test.ts` checks this boundary for every page,
 the access gate, the application entry point, and the standalone file picker.
+Workspace and system pages use the shadcn inset sidebar shell. The workspace
+switcher stays in the sidebar header on both page families; with system access,
+it offers a System administration destination after the workspace list. Sidebar
+destinations have Lucide icons; view breadcrumbs and controls stay in the compact
+page header. The chat shell is bounded to the viewport, with scrolling contained
+to its message feed so the header and composer remain stationary. The sidebar
+footer presents the signed-in user name and sign-out action in a dropdown.
 
 ## Theming
 

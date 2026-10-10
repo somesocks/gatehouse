@@ -7,7 +7,9 @@
 </script>
 
 <header
-  class="sticky top-0 z-20 flex min-h-14 flex-wrap items-center gap-3 border-b bg-background px-6 py-3"
+  class="sticky top-0 z-20 flex h-16 shrink-0 items-center bg-background md:rounded-t-xl"
 >
-  {@render children()}
+  <div class="flex w-full min-w-0 items-center gap-2 px-4">
+    {@render children()}
+  </div>
 </header>

@@ -2,11 +2,38 @@ import type { Workspace } from "./access"
 import { signOut } from "./auth"
 import { updateChatSession } from "./chat"
 import type { ApplicationRuntime } from "./runtime.svelte"
-import type { NavigationOptions } from "../ui/navigation"
+import type { NavigationIcon, NavigationOptions } from "../ui/navigation"
+
+function workspaceSwitcher(
+  runtime: ApplicationRuntime,
+  currentID: string | null,
+  currentName: string,
+  administrationActive = false,
+) {
+  return {
+    currentID,
+    currentName,
+    workspaces: runtime.access.state.workspaces.map((item) => ({
+      id: item.id,
+      name: item.name ?? "Workspace",
+    })),
+    onSelect: (workspaceID: string) =>
+      runtime.navigate(`/app/wsp/${encodeURIComponent(workspaceID)}`),
+    administration:
+      runtime.access.state.systemAccess === "available"
+        ? {
+            active: administrationActive,
+            onSelect: () => runtime.navigate("/app/system"),
+          }
+        : undefined,
+  }
+}
 
 function account(runtime: ApplicationRuntime) {
   return {
-    user: runtime.auth.state.claims?.principal.name ?? "User",
+    user: {
+      name: runtime.auth.state.claims?.principal.name ?? "User",
+    },
     onSignOut: async () => {
       try {
         await signOut()
@@ -25,38 +52,41 @@ export function workspaceNavigation(
   const base = `/app/wsp/${encodeURIComponent(workspace.id)}`
   return {
     title: workspace.name ?? workspace.id,
-    workspaceSwitcher: {
-      currentID: workspace.id,
-      currentName: workspace.name ?? "Workspace",
-      workspaces: runtime.access.state.workspaces.map((item) => ({
-        id: item.id,
-        name: item.name ?? "Workspace",
-      })),
-      onSelect: (workspaceID) =>
-        runtime.navigate(`/app/wsp/${encodeURIComponent(workspaceID)}`),
-    },
+    workspaceSwitcher: workspaceSwitcher(
+      runtime,
+      workspace.id,
+      workspace.name ?? "Workspace",
+    ),
     sections: [
       {
         title: "Workspace",
         items: [
-          { label: "Overview", href: base, active: active === undefined },
-          { label: "Chats", href: `${base}/ses`, active: active === "chats" },
+          {
+            label: "Overview",
+            href: base,
+            icon: "overview",
+            active: active === undefined,
+          },
+          {
+            label: "Chats",
+            href: `${base}/ses`,
+            icon: "chats",
+            active: active === "chats",
+          },
           {
             label: "Projects",
             href: `${base}/prj`,
+            icon: "projects",
             active: active === "projects",
           },
-          { label: "Groups", href: `${base}/grp`, active: active === "groups" },
+          {
+            label: "Groups",
+            href: `${base}/grp`,
+            icon: "groups",
+            active: active === "groups",
+          },
         ],
       },
-      ...(runtime.access.state.systemAccess === "available"
-        ? [
-            {
-              title: "Administration",
-              items: [{ label: "System", href: "/app/system", external: true }],
-            },
-          ]
-        : []),
     ],
     ...account(runtime),
   }
@@ -66,31 +96,75 @@ export function systemNavigation(
   runtime: ApplicationRuntime,
   active: string,
 ): NavigationOptions {
-  const items = [
-    ["overview", "Overview", ""],
-    ["principals", "Principals", "/principals"],
-    ["grants", "System grants", "/grants"],
-    ["agent-providers", "Agent providers", "/agent-providers"],
-    ["agent-models", "Agent models", "/agent-models"],
-    ["storage-providers", "Storage providers", "/storage-providers"],
-    [
-      "workspace-agent-bindings",
-      "Workspace agent bindings",
-      "/workspace-agent-bindings",
-    ],
-    [
-      "workspace-storage-bindings",
-      "Workspace storage bindings",
-      "/workspace-storage-bindings",
-    ],
+  const items: {
+    key: string
+    label: string
+    path: string
+    icon: NavigationIcon
+  }[] = [
+    {
+      key: "overview",
+      label: "Overview",
+      path: "",
+      icon: "overview",
+    },
+    {
+      key: "principals",
+      label: "Principals",
+      path: "/principals",
+      icon: "principals",
+    },
+    {
+      key: "grants",
+      label: "System grants",
+      path: "/grants",
+      icon: "grants",
+    },
+    {
+      key: "agent-providers",
+      label: "Agent providers",
+      path: "/agent-providers",
+      icon: "agent-providers",
+    },
+    {
+      key: "agent-models",
+      label: "Agent models",
+      path: "/agent-models",
+      icon: "agent-models",
+    },
+    {
+      key: "storage-providers",
+      label: "Storage providers",
+      path: "/storage-providers",
+      icon: "storage-providers",
+    },
+    {
+      key: "workspace-agent-bindings",
+      label: "Workspace agent bindings",
+      path: "/workspace-agent-bindings",
+      icon: "workspace-agent-bindings",
+    },
+    {
+      key: "workspace-storage-bindings",
+      label: "Workspace storage bindings",
+      path: "/workspace-storage-bindings",
+      icon: "workspace-storage-bindings",
+    },
   ]
   return {
-    title: "System",
+    title: "System administration",
+    workspaceSwitcher: workspaceSwitcher(
+      runtime,
+      null,
+      "System administration",
+      true,
+    ),
     sections: [
       {
-        items: items.map(([key, label, path]) => ({
+        items: items.map(({ key, label, path, icon }) => ({
           label,
           href: `/app/system${path}`,
+          icon,
           active: active === key,
         })),
       },

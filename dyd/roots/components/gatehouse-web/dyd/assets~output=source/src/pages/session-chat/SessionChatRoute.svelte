@@ -74,6 +74,7 @@
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   let sessionStatus = $state<Status>("checking")
+  let feedElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let mentionSearchInputElement = $state<HTMLInputElement | undefined>()
@@ -120,9 +121,9 @@
   }
 
   function isNearBottom(): boolean {
-    const scrollingElement = document.scrollingElement
+    const scrollingElement = feedElement
     return (
-      scrollingElement === null ||
+      scrollingElement === undefined ||
       scrollingElement.scrollHeight -
         scrollingElement.scrollTop -
         scrollingElement.clientHeight <
@@ -138,7 +139,7 @@
       document.activeElement.closest("[data-input-form]") !== null
     )
       return
-    const scrollingElement = document.scrollingElement
+    const scrollingElement = feedElement
     scrollingElement?.scrollTo({
       top: scrollingElement.scrollHeight,
       behavior,
@@ -209,12 +210,6 @@
   $effect(() => {
     if (controller.state.authenticationRequired) runtime.requireLogin()
   })
-  $effect(() => {
-    const track = () => controller.trackScroll()
-    window.addEventListener("scroll", track, { passive: true })
-    return () => window.removeEventListener("scroll", track)
-  })
-
   onMount(() => {
     const copyCodeBlock = (event: MouseEvent) => {
       if (!(event.target instanceof Element)) return
@@ -569,7 +564,7 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <SidebarPage.Root>
+  <SidebarPage.Root viewport>
     <SidebarPage.Sidebar
       ><UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
@@ -615,7 +610,7 @@
               )}
           />{/if}
       </SidebarPage.Header>
-      <SidebarPage.Body padding="none">
+      <SidebarPage.Body padding="none" scroll="contained">
         {#if sessionStatus === "unavailable"}<UI.Text as="p" tone="muted">
             This chat could not be loaded.
           </UI.Text>
@@ -627,6 +622,7 @@
             >Try again</UI.Button
           >
         {:else if sessionStatus === "checking" || controller.state.status === "checking"}<UI.Feed
+            bind:element={feedElement}
             data-loading
             aria-busy="true"
             aria-live="polite"
@@ -638,7 +634,11 @@
             >
           </UI.Feed>
         {:else if session !== null}
-          <UI.Feed aria-live="polite">
+          <UI.Feed
+            bind:element={feedElement}
+            aria-live="polite"
+            onscroll={() => controller.trackScroll()}
+          >
             {#if controller.state.status === "unavailable"}<UI.Text
                 as="p"
                 tone="muted"
