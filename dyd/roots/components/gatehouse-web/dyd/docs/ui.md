@@ -29,6 +29,7 @@ destinations have Lucide icons; view breadcrumbs and controls stay in the compac
 page header. The chat shell is bounded to the viewport, with scrolling contained
 to its message feed so the header and composer remain stationary. The sidebar
 footer presents the signed-in user name and sign-out action in a dropdown.
+Login and full-page loading states use the centered muted-surface card layout.
 
 ## Theming
 

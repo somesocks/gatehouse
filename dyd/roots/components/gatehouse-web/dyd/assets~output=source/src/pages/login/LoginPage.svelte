@@ -11,7 +11,9 @@
 </script>
 
 <StatusPage
-  eyebrow="Gatehouse"
+  brand="Gatehouse"
+  width="sm"
+  centered
   title="Welcome back."
   description="Sign in to continue to your workspace."
 >
