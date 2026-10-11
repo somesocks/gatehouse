@@ -51,6 +51,7 @@ type SystemAgentModel struct {
 	Alias           string  `json:"alias"`
 	Revision        int     `json:"revision"`
 	ProviderID      string  `json:"provider"`
+	ProviderAlias   *string `json:"provider_alias,omitempty"`
 	Model           string  `json:"model"`
 	Parameters      string  `json:"parameters"`
 	Compaction      string  `json:"compaction"`
@@ -75,6 +76,7 @@ type SystemWorkspaceAgent struct {
 	WorkspaceID  string                           `json:"workspace"`
 	Alias        string                           `json:"alias"`
 	ModelID      string                           `json:"model"`
+	ModelAlias   *string                          `json:"model_alias,omitempty"`
 	Revision     int                              `json:"revision"`
 	Label        *string                          `json:"label,omitempty"`
 	SystemPrompt *string                          `json:"system_prompt,omitempty"`
@@ -93,6 +95,68 @@ type SystemWorkspaceAgentInput struct {
 	RateLimits   *config.WorkspaceAgentRateLimits
 	Default      bool
 	Enabled      bool
+}
+
+type SystemWorkspaceAgentSearch struct {
+	WorkspaceID string
+	Name        string
+	Cursor      string
+	Limit       int
+}
+
+func (store *Store) SystemWorkspaceAgentsSearch(ctx context.Context, search SystemWorkspaceAgentSearch) (error, []SystemWorkspaceAgent, string) {
+	if !typed_id.Valid(typed_id.Workspace, search.WorkspaceID) {
+		return nil, nil, ""
+	}
+	if search.Limit < 1 || search.Limit > 100 {
+		return fmt.Errorf("search system workspace agents: limit must be between 1 and 100"), nil, ""
+	}
+	if search.Cursor != "" && !typed_id.Valid(typed_id.WorkspaceAgent, search.Cursor) {
+		return fmt.Errorf("search system workspace agents: cursor is invalid"), nil, ""
+	}
+	query := strings.TrimSpace(search.Name)
+	if len(query) > 256 {
+		return fmt.Errorf("search system workspace agents: query is too long"), nil, ""
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT agents.id, workspace_id, agents.alias, model_id, agents.revision, label, system_prompt, prelude, rate_limits, "default", agents.enabled, models.alias
+		FROM gatehouse_workspace_agents AS agents
+		JOIN gatehouse_agent_models AS models ON models.id = agents.model_id
+		WHERE workspace_id = `+placeholder(1)+`
+			AND (
+				LOWER(agents.alias) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
+				OR LOWER(COALESCE(label, '')) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'
+				OR LOWER(models.alias || ' ' || model_id) LIKE LOWER(`+placeholder(4)+`) ESCAPE '\'
+				OR LOWER(agents.id) LIKE LOWER(`+placeholder(5)+`) ESCAPE '\'
+			)
+			AND (`+placeholder(6)+` = '' OR agents.id < `+placeholder(7)+`)
+		ORDER BY agents.id DESC
+		LIMIT `+placeholder(8)+`
+	`, search.WorkspaceID, pattern, pattern, pattern, pattern, search.Cursor, search.Cursor, search.Limit+1)
+	if err != nil {
+		return fmt.Errorf("search system workspace agents: %w", err), nil, ""
+	}
+	defer rows.Close()
+	agents := []SystemWorkspaceAgent{}
+	for rows.Next() {
+		var modelAlias string
+		agent, err := scanSystemWorkspaceAgent(rows, &modelAlias)
+		if err != nil {
+			return err, nil, ""
+		}
+		agent.ModelAlias = &modelAlias
+		agents = append(agents, agent)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate system workspace agents: %w", err), nil, ""
+	}
+	if len(agents) <= search.Limit {
+		return nil, agents, ""
+	}
+	nextCursor := agents[search.Limit-1].ID
+	return nil, agents[:search.Limit], nextCursor
 }
 
 func (store *Store) SystemAgentProvidersGet(ctx context.Context) (error, []SystemAgentProvider) {
@@ -369,26 +433,6 @@ func (store *Store) SystemAgentModelUpdate(ctx context.Context, id string, expec
 	return store.SystemAgentModelGet(ctx, id)
 }
 
-func (store *Store) SystemWorkspaceAgentsGet(ctx context.Context) (error, []SystemWorkspaceAgent) {
-	rows, err := store.QueryContext(ctx, `SELECT id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled FROM gatehouse_workspace_agents ORDER BY workspace_id, id`)
-	if err != nil {
-		return fmt.Errorf("list system workspace agents: %w", err), nil
-	}
-	defer rows.Close()
-	bindings := []SystemWorkspaceAgent{}
-	for rows.Next() {
-		binding, err := scanSystemWorkspaceAgent(rows)
-		if err != nil {
-			return err, nil
-		}
-		bindings = append(bindings, binding)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate system workspace agents: %w", err), nil
-	}
-	return nil, bindings
-}
-
 func (store *Store) SystemWorkspaceAgentGet(ctx context.Context, workspaceID, bindingID string) (error, *SystemWorkspaceAgent) {
 	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.WorkspaceAgent, bindingID) {
 		return nil, nil
@@ -531,10 +575,14 @@ func scanSystemAgentModel(row interface{ Scan(...any) error }) (SystemAgentModel
 	return value, nil
 }
 
-func scanSystemWorkspaceAgent(row interface{ Scan(...any) error }) (SystemWorkspaceAgent, error) {
+func scanSystemWorkspaceAgent(row interface{ Scan(...any) error }, extra ...*string) (SystemWorkspaceAgent, error) {
 	var value SystemWorkspaceAgent
 	var label, prompt, prelude, rateLimits sql.NullString
-	if err := row.Scan(&value.ID, &value.WorkspaceID, &value.Alias, &value.ModelID, &value.Revision, &label, &prompt, &prelude, &rateLimits, &value.Default, &value.Enabled); err != nil {
+	targets := []any{&value.ID, &value.WorkspaceID, &value.Alias, &value.ModelID, &value.Revision, &label, &prompt, &prelude, &rateLimits, &value.Default, &value.Enabled}
+	for _, target := range extra {
+		targets = append(targets, target)
+	}
+	if err := row.Scan(targets...); err != nil {
 		return SystemWorkspaceAgent{}, err
 	}
 	if label.Valid {

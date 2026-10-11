@@ -21,6 +21,7 @@ func systemGrants(store *database.Store, tokens *auth.BearerTokens) http.Handler
 		claims, ok := authenticate(response, request, tokens)
 		if !ok || !systemActionAllowed(response, request, store, claims, authz.SystemManage) { return }
 		if request.Method == http.MethodGet {
+			if request.URL.Query().Has("limit") { systemGrantsSearch(response,request,store); return }
 			err, grants := store.SystemGrantsGet(request.Context())
 			if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
 			writeJSON(response, grants)

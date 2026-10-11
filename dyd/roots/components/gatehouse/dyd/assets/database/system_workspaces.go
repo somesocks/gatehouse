@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"strings"
 
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
 
 var (
-	ErrWorkspaceAliasInvalid = errors.New("workspace alias is invalid")
-	ErrWorkspaceAliasExists  = errors.New("workspace alias already exists")
-	ErrWorkspaceNameInvalid  = errors.New("workspace name is invalid")
+	ErrWorkspaceAliasInvalid           = errors.New("workspace alias is invalid")
+	ErrWorkspaceAliasExists            = errors.New("workspace alias already exists")
+	ErrWorkspaceNameInvalid            = errors.New("workspace name is invalid")
+	ErrWorkspaceGrantPrincipalNotFound = errors.New("workspace grant principal not found")
+	ErrWorkspaceGrantAlreadyExists     = errors.New("workspace grant already exists")
+	ErrWorkspaceGrantRoleInvalid       = errors.New("workspace grant role is invalid")
 )
 
 type SystemWorkspace struct {
@@ -29,6 +33,317 @@ type SystemWorkspaceSearch struct {
 	Name   string
 	Cursor string
 	Limit  int
+}
+
+type SystemWorkspacePrincipal struct {
+	ID      string       `json:"id"`
+	Alias   *string      `json:"alias,omitempty"`
+	Name    *string      `json:"name,omitempty"`
+	Enabled bool         `json:"enabled"`
+	Roles   []authz.Role `json:"roles"`
+}
+
+type SystemWorkspacePrincipalOption struct {
+	ID      string  `json:"id"`
+	Alias   *string `json:"alias,omitempty"`
+	Name    *string `json:"name,omitempty"`
+	Enabled bool    `json:"enabled"`
+}
+
+type SystemWorkspacePrincipalSearch struct {
+	WorkspaceID string
+	Name        string
+	Cursor      string
+	Limit       int
+}
+
+type SystemWorkspacePrincipalGrant struct {
+	ID        string     `json:"id"`
+	Workspace string     `json:"workspace"`
+	Principal string     `json:"principal"`
+	Role      authz.Role `json:"role"`
+	Enabled   bool       `json:"enabled"`
+	Revision  int        `json:"revision"`
+}
+
+func (store *Store) SystemWorkspacePrincipalsSearch(ctx context.Context, search SystemWorkspacePrincipalSearch) (error, []SystemWorkspacePrincipal, string) {
+	if !typed_id.Valid(typed_id.Workspace, search.WorkspaceID) {
+		return nil, nil, ""
+	}
+	if search.Limit < 1 || search.Limit > 100 {
+		return fmt.Errorf("search system workspace principals: limit must be between 1 and 100"), nil, ""
+	}
+	if search.Cursor != "" && !typed_id.Valid(typed_id.Principal, search.Cursor) {
+		return fmt.Errorf("search system workspace principals: cursor is invalid"), nil, ""
+	}
+	query := strings.TrimSpace(search.Name)
+	if len(query) > 256 {
+		return fmt.Errorf("search system workspace principals: query is too long"), nil, ""
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		WITH page AS (
+			SELECT principals.id
+			FROM gatehouse_principals AS principals
+			WHERE EXISTS (
+				SELECT 1 FROM gatehouse_workspace_grants AS grants
+				WHERE grants.workspace = `+placeholder(1)+`
+					AND grants.principal = principals.id
+					AND grants.enabled = TRUE
+			)
+				AND (
+					LOWER(COALESCE(principals.alias, '')) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
+					OR LOWER(COALESCE(principals.name, '')) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'
+					OR LOWER(principals.id) LIKE LOWER(`+placeholder(4)+`) ESCAPE '\'
+				)
+				AND (`+placeholder(5)+` = '' OR principals.id < `+placeholder(6)+`)
+			ORDER BY principals.id DESC
+			LIMIT `+placeholder(7)+`
+		)
+		SELECT principals.id, principals.alias, principals.name, principals.enabled, grants.role
+		FROM page
+		JOIN gatehouse_principals AS principals ON principals.id = page.id
+		JOIN gatehouse_workspace_grants AS grants
+			ON grants.workspace = `+placeholder(8)+`
+			AND grants.principal = principals.id
+			AND grants.enabled = TRUE
+		ORDER BY principals.id DESC, grants.role
+	`, search.WorkspaceID, pattern, pattern, pattern, search.Cursor, search.Cursor, search.Limit+1, search.WorkspaceID)
+	if err != nil {
+		return fmt.Errorf("search system workspace principals: %w", err), nil, ""
+	}
+	defer rows.Close()
+
+	principals := []SystemWorkspacePrincipal{}
+	var nextCursor string
+	for rows.Next() {
+		var principal SystemWorkspacePrincipal
+		var alias, name sql.NullString
+		var role authz.Role
+		if err := rows.Scan(&principal.ID, &alias, &name, &principal.Enabled, &role); err != nil {
+			return fmt.Errorf("scan system workspace principal: %w", err), nil, ""
+		}
+		if len(principals) > 0 && principals[len(principals)-1].ID == principal.ID {
+			principals[len(principals)-1].Roles = append(principals[len(principals)-1].Roles, role)
+			continue
+		}
+		if len(principals) == search.Limit {
+			nextCursor = principals[len(principals)-1].ID
+			break
+		}
+		if alias.Valid {
+			principal.Alias = &alias.String
+		}
+		if name.Valid {
+			principal.Name = &name.String
+		}
+		principal.Roles = []authz.Role{role}
+		principals = append(principals, principal)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate system workspace principals: %w", err), nil, ""
+	}
+	return nil, principals, nextCursor
+}
+
+func (store *Store) SystemWorkspacePrincipalOptionsSearch(ctx context.Context, search SystemWorkspacePrincipalSearch) (error, []SystemWorkspacePrincipalOption, string) {
+	if !typed_id.Valid(typed_id.Workspace, search.WorkspaceID) {
+		return nil, nil, ""
+	}
+	if search.Limit < 1 || search.Limit > 100 {
+		return fmt.Errorf("search system workspace principal options: limit must be between 1 and 100"), nil, ""
+	}
+	if search.Cursor != "" && !typed_id.Valid(typed_id.Principal, search.Cursor) {
+		return fmt.Errorf("search system workspace principal options: cursor is invalid"), nil, ""
+	}
+	query := strings.TrimSpace(search.Name)
+	if len(query) > 256 {
+		return fmt.Errorf("search system workspace principal options: query is too long"), nil, ""
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT principals.id, principals.alias, principals.name, principals.enabled
+		FROM gatehouse_principals AS principals
+		WHERE (
+			LOWER(COALESCE(principals.alias, '')) LIKE LOWER(`+placeholder(1)+`) ESCAPE '\'
+			OR LOWER(COALESCE(principals.name, '')) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
+			OR LOWER(principals.id) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'
+		)
+			AND (`+placeholder(4)+` = '' OR principals.id < `+placeholder(5)+`)
+		ORDER BY principals.id DESC
+		LIMIT `+placeholder(6)+`
+	`, pattern, pattern, pattern, search.Cursor, search.Cursor, search.Limit+1)
+	if err != nil {
+		return fmt.Errorf("search system workspace principal options: %w", err), nil, ""
+	}
+	defer rows.Close()
+
+	principals := []SystemWorkspacePrincipalOption{}
+	for rows.Next() {
+		var principal SystemWorkspacePrincipalOption
+		var alias, name sql.NullString
+		if err := rows.Scan(&principal.ID, &alias, &name, &principal.Enabled); err != nil {
+			return fmt.Errorf("scan system workspace principal option: %w", err), nil, ""
+		}
+		if alias.Valid {
+			principal.Alias = &alias.String
+		}
+		if name.Valid {
+			principal.Name = &name.String
+		}
+		principals = append(principals, principal)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate system workspace principal options: %w", err), nil, ""
+	}
+	if len(principals) <= search.Limit {
+		return nil, principals, ""
+	}
+	nextCursor := principals[search.Limit-1].ID
+	return nil, principals[:search.Limit], nextCursor
+}
+
+func (store *Store) SystemWorkspacePrincipalGrantCreate(ctx context.Context, workspaceID, principalID string, role authz.Role) (error, *SystemWorkspacePrincipalGrant) {
+	if !typed_id.Valid(typed_id.Workspace, workspaceID) {
+		return nil, nil
+	}
+	if !authz.ValidRole(string(role)) {
+		return ErrWorkspaceGrantRoleInvalid, nil
+	}
+	if !typed_id.Valid(typed_id.Principal, principalID) {
+		return nil, nil
+	}
+	grantID, err := typed_id.New(typed_id.WorkspaceGrant)
+	if err != nil {
+		return fmt.Errorf("generate workspace grant ID: %w", err), nil
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace grant creation: %w", err), nil
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	var workspaceExists, principalExists bool
+	if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_workspaces WHERE id = `+placeholder(1)+`)`, workspaceID).Scan(&workspaceExists); err != nil {
+		return fmt.Errorf("check workspace grant workspace: %w", err), nil
+	}
+	if !workspaceExists {
+		return nil, nil
+	}
+	if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_principals WHERE id = `+placeholder(1)+`)`, principalID).Scan(&principalExists); err != nil {
+		return fmt.Errorf("check workspace grant principal: %w", err), nil
+	}
+	if !principalExists {
+		return ErrWorkspaceGrantPrincipalNotFound, nil
+	}
+
+	grant := SystemWorkspacePrincipalGrant{ID: grantID, Workspace: workspaceID, Principal: principalID, Role: role, Enabled: true, Revision: 1}
+	err = transaction.QueryRowContext(ctx, `
+		INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, TRUE, 1)
+		ON CONFLICT (workspace, role, principal) WHERE principal IS NOT NULL DO UPDATE
+		SET enabled = TRUE, revision = gatehouse_workspace_grants.revision + 1
+		WHERE gatehouse_workspace_grants.enabled = FALSE
+		RETURNING id, revision
+	`, grant.ID, grant.Workspace, grant.Role, grant.Principal).Scan(&grant.ID, &grant.Revision)
+	if err == sql.ErrNoRows {
+		return ErrWorkspaceGrantAlreadyExists, nil
+	}
+	if err != nil {
+		return fmt.Errorf("insert or re-enable workspace grant: %w", err), nil
+	}
+
+	event := "workspace_grant.create"
+	if grant.Revision > 1 {
+		event = "workspace_grant.update"
+	}
+	workspaceRef := model.WorkspaceRef{Id: workspaceID}
+	principalRef := model.PrincipalRef{Id: principalID}
+	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		Event:                  event,
+		ResourceKind:           ActivityResourceKindWorkspaceGrant,
+		ResourceWorkspaceGrant: &grant.ID,
+	}, []string{ActivityTopicWorkspaceGrant(workspaceRef, grant.ID), ActivityTopicPrincipalGrant(principalRef, grant.ID)}); err != nil {
+		return fmt.Errorf("append workspace grant activity: %w", err), nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit workspace grant creation: %w", err), nil
+	}
+	return nil, &grant
+}
+
+func (store *Store) SystemWorkspacePrincipalGrantsRemove(ctx context.Context, workspaceID, principalID string) (error, bool) {
+	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.Principal, principalID) {
+		return nil, false
+	}
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin workspace grant removal: %w", err), false
+	}
+	defer transaction.Rollback()
+	placeholder := keychainPlaceholder(store.kind)
+	var workspaceExists, principalExists bool
+	if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_workspaces WHERE id = `+placeholder(1)+`)`, workspaceID).Scan(&workspaceExists); err != nil {
+		return fmt.Errorf("check workspace for grant removal: %w", err), false
+	}
+	if !workspaceExists {
+		return nil, false
+	}
+	if err := transaction.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_principals WHERE id = `+placeholder(1)+`)`, principalID).Scan(&principalExists); err != nil {
+		return fmt.Errorf("check principal for grant removal: %w", err), false
+	}
+	if !principalExists {
+		return nil, false
+	}
+	rows, err := transaction.QueryContext(ctx, `
+		SELECT id, role, revision FROM gatehouse_workspace_grants
+		WHERE workspace = `+placeholder(1)+` AND principal = `+placeholder(2)+` AND enabled = TRUE
+	`, workspaceID, principalID)
+	if err != nil {
+		return fmt.Errorf("get workspace grants for removal: %w", err), false
+	}
+	type grantRevision struct {
+		id       string
+		role     authz.Role
+		revision int
+	}
+	grants := []grantRevision{}
+	for rows.Next() {
+		var grant grantRevision
+		if err := rows.Scan(&grant.id, &grant.role, &grant.revision); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan workspace grant for removal: %w", err), false
+		}
+		grants = append(grants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate workspace grants for removal: %w", err), false
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close workspace grants for removal: %w", err), false
+	}
+	workspaceRef := model.WorkspaceRef{Id: workspaceID}
+	principalRef := model.PrincipalRef{Id: principalID}
+	for _, grant := range grants {
+		revision := grant.revision + 1
+		if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_grants SET enabled = FALSE, revision = `+placeholder(1)+` WHERE id = `+placeholder(2), revision, grant.id); err != nil {
+			return fmt.Errorf("disable workspace grant: %w", err), false
+		}
+		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+			Event:                  "workspace_grant.update",
+			ResourceKind:           ActivityResourceKindWorkspaceGrant,
+			ResourceWorkspaceGrant: &grant.id,
+		}, []string{ActivityTopicWorkspaceGrant(workspaceRef, grant.id), ActivityTopicPrincipalGrant(principalRef, grant.id)}); err != nil {
+			return fmt.Errorf("append workspace grant removal activity: %w", err), false
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit workspace grant removal: %w", err), false
+	}
+	return nil, true
 }
 
 func (store *Store) SystemWorkspacesSearch(ctx context.Context, search SystemWorkspaceSearch) (error, []SystemWorkspace, string) {

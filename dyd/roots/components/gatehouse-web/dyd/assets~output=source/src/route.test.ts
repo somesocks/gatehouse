@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseRoute, routePath } from "./route"
+import { legacySystemRedirect, parseRoute, routePath } from "./route"
 import type { NavigableRoute } from "./route"
 
 const origin = "https://gatehouse.test"
@@ -9,6 +9,18 @@ function url(path: string): URL {
 }
 
 describe("routes", () => {
+  it("round-trips separate global edit and access workflows", () => {
+    const routes: NavigableRoute[] = [
+      { kind: "system-agent-provider-edit", providerID: "apr_test" },
+      { kind: "system-agent-model-edit", modelID: "amd_test" },
+      { kind: "system-storage-provider-edit", providerID: "stp_test" },
+      { kind: "system-principal", principalID: "prn_test" },
+      { kind: "system-principal-edit", principalID: "prn_test" },
+      { kind: "system-grant-new" },
+    ]
+    for (const route of routes)
+      expect(parseRoute(url(routePath(route)))).toEqual(route)
+  })
   const cases: { path: string; route: NavigableRoute; canonical?: string }[] = [
     { path: "/app/", route: { kind: "app-home" } },
     {
@@ -68,12 +80,79 @@ describe("routes", () => {
       route: { kind: "system-workspace", workspaceID: "wsp_01abc" },
     },
     {
-      path: "/app/system/workspace-agent-bindings",
-      route: { kind: "system-workspace-agent-bindings" },
+      path: "/app/system/workspaces/wsp_01abc/edit",
+      route: { kind: "system-workspace-edit", workspaceID: "wsp_01abc" },
     },
     {
-      path: "/app/system/workspace-agent-bindings/new",
-      route: { kind: "system-workspace-agent-binding-new" },
+      path: "/app/system/workspaces/wsp_01abc/principals",
+      route: { kind: "system-workspace-principals", workspaceID: "wsp_01abc" },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/principals/new",
+      route: {
+        kind: "system-workspace-principal-new",
+        workspaceID: "wsp_01abc",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/agent-bindings",
+      route: {
+        kind: "system-workspace-agent-bindings",
+        workspaceID: "wsp_01abc",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/agent-bindings/new",
+      route: {
+        kind: "system-workspace-agent-binding-new",
+        workspaceID: "wsp_01abc",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/agent-bindings/wag_1",
+      route: {
+        kind: "system-workspace-agent-binding",
+        workspaceID: "wsp_01abc",
+        bindingID: "wag_1",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/agent-bindings/wag_1/edit",
+      route: {
+        kind: "system-workspace-agent-binding-edit",
+        workspaceID: "wsp_01abc",
+        bindingID: "wag_1",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/storage-bindings",
+      route: {
+        kind: "system-workspace-storage-bindings",
+        workspaceID: "wsp_01abc",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/storage-bindings/new",
+      route: {
+        kind: "system-workspace-storage-binding-new",
+        workspaceID: "wsp_01abc",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/storage-bindings/stp_1",
+      route: {
+        kind: "system-workspace-storage-binding",
+        workspaceID: "wsp_01abc",
+        providerID: "stp_1",
+      },
+    },
+    {
+      path: "/app/system/workspaces/wsp_01abc/storage-bindings/stp_1/edit",
+      route: {
+        kind: "system-workspace-storage-binding-edit",
+        workspaceID: "wsp_01abc",
+        providerID: "stp_1",
+      },
     },
     {
       path: "/app/system/workspace-agent-bindings/wsp_a/wag_1",
@@ -82,14 +161,7 @@ describe("routes", () => {
         workspaceID: "wsp_a",
         bindingID: "wag_1",
       },
-    },
-    {
-      path: "/app/system/workspace-storage-bindings",
-      route: { kind: "system-workspace-storage-bindings" },
-    },
-    {
-      path: "/app/system/workspace-storage-bindings/new",
-      route: { kind: "system-workspace-storage-binding-new" },
+      canonical: "/app/system/workspaces/wsp_a/agent-bindings/wag_1",
     },
     {
       path: "/app/system/workspace-storage-bindings/wsp_a/stp_1",
@@ -98,6 +170,7 @@ describe("routes", () => {
         workspaceID: "wsp_a",
         providerID: "stp_1",
       },
+      canonical: "/app/system/workspaces/wsp_a/storage-bindings/stp_1",
     },
     {
       path: "/app/wsp/wsp_a",
@@ -391,6 +464,31 @@ describe("routes", () => {
       expect(routePath(entry.route)).toBe(entry.canonical ?? entry.path)
     })
   }
+
+  it("redirects legacy binding collections to workspace selection", () => {
+    expect(
+      legacySystemRedirect(url("/app/system/workspace-agent-bindings")),
+    ).toBe("/app/system/workspaces")
+    expect(
+      legacySystemRedirect(url("/app/system/workspace-agent-bindings/new")),
+    ).toBe("/app/system/workspaces")
+    expect(
+      legacySystemRedirect(url("/app/system/workspace-storage-bindings")),
+    ).toBe("/app/system/workspaces")
+  })
+
+  it("redirects legacy binding detail URLs into their workspace", () => {
+    expect(
+      legacySystemRedirect(
+        url("/app/system/workspace-agent-bindings/wsp_a/wag_1"),
+      ),
+    ).toBe("/app/system/workspaces/wsp_a/agent-bindings/wag_1")
+    expect(
+      legacySystemRedirect(
+        url("/app/system/workspace-storage-bindings/wsp_a/stp_1"),
+      ),
+    ).toBe("/app/system/workspaces/wsp_a/storage-bindings/stp_1")
+  })
 
   for (const path of [
     "/",

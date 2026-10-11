@@ -1,56 +1,44 @@
 import type { ActivityClient } from "../../../app/activity"
 import {
-  systemAdministration,
+  searchSystemAgentProviders,
   type SystemAgentProvider,
 } from "../../../app/system"
-
-export function createAgentProviderListController({
-  activity,
-  onAuthenticationLost,
-  onSystemAccessChange,
-}: {
+import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+export function createAgentProviderListController(options: {
   activity: ActivityClient
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
-  const state = $state({
-    providers: [] as SystemAgentProvider[],
-    search: "",
-    error: "",
+  const directory = createDirectoryController<SystemAgentProvider>({
+    ...options,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await searchSystemAgentProviders(
+        name,
+        cursor,
+        status,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            providers: SystemAgentProvider[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.providers, next: result?.next_cursor }
+    },
   })
-  let unsubscribe: (() => void) | undefined
-  async function load(): Promise<void> {
-    state.error = ""
-    try {
-      const response = await systemAdministration("agent-providers")
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        return
-      }
-      if (!response.ok) {
-        state.error = "Agent providers could not be loaded."
-        return
-      }
-      state.providers = (await response.json()) as SystemAgentProvider[]
-    } catch {
-      state.error = "Agent providers could not be loaded."
+  function start() {
+    void directory.search()
+    const unsubscribe = options.activity.subscribe(
+      [{ name: "agent-providers", topic: "sys", events: ["agent_provider.*"] }],
+      async () => {
+        await directory.reload()
+      },
+    )
+    return () => {
+      unsubscribe()
+      directory.stop()
     }
   }
-  function start(): () => void {
-    stop()
-    unsubscribe = activity.subscribe(
-      [{ name: "agent-providers", topic: "sys", events: ["agent_provider.*"] }],
-      async () => await load(),
-    )
-    return stop
-  }
-  function stop(): void {
-    unsubscribe?.()
-    unsubscribe = undefined
-  }
-  return { state, load, start, stop }
+  return { ...directory, start }
 }

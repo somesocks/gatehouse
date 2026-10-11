@@ -18,6 +18,8 @@ export type RouteOwner =
   | "system-overview"
   | "system-grants"
   | "principals"
+  | "principal-detail"
+  | "system-grant-new"
   | "agent-provider-list"
   | "agent-provider-new"
   | "agent-provider-detail"
@@ -30,12 +32,17 @@ export type RouteOwner =
   | "system-workspaces"
   | "system-workspace-new"
   | "system-workspace-detail"
+  | "system-workspace-edit"
+  | "system-workspace-principals"
+  | "system-workspace-principal-new"
   | "workspace-agent-binding-list"
   | "workspace-agent-binding-new"
   | "workspace-agent-binding-detail"
+  | "workspace-agent-binding-edit"
   | "workspace-storage-binding-list"
   | "workspace-storage-binding-new"
   | "workspace-storage-binding-detail"
+  | "workspace-storage-binding-edit"
   | "workspace-dashboard"
   | "access"
 
@@ -98,25 +105,33 @@ export function routeOwner(route: Route): RouteOwner {
       return "system-overview"
     case "system-grants":
       return "system-grants"
+    case "system-grant-new":
+      return "system-grant-new"
     case "system-principals":
       return "principals"
+    case "system-principal":
+    case "system-principal-edit":
+      return "principal-detail"
     case "system-agent-providers":
       return "agent-provider-list"
     case "system-agent-provider-new":
       return "agent-provider-new"
     case "system-agent-provider":
+    case "system-agent-provider-edit":
       return "agent-provider-detail"
     case "system-agent-models":
       return "agent-model-list"
     case "system-agent-model-new":
       return "agent-model-new"
     case "system-agent-model":
+    case "system-agent-model-edit":
       return "agent-model-detail"
     case "system-storage-providers":
       return "storage-provider-list"
     case "system-storage-provider-new":
       return "storage-provider-new"
     case "system-storage-provider":
+    case "system-storage-provider-edit":
       return "storage-provider-detail"
     case "system-workspaces":
       return "system-workspaces"
@@ -124,18 +139,28 @@ export function routeOwner(route: Route): RouteOwner {
       return "system-workspace-new"
     case "system-workspace":
       return "system-workspace-detail"
+    case "system-workspace-edit":
+      return "system-workspace-edit"
+    case "system-workspace-principals":
+      return "system-workspace-principals"
+    case "system-workspace-principal-new":
+      return "system-workspace-principal-new"
     case "system-workspace-agent-bindings":
       return "workspace-agent-binding-list"
     case "system-workspace-agent-binding-new":
       return "workspace-agent-binding-new"
     case "system-workspace-agent-binding":
       return "workspace-agent-binding-detail"
+    case "system-workspace-agent-binding-edit":
+      return "workspace-agent-binding-edit"
     case "system-workspace-storage-bindings":
       return "workspace-storage-binding-list"
     case "system-workspace-storage-binding-new":
       return "workspace-storage-binding-new"
     case "system-workspace-storage-binding":
       return "workspace-storage-binding-detail"
+    case "system-workspace-storage-binding-edit":
+      return "workspace-storage-binding-edit"
     case "app-home":
     case "workspace":
     case "not-found":

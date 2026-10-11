@@ -1,55 +1,44 @@
 import type { ActivityClient } from "../../../app/activity"
 import {
-  systemAdministration,
+  searchSystemAgentModels,
   type SystemAgentModel,
 } from "../../../app/system"
-export function createAgentModelListController({
-  activity,
-  onAuthenticationLost,
-  onSystemAccessChange,
-}: {
+import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+export function createAgentModelListController(options: {
   activity: ActivityClient
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
-  const state = $state({
-    models: [] as SystemAgentModel[],
-    search: "",
-    error: "",
+  const directory = createDirectoryController<SystemAgentModel>({
+    ...options,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await searchSystemAgentModels(
+        name,
+        cursor,
+        status,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            models: SystemAgentModel[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.models, next: result?.next_cursor }
+    },
   })
-  let unsubscribe: (() => void) | undefined
-  async function load(): Promise<void> {
-    state.error = ""
-    try {
-      const response = await systemAdministration("agent-models")
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        return
-      }
-      if (!response.ok) {
-        state.error = "Agent models could not be loaded."
-        return
-      }
-      state.models = (await response.json()) as SystemAgentModel[]
-    } catch {
-      state.error = "Agent models could not be loaded."
+  function start() {
+    void directory.search()
+    const unsubscribe = options.activity.subscribe(
+      [{ name: "agent-models", topic: "sys", events: ["agent_model.*"] }],
+      async () => {
+        await directory.reload()
+      },
+    )
+    return () => {
+      unsubscribe()
+      directory.stop()
     }
   }
-  function start(): () => void {
-    stop()
-    unsubscribe = activity.subscribe(
-      [{ name: "agent-models", topic: "sys", events: ["agent_model.*"] }],
-      async () => await load(),
-    )
-    return stop
-  }
-  function stop(): void {
-    unsubscribe?.()
-    unsubscribe = undefined
-  }
-  return { state, load, start, stop }
+  return { ...directory, start }
 }

@@ -1,32 +1,44 @@
 import type { ActivityClient } from "../../../app/activity"
 import {
+  fetchSystemWorkspaceStorageBindings,
   systemAdministration,
   type SystemWorkspaceStorageProvider,
 } from "../../../app/system"
 
 type WorkspaceStorageBindingsControllerOptions = {
   activity: ActivityClient
+  workspaceID: string
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }
 
 export function createWorkspaceStorageBindingsController({
   activity,
+  workspaceID,
   onAuthenticationLost,
   onSystemAccessChange,
 }: WorkspaceStorageBindingsControllerOptions) {
   const state = $state({
     bindings: [] as SystemWorkspaceStorageProvider[],
     error: "",
+    search: "",
+    cursor: "",
+    loading: true,
+    loadingMore: false,
     saving: false,
-    form: { workspace: "", provider: "", priority: 0 },
+    form: { provider: "", priority: 1, enabled: true },
   })
   let unsubscribe: (() => void) | undefined
 
   async function load(): Promise<void> {
     state.error = ""
+    state.loading = true
     try {
-      const response = await systemAdministration("workspace-storage-providers")
+      const response = await fetchSystemWorkspaceStorageBindings(
+        workspaceID,
+        state.search,
+        "",
+      )
       if (response.status === 401) {
         onAuthenticationLost()
         return
@@ -39,11 +51,60 @@ export function createWorkspaceStorageBindingsController({
         state.error = "Workspace storage bindings could not be loaded."
         return
       }
-      state.bindings =
-        (await response.json()) as SystemWorkspaceStorageProvider[]
+      const result = (await response.json()) as {
+        bindings: SystemWorkspaceStorageProvider[]
+        next_cursor?: string
+      }
+      state.bindings = result.bindings
+      state.cursor = result.next_cursor ?? ""
     } catch {
       state.error = "Workspace storage bindings could not be loaded."
+    } finally {
+      state.loading = false
     }
+  }
+
+  async function loadMore(): Promise<void> {
+    if (state.cursor === "" || state.loadingMore) return
+    state.loadingMore = true
+    state.error = ""
+    try {
+      const response = await fetchSystemWorkspaceStorageBindings(
+        workspaceID,
+        state.search,
+        state.cursor,
+      )
+      if (response.status === 401) {
+        onAuthenticationLost()
+        return
+      }
+      if (response.status === 403) {
+        onSystemAccessChange("denied")
+        return
+      }
+      if (!response.ok) {
+        state.error = "Workspace storage bindings could not be loaded."
+        return
+      }
+      const result = (await response.json()) as {
+        bindings: SystemWorkspaceStorageProvider[]
+        next_cursor?: string
+      }
+      const seen = new Set(state.bindings.map((binding) => binding.provider))
+      state.bindings = [
+        ...state.bindings,
+        ...result.bindings.filter((binding) => !seen.has(binding.provider)),
+      ]
+      state.cursor = result.next_cursor ?? ""
+    } catch {
+      state.error = "Workspace storage bindings could not be loaded."
+    } finally {
+      state.loadingMore = false
+    }
+  }
+
+  function search(): void {
+    void load()
   }
 
   async function save(
@@ -87,13 +148,13 @@ export function createWorkspaceStorageBindingsController({
     const { form } = state
     if (
       !(await save(
-        `workspace-storage-providers/${encodeURIComponent(form.workspace)}/${encodeURIComponent(form.provider)}`,
+        `workspace-storage-providers/${encodeURIComponent(workspaceID)}/${encodeURIComponent(form.provider)}`,
         "POST",
-        { priority: form.priority, enabled: true },
+        { priority: form.priority, enabled: form.enabled },
       ))
     )
       return
-    state.form = { workspace: "", provider: "", priority: 0 }
+    state.form = { provider: "", priority: 1, enabled: true }
   }
 
   async function setEnabled(
@@ -131,5 +192,5 @@ export function createWorkspaceStorageBindingsController({
     unsubscribe = undefined
   }
 
-  return { state, load, create, setEnabled, start, stop }
+  return { state, load, loadMore, search, create, setEnabled, start, stop }
 }

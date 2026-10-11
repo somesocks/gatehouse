@@ -5,27 +5,25 @@
     Cpu,
     Database,
     FolderKanban,
-    HardDrive,
     House,
     MessagesSquare,
-    Network,
     ShieldCheck,
     UserRound,
     UsersRound,
-  } from "@lucide/svelte"
-  import * as Sidebar from "../lib/vendor/shadcn/sidebar"
-  import RouterLink from "./RouterLink.svelte"
-  import Heading from "./Heading.svelte"
-  import WorkspaceSwitcher from "./WorkspaceSwitcher.svelte"
-  import SidebarUser from "./SidebarUser.svelte"
-  import type { NavigationIcon, NavigationOptions } from "./navigation"
+  } from "@lucide/svelte";
+  import * as Sidebar from "../lib/vendor/shadcn/sidebar";
+  import RouterLink from "./RouterLink.svelte";
+  import Heading from "./Heading.svelte";
+  import WorkspaceSwitcher from "./WorkspaceSwitcher.svelte";
+  import SidebarUser from "./SidebarUser.svelte";
+  import type { NavigationIcon, NavigationOptions } from "./navigation";
   let {
     title,
     sections,
     workspaceSwitcher,
     user,
     onSignOut,
-  }: NavigationOptions = $props()
+  }: NavigationOptions = $props();
 
   const icons = {
     overview: House,
@@ -38,9 +36,7 @@
     "agent-models": Cpu,
     "storage-providers": Database,
     workspaces: Building2,
-    "workspace-agent-bindings": Network,
-    "workspace-storage-bindings": HardDrive,
-  } satisfies Record<NavigationIcon, unknown>
+  } satisfies Record<NavigationIcon, unknown>;
 </script>
 
 <Sidebar.Header>

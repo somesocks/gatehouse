@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
+  import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-
+  import { onMount, untrack } from "svelte"
   import { createStorageProviderListController } from "./storage-provider-list-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -14,22 +12,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
-  const matches = (
-    p: { id: string; alias: string; protocol: string; bucket?: string },
-    s: string,
-  ) => {
-    const q = s.trim().toLocaleLowerCase()
-    return (
-      q === "" ||
-      `${p.id} ${p.alias} ${p.protocol} ${p.bucket ?? ""}`
-        .toLocaleLowerCase()
-        .includes(q)
-    )
-  }
-  $effect(() => {
-    void controller.load()
-  })
-  $effect(() => controller.start())
+  onMount(() => controller.start())
 </script>
 
 <UI.AppFrame
@@ -38,44 +21,61 @@
     { label: "System", href: "/app/system" },
     { label: "Storage providers" },
   ]}
-  ><UI.Stack as="section">
-    <UI.Row justify="between">
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>Storage providers</UI.Heading>
-        <UI.Text as="p">Configure embedded and S3 storage.</UI.Text>
-      </UI.Group>
-      <RouterLink variant="default" href="/app/system/storage-providers/new"
-        >Add provider</RouterLink
-      >
-    </UI.Row>
-    <UI.Field>
-      <UI.Label
-        ><UI.Text>Search storage providers</UI.Text><UI.Input
-          type="search"
-          bind:value={controller.state.search}
-        /></UI.Label
-      >
-    </UI.Field>
-    {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
-        {controller.state.error}
-      </UI.Text>{/if}
-    <UI.List>
-      {#each controller.state.providers.filter( (p) => matches(p, controller.state.search), ) as p (p.id)}<RouterLink
-          variant="item"
-          data-disabled={!p.enabled || undefined}
-          href={`/app/system/storage-providers/${encodeURIComponent(p.id)}`}
-          ><UI.Stack>
-            <UI.Text as="strong" emphasis="strong">{p.alias}</UI.Text><UI.Text
-              as="small"
-              size="small"
-              >{p.id} / {p.protocol} / {p.bucket ?? "no bucket"}</UI.Text
-            >
-          </UI.Stack>
-          <UI.Text>{p.enabled ? "Enabled" : "Disabled"}</UI.Text></RouterLink
-        >{:else}<UI.Text as="p" tone="muted">
-          No storage providers match your search.
-        </UI.Text>{/each}
-    </UI.List>
-  </UI.Stack></UI.AppFrame
 >
+  <UI.AdminContent
+    ><UI.AdminHeader
+      title="Storage providers"
+      description="Embedded and S3 storage available for workspace bindings."
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href="/app/system/storage-providers/new"
+          >Create provider</UI.RouterLink
+        >{/snippet}</UI.AdminHeader
+    >
+    <UI.SearchToolbar
+      bind:value={controller.state.search}
+      bind:status={controller.state.status}
+      statuses
+      loading={controller.state.loading}
+      onsearch={() => void controller.search()}
+    />
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}</UI.Notice
+      >{/if}
+    <UI.RecordTable headers={["Provider", "Protocol", "Bucket", "Status"]}>
+      {#if controller.state.loading}<UI.TableEmpty
+          columns={4}
+          message="Loading providers…"
+        />{:else}{#each controller.state.items as provider (provider.id)}<UI.RecordRow
+          >
+            <UI.RecordCell primary
+              ><UI.RouterLink
+                href={`/app/system/storage-providers/${encodeURIComponent(provider.id)}`}
+                >{provider.alias}</UI.RouterLink
+              ><UI.Identifier
+                value={provider.id}
+                copyable={false}
+              /></UI.RecordCell
+            >
+            <UI.RecordCell label="Protocol">{provider.protocol}</UI.RecordCell>
+            <UI.RecordCell label="Bucket"
+              >{provider.bucket ?? "Not applicable"}</UI.RecordCell
+            >
+            <UI.RecordCell label="Status"
+              ><UI.StatusBadge enabled={provider.enabled} /></UI.RecordCell
+            >
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No providers match your search."
+          />{/each}{/if}
+    </UI.RecordTable>
+    <UI.PaginationFooter
+      count={controller.state.items.length}
+      previous={controller.state.history.length > 0}
+      next={!!controller.state.next}
+      loading={controller.state.loading}
+      onprevious={() => void controller.previous()}
+      onnext={() => void controller.next()}
+    />
+  </UI.AdminContent>
+</UI.AppFrame>

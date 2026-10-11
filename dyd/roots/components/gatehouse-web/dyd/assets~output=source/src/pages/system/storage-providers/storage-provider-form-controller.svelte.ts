@@ -88,7 +88,11 @@ export function createStorageProviderFormController({
       state.error = "A keychain is required for S3 storage."
       return false
     }
-    if (replace && state.form.secret.trim() === "") {
+    if (
+      replace &&
+      state.form.protocol === "s3" &&
+      state.form.secret.trim() === ""
+    ) {
       state.error =
         "A secret access key is required when changing protocol or keychain."
       return false
@@ -106,12 +110,14 @@ export function createStorageProviderFormController({
       const r = await systemAdministration(path, method, {
         alias: f.alias,
         protocol: f.protocol,
-        endpoint: optional(f.endpoint),
-        region: optional(f.region),
-        bucket: optional(f.bucket),
-        access_key_id: optional(f.accessKeyID),
-        keychain: optional(f.keychain),
-        secret_access_key: optional(f.secret),
+        endpoint: f.protocol === "embedded" ? undefined : optional(f.endpoint),
+        region: f.protocol === "embedded" ? undefined : optional(f.region),
+        bucket: f.protocol === "embedded" ? undefined : optional(f.bucket),
+        access_key_id:
+          f.protocol === "embedded" ? undefined : optional(f.accessKeyID),
+        keychain: f.protocol === "embedded" ? undefined : optional(f.keychain),
+        secret_access_key:
+          f.protocol === "embedded" ? undefined : optional(f.secret),
         enabled: f.enabled,
         ...(revision === undefined ? {} : { expected_revision: revision }),
       })
@@ -124,9 +130,12 @@ export function createStorageProviderFormController({
         return null
       }
       if (r.status === 409) {
+        if (state.provider) {
+          await load(state.provider.id)
+          await beginEdit()
+        }
         state.error =
-          "This provider changed elsewhere. The latest settings have been reloaded."
-        if (state.provider) await load(state.provider.id)
+          "This provider changed elsewhere. Review the reloaded settings before saving."
         return null
       }
       if (!r.ok) {
@@ -142,11 +151,13 @@ export function createStorageProviderFormController({
     }
   }
   async function create() {
+    if (state.saving) return null
     state.error = ""
     if (!valid(state.form.protocol === "s3")) return null
     return await save("storage-providers", "POST")
   }
   async function update() {
+    if (state.saving) return false
     if (!state.provider) return false
     state.error = ""
     const replace =

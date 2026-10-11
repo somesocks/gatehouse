@@ -69,6 +69,25 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	if err, binding := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "-assistant/_low/9", ModelID: agentModel.ID, Enabled: true}); err != nil || binding == nil || binding.Alias != "-assistant/_low/9" {
 		t.Fatalf("SystemWorkspaceAgentCreate() safe alias = (%#v, %v)", binding, err)
 	}
+	seenAgentIDs := map[string]bool{}
+	cursor := ""
+	for {
+		err, page, next := store.SystemWorkspaceAgentsSearch(ctx, database.SystemWorkspaceAgentSearch{WorkspaceID: workspace.Id, Cursor: cursor, Limit: 1})
+		if err != nil || len(page) != 1 || seenAgentIDs[page[0].ID] {
+			t.Fatalf("SystemWorkspaceAgentsSearch(cursor=%q) = (%#v, %q, %v)", cursor, page, next, err)
+		}
+		seenAgentIDs[page[0].ID] = true
+		cursor = next
+		if cursor == "" {
+			break
+		}
+	}
+	if len(seenAgentIDs) != 2 {
+		t.Fatalf("paginated workspace agent IDs = %#v, want 2 bindings", seenAgentIDs)
+	}
+	if err, matches, next := store.SystemWorkspaceAgentsSearch(ctx, database.SystemWorkspaceAgentSearch{WorkspaceID: workspace.Id, Name: "low", Limit: 50}); err != nil || len(matches) != 1 || matches[0].Alias != "-assistant/_low/9" || next != "" {
+		t.Fatalf("filtered SystemWorkspaceAgentsSearch() = (%#v, %q, %v)", matches, next, err)
+	}
 	if err, _ := store.SystemWorkspaceAgentUpdate(ctx, workspace.Id, binding.ID, 1, database.SystemWorkspaceAgentInput{Alias: "renamed", ModelID: agentModel.ID, Enabled: false}); err == nil {
 		t.Fatal("SystemWorkspaceAgentUpdate() accepted an alias rename")
 	}
@@ -101,6 +120,32 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	if err != nil || storageBinding == nil || storageBinding.Revision != 1 {
 		t.Fatalf("SystemWorkspaceStorageProviderCreate() = (%#v, %v)", storageBinding, err)
 	}
+	err, secondaryStorageProvider := store.SystemStorageProviderCreate(ctx, database.SystemStorageProviderInput{Alias: "secondary", Protocol: "embedded", Enabled: true})
+	if err != nil || secondaryStorageProvider == nil {
+		t.Fatalf("SystemStorageProviderCreate(secondary) = (%#v, %v)", secondaryStorageProvider, err)
+	}
+	if err, binding := store.SystemWorkspaceStorageProviderCreate(ctx, workspace.Id, secondaryStorageProvider.ID, database.SystemWorkspaceStorageProviderInput{Priority: 2, Enabled: true}); err != nil || binding == nil {
+		t.Fatalf("SystemWorkspaceStorageProviderCreate(secondary) = (%#v, %v)", binding, err)
+	}
+	seenStorageIDs := map[string]bool{}
+	cursor = ""
+	for {
+		err, page, next := store.SystemWorkspaceStorageProvidersSearch(ctx, database.SystemWorkspaceStorageProviderSearch{WorkspaceID: workspace.Id, Cursor: cursor, Limit: 1})
+		if err != nil || len(page) != 1 || seenStorageIDs[page[0].ProviderID] {
+			t.Fatalf("SystemWorkspaceStorageProvidersSearch(cursor=%q) = (%#v, %q, %v)", cursor, page, next, err)
+		}
+		seenStorageIDs[page[0].ProviderID] = true
+		cursor = next
+		if cursor == "" {
+			break
+		}
+	}
+	if len(seenStorageIDs) != 2 {
+		t.Fatalf("paginated workspace storage provider IDs = %#v, want 2 bindings", seenStorageIDs)
+	}
+	if err, matches, next := store.SystemWorkspaceStorageProvidersSearch(ctx, database.SystemWorkspaceStorageProviderSearch{WorkspaceID: workspace.Id, Name: "secondary", Limit: 50}); err != nil || len(matches) != 1 || matches[0].ProviderID != secondaryStorageProvider.ID || matches[0].ProviderAlias == nil || *matches[0].ProviderAlias != "secondary" || next != "" {
+		t.Fatalf("filtered SystemWorkspaceStorageProvidersSearch() = (%#v, %q, %v)", matches, next, err)
+	}
 	err, storageBinding = store.SystemWorkspaceStorageProviderUpdate(ctx, workspace.Id, storageProvider.ID, 1, database.SystemWorkspaceStorageProviderInput{Priority: 2, Enabled: false})
 	if err != nil || storageBinding == nil || storageBinding.Revision != 2 || storageBinding.Enabled {
 		t.Fatalf("SystemWorkspaceStorageProviderUpdate() = (%#v, %v)", storageBinding, err)
@@ -110,7 +155,7 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	}
 
 	var activities int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`).Scan(&activities); err != nil || activities != 11 {
-		t.Fatalf("administration activity count = (%d, %v), want 11", activities, err)
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`).Scan(&activities); err != nil || activities != 13 {
+		t.Fatalf("administration activity count = (%d, %v), want 13", activities, err)
 	}
 }

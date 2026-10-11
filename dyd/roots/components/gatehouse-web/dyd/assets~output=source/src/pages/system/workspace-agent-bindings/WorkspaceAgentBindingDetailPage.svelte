@@ -1,15 +1,25 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-
+  import {
+    systemAdministration,
+    type SystemAgentModel,
+  } from "../../../app/system"
+  import { untrack } from "svelte"
   import { createWorkspaceAgentBindingController } from "./workspace-agent-binding-controller.svelte"
-
-  let { workspaceID, bindingID }: { workspaceID: string; bindingID: string } =
-    $props()
+  import WorkspaceAgentBindingFields from "./WorkspaceAgentBindingFields.svelte"
+  import SystemWorkspaceFrame from "../workspaces/SystemWorkspaceFrame.svelte"
+  let {
+    workspaceID,
+    bindingID,
+    editingPage = false,
+  }: {
+    workspaceID: string
+    bindingID: string
+    editingPage?: boolean
+  } = $props()
   const runtime = useRuntime()
+  let model = $state<SystemAgentModel | null>(null)
   const controller = untrack(() =>
     createWorkspaceAgentBindingController({
       onAuthenticationLost: runtime.requireLogin,
@@ -17,202 +27,152 @@
     }),
   )
   $effect(() => {
-    void controller.load(workspaceID, bindingID)
+    const workspace = workspaceID
+    const binding = bindingID
+    const editing = editingPage
+    void controller.load(workspace, binding).then(() => {
+      if (editing) controller.edit()
+    })
   })
+  $effect(() => {
+    const id = controller.state.binding?.model
+    model = null
+    if (!id) return
+    const request = new AbortController()
+    void systemAdministration(
+      `agent-models/${encodeURIComponent(id)}`,
+      "GET",
+      undefined,
+      request.signal,
+    )
+      .then(async (response) => {
+        if (response.ok) {
+          const result = (await response.json()) as SystemAgentModel
+          if (!request.signal.aborted) model = result
+        }
+      })
+      .catch(() => {})
+    return () => request.abort()
+  })
+  async function save() {
+    const route = runtime.state.route
+    await controller.update()
+    if (
+      !controller.state.editing &&
+      !controller.state.error &&
+      runtime.state.route === route
+    )
+      runtime.navigate(
+        `/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(bindingID)}`,
+        true,
+      )
+  }
 </script>
 
-<UI.AppFrame
-  navigation={systemNavigation(runtime, "workspace-agent-bindings")}
+<SystemWorkspaceFrame
+  {workspaceID}
   breadcrumbs={[
-    { label: "System", href: "/app/system" },
-    { label: "Workspace agent binding" },
+    {
+      label: "Agent bindings",
+      href: `/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings`,
+    },
+    {
+      label: controller.state.binding?.alias ?? "Binding",
+      href: editingPage
+        ? `/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(bindingID)}`
+        : undefined,
+    },
+    ...(editingPage ? [{ label: "Edit" }] : []),
   ]}
 >
-  <UI.Stack as="section">
-    {#if controller.state.loading}
-      <UI.Text as="p" tone="muted">Loading binding...</UI.Text>
-    {:else if controller.state.binding === null}
-      <UI.Text as="p" size="small" role="alert">
-        {controller.state.error || "Workspace agent binding was not found."}
-      </UI.Text>
-      <RouterLink variant="outline" href="/app/system/workspace-agent-bindings"
-        >Back to bindings</RouterLink
+  <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if controller.state.loading}<UI.Text tone="muted"
+        >Loading binding…</UI.Text
+      >{:else if !controller.state.binding}<UI.Notice
+        variant="destructive"
+        role="alert"
+        >{controller.state.error || "Binding was not found."}</UI.Notice
       >
-    {:else if !controller.state.editing}
-      <UI.Row justify="between">
-        <UI.Group>
-          <UI.Text as="p" size="eyebrow">Workspace agent binding</UI.Text>
-          <UI.Heading level={2}>
-            {controller.state.binding.workspace} / {controller.state.binding
-              .alias}
-          </UI.Heading>
-        </UI.Group>
-        <UI.Button
-          variant="outline"
-          type="button"
-          onclick={() => controller.edit()}>Edit</UI.Button
-        >
-      </UI.Row>
-      <UI.Stack as="dl">
-        <UI.Field>
-          <UI.Text as="dt" size="small">Automatic replies</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.default
-              ? "Default agent"
-              : "Not default"}</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Label</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.label ?? "Not configured"}</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Custom system prompt</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.system_prompt ??
-              "Not configured"}</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Lisp prelude</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.prelude ?? "Standard prelude"}</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Token rate limits</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.rate_limits === undefined
-              ? "Not configured"
-              : JSON.stringify(controller.state.binding.rate_limits)}</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Status</UI.Text>
-          <UI.Text as="dd"
-            >{controller.state.binding.enabled
-              ? "Enabled"
-              : "Disabled"}</UI.Text
-          >
-        </UI.Field>
-      </UI.Stack>
-    {:else}
-      <UI.Stack>
-        <UI.Group>
-          <UI.Text as="p" size="eyebrow">Workspace agent binding</UI.Text>
-          <UI.Heading level={2}>Edit binding</UI.Heading>
-        </UI.Group>
-      </UI.Stack>
+    {:else if editingPage}<UI.AdminHeader
+        title={`Edit ${controller.state.binding.alias}`}
+        id={bindingID}
+        description="Update this workspace agent’s model and behavior."
+      />
       <UI.Form
+        surface
         onsubmit={(event) => {
           event.preventDefault()
-          void controller.update()
+          void save()
         }}
+        ><WorkspaceAgentBindingFields
+          bind:form={controller.state.form}
+          editing
+        />{#if controller.state.error}<UI.Notice
+            variant="destructive"
+            role="alert">{controller.state.error}</UI.Notice
+          >{/if}<UI.FormActions
+          ><UI.RouterLink
+            variant="outline"
+            href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(bindingID)}`}
+            >Cancel</UI.RouterLink
+          ><UI.Button
+            type="submit"
+            disabled={controller.state.saving || !controller.state.form.model}
+            >{controller.state.saving ? "Saving…" : "Save changes"}</UI.Button
+          ></UI.FormActions
+        ></UI.Form
       >
-        <UI.Field>
-          <UI.Label for="agent-binding-workspace">Workspace ID</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-binding-workspace"
-              disabled
-              value={controller.state.form.workspace}
-            />
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-alias">Alias</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-binding-alias"
-              disabled
-              value={controller.state.form.alias}
-            />
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-model">Model ID</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-binding-model"
-              bind:value={controller.state.form.model}
-            />
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-label">Label</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-binding-label"
-              bind:value={controller.state.form.label}
-            />
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-system-prompt"
-            >Custom system prompt</UI.Label
-          >
-          <UI.Group>
-            <UI.Textarea
-              id="agent-binding-system-prompt"
-              rows={4}
-              bind:value={controller.state.form.systemPrompt}
-            ></UI.Textarea>
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-prelude">Lisp prelude</UI.Label>
-          <UI.Group>
-            <UI.Textarea
-              id="agent-binding-prelude"
-              rows={4}
-              bind:value={controller.state.form.prelude}
-            ></UI.Textarea>
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-binding-rate-limits">Token rate limits</UI.Label>
-          <UI.Group>
-            <UI.Textarea
-              id="agent-binding-rate-limits"
-              rows={10}
-              placeholder={'{"workspace_input":{"minimum_balance":-60000,"maximum_balance":120000,"refill_per_minute":60000}}'}
-              bind:value={controller.state.form.rateLimits}
-            ></UI.Textarea>
-          </UI.Group>
-          <UI.Text as="p" size="small"
-            >Optional JSON with workspace/user input/output buckets.</UI.Text
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Label layout="choice"
-            ><UI.Checkbox bind:checked={controller.state.form.default} /> Default
-            automatic-reply agent</UI.Label
-          >
-        </UI.Field>
-        <UI.Field>
-          <UI.Label layout="choice"
-            ><UI.Checkbox bind:checked={controller.state.form.enabled} /> Enabled</UI.Label
-          >
-        </UI.Field>
-        <UI.Row>
-          <UI.Group>
-            <UI.Button variant="default" type="submit">Save changes</UI.Button>
-          </UI.Group>
-          <UI.Group>
-            <UI.Button
-              variant="outline"
-              type="button"
-              onclick={() => (controller.state.editing = false)}
-              >Cancel</UI.Button
-            >
-          </UI.Group>
-        </UI.Row>
-      </UI.Form>
-      {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
-          {controller.state.error}
-        </UI.Text>{/if}
+    {:else}<UI.AdminHeader
+        kind="Agent binding"
+        title={controller.state.binding.alias}
+        id={bindingID}
+        enabled={controller.state.binding.enabled}
+        >{#snippet actions()}<UI.RouterLink
+            variant="outline"
+            href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(bindingID)}/edit`}
+            >Edit binding</UI.RouterLink
+          >{/snippet}</UI.AdminHeader
+      >
+      <UI.DetailSection title="Model and reply behavior"
+        ><UI.Property label="Model"
+          ><UI.RouterLink
+            href={`/app/system/agent-models/${encodeURIComponent(controller.state.binding.model)}`}
+            >{model?.alias ?? controller.state.binding.model}</UI.RouterLink
+          ></UI.Property
+        ><UI.Property label="Label"
+          >{controller.state.binding.label ?? "Not configured"}</UI.Property
+        ><UI.Property label="Automatic replies"
+          >{controller.state.binding.default
+            ? "Default agent"
+            : "Manual"}</UI.Property
+        ></UI.DetailSection
+      >
+      <UI.DetailSection title="Prompt and prelude"
+        ><UI.Property label="System prompt"
+          ><UI.Text
+            >{controller.state.binding.system_prompt ??
+              "Not configured"}</UI.Text
+          ></UI.Property
+        ><UI.Property label="Lisp prelude"
+          ><UI.CodeBlock
+            value={controller.state.binding.prelude ?? ""}
+          /></UI.Property
+        ></UI.DetailSection
+      >
+      <UI.DetailSection title="Token rate limits"
+        ><UI.Property label="Limits"
+          ><UI.RateLimitsView
+            value={controller.state.binding.rate_limits}
+          /></UI.Property
+        ></UI.DetailSection
+      >
+      <UI.DetailSection title="Record information"
+        ><UI.Property label="Alias"
+          >{controller.state.binding.alias}</UI.Property
+        ><UI.Property label="Revision"
+          >{controller.state.binding.revision}</UI.Property
+        ></UI.DetailSection
+      >
     {/if}
-  </UI.Stack>
-</UI.AppFrame>
+  </UI.AdminContent>
+</SystemWorkspaceFrame>

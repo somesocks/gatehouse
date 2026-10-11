@@ -1,8 +1,8 @@
-import type { Workspace } from "./access"
-import { signOut } from "./auth"
-import { updateChatSession } from "./chat"
-import type { ApplicationRuntime } from "./runtime.svelte"
-import type { NavigationIcon, NavigationOptions } from "../ui/navigation"
+import type { Workspace } from "./access";
+import { signOut } from "./auth";
+import { updateChatSession } from "./chat";
+import type { ApplicationRuntime } from "./runtime.svelte";
+import type { NavigationIcon, NavigationOptions } from "../ui/navigation";
 
 function workspaceSwitcher(
   runtime: ApplicationRuntime,
@@ -26,7 +26,7 @@ function workspaceSwitcher(
             onSelect: () => runtime.navigate("/app/system"),
           }
         : undefined,
-  }
+  };
 }
 
 function account(runtime: ApplicationRuntime) {
@@ -36,12 +36,12 @@ function account(runtime: ApplicationRuntime) {
     },
     onSignOut: async () => {
       try {
-        await signOut()
+        await signOut();
       } finally {
-        runtime.requireLogin()
+        runtime.requireLogin();
       }
     },
-  }
+  };
 }
 
 export function workspaceNavigation(
@@ -49,7 +49,7 @@ export function workspaceNavigation(
   workspace: Workspace,
   active?: string,
 ): NavigationOptions {
-  const base = `/app/wsp/${encodeURIComponent(workspace.id)}`
+  const base = `/app/wsp/${encodeURIComponent(workspace.id)}`;
   return {
     title: workspace.name ?? workspace.id,
     workspaceSwitcher: workspaceSwitcher(
@@ -89,7 +89,7 @@ export function workspaceNavigation(
       },
     ],
     ...account(runtime),
-  }
+  };
 }
 
 export function systemNavigation(
@@ -97,10 +97,10 @@ export function systemNavigation(
   active: string,
 ): NavigationOptions {
   const items: {
-    key: string
-    label: string
-    path: string
-    icon: NavigationIcon
+    key: string;
+    label: string;
+    path: string;
+    icon: NavigationIcon;
   }[] = [
     {
       key: "overview",
@@ -144,19 +144,7 @@ export function systemNavigation(
       path: "/workspaces",
       icon: "workspaces",
     },
-    {
-      key: "workspace-agent-bindings",
-      label: "Workspace agent bindings",
-      path: "/workspace-agent-bindings",
-      icon: "workspace-agent-bindings",
-    },
-    {
-      key: "workspace-storage-bindings",
-      label: "Workspace storage bindings",
-      path: "/workspace-storage-bindings",
-      icon: "workspace-storage-bindings",
-    },
-  ]
+  ];
   return {
     title: "System administration",
     workspaceSwitcher: workspaceSwitcher(
@@ -176,7 +164,7 @@ export function systemNavigation(
       },
     ],
     ...account(runtime),
-  }
+  };
 }
 
 export function sessionViews(
@@ -184,12 +172,12 @@ export function sessionViews(
   sessionID: string,
   active: string,
 ) {
-  const base = `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}`
+  const base = `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}`;
   return ["chat", "files", "notes", "tasks", "secrets"].map((view) => ({
     label: view[0].toUpperCase() + view.slice(1),
     href: view === "chat" ? base : `${base}/${view}`,
     active: view === active,
-  }))
+  }));
 }
 
 export async function renameSession(
@@ -199,12 +187,13 @@ export async function renameSession(
   name: string,
   onRenamed?: (name: string) => void,
 ) {
-  const response = await updateChatSession(workspaceID, sessionID, { name })
+  const response = await updateChatSession(workspaceID, sessionID, { name });
   if (response.status === 401) {
-    runtime.requireLogin()
-    return
+    runtime.requireLogin();
+    return;
   }
-  if (!response.ok) throw new Error("The chat could not be renamed. Try again.")
-  const updated = (await response.json()) as { name?: string }
-  onRenamed?.(updated.name ?? name)
+  if (!response.ok)
+    throw new Error("The chat could not be renamed. Try again.");
+  const updated = (await response.json()) as { name?: string };
+  onRenamed?.(updated.name ?? name);
 }

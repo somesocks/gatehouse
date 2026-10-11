@@ -1,21 +1,36 @@
 <script lang="ts">
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
+  import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-
-  import { createPrincipalsController } from "./principals-controller.svelte"
-
+  import {
+    searchSystemPrincipals,
+    type SystemPrincipal,
+  } from "../../../app/system"
+  import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+  import { onMount } from "svelte"
   const runtime = useRuntime()
-  const controller = untrack(() =>
-    createPrincipalsController({
-      onAuthenticationLost: runtime.requireLogin,
-      onSystemAccessChange: runtime.access.setSystemAccess,
-      principalID: () => runtime.auth.state.claims?.principal.ref.id,
-    }),
-  )
-  $effect(() => {
-    void controller.load()
+  const controller = createDirectoryController<SystemPrincipal>({
+    onAuthenticationLost: runtime.requireLogin,
+    onSystemAccessChange: runtime.access.setSystemAccess,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await searchSystemPrincipals(
+        name,
+        cursor,
+        status,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            principals: SystemPrincipal[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.principals, next: result?.next_cursor }
+    },
+  })
+  onMount(() => {
+    void controller.search()
+    return controller.stop
   })
 </script>
 
@@ -26,66 +41,60 @@
     { label: "Principals" },
   ]}
 >
-  <UI.Stack as="section">
-    <UI.Stack>
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>Principals</UI.Heading>
-        <UI.Text as="p">
-          Identity associations are shown without credential verifiers.
-        </UI.Text>
-      </UI.Group>
-    </UI.Stack>
-    {#if controller.state.error !== ""}<UI.Text
-        as="p"
-        size="small"
-        role="alert"
-        aria-live="polite"
-      >
-        {controller.state.error}
-      </UI.Text>{/if}
-    <UI.List>
-      {#each controller.state.principals as principal (principal.id)}<UI.Item
-          data-disabled={!principal.enabled || undefined}
-        >
-          <UI.Stack>
-            <UI.Text as="strong" emphasis="strong"
-              >{principal.name ?? principal.alias ?? principal.id}</UI.Text
-            ><UI.Text as="small" size="small"
-              >{principal.id}{principal.alias === undefined
-                ? ""
-                : ` / ${principal.alias}`} / revision {principal.revision}</UI.Text
-            >{#if principal.identities.length > 0}<UI.Stack tone="muted">
-                {#each principal.identities as identity (identity.id)}<UI.Text
-                    tone={!identity.enabled ? "muted" : "default"}
-                    >{identity.key} / {identity.id} / revision {identity.revision}{identity.enabled
-                      ? ""
-                      : " / Disabled"}</UI.Text
-                  >{/each}
-              </UI.Stack>{:else}<UI.Text as="small" size="small"
-                >No identities</UI.Text
-              >{/if}
-          </UI.Stack>
-          <UI.Row>
-            <UI.Text tone={!principal.enabled ? "muted" : "default"}
-              >{principal.enabled ? "Enabled" : "Disabled"}</UI.Text
-            ><UI.Button
-              variant="outline"
-              size="sm"
-              type="button"
-              disabled={controller.state.updatingIDs.has(principal.id)}
-              onclick={() =>
-                void controller.setEnabled(principal, !principal.enabled)}
-              >{controller.state.updatingIDs.has(principal.id)
-                ? "Saving..."
-                : principal.enabled
-                  ? "Disable"
-                  : "Enable"}</UI.Button
+  <UI.AdminContent
+    ><UI.AdminHeader
+      title="Principals"
+      description="Inspect accounts, their status, and associated identities."
+    />
+    <UI.SearchToolbar
+      bind:value={controller.state.search}
+      bind:status={controller.state.status}
+      statuses
+      loading={controller.state.loading}
+      onsearch={() => void controller.search()}
+    />
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}</UI.Notice
+      >{/if}
+    <UI.RecordTable headers={["Principal", "Alias", "Identities", "Status"]}>
+      {#if controller.state.loading}<UI.TableEmpty
+          columns={4}
+          message="Loading principals…"
+        />{:else}{#each controller.state.items as principal (principal.id)}<UI.RecordRow
+          >
+            <UI.RecordCell primary
+              ><UI.RouterLink
+                href={`/app/system/principals/${encodeURIComponent(principal.id)}`}
+                >{principal.name ??
+                  principal.alias ??
+                  principal.id}</UI.RouterLink
+              ><UI.Identifier
+                value={principal.id}
+                copyable={false}
+              /></UI.RecordCell
             >
-          </UI.Row>
-        </UI.Item>{:else}<UI.Text as="p" tone="muted">
-          No principals are configured.
-        </UI.Text>{/each}
-    </UI.List>
-  </UI.Stack>
+            <UI.RecordCell label="Alias"
+              >{principal.alias ?? "Not configured"}</UI.RecordCell
+            >
+            <UI.RecordCell label="Identities"
+              >{principal.identity_count ??
+                principal.identities.length}</UI.RecordCell
+            >
+            <UI.RecordCell label="Status"
+              ><UI.StatusBadge enabled={principal.enabled} /></UI.RecordCell
+            >
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No principals match your search."
+          />{/each}{/if}
+    </UI.RecordTable>
+    <UI.PaginationFooter
+      count={controller.state.items.length}
+      previous={!!controller.state.history.length}
+      next={!!controller.state.next}
+      loading={controller.state.loading}
+      onprevious={() => void controller.previous()}
+      onnext={() => void controller.next()}
+    />
+  </UI.AdminContent>
 </UI.AppFrame>

@@ -1,24 +1,68 @@
 <script lang="ts">
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
+  import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-
-  import { createSystemGrantsController } from "./system-grants-controller.svelte"
-
+  import {
+    searchSystemGrants,
+    updateSystemGrant,
+    type SystemGrant,
+    type SystemPrincipal,
+  } from "../../../app/system"
+  import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+  import { onMount } from "svelte"
   const runtime = useRuntime()
-  const controller = untrack(() =>
-    createSystemGrantsController({
-      activity: runtime.activity,
-      onAuthenticationLost: runtime.requireLogin,
-      onSystemAccessChange: runtime.access.setSystemAccess,
-      principalID: () => runtime.auth.state.claims?.principal.ref.id,
-    }),
-  )
-  $effect(() => {
-    void controller.load()
+  let subjects = $state<SystemPrincipal[]>([])
+  let updating = $state(new Set<string>())
+  let mutationError = $state("")
+  const controller = createDirectoryController<SystemGrant>({
+    onAuthenticationLost: runtime.requireLogin,
+    onSystemAccessChange: runtime.access.setSystemAccess,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await searchSystemGrants(name, cursor, status, signal)
+      const result = response.ok
+        ? ((await response.json()) as {
+            grants: SystemGrant[]
+            principals: SystemPrincipal[]
+            next_cursor?: string
+          })
+        : undefined
+      if (!signal.aborted && result) subjects = result.principals
+      return { response, items: result?.grants, next: result?.next_cursor }
+    },
   })
-  $effect(() => controller.start())
+  onMount(() => {
+    void controller.search()
+    return controller.stop
+  })
+  function name(id: string) {
+    const principal = subjects.find((p) => p.id === id)
+    return principal?.name ?? principal?.alias ?? id
+  }
+  async function setEnabled(grant: SystemGrant) {
+    if (updating.has(grant.ref.id)) return
+    if (
+      grant.enabled &&
+      !window.confirm(
+        `Revoke system-manager access for ${name(grant.principal.id)}?`,
+      )
+    )
+      return
+    updating = new Set(updating).add(grant.ref.id)
+    mutationError = ""
+    try {
+      const response = await updateSystemGrant(grant.ref.id, !grant.enabled)
+      if (response.status === 401) runtime.requireLogin()
+      else if (response.status === 403) runtime.access.setSystemAccess("denied")
+      else if (!response.ok) mutationError = "Grant could not be updated."
+      else await controller.reload()
+    } catch {
+      mutationError = "Grant could not be updated."
+    } finally {
+      const next = new Set(updating)
+      next.delete(grant.ref.id)
+      updating = next
+    }
+  }
 </script>
 
 <UI.AppFrame
@@ -28,73 +72,75 @@
     { label: "System grants" },
   ]}
 >
-  <UI.Stack as="section">
-    <UI.Stack>
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>System grants</UI.Heading>
-        <UI.Text as="p">
-          System managers can modify global Gatehouse state.
-        </UI.Text>
-      </UI.Group>
-    </UI.Stack>
-    <UI.Form
-      layout="row"
-      onsubmit={(event) => {
-        event.preventDefault()
-        void controller.create()
-      }}
+  <UI.AdminContent
+    ><UI.AdminHeader
+      title="System grants"
+      description="Principals permitted to manage global Gatehouse state."
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href="/app/system/grants/new">Add manager</UI.RouterLink
+        >{/snippet}</UI.AdminHeader
     >
-      <UI.Label layout="field"
-        ><UI.Text>Principal ID</UI.Text><UI.Input
-          autocomplete="off"
-          placeholder="prn_..."
-          bind:value={controller.state.principal}
-        /></UI.Label
-      ><UI.Button
-        variant="default"
-        type="submit"
-        disabled={controller.state.creating}
-        >{controller.state.creating ? "Granting..." : "Add manager"}</UI.Button
-      >
-    </UI.Form>
-    {#if controller.state.error !== ""}<UI.Text
-        as="p"
-        size="small"
-        role="alert"
-        aria-live="polite"
-      >
-        {controller.state.error}
-      </UI.Text>{/if}
-    <UI.List>
-      {#each controller.state.grants as grant (grant.ref.id)}<UI.Item
-          data-disabled={!grant.enabled || undefined}
-        >
-          <UI.Stack>
-            <UI.Text as="strong" emphasis="strong">{grant.principal.id}</UI.Text
-            ><UI.Text as="small" size="small"
-              >{grant.ref.id} / revision {grant.revision}</UI.Text
+    <UI.SearchToolbar
+      bind:value={controller.state.search}
+      bind:status={controller.state.status}
+      statuses
+      loading={controller.state.loading}
+      onsearch={() => void controller.search()}
+    />
+    {#if controller.state.error || mutationError}<UI.Notice
+        variant="destructive"
+        role="alert">{mutationError || controller.state.error}</UI.Notice
+      >{/if}
+    <UI.RecordTable headers={["Principal", "Role", "Grant status", "Actions"]}>
+      {#if controller.state.loading}<UI.TableEmpty
+          columns={4}
+          message="Loading grants…"
+        />{:else}{#each controller.state.items as grant (grant.ref.id)}<UI.RecordRow
+          >
+            <UI.RecordCell primary
+              ><UI.RouterLink
+                href={`/app/system/principals/${encodeURIComponent(grant.principal.id)}`}
+                >{name(grant.principal.id)}</UI.RouterLink
+              ><UI.Identifier
+                value={grant.principal.id}
+                copyable={false}
+              /></UI.RecordCell
             >
-          </UI.Stack>
-          <UI.Row>
-            <UI.Text tone={!grant.enabled ? "muted" : "default"}
-              >{grant.enabled ? "Enabled" : "Disabled"}</UI.Text
-            ><UI.Button
-              variant="outline"
-              size="sm"
-              type="button"
-              disabled={controller.state.updatingIDs.has(grant.ref.id)}
-              onclick={() => void controller.setEnabled(grant, !grant.enabled)}
-              >{controller.state.updatingIDs.has(grant.ref.id)
-                ? "Saving..."
-                : grant.enabled
-                  ? "Disable"
-                  : "Enable"}</UI.Button
+            <UI.RecordCell label="Role"
+              ><UI.Badge>System manager</UI.Badge></UI.RecordCell
+            ><UI.RecordCell label="Grant status"
+              ><UI.StatusBadge
+                enabled={grant.enabled}
+                active="Active"
+                inactive="Revoked"
+              /></UI.RecordCell
             >
-          </UI.Row>
-        </UI.Item>{:else}<UI.Text as="p" tone="muted">
-          No system grants are configured.
-        </UI.Text>{/each}
-    </UI.List>
-  </UI.Stack>
+            <UI.RecordCell actions
+              ><UI.Button
+                size="sm"
+                variant="outline"
+                disabled={updating.has(grant.ref.id)}
+                onclick={() => void setEnabled(grant)}
+                >{updating.has(grant.ref.id)
+                  ? "Saving…"
+                  : grant.enabled
+                    ? "Revoke access"
+                    : "Restore access"}</UI.Button
+              ></UI.RecordCell
+            >
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No grants match your search."
+          />{/each}{/if}
+    </UI.RecordTable>
+    <UI.PaginationFooter
+      count={controller.state.items.length}
+      previous={!!controller.state.history.length}
+      next={!!controller.state.next}
+      loading={controller.state.loading}
+      onprevious={() => void controller.previous()}
+      onnext={() => void controller.next()}
+    />
+  </UI.AdminContent>
 </UI.AppFrame>

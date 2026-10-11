@@ -16,6 +16,7 @@ type SystemPrincipal struct {
 	Enabled    bool                      `json:"enabled"`
 	Revision   int                       `json:"revision"`
 	Identities []SystemPrincipalIdentity `json:"identities"`
+	IdentityCount int `json:"identity_count"`
 }
 
 type SystemPrincipalIdentity struct {

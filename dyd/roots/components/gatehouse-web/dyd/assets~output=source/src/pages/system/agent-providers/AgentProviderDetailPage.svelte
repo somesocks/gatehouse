@@ -1,13 +1,14 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
+  import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-
+  import { untrack } from "svelte"
   import { createAgentProviderFormController } from "./agent-provider-form-controller.svelte"
-
-  let { providerID }: { providerID: string } = $props()
+  import AgentProviderFields from "./AgentProviderFields.svelte"
+  let {
+    providerID,
+    editingPage = false,
+  }: { providerID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
   const controller = untrack(() =>
     createAgentProviderFormController({
@@ -16,201 +17,116 @@
     }),
   )
   $effect(() => {
-    void controller.load(providerID)
+    const id = providerID
+    const edit = editingPage
+    void controller.load(id).then(() => {
+      if (edit) void controller.beginEdit()
+    })
   })
+  async function save() {
+    const route = runtime.state.route
+    if ((await controller.update()) && runtime.state.route === route)
+      runtime.navigate(
+        `/app/system/agent-providers/${encodeURIComponent(providerID)}`,
+        true,
+      )
+  }
 </script>
 
 <UI.AppFrame
   navigation={systemNavigation(runtime, "agent-providers")}
   breadcrumbs={[
     { label: "System", href: "/app/system" },
-    { label: "Agent provider" },
+    { label: "Agent providers", href: "/app/system/agent-providers" },
+    {
+      label: controller.state.provider?.alias ?? "Provider",
+      href: editingPage
+        ? `/app/system/agent-providers/${encodeURIComponent(providerID)}`
+        : undefined,
+    },
+    ...(editingPage ? [{ label: "Edit" }] : []),
   ]}
 >
-  <UI.Stack as="section">
-    {#if controller.state.loading}
-      <UI.Text as="p" tone="muted">Loading agent provider...</UI.Text>
-    {:else if controller.state.provider === null}
-      <UI.Text as="p" size="small" role="alert" aria-live="polite">
-        {controller.state.error === ""
-          ? "Agent provider was not found."
-          : controller.state.error}
-      </UI.Text>
-      <RouterLink variant="outline" href="/app/system/agent-providers"
-        >Back to providers</RouterLink
+  <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if controller.state.loading}<UI.Text tone="muted"
+        >Loading provider…</UI.Text
       >
-    {:else if !controller.state.editing}
-      <UI.Row justify="between">
-        <UI.Group>
-          <UI.Text as="p" size="eyebrow">Agent provider</UI.Text>
-          <UI.Heading level={2}>{controller.state.provider.alias}</UI.Heading>
-          <UI.Text as="p">{controller.state.provider.id}</UI.Text>
-        </UI.Group>
-        <UI.Button
-          variant="outline"
-          type="button"
-          onclick={() => void controller.beginEdit()}>Edit</UI.Button
-        >
-      </UI.Row>
-      <UI.Stack as="dl">
-        <UI.Field>
-          <UI.Text as="dt" size="small">Protocol</UI.Text>
-          <UI.Text as="dd">{controller.state.provider.protocol}</UI.Text>
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Base URL</UI.Text>
-          <UI.Text as="dd">
-            {controller.state.provider.base_url ?? "Not configured"}
-          </UI.Text>
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Keychain</UI.Text>
-          <UI.Text as="dd">
-            {controller.state.provider.keychain === undefined
-              ? "Not configured"
-              : `${controller.state.provider.keychain.id} / version ${controller.state.provider.keychain.version}`}
-          </UI.Text>
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Credential</UI.Text>
-          <UI.Text as="dd">
-            {controller.state.provider.credential_configured
-              ? "Configured"
-              : "Not configured"}
-          </UI.Text>
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Status</UI.Text>
-          <UI.Text as="dd">
-            {controller.state.provider.enabled ? "Enabled" : "Disabled"}
-          </UI.Text>
-        </UI.Field>
-        <UI.Field>
-          <UI.Text as="dt" size="small">Revision</UI.Text>
-          <UI.Text as="dd">{controller.state.provider.revision}</UI.Text>
-        </UI.Field>
-      </UI.Stack>
-    {:else}
-      <UI.Stack>
-        <UI.Group>
-          <UI.Text as="p" size="eyebrow">Agent provider</UI.Text>
-          <UI.Heading level={2}
-            >Edit {controller.state.provider.alias}</UI.Heading
-          >
-          <UI.Text as="p">Update provider settings.</UI.Text>
-        </UI.Group>
-      </UI.Stack>
+    {:else if !controller.state.provider}<UI.Notice
+        variant="destructive"
+        role="alert"
+        >{controller.state.error || "Provider was not found."}</UI.Notice
+      >
+    {:else if editingPage}
+      <UI.AdminHeader
+        title={`Edit ${controller.state.provider.alias}`}
+        id={providerID}
+        description="Update the provider connection, credentials, and availability."
+      />
       <UI.Form
+        surface
         onsubmit={(event) => {
           event.preventDefault()
-          void controller.update()
+          void save()
         }}
       >
-        <UI.Field>
-          <UI.Label for="agent-provider-alias">Alias</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-provider-alias"
-              disabled
-              value={controller.state.form.alias}
-            />
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-provider-protocol">Protocol</UI.Label>
-          <UI.Group>
-            <UI.Group>
-              <UI.Select
-                id="agent-provider-protocol"
-                bind:value={controller.state.form.protocol}
-                ><UI.Option value="builtin">Built-in</UI.Option><UI.Option
-                  value="openai-chat-completions"
-                  >OpenAI chat completions</UI.Option
-                ><UI.Option value="openai-responses">OpenAI responses</UI.Option
-                ></UI.Select
-              >
-            </UI.Group>
-          </UI.Group>
-        </UI.Field>
-        <UI.Field>
-          <UI.Label for="agent-provider-base-url">Base URL</UI.Label>
-          <UI.Group>
-            <UI.Input
-              id="agent-provider-base-url"
-              bind:value={controller.state.form.baseURL}
-            />
-          </UI.Group>
-        </UI.Field>
-        {#if controller.state.form.protocol !== "builtin"}
-          <UI.Field>
-            <UI.Label for="agent-provider-keychain">Keychain</UI.Label>
-            <UI.Group>
-              <UI.Group>
-                <UI.Select
-                  id="agent-provider-keychain"
-                  required
-                  bind:value={controller.state.form.keychain}
-                  ><UI.Option value="">Select keychain</UI.Option
-                  >{#each controller.state.keychains as keychain (`${keychain.id}/${keychain.version}`)}<UI.Option
-                      value={keychain.id}
-                      >{keychain.id} / version {keychain.version}</UI.Option
-                    >{/each}</UI.Select
-                >
-              </UI.Group>
-            </UI.Group>
-          </UI.Field>
-          <UI.Field>
-            <UI.Label for="agent-provider-api-key">Replacement API key</UI.Label
-            >
-            <UI.Group>
-              <UI.Input
-                id="agent-provider-api-key"
-                type="password"
-                autocomplete="new-password"
-                bind:value={controller.state.form.apiKey}
-              />
-            </UI.Group>
-            <UI.Text as="p" size="small">
-              Leave blank to preserve the current API key. Required when
-              changing protocol or keychain.
-            </UI.Text>
-          </UI.Field>
-        {/if}
-        <UI.Field>
-          <UI.Label layout="choice"
-            ><UI.Checkbox bind:checked={controller.state.form.enabled} /> Enabled</UI.Label
-          >
-        </UI.Field>
-        <UI.Row>
-          <UI.Group>
-            <UI.Button
-              variant="default"
-              type="submit"
-              disabled={controller.state.saving}
-              >{controller.state.saving
-                ? "Saving..."
-                : "Save changes"}</UI.Button
-            >
-          </UI.Group>
-          <UI.Group>
-            <UI.Button
-              variant="outline"
-              type="button"
-              disabled={controller.state.saving}
-              onclick={() => (controller.state.editing = false)}
-              >Cancel</UI.Button
-            >
-          </UI.Group>
-        </UI.Row>
-      </UI.Form>
-      {#if controller.state.error !== ""}<UI.Text
-          as="p"
-          size="small"
-          role="alert"
-          aria-live="polite"
+        <AgentProviderFields
+          bind:form={controller.state.form}
+          keychains={controller.state.keychains}
+          editing
+        />
+        {#if controller.state.error}<UI.Notice
+            variant="destructive"
+            role="alert">{controller.state.error}</UI.Notice
+          >{/if}
+        <UI.FormActions
+          ><UI.RouterLink
+            variant="outline"
+            href={`/app/system/agent-providers/${encodeURIComponent(providerID)}`}
+            >Cancel</UI.RouterLink
+          ><UI.Button type="submit" disabled={controller.state.saving}
+            >{controller.state.saving ? "Saving…" : "Save changes"}</UI.Button
+          ></UI.FormActions
         >
-          {controller.state.error}
-        </UI.Text>{/if}
+      </UI.Form>
+    {:else}
+      <UI.AdminHeader
+        kind="Agent provider"
+        title={controller.state.provider.alias}
+        id={providerID}
+        enabled={controller.state.provider.enabled}
+      >
+        {#snippet actions()}<UI.RouterLink
+            variant="outline"
+            href={`/app/system/agent-providers/${encodeURIComponent(providerID)}/edit`}
+            >Edit provider</UI.RouterLink
+          >{/snippet}
+      </UI.AdminHeader>
+      <UI.DetailSection title="Connection"
+        ><UI.Property label="Protocol"
+          >{controller.state.provider.protocol}</UI.Property
+        ><UI.Property label="Base URL"
+          >{controller.state.provider.base_url ?? "Not configured"}</UI.Property
+        ></UI.DetailSection
+      >
+      <UI.DetailSection title="Credentials"
+        ><UI.Property label="Keychain"
+          >{controller.state.provider.keychain?.id ??
+            "Not configured"}{#if controller.state.provider.keychain}
+            · version {controller.state.provider.keychain
+              .version}{/if}</UI.Property
+        ><UI.Property label="API key"
+          >{controller.state.provider.credential_configured
+            ? "Configured"
+            : "Not configured"}</UI.Property
+        ></UI.DetailSection
+      >
+      <UI.DetailSection title="Record information"
+        ><UI.Property label="Alias"
+          >{controller.state.provider.alias}</UI.Property
+        ><UI.Property label="Revision"
+          >{controller.state.provider.revision}</UI.Property
+        ></UI.DetailSection
+      >
     {/if}
-  </UI.Stack>
+  </UI.AdminContent>
 </UI.AppFrame>

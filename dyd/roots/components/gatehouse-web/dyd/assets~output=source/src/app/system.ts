@@ -14,6 +14,7 @@ export type SystemPrincipal = {
   enabled: boolean
   revision: number
   identities: { id: string; key: string; enabled: boolean; revision: number }[]
+  identity_count?: number
 }
 
 export type SystemKeychain = { id: string; version: number }
@@ -32,6 +33,7 @@ export type SystemAgentModel = {
   alias: string
   revision: number
   provider: string
+  provider_alias?: string
   model: string
   parameters: string
   compaction: string
@@ -62,6 +64,36 @@ export type SystemWorkspaceSearchResponse = {
   workspaces: SystemWorkspace[]
   next_cursor?: string
 }
+export type SystemWorkspacePrincipal = {
+  id: string
+  alias?: string
+  name?: string
+  enabled: boolean
+  roles: WorkspaceRole[]
+}
+export type SystemWorkspacePrincipalOption = {
+  id: string
+  alias?: string
+  name?: string
+  enabled: boolean
+}
+export type SystemWorkspacePrincipalSearchResponse = {
+  principals: SystemWorkspacePrincipal[]
+  next_cursor?: string
+}
+export type SystemWorkspacePrincipalOptionSearchResponse = {
+  principals: SystemWorkspacePrincipalOption[]
+  next_cursor?: string
+}
+export type SystemWorkspacePrincipalGrant = {
+  id: string
+  workspace: string
+  principal: string
+  role: WorkspaceRole
+  enabled: boolean
+  revision: number
+}
+export type WorkspaceRole = "member" | "contributor" | "manager"
 export type TokenBucket = {
   minimum_balance: number
   maximum_balance: number
@@ -79,6 +111,7 @@ export type SystemWorkspaceAgent = {
   alias: string
   model: string
   revision: number
+  model_alias?: string
   label?: string
   system_prompt?: string
   prelude?: string
@@ -86,12 +119,21 @@ export type SystemWorkspaceAgent = {
   default: boolean
   enabled: boolean
 }
+export type SystemWorkspaceAgentSearchResponse = {
+  agents: SystemWorkspaceAgent[]
+  next_cursor?: string
+}
 export type SystemWorkspaceStorageProvider = {
   workspace: string
   provider: string
+  provider_alias?: string
   revision: number
   priority: number
   enabled: boolean
+}
+export type SystemWorkspaceStorageProviderSearchResponse = {
+  bindings: SystemWorkspaceStorageProvider[]
+  next_cursor?: string
 }
 
 export async function systemAdministration(
@@ -157,14 +199,182 @@ export async function updateSystemWorkspace(
   )
 }
 
+export async function fetchSystemWorkspacePrincipals(
+  workspaceID: string,
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const parameters = new URLSearchParams({ limit: "50" })
+  if (name.trim() !== "") parameters.set("name", name.trim())
+  if (cursor !== "") parameters.set("cursor", cursor)
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}/principals?${parameters}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
+export async function fetchSystemWorkspacePrincipalOptions(
+  workspaceID: string,
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const parameters = new URLSearchParams({ limit: "50" })
+  if (name.trim() !== "") parameters.set("name", name.trim())
+  if (cursor !== "") parameters.set("cursor", cursor)
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}/principal-options?${parameters}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
+export async function createSystemWorkspacePrincipalGrant(
+  workspaceID: string,
+  principal: string,
+  role: WorkspaceRole,
+): Promise<Response> {
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}/principals`,
+    "POST",
+    { principal, role },
+  )
+}
+
+export async function removeSystemWorkspacePrincipalGrants(
+  workspaceID: string,
+  principalID: string,
+): Promise<Response> {
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}/principals/${encodeURIComponent(principalID)}`,
+    "DELETE",
+  )
+}
+
+export async function fetchSystemWorkspaceAgents(
+  workspaceID: string,
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const parameters = new URLSearchParams({
+    workspace: workspaceID,
+    limit: "50",
+  })
+  if (name.trim() !== "") parameters.set("name", name.trim())
+  if (cursor !== "") parameters.set("cursor", cursor)
+  return await systemAdministration(
+    `workspace-agents?${parameters}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
+export async function fetchSystemWorkspaceStorageBindings(
+  workspaceID: string,
+  name: string,
+  cursor: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  const parameters = new URLSearchParams({
+    workspace: workspaceID,
+    limit: "50",
+  })
+  if (name.trim() !== "") parameters.set("name", name.trim())
+  if (cursor !== "") parameters.set("cursor", cursor)
+  return await systemAdministration(
+    `workspace-storage-providers?${parameters}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
 export async function fetchSystemGrants(): Promise<Response> {
   return await fetch("/api/v1/system/grants", { credentials: "same-origin" })
+}
+
+export async function searchSystemAgentProviders(
+  name: string,
+  cursor = "",
+  status = "",
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "50" })
+  if (name.trim()) query.set("name", name.trim())
+  if (cursor) query.set("cursor", cursor)
+  if (status) query.set("status", status)
+  return systemAdministration(
+    `agent-providers?${query}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+export async function searchSystemAgentModels(
+  name: string,
+  cursor = "",
+  status = "",
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "50" })
+  if (name.trim()) query.set("name", name.trim())
+  if (cursor) query.set("cursor", cursor)
+  if (status) query.set("status", status)
+  return systemAdministration(`agent-models?${query}`, "GET", undefined, signal)
+}
+export async function searchSystemStorageProviders(
+  name: string,
+  cursor = "",
+  status = "",
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "50" })
+  if (name.trim()) query.set("name", name.trim())
+  if (cursor) query.set("cursor", cursor)
+  if (status) query.set("status", status)
+  return systemAdministration(
+    `storage-providers?${query}`,
+    "GET",
+    undefined,
+    signal,
+  )
 }
 
 export async function fetchSystemPrincipals(): Promise<Response> {
   return await fetch("/api/v1/system/principals", {
     credentials: "same-origin",
   })
+}
+
+export async function searchSystemPrincipals(
+  name: string,
+  cursor = "",
+  status = "",
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "50" })
+  if (name.trim()) query.set("name", name.trim())
+  if (cursor) query.set("cursor", cursor)
+  if (status) query.set("status", status)
+  return systemAdministration(`principals?${query}`, "GET", undefined, signal)
+}
+export async function searchSystemGrants(
+  name: string,
+  cursor = "",
+  status = "",
+  signal?: AbortSignal,
+): Promise<Response> {
+  const query = new URLSearchParams({ limit: "50" })
+  if (name.trim()) query.set("name", name.trim())
+  if (cursor) query.set("cursor", cursor)
+  if (status) query.set("status", status)
+  return systemAdministration(`grants?${query}`, "GET", undefined, signal)
 }
 
 export async function createSystemGrant(principal: string): Promise<Response> {

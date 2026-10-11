@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
   const runtime = useRuntime()
   import { systemNavigation } from "../../../app/navigation"
@@ -13,79 +12,55 @@
     { label: "Overview" },
   ]}
 >
-  <UI.Stack as="section">
-    <UI.Stack as="hgroup">
-      <UI.Text as="p" size="eyebrow">System</UI.Text>
-      <UI.Heading level={2}>System administration</UI.Heading>
-      <UI.Text as="p">Manage global Gatehouse state.</UI.Text>
+  <UI.AdminContent mode="hub">
+    <UI.AdminHeader
+      title="System administration"
+      description="Manage access, shared infrastructure, and workspaces."
+    />
+    <UI.Stack>
+      <UI.Heading level={3}>Access</UI.Heading>
+      <UI.NavigationGrid>
+        <UI.NavigationCard
+          title="Principals"
+          description="Inspect principals, identities, and account status."
+          href="/app/system/principals"
+        />
+        <UI.NavigationCard
+          title="System grants"
+          description="Grant or revoke system-manager access."
+          href="/app/system/grants"
+        />
+      </UI.NavigationGrid>
     </UI.Stack>
-    <RouterLink variant="item" href="/app/system/principals"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">Principals</UI.Text><UI.Text
-          as="small"
-          size="small"
-          >View and enable or disable principals and their identities.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/grants"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">System grants</UI.Text><UI.Text
-          as="small"
-          size="small">Grant or revoke system-manager access.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/agent-providers"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">Agent providers</UI.Text
-        ><UI.Text as="small" size="small"
-          >Configure model-provider protocols and credentials.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/agent-models"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">Agent models</UI.Text><UI.Text
-          as="small"
-          size="small"
-          >Configure models available for workspace bindings.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/storage-providers"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">Storage providers</UI.Text
-        ><UI.Text as="small" size="small"
-          >Configure embedded or S3 storage.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/workspaces"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong">Workspaces</UI.Text><UI.Text
-          as="small"
-          size="small">View all workspaces and create new ones.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/workspace-agent-bindings"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong"
-          >Workspace agent bindings</UI.Text
-        ><UI.Text as="small" size="small"
-          >Assign agent models to workspaces.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-    <RouterLink variant="item" href="/app/system/workspace-storage-bindings"
-      ><UI.Stack as="span"
-        ><UI.Text as="strong" emphasis="strong"
-          >Workspace storage bindings</UI.Text
-        ><UI.Text as="small" size="small"
-          >Assign storage providers to workspaces.</UI.Text
-        ></UI.Stack
-      ></RouterLink
-    >
-  </UI.Stack>
+    <UI.Stack>
+      <UI.Heading level={3}>Infrastructure</UI.Heading>
+      <UI.NavigationGrid>
+        <UI.NavigationCard
+          title="Agent providers"
+          description="Configure model-provider connections and credentials."
+          href="/app/system/agent-providers"
+        />
+        <UI.NavigationCard
+          title="Agent models"
+          description="Configure model selection and generation settings."
+          href="/app/system/agent-models"
+        />
+        <UI.NavigationCard
+          title="Storage providers"
+          description="Configure embedded or S3 storage."
+          href="/app/system/storage-providers"
+        />
+      </UI.NavigationGrid>
+    </UI.Stack>
+    <UI.Stack>
+      <UI.Heading level={3}>Workspaces</UI.Heading>
+      <UI.NavigationGrid>
+        <UI.NavigationCard
+          title="Workspaces"
+          description="Manage workspace details, principal access, and bindings."
+          href="/app/system/workspaces"
+        />
+      </UI.NavigationGrid>
+    </UI.Stack>
+  </UI.AdminContent>
 </UI.AppFrame>

@@ -15,7 +15,6 @@ export function createSystemWorkspaceDetailController({
     workspace: null as SystemWorkspace | null,
     form: { name: "", enabled: true },
     loading: true,
-    editing: false,
     saving: false,
     error: "",
   })
@@ -52,11 +51,7 @@ export function createSystemWorkspaceDetailController({
       const workspace = (await response.json()) as SystemWorkspace
       if (currentGeneration !== generation || signal.aborted) return
       state.workspace = workspace
-      state.form = {
-        name: workspace.name ?? "",
-        enabled: workspace.enabled,
-      }
-      state.editing = false
+      state.form = { name: workspace.name ?? "", enabled: workspace.enabled }
     } catch {
       if (!signal.aborted) state.error = "Workspace could not be loaded."
     } finally {
@@ -70,7 +65,6 @@ export function createSystemWorkspaceDetailController({
     request = new AbortController()
     state.workspace = null
     state.form = { name: "", enabled: true }
-    state.editing = false
     state.saving = false
     void loadWorkspace(workspaceID, currentGeneration, request.signal)
     return () => {
@@ -82,23 +76,8 @@ export function createSystemWorkspaceDetailController({
     }
   }
 
-  function beginEdit(): void {
-    if (state.workspace === null) return
-    state.form = {
-      name: state.workspace.name ?? "",
-      enabled: state.workspace.enabled,
-    }
-    state.error = ""
-    state.editing = true
-  }
-
-  function cancelEdit(): void {
-    state.error = ""
-    state.editing = false
-  }
-
-  async function save(workspaceID: string): Promise<void> {
-    if (state.saving) return
+  async function save(workspaceID: string): Promise<boolean> {
+    if (state.saving) return false
     const currentGeneration = generation
     state.saving = true
     state.error = ""
@@ -107,40 +86,37 @@ export function createSystemWorkspaceDetailController({
         name: state.form.name,
         enabled: state.form.enabled,
       })
-      if (currentGeneration !== generation) return
+      if (currentGeneration !== generation) return false
       if (response.status === 401) {
         onAuthenticationLost()
-        return
+        return false
       }
       if (response.status === 403) {
         onSystemAccessChange("denied")
-        return
+        return false
       }
       if (response.status === 404) {
         state.workspace = null
-        state.editing = false
         state.error = "Workspace was not found."
-        return
+        return false
       }
       if (!response.ok) {
         state.error = "Workspace changes could not be saved."
-        return
+        return false
       }
       const workspace = (await response.json()) as SystemWorkspace
-      if (currentGeneration !== generation) return
+      if (currentGeneration !== generation) return false
       state.workspace = workspace
-      state.form = {
-        name: state.workspace.name ?? "",
-        enabled: state.workspace.enabled,
-      }
-      state.editing = false
+      state.form = { name: workspace.name ?? "", enabled: workspace.enabled }
+      return true
     } catch {
       if (currentGeneration === generation)
         state.error = "Workspace changes could not be saved."
+      return false
     } finally {
       if (currentGeneration === generation) state.saving = false
     }
   }
 
-  return { state, load, beginEdit, cancelEdit, save }
+  return { state, load, save }
 }

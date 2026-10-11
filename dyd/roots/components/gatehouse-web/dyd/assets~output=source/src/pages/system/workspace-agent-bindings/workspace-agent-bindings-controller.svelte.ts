@@ -1,33 +1,40 @@
 import type { ActivityClient } from "../../../app/activity"
 import {
+  fetchSystemWorkspaceAgents,
   systemAdministration,
   type SystemWorkspaceAgent,
 } from "../../../app/system"
 
 type WorkspaceAgentBindingsControllerOptions = {
   activity: ActivityClient
+  workspaceID: string
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }
 
 export function createWorkspaceAgentBindingsController({
   activity,
+  workspaceID,
   onAuthenticationLost,
   onSystemAccessChange,
 }: WorkspaceAgentBindingsControllerOptions) {
   const state = $state({
     bindings: [] as SystemWorkspaceAgent[],
     error: "",
+    search: "",
+    cursor: "",
+    loading: true,
+    loadingMore: false,
     saving: false,
     form: {
-		workspace: "",
-		alias: "",
-		model: "",
-		label: "",
-		systemPrompt: "",
-		prelude: "",
-		rateLimits: "",
-		default: false,
+      alias: "",
+      model: "",
+      label: "",
+      systemPrompt: "",
+      prelude: "",
+      rateLimits: "",
+      default: false,
+      enabled: true,
     },
   })
   let unsubscribe: (() => void) | undefined
@@ -40,8 +47,13 @@ export function createWorkspaceAgentBindingsController({
 
   async function load(): Promise<void> {
     state.error = ""
+    state.loading = true
     try {
-      const response = await systemAdministration("workspace-agents")
+      const response = await fetchSystemWorkspaceAgents(
+        workspaceID,
+        state.search,
+        "",
+      )
       if (response.status === 401) {
         onAuthenticationLost()
         return
@@ -54,10 +66,60 @@ export function createWorkspaceAgentBindingsController({
         state.error = "Workspace agent bindings could not be loaded."
         return
       }
-      state.bindings = (await response.json()) as SystemWorkspaceAgent[]
+      const result = (await response.json()) as {
+        agents: SystemWorkspaceAgent[]
+        next_cursor?: string
+      }
+      state.bindings = result.agents
+      state.cursor = result.next_cursor ?? ""
     } catch {
       state.error = "Workspace agent bindings could not be loaded."
+    } finally {
+      state.loading = false
     }
+  }
+
+  async function loadMore(): Promise<void> {
+    if (state.cursor === "" || state.loadingMore) return
+    state.loadingMore = true
+    state.error = ""
+    try {
+      const response = await fetchSystemWorkspaceAgents(
+        workspaceID,
+        state.search,
+        state.cursor,
+      )
+      if (response.status === 401) {
+        onAuthenticationLost()
+        return
+      }
+      if (response.status === 403) {
+        onSystemAccessChange("denied")
+        return
+      }
+      if (!response.ok) {
+        state.error = "Workspace agent bindings could not be loaded."
+        return
+      }
+      const result = (await response.json()) as {
+        agents: SystemWorkspaceAgent[]
+        next_cursor?: string
+      }
+      const seen = new Set(state.bindings.map((binding) => binding.id))
+      state.bindings = [
+        ...state.bindings,
+        ...result.agents.filter((binding) => !seen.has(binding.id)),
+      ]
+      state.cursor = result.next_cursor ?? ""
+    } catch {
+      state.error = "Workspace agent bindings could not be loaded."
+    } finally {
+      state.loadingMore = false
+    }
+  }
+
+  function search(): void {
+    void load()
   }
 
   async function save(
@@ -108,30 +170,30 @@ export function createWorkspaceAgentBindingsController({
     }
     if (
       !(await save(
-        `workspace-agents/${encodeURIComponent(form.workspace)}`,
+        `workspace-agents/${encodeURIComponent(workspaceID)}`,
         "POST",
         {
           alias: form.alias,
           model: form.model,
-			label: optional(form.label),
-			system_prompt: optional(form.systemPrompt),
-			prelude: optional(form.prelude),
-			rate_limits: limits,
-			default: form.default,
-          enabled: true,
+          label: optional(form.label),
+          system_prompt: optional(form.systemPrompt),
+          prelude: optional(form.prelude),
+          rate_limits: limits,
+          default: form.default,
+          enabled: form.enabled,
         },
       ))
     )
       return
     state.form = {
-      workspace: "",
       alias: "",
       model: "",
-		label: "",
-		systemPrompt: "",
-		prelude: "",
-		rateLimits: "",
-		default: false,
+      label: "",
+      systemPrompt: "",
+      prelude: "",
+      rateLimits: "",
+      default: false,
+      enabled: true,
     }
   }
 
@@ -144,11 +206,11 @@ export function createWorkspaceAgentBindingsController({
       "PATCH",
       {
         model: binding.model,
-		label: binding.label,
-		system_prompt: binding.system_prompt,
-		prelude: binding.prelude,
-		rate_limits: binding.rate_limits,
-		default: enabled && binding.default,
+        label: binding.label,
+        system_prompt: binding.system_prompt,
+        prelude: binding.prelude,
+        rate_limits: binding.rate_limits,
+        default: enabled && binding.default,
         enabled,
         expected_revision: binding.revision,
       },
@@ -175,5 +237,5 @@ export function createWorkspaceAgentBindingsController({
     unsubscribe = undefined
   }
 
-  return { state, load, create, setEnabled, start, stop }
+  return { state, load, loadMore, search, create, setEnabled, start, stop }
 }

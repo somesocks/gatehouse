@@ -99,18 +99,24 @@ export function createAgentProviderFormController({
       state.error = "A keychain is required for this provider."
       return false
     }
-    if (replacementRequired && state.form.apiKey.trim() === "") {
+    if (
+      replacementRequired &&
+      state.form.protocol !== "builtin" &&
+      state.form.apiKey.trim() === ""
+    ) {
       state.error = "An API key is required when changing protocol or keychain."
       return false
     }
     return true
   }
   async function create(): Promise<SystemAgentProvider | null> {
+    if (state.saving) return null
     state.error = ""
     if (!validate(state.form.protocol !== "builtin")) return null
     return await save("agent-providers", "POST", state.form)
   }
   async function update(): Promise<boolean> {
+    if (state.saving) return false
     if (state.provider === null) return false
     state.error = ""
     const replacement =
@@ -139,9 +145,12 @@ export function createAgentProviderFormController({
       const response = await systemAdministration(path, method, {
         alias: form.alias,
         protocol: form.protocol,
-        base_url: optional(form.baseURL),
-        keychain: optional(form.keychain),
-        api_key: optional(form.apiKey),
+        base_url:
+          form.protocol === "builtin" ? undefined : optional(form.baseURL),
+        keychain:
+          form.protocol === "builtin" ? undefined : optional(form.keychain),
+        api_key:
+          form.protocol === "builtin" ? undefined : optional(form.apiKey),
         enabled: form.enabled,
         ...(revision === undefined ? {} : { expected_revision: revision }),
       })
@@ -154,9 +163,12 @@ export function createAgentProviderFormController({
         return null
       }
       if (response.status === 409) {
+        if (state.provider !== null) {
+          await load(state.provider.id)
+          await beginEdit()
+        }
         state.error =
-          "This provider changed elsewhere. The latest settings have been reloaded."
-        if (state.provider !== null) await load(state.provider.id)
+          "This provider changed elsewhere. Review the reloaded settings before saving."
         return null
       }
       if (!response.ok) {

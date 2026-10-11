@@ -1917,11 +1917,196 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if patched := request(http.MethodPatch, "/api/v1/system/workspace-agents/"+refs["engineering"].Id+"/"+agent.ID, `{"model":"`+agentModel.ID+`","default":false,"enabled":false,"expected_revision":1}`); patched.Code != http.StatusOK {
 		t.Fatalf("PATCH system workspace agent = %d", patched.Code)
 	}
+	secondBinding := request(http.MethodPost, "/api/v1/system/workspace-agents/"+refs["engineering"].Id, `{"alias":"admin-fallback","model":"`+agentModel.ID+`","default":false,"enabled":true}`)
+	var fallbackAgent database.SystemWorkspaceAgent
+	if err := json.Unmarshal(secondBinding.Body.Bytes(), &fallbackAgent); err != nil || secondBinding.Code != http.StatusOK {
+		t.Fatalf("POST second workspace agent binding = (%d, %#v, %v)", secondBinding.Code, fallbackAgent, err)
+	}
+	firstAgentPage := request(http.MethodGet, "/api/v1/system/workspace-agents?workspace="+refs["engineering"].Id+"&limit=1", "")
+	var agentPage systemWorkspaceAgentSearchResponse
+	if err := json.Unmarshal(firstAgentPage.Body.Bytes(), &agentPage); err != nil || firstAgentPage.Code != http.StatusOK || len(agentPage.Agents) != 1 || agentPage.NextCursor == "" {
+		t.Fatalf("GET first workspace agent page = (%d, %#v, %v)", firstAgentPage.Code, agentPage, err)
+	}
+	seenAgentIDs := map[string]bool{agentPage.Agents[0].ID: true}
+	cursor := agentPage.NextCursor
+	for pages := 0; cursor != ""; pages++ {
+		if pages > 10 {
+			t.Fatal("workspace agent pagination did not terminate")
+		}
+		pageResponse := request(http.MethodGet, "/api/v1/system/workspace-agents?workspace="+refs["engineering"].Id+"&limit=1&cursor="+cursor, "")
+		agentPage = systemWorkspaceAgentSearchResponse{}
+		if err := json.Unmarshal(pageResponse.Body.Bytes(), &agentPage); err != nil || pageResponse.Code != http.StatusOK || len(agentPage.Agents) != 1 || seenAgentIDs[agentPage.Agents[0].ID] {
+			t.Fatalf("GET subsequent workspace agent page = (%d, %#v, %v)", pageResponse.Code, agentPage, err)
+		}
+		seenAgentIDs[agentPage.Agents[0].ID] = true
+		cursor = agentPage.NextCursor
+	}
+	if !seenAgentIDs[agent.ID] || !seenAgentIDs[fallbackAgent.ID] {
+		t.Fatalf("paginated workspace agents omitted created bindings: %#v", seenAgentIDs)
+	}
+	if missingWorkspace := request(http.MethodGet, "/api/v1/system/workspace-agents", ""); missingWorkspace.Code != http.StatusBadRequest {
+		t.Fatalf("GET workspace agents without a workspace filter = %d", missingWorkspace.Code)
+	}
+
+	secondaryStorageProvider := request(http.MethodPost, "/api/v1/system/storage-providers", `{"alias":"admin-secondary-storage","protocol":"embedded","enabled":true}`)
+	var storageProvider database.SystemStorageProvider
+	if err := json.Unmarshal(secondaryStorageProvider.Body.Bytes(), &storageProvider); err != nil || secondaryStorageProvider.Code != http.StatusOK || storageProvider.ID == "" {
+		t.Fatalf("POST secondary storage provider = (%d, %#v, %v)", secondaryStorageProvider.Code, storageProvider, err)
+	}
+	createdStorageBinding := request(http.MethodPost, "/api/v1/system/workspace-storage-providers/"+refs["engineering"].Id+"/"+storageProvider.ID, `{"priority":2,"enabled":true}`)
+	if createdStorageBinding.Code != http.StatusOK {
+		t.Fatalf("POST workspace storage binding = (%d, %q)", createdStorageBinding.Code, createdStorageBinding.Body.String())
+	}
+	firstStoragePage := request(http.MethodGet, "/api/v1/system/workspace-storage-providers?workspace="+refs["engineering"].Id+"&limit=1", "")
+	var storagePage systemWorkspaceStorageSearchResponse
+	if err := json.Unmarshal(firstStoragePage.Body.Bytes(), &storagePage); err != nil || firstStoragePage.Code != http.StatusOK || len(storagePage.Bindings) != 1 || storagePage.NextCursor == "" {
+		t.Fatalf("GET first workspace storage page = (%d, %#v, %v)", firstStoragePage.Code, storagePage, err)
+	}
+	seenStorageIDs := map[string]bool{storagePage.Bindings[0].ProviderID: true}
+	cursor = storagePage.NextCursor
+	for pages := 0; cursor != ""; pages++ {
+		if pages > 10 {
+			t.Fatal("workspace storage binding pagination did not terminate")
+		}
+		pageResponse := request(http.MethodGet, "/api/v1/system/workspace-storage-providers?workspace="+refs["engineering"].Id+"&limit=1&cursor="+cursor, "")
+		storagePage = systemWorkspaceStorageSearchResponse{}
+		if err := json.Unmarshal(pageResponse.Body.Bytes(), &storagePage); err != nil || pageResponse.Code != http.StatusOK || len(storagePage.Bindings) != 1 || seenStorageIDs[storagePage.Bindings[0].ProviderID] {
+			t.Fatalf("GET subsequent workspace storage page = (%d, %#v, %v)", pageResponse.Code, storagePage, err)
+		}
+		seenStorageIDs[storagePage.Bindings[0].ProviderID] = true
+		cursor = storagePage.NextCursor
+	}
+	if !seenStorageIDs[storageProvider.ID] {
+		t.Fatalf("paginated workspace storage bindings omitted new provider: %#v", seenStorageIDs)
+	}
+	if missingWorkspace := request(http.MethodGet, "/api/v1/system/workspace-storage-providers", ""); missingWorkspace.Code != http.StatusBadRequest {
+		t.Fatalf("GET workspace storage bindings without a workspace filter = %d", missingWorkspace.Code)
+	}
 	if unauthenticated := httptest.NewRecorder(); func() bool {
 		handler.ServeHTTP(unauthenticated, httptest.NewRequest(http.MethodGet, "/api/v1/system/agent-providers", nil))
 		return unauthenticated.Code == http.StatusUnauthorized
 	}() == false {
 		t.Fatalf("GET system agent providers unauthenticated = %d", unauthenticated.Code)
+	}
+}
+
+func TestSystemWorkspacePrincipalAPI(t *testing.T) {
+	tokens, store, workspaces := testBearerTokens(t)
+	ctx := context.Background()
+	alice, identityID := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: alice, Enabled: true}, Identity: identityID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	request := func(method, path, body string) *httptest.ResponseRecorder {
+		response := httptest.NewRecorder()
+		httpRequest := httptest.NewRequest(method, path, strings.NewReader(body))
+		httpRequest.Header.Set("Authorization", "Bearer "+token)
+		handler.ServeHTTP(response, httpRequest)
+		return response
+	}
+	workspaceID := workspaces["engineering"].Id
+	basePath := "/api/v1/system/workspaces/" + workspaceID
+	workspacePrincipalsPath := basePath + "/principals"
+	var bob string
+	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob); err != nil {
+		t.Fatal(err)
+	}
+
+	// Alice has group-derived workspace access but no direct grant, so she is
+	// intentionally absent from this direct-principal roster.
+	initial := request(http.MethodGet, workspacePrincipalsPath, "")
+	var page systemWorkspacePrincipalPage
+	if err := json.Unmarshal(initial.Body.Bytes(), &page); err != nil || initial.Code != http.StatusOK || len(page.Principals) != 0 {
+		t.Fatalf("GET initial workspace principals = (%d, %#v, %v)", initial.Code, page, err)
+	}
+
+	firstOptions := request(http.MethodGet, basePath+"/principal-options?limit=1", "")
+	var options systemWorkspacePrincipalOptionPage
+	if err := json.Unmarshal(firstOptions.Body.Bytes(), &options); err != nil || firstOptions.Code != http.StatusOK || len(options.Principals) != 1 || options.NextCursor == "" {
+		t.Fatalf("GET first principal options page = (%d, %#v, %v)", firstOptions.Code, options, err)
+	}
+	seenOptionIDs := map[string]bool{options.Principals[0].ID: true}
+	cursor := options.NextCursor
+	for pages := 0; cursor != ""; pages++ {
+		if pages > 10 {
+			t.Fatal("principal options pagination did not terminate")
+		}
+		pageResponse := request(http.MethodGet, basePath+"/principal-options?limit=1&cursor="+cursor, "")
+		options = systemWorkspacePrincipalOptionPage{}
+		if err := json.Unmarshal(pageResponse.Body.Bytes(), &options); err != nil || pageResponse.Code != http.StatusOK || len(options.Principals) != 1 || seenOptionIDs[options.Principals[0].ID] {
+			t.Fatalf("GET subsequent principal options page after %q (seen %#v) = (%d, %#v, %v)", cursor, seenOptionIDs, pageResponse.Code, options, err)
+		}
+		seenOptionIDs[options.Principals[0].ID] = true
+		cursor = options.NextCursor
+	}
+	if !seenOptionIDs[bob] || !seenOptionIDs[alice.Id] {
+		t.Fatalf("principal options pages omitted alice or bob: %#v", seenOptionIDs)
+	}
+	filteredOptions := request(http.MethodGet, basePath+"/principal-options?name=Bob", "")
+	if err := json.Unmarshal(filteredOptions.Body.Bytes(), &options); err != nil || filteredOptions.Code != http.StatusOK || len(options.Principals) != 1 || options.Principals[0].Alias == nil || *options.Principals[0].Alias != "bob" {
+		t.Fatalf("GET filtered principal options = (%d, %#v, %v)", filteredOptions.Code, options, err)
+	}
+	if invalid := request(http.MethodGet, workspacePrincipalsPath+"?cursor=invalid", ""); invalid.Code != http.StatusBadRequest {
+		t.Fatalf("GET workspace principals with invalid cursor = %d", invalid.Code)
+	}
+	if missing := request(http.MethodGet, "/api/v1/system/workspaces/wsp_00000000000000000000000000/principals", ""); missing.Code != http.StatusNotFound {
+		t.Fatalf("GET principals for missing workspace = %d", missing.Code)
+	}
+
+	created := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"member"}`)
+	var grant database.SystemWorkspacePrincipalGrant
+	if err := json.Unmarshal(created.Body.Bytes(), &grant); err != nil || created.Code != http.StatusCreated || grant.Workspace != workspaceID || grant.Principal != bob || grant.Role != authz.Member || grant.Revision != 1 || !grant.Enabled {
+		t.Fatalf("POST workspace principal grant = (%d, %#v, %v)", created.Code, grant, err)
+	}
+	if duplicate := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"member"}`); duplicate.Code != http.StatusConflict {
+		t.Fatalf("POST duplicate workspace principal grant = %d", duplicate.Code)
+	}
+	if invalidRole := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"owner"}`); invalidRole.Code != http.StatusBadRequest {
+		t.Fatalf("POST workspace principal grant with invalid role = %d", invalidRole.Code)
+	}
+	if missingPrincipal := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"prn_00000000000000000000000000","role":"member"}`); missingPrincipal.Code != http.StatusNotFound {
+		t.Fatalf("POST workspace grant for missing principal = %d", missingPrincipal.Code)
+	}
+	if invalidBody := request(http.MethodPost, workspacePrincipalsPath, `{}`); invalidBody.Code != http.StatusBadRequest {
+		t.Fatalf("POST invalid workspace principal grant = %d", invalidBody.Code)
+	}
+	createdAlice := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+alice.Id+`","role":"contributor"}`)
+	if createdAlice.Code != http.StatusCreated {
+		t.Fatalf("POST direct grant for group member = (%d, %q)", createdAlice.Code, createdAlice.Body.String())
+	}
+
+	firstRosterPage := request(http.MethodGet, workspacePrincipalsPath+"?limit=1", "")
+	if err := json.Unmarshal(firstRosterPage.Body.Bytes(), &page); err != nil || firstRosterPage.Code != http.StatusOK || len(page.Principals) != 1 || page.NextCursor == "" {
+		t.Fatalf("GET first workspace principal page = (%d, %#v, %v)", firstRosterPage.Code, page, err)
+	}
+	firstRosterID := page.Principals[0].ID
+	secondRosterPage := request(http.MethodGet, workspacePrincipalsPath+"?limit=1&cursor="+page.NextCursor, "")
+	page = systemWorkspacePrincipalPage{}
+	if err := json.Unmarshal(secondRosterPage.Body.Bytes(), &page); err != nil || secondRosterPage.Code != http.StatusOK || len(page.Principals) != 1 || page.Principals[0].ID == firstRosterID || page.NextCursor != "" {
+		t.Fatalf("GET second workspace principal page = (%d, %#v, %v)", secondRosterPage.Code, page, err)
+	}
+
+	removedAlice := request(http.MethodDelete, workspacePrincipalsPath+"/"+alice.Id, "")
+	if removedAlice.Code != http.StatusNoContent {
+		t.Fatalf("DELETE direct workspace principal grant = (%d, %q)", removedAlice.Code, removedAlice.Body.String())
+	}
+	err, aliceRoles := store.WorkspaceRolesGet(ctx, workspaces["engineering"], alice)
+	if err != nil || len(aliceRoles) != 1 || aliceRoles[0] != authz.Manager {
+		t.Fatalf("Alice's group-derived workspace roles after direct removal = (%#v, %v)", aliceRoles, err)
+	}
+	removedBob := request(http.MethodDelete, workspacePrincipalsPath+"/"+bob, "")
+	if removedBob.Code != http.StatusNoContent {
+		t.Fatalf("DELETE workspace principal grant = (%d, %q)", removedBob.Code, removedBob.Body.String())
+	}
+	var enabled bool
+	var revision int
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ? AND role = 'member'`, workspaceID, bob).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
+		t.Fatalf("removed bob grant = (%v, %d, %v)", enabled, revision, err)
+	}
+	if missingPrincipal := request(http.MethodDelete, workspacePrincipalsPath+"/prn_00000000000000000000000000", ""); missingPrincipal.Code != http.StatusNotFound {
+		t.Fatalf("DELETE missing workspace principal = %d", missingPrincipal.Code)
 	}
 }
 

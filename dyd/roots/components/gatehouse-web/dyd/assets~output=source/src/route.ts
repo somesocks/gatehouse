@@ -9,33 +9,48 @@ export type Route =
   | { kind: "no-access" }
   | { kind: "system" }
   | { kind: "system-grants" }
+  | { kind: "system-grant-new" }
   | { kind: "system-principals" }
+  | { kind: "system-principal"; principalID: string }
+  | { kind: "system-principal-edit"; principalID: string }
   | { kind: "system-agent-providers" }
   | { kind: "system-agent-provider-new" }
   | { kind: "system-agent-provider"; providerID: string }
+  | { kind: "system-agent-provider-edit"; providerID: string }
   | { kind: "system-agent-models" }
   | { kind: "system-agent-model-new" }
   | { kind: "system-agent-model"; modelID: string }
+  | { kind: "system-agent-model-edit"; modelID: string }
   | { kind: "system-storage-providers" }
   | { kind: "system-storage-provider-new" }
   | { kind: "system-storage-provider"; providerID: string }
+  | { kind: "system-storage-provider-edit"; providerID: string }
   | { kind: "system-workspaces" }
   | { kind: "system-workspace-new" }
-  | { kind: "system-workspace"; workspaceID: string }
-  | { kind: "system-workspace-agent-bindings" }
-  | { kind: "system-workspace-agent-binding-new" }
-  | {
+  | ({ kind: "system-workspace" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-edit" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-principals" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-principal-new" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-agent-bindings" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-agent-binding-new" } & WorkspaceRoute)
+  | ({
       kind: "system-workspace-agent-binding"
-      workspaceID: string
       bindingID: string
-    }
-  | { kind: "system-workspace-storage-bindings" }
-  | { kind: "system-workspace-storage-binding-new" }
-  | {
+    } & WorkspaceRoute)
+  | ({
+      kind: "system-workspace-agent-binding-edit"
+      bindingID: string
+    } & WorkspaceRoute)
+  | ({ kind: "system-workspace-storage-bindings" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-storage-binding-new" } & WorkspaceRoute)
+  | ({
       kind: "system-workspace-storage-binding"
-      workspaceID: string
       providerID: string
-    }
+    } & WorkspaceRoute)
+  | ({
+      kind: "system-workspace-storage-binding-edit"
+      providerID: string
+    } & WorkspaceRoute)
   | ({ kind: "workspace" } & WorkspaceRoute)
   | ({ kind: "session-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
@@ -141,6 +156,26 @@ export function parseRoute(url: URL): Route {
     return { kind: "system" }
   }
   if (
+    segments[1] === "system" &&
+    segments.length === 5 &&
+    segments[4] === "edit"
+  ) {
+    if (segments[2] === "agent-providers")
+      return { kind: "system-agent-provider-edit", providerID: segments[3] }
+    if (segments[2] === "agent-models")
+      return { kind: "system-agent-model-edit", modelID: segments[3] }
+    if (segments[2] === "storage-providers")
+      return { kind: "system-storage-provider-edit", providerID: segments[3] }
+    if (segments[2] === "principals")
+      return { kind: "system-principal-edit", principalID: segments[3] }
+  }
+  if (segments[1] === "system" && segments.length === 4) {
+    if (segments[2] === "grants" && segments[3] === "new")
+      return { kind: "system-grant-new" }
+    if (segments[2] === "principals")
+      return { kind: "system-principal", principalID: segments[3] }
+  }
+  if (
     segments.length === 4 &&
     segments[1] === "system" &&
     segments[2] === "workspaces" &&
@@ -153,6 +188,116 @@ export function parseRoute(url: URL): Route {
     segments[2] === "workspaces"
   )
     return { kind: "system-workspace", workspaceID: segments[3] }
+  if (
+    segments.length === 5 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "edit"
+  )
+    return { kind: "system-workspace-edit", workspaceID: segments[3] }
+  if (
+    segments.length === 5 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "principals"
+  )
+    return { kind: "system-workspace-principals", workspaceID: segments[3] }
+  if (
+    segments.length === 6 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "principals" &&
+    segments[5] === "new"
+  )
+    return { kind: "system-workspace-principal-new", workspaceID: segments[3] }
+  if (
+    segments.length === 5 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "agent-bindings"
+  )
+    return {
+      kind: "system-workspace-agent-bindings",
+      workspaceID: segments[3],
+    }
+  if (
+    segments.length === 6 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "agent-bindings" &&
+    segments[5] === "new"
+  )
+    return {
+      kind: "system-workspace-agent-binding-new",
+      workspaceID: segments[3],
+    }
+  if (
+    segments.length === 6 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "agent-bindings"
+  )
+    return {
+      kind: "system-workspace-agent-binding",
+      workspaceID: segments[3],
+      bindingID: segments[5],
+    }
+  if (
+    segments.length === 7 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "agent-bindings" &&
+    segments[6] === "edit"
+  )
+    return {
+      kind: "system-workspace-agent-binding-edit",
+      workspaceID: segments[3],
+      bindingID: segments[5],
+    }
+  if (
+    segments.length === 5 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "storage-bindings"
+  )
+    return {
+      kind: "system-workspace-storage-bindings",
+      workspaceID: segments[3],
+    }
+  if (
+    segments.length === 6 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "storage-bindings" &&
+    segments[5] === "new"
+  )
+    return {
+      kind: "system-workspace-storage-binding-new",
+      workspaceID: segments[3],
+    }
+  if (
+    segments.length === 6 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "storage-bindings"
+  )
+    return {
+      kind: "system-workspace-storage-binding",
+      workspaceID: segments[3],
+      providerID: segments[5],
+    }
+  if (
+    segments.length === 7 &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "storage-bindings" &&
+    segments[6] === "edit"
+  )
+    return {
+      kind: "system-workspace-storage-binding-edit",
+      workspaceID: segments[3],
+      providerID: segments[5],
+    }
   if (
     segments.length === 3 &&
     segments[1] === "system" &&
@@ -231,19 +376,6 @@ export function parseRoute(url: URL): Route {
   )
     return { kind: "system-workspaces" }
   if (
-    segments.length === 3 &&
-    segments[1] === "system" &&
-    segments[2] === "workspace-agent-bindings"
-  )
-    return { kind: "system-workspace-agent-bindings" }
-  if (
-    segments.length === 4 &&
-    segments[1] === "system" &&
-    segments[2] === "workspace-agent-bindings" &&
-    segments[3] === "new"
-  )
-    return { kind: "system-workspace-agent-binding-new" }
-  if (
     segments.length === 5 &&
     segments[1] === "system" &&
     segments[2] === "workspace-agent-bindings"
@@ -253,19 +385,6 @@ export function parseRoute(url: URL): Route {
       workspaceID: segments[3],
       bindingID: segments[4],
     }
-  if (
-    segments.length === 3 &&
-    segments[1] === "system" &&
-    segments[2] === "workspace-storage-bindings"
-  )
-    return { kind: "system-workspace-storage-bindings" }
-  if (
-    segments.length === 4 &&
-    segments[1] === "system" &&
-    segments[2] === "workspace-storage-bindings" &&
-    segments[3] === "new"
-  )
-    return { kind: "system-workspace-storage-binding-new" }
   if (
     segments.length === 5 &&
     segments[1] === "system" &&
@@ -518,6 +637,23 @@ export function parseRoute(url: URL): Route {
   return notFound()
 }
 
+export function legacySystemRedirect(url: URL): string | null {
+  const segments = pathSegments(url.pathname)
+  if (segments === null || segments[0] !== "app" || segments[1] !== "system")
+    return null
+  if (segments[2] === "workspace-agent-bindings") {
+    if (segments.length === 5)
+      return `/app/system/workspaces/${segment(segments[3])}/agent-bindings/${segment(segments[4])}`
+    return "/app/system/workspaces"
+  }
+  if (segments[2] === "workspace-storage-bindings") {
+    if (segments.length === 5)
+      return `/app/system/workspaces/${segment(segments[3])}/storage-bindings/${segment(segments[4])}`
+    return "/app/system/workspaces"
+  }
+  return null
+}
+
 function segment(value: string): string {
   return encodeURIComponent(value)
 }
@@ -542,44 +678,66 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system"
     case "system-grants":
       return "/app/system/grants"
+    case "system-grant-new":
+      return "/app/system/grants/new"
     case "system-principals":
       return "/app/system/principals"
+    case "system-principal":
+      return `/app/system/principals/${segment(route.principalID)}`
+    case "system-principal-edit":
+      return `/app/system/principals/${segment(route.principalID)}/edit`
     case "system-agent-providers":
       return "/app/system/agent-providers"
     case "system-agent-provider-new":
       return "/app/system/agent-providers/new"
     case "system-agent-provider":
       return `/app/system/agent-providers/${segment(route.providerID)}`
+    case "system-agent-provider-edit":
+      return `/app/system/agent-providers/${segment(route.providerID)}/edit`
     case "system-agent-models":
       return "/app/system/agent-models"
     case "system-agent-model-new":
       return "/app/system/agent-models/new"
     case "system-agent-model":
       return `/app/system/agent-models/${segment(route.modelID)}`
+    case "system-agent-model-edit":
+      return `/app/system/agent-models/${segment(route.modelID)}/edit`
     case "system-storage-providers":
       return "/app/system/storage-providers"
     case "system-storage-provider-new":
       return "/app/system/storage-providers/new"
     case "system-storage-provider":
       return `/app/system/storage-providers/${segment(route.providerID)}`
+    case "system-storage-provider-edit":
+      return `/app/system/storage-providers/${segment(route.providerID)}/edit`
     case "system-workspaces":
       return "/app/system/workspaces"
     case "system-workspace-new":
       return "/app/system/workspaces/new"
     case "system-workspace":
       return `/app/system/workspaces/${segment(route.workspaceID)}`
+    case "system-workspace-edit":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/edit`
+    case "system-workspace-principals":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/principals`
+    case "system-workspace-principal-new":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/principals/new`
     case "system-workspace-agent-bindings":
-      return "/app/system/workspace-agent-bindings"
+      return `/app/system/workspaces/${segment(route.workspaceID)}/agent-bindings`
     case "system-workspace-agent-binding-new":
-      return "/app/system/workspace-agent-bindings/new"
+      return `/app/system/workspaces/${segment(route.workspaceID)}/agent-bindings/new`
     case "system-workspace-agent-binding":
-      return `/app/system/workspace-agent-bindings/${segment(route.workspaceID)}/${segment(route.bindingID)}`
+      return `/app/system/workspaces/${segment(route.workspaceID)}/agent-bindings/${segment(route.bindingID)}`
+    case "system-workspace-agent-binding-edit":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/agent-bindings/${segment(route.bindingID)}/edit`
     case "system-workspace-storage-bindings":
-      return "/app/system/workspace-storage-bindings"
+      return `/app/system/workspaces/${segment(route.workspaceID)}/storage-bindings`
     case "system-workspace-storage-binding-new":
-      return "/app/system/workspace-storage-bindings/new"
+      return `/app/system/workspaces/${segment(route.workspaceID)}/storage-bindings/new`
     case "system-workspace-storage-binding":
-      return `/app/system/workspace-storage-bindings/${segment(route.workspaceID)}/${segment(route.providerID)}`
+      return `/app/system/workspaces/${segment(route.workspaceID)}/storage-bindings/${segment(route.providerID)}`
+    case "system-workspace-storage-binding-edit":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/storage-bindings/${segment(route.providerID)}/edit`
     case "workspace":
       return `/app/wsp/${segment(route.workspaceID)}`
     case "session-collection":

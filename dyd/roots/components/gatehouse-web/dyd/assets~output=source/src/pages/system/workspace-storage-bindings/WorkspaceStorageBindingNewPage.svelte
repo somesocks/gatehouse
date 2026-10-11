@@ -1,92 +1,88 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-
+  import { untrack } from "svelte"
   import { createWorkspaceStorageBindingsController } from "./workspace-storage-bindings-controller.svelte"
-
+  import StorageProviderPicker from "../storage-providers/StorageProviderPicker.svelte"
+  import SystemWorkspaceFrame from "../workspaces/SystemWorkspaceFrame.svelte"
+  let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
   const controller = untrack(() =>
     createWorkspaceStorageBindingsController({
       activity: runtime.activity,
+      workspaceID,
       onAuthenticationLost: runtime.requireLogin,
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
-
-  async function create(): Promise<void> {
+  controller.state.form.priority = 1
+  async function create() {
+    const route = runtime.state.route
     await controller.create()
-    if (!controller.state.error)
-      runtime.navigate("/app/system/workspace-storage-bindings", true)
+    if (!controller.state.error && runtime.state.route === route)
+      runtime.navigate(
+        `/app/system/workspaces/${encodeURIComponent(workspaceID)}/storage-bindings`,
+        true,
+      )
   }
 </script>
 
-<UI.AppFrame
-  navigation={systemNavigation(runtime, "workspace-storage-bindings")}
+<SystemWorkspaceFrame
+  {workspaceID}
   breadcrumbs={[
-    { label: "System", href: "/app/system" },
-    { label: "New workspace storage binding" },
+    {
+      label: "Storage bindings",
+      href: `/app/system/workspaces/${encodeURIComponent(workspaceID)}/storage-bindings`,
+    },
+    { label: "Add" },
   ]}
 >
-  <UI.Stack as="section">
-    <UI.Stack>
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>New workspace storage binding</UI.Heading>
-      </UI.Group>
-    </UI.Stack>
+  <UI.AdminContent mode="form"
+    ><UI.AdminHeader
+      title="Add storage binding"
+      description="Assign a storage provider and set its priority in this workspace."
+    />
     <UI.Form
+      surface
       onsubmit={(event) => {
         event.preventDefault()
         void create()
       }}
-    >
-      <UI.Field>
-        <UI.Label for="storage-binding-workspace">Workspace ID</UI.Label>
-        <UI.Group>
-          <UI.Input
-            id="storage-binding-workspace"
-            required
-            bind:value={controller.state.form.workspace}
-          />
-        </UI.Group>
-      </UI.Field>
-      <UI.Field>
-        <UI.Label for="storage-binding-provider">Storage provider ID</UI.Label>
-        <UI.Group>
-          <UI.Input
-            id="storage-binding-provider"
-            required
-            bind:value={controller.state.form.provider}
-          />
-        </UI.Group>
-      </UI.Field>
-      <UI.Field>
-        <UI.Label for="storage-binding-priority">Priority</UI.Label>
-        <UI.Group>
-          <UI.Input
-            id="storage-binding-priority"
+      ><UI.FormSection title="Provider assignment"
+        ><StorageProviderPicker
+          bind:value={controller.state.form.provider}
+        /></UI.FormSection
+      ><UI.FormSection title="Priority"
+        ><UI.Field
+          ><UI.Label for="storage-priority">Priority</UI.Label><UI.Input
+            id="storage-priority"
             type="number"
+            min="1"
+            required
             bind:value={controller.state.form.priority}
-          />
-        </UI.Group>
-      </UI.Field>
-      <UI.Row>
-        <UI.Group>
-          <UI.Button variant="default" type="submit">Add binding</UI.Button>
-        </UI.Group>
-        <UI.Group>
-          <RouterLink
-            variant="outline"
-            href="/app/system/workspace-storage-bindings">Cancel</RouterLink
-          >
-        </UI.Group>
-      </UI.Row>
-    </UI.Form>
-    {#if controller.state.error}<UI.Text as="p" size="small" role="alert">
-        {controller.state.error}
-      </UI.Text>{/if}
-  </UI.Stack>
-</UI.AppFrame>
+          /></UI.Field
+        ></UI.FormSection
+      ><UI.FormSection title="Availability"
+        ><UI.Label layout="choice"
+          ><UI.Checkbox
+            bind:checked={controller.state.form.enabled}
+          />Enabled</UI.Label
+        ></UI.FormSection
+      >{#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+          >{controller.state.error}</UI.Notice
+        >{/if}<UI.FormActions
+        ><UI.RouterLink
+          variant="outline"
+          href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/storage-bindings`}
+          >Cancel</UI.RouterLink
+        ><UI.Button
+          type="submit"
+          disabled={controller.state.saving || !controller.state.form.provider}
+          >{controller.state.saving
+            ? "Adding…"
+            : "Add storage binding"}</UI.Button
+        ></UI.FormActions
+      ></UI.Form
+    >
+  </UI.AdminContent>
+</SystemWorkspaceFrame>

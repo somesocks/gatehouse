@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/typed_id"
@@ -125,5 +126,116 @@ func TestSystemWorkspacesSearchAndCreateWithoutMembership(t *testing.T) {
 	}
 	if err != nil || cursor != "" || len(workspaces) != initialWorkspaceCount+1 || !foundCreated || !foundConfigRestored {
 		t.Fatalf("SystemWorkspacesSearch() after config reconciliation = (%#v, %q, %v)", workspaces, cursor, err)
+	}
+}
+
+func TestSystemWorkspacePrincipalManagementIsPaginatedAndRevisioned(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	state := config.State{Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "engineering")
+
+	type testPrincipal struct {
+		id    string
+		alias string
+	}
+	principals := []testPrincipal{}
+	for _, alias := range []string{"alice", "bob", "carol"} {
+		id, err := typed_id.New(typed_id.Principal)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.ExecContext(ctx, `INSERT INTO gatehouse_principals (id, alias, name, revision, enabled) VALUES (?, ?, ?, 1, TRUE)`, id, alias, alias); err != nil {
+			t.Fatal(err)
+		}
+		principals = append(principals, testPrincipal{id: id, alias: alias})
+	}
+	for index, principal := range principals {
+		role := authz.Member
+		if index == 1 {
+			role = authz.Contributor
+		}
+		if err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal.id, role); err != nil || grant == nil || !grant.Enabled || grant.Revision != 1 || grant.Role != role {
+			t.Fatalf("SystemWorkspacePrincipalGrantCreate(%q) = (%#v, %v)", principal.alias, grant, err)
+		}
+	}
+
+	seen := map[string]bool{}
+	cursor := ""
+	for {
+		err, page, next := store.SystemWorkspacePrincipalsSearch(ctx, database.SystemWorkspacePrincipalSearch{WorkspaceID: workspace.Id, Cursor: cursor, Limit: 1})
+		if err != nil || len(page) != 1 || seen[page[0].ID] {
+			t.Fatalf("SystemWorkspacePrincipalsSearch(cursor=%q) = (%#v, %q, %v)", cursor, page, next, err)
+		}
+		seen[page[0].ID] = true
+		if page[0].ID == principals[1].id && (len(page[0].Roles) != 1 || page[0].Roles[0] != authz.Contributor) {
+			t.Fatalf("workspace roles for bob = %#v", page[0].Roles)
+		}
+		cursor = next
+		if cursor == "" {
+			break
+		}
+	}
+	if len(seen) != len(principals) {
+		t.Fatalf("paginated workspace principal IDs = %#v, want %d principals", seen, len(principals))
+	}
+
+	err, options, optionCursor := store.SystemWorkspacePrincipalOptionsSearch(ctx, database.SystemWorkspacePrincipalSearch{WorkspaceID: workspace.Id, Name: "ali", Limit: 1})
+	if err != nil || len(options) != 1 || options[0].ID != principals[0].id || options[0].Name == nil || *options[0].Name != "alice" || optionCursor != "" {
+		t.Fatalf("SystemWorkspacePrincipalOptionsSearch() = (%#v, %q, %v)", options, optionCursor, err)
+	}
+	if err, _, _ := store.SystemWorkspacePrincipalsSearch(ctx, database.SystemWorkspacePrincipalSearch{WorkspaceID: workspace.Id, Cursor: "invalid", Limit: 1}); err == nil {
+		t.Fatal("SystemWorkspacePrincipalsSearch() accepted an invalid cursor")
+	}
+
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Member); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
+		t.Fatalf("duplicate workspace grant error = %v", err)
+	}
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Role("owner")); !errors.Is(err, database.ErrWorkspaceGrantRoleInvalid) {
+		t.Fatalf("invalid workspace role error = %v", err)
+	}
+
+	if err, removed := store.SystemWorkspacePrincipalGrantsRemove(ctx, workspace.Id, principals[0].id); err != nil || !removed {
+		t.Fatalf("SystemWorkspacePrincipalGrantsRemove() = (%v, %v)", err, removed)
+	}
+	var enabled bool
+	var revision int
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ?`, workspace.Id, principals[0].id).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
+		t.Fatalf("removed workspace grant state = (%v, %d, %v)", enabled, revision, err)
+	}
+	if err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Member); err != nil || grant == nil || !grant.Enabled || grant.Revision != 3 {
+		t.Fatalf("re-add workspace grant = (%#v, %v)", grant, err)
+	}
+
+	// A runtime removal advances the configured revision, so an unchanged
+	// repeatable config reconciliation does not silently restore access.
+	configuredAlias := principals[2].alias
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: &configuredAlias, Revision: 8, Enabled: true}}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err, removed := store.SystemWorkspacePrincipalGrantsRemove(ctx, workspace.Id, principals[2].id); err != nil || !removed {
+		t.Fatalf("remove configured workspace principal = (%v, %v)", err, removed)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ?`, workspace.Id, principals[2].id).Scan(&enabled, &revision); err != nil || enabled || revision != 9 {
+		t.Fatalf("configured removed grant state = (%v, %d, %v)", enabled, revision, err)
+	}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ?`, workspace.Id, principals[2].id).Scan(&enabled, &revision); err != nil || enabled || revision != 9 {
+		t.Fatalf("configured removed grant after unchanged reconciliation = (%v, %d, %v)", enabled, revision, err)
+	}
+	var activities int
+	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('workspace_grant.create', 'workspace_grant.update')`).Scan(&activities); err != nil || activities != 7 {
+		t.Fatalf("workspace grant activity count = (%d, %v), want 7", activities, err)
 	}
 }

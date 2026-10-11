@@ -1,47 +1,35 @@
 import type { ActivityClient } from "../../../app/activity"
 import {
-  systemAdministration,
+  searchSystemStorageProviders,
   type SystemStorageProvider,
 } from "../../../app/system"
-export function createStorageProviderListController({
-  activity,
-  onAuthenticationLost,
-  onSystemAccessChange,
-}: {
+import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+export function createStorageProviderListController(options: {
   activity: ActivityClient
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
-  const state = $state({
-    providers: [] as SystemStorageProvider[],
-    search: "",
-    error: "",
+  const directory = createDirectoryController<SystemStorageProvider>({
+    ...options,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await searchSystemStorageProviders(
+        name,
+        cursor,
+        status,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            providers: SystemStorageProvider[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.providers, next: result?.next_cursor }
+    },
   })
-  let stop: (() => void) | undefined
-  async function load(): Promise<void> {
-    state.error = ""
-    try {
-      const response = await systemAdministration("storage-providers")
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        return
-      }
-      if (!response.ok) {
-        state.error = "Storage providers could not be loaded."
-        return
-      }
-      state.providers = (await response.json()) as SystemStorageProvider[]
-    } catch {
-      state.error = "Storage providers could not be loaded."
-    }
-  }
-  function start(): () => void {
-    stop?.()
-    stop = activity.subscribe(
+  function start() {
+    void directory.search()
+    const unsubscribe = options.activity.subscribe(
       [
         {
           name: "storage-providers",
@@ -49,12 +37,14 @@ export function createStorageProviderListController({
           events: ["storage_provider.*"],
         },
       ],
-      async () => await load(),
+      async () => {
+        await directory.reload()
+      },
     )
     return () => {
-      stop?.()
-      stop = undefined
+      unsubscribe()
+      directory.stop()
     }
   }
-  return { state, load, start }
+  return { ...directory, start }
 }

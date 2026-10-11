@@ -1,7 +1,6 @@
 import {
   systemAdministration,
   type SystemAgentModel,
-  type SystemAgentProvider,
 } from "../../../app/system"
 type Form = {
   alias: string
@@ -17,10 +16,11 @@ const blank = (): Form => ({
   alias: "",
   provider: "",
   model: "",
-  parameters: "",
-  compaction: "",
-  maxTurns: 0,
-  maxOutputTokens: 0,
+  parameters: "{}",
+  compaction:
+    '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":49152}',
+  maxTurns: 127,
+  maxOutputTokens: 16000,
   enabled: true,
 })
 export function createAgentModelFormController({
@@ -32,26 +32,12 @@ export function createAgentModelFormController({
 }) {
   const state = $state({
     model: null as SystemAgentModel | null,
-    providers: [] as SystemAgentProvider[],
     form: blank(),
     error: "",
     loading: false,
     saving: false,
     editing: false,
   })
-  async function loadProviders(): Promise<void> {
-    const response = await systemAdministration("agent-providers")
-    if (response.status === 401) {
-      onAuthenticationLost()
-      return
-    }
-    if (response.status === 403) {
-      onSystemAccessChange("denied")
-      return
-    }
-    if (response.ok)
-      state.providers = (await response.json()) as SystemAgentProvider[]
-  }
   async function load(id: string): Promise<void> {
     state.error = ""
     state.loading = true
@@ -94,7 +80,6 @@ export function createAgentModelFormController({
       maxOutputTokens: state.model.max_output_tokens,
       enabled: state.model.enabled,
     }
-    await loadProviders()
     state.editing = true
   }
   function valid(): boolean {
@@ -105,11 +90,13 @@ export function createAgentModelFormController({
     return true
   }
   async function create(): Promise<SystemAgentModel | null> {
+    if (state.saving) return null
     state.error = ""
     if (!valid()) return null
     return await save("agent-models", "POST", state.form)
   }
   async function update(): Promise<boolean> {
+    if (state.saving) return false
     if (state.model === null) return false
     state.error = ""
     if (!valid()) return false
@@ -152,9 +139,12 @@ export function createAgentModelFormController({
         return null
       }
       if (response.status === 409) {
+        if (state.model !== null) {
+          await load(state.model.id)
+          await beginEdit()
+        }
         state.error =
-          "This model changed elsewhere. The latest settings have been reloaded."
-        if (state.model !== null) await load(state.model.id)
+          "This model changed elsewhere. Review the reloaded settings before saving."
         return null
       }
       if (!response.ok) {
@@ -169,5 +159,5 @@ export function createAgentModelFormController({
       state.saving = false
     }
   }
-  return { state, loadProviders, load, beginEdit, create, update }
+  return { state, load, beginEdit, create, update }
 }

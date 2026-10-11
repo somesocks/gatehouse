@@ -15,6 +15,7 @@ func systemPrincipals(store *database.Store, tokens *auth.BearerTokens) http.Han
 		if request.Method != http.MethodGet { response.WriteHeader(http.StatusMethodNotAllowed); return }
 		claims, ok := authenticate(response, request, tokens)
 		if !ok || !systemActionAllowed(response, request, store, claims, authz.SystemManage) { return }
+		if request.URL.Query().Has("limit") { systemPrincipalsSearch(response,request,store); return }
 		err, principals := store.SystemPrincipalsGet(request.Context())
 		if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
 		writeJSON(response, principals)

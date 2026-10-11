@@ -4,11 +4,13 @@
   let {
     ref = $bindable(),
     layout = "stack",
+    surface = false,
     children,
     ...rest
   }: Omit<HTMLFormAttributes, "class" | "style"> & {
     ref?: HTMLFormElement
     layout?: "stack" | "row" | "search"
+    surface?: boolean
   } = $props()
 </script>
 
@@ -16,8 +18,12 @@
   bind:this={ref}
   class={cn(
     layout === "stack"
-      ? "flex min-w-0 flex-col gap-6"
+      ? surface
+        ? "flex min-w-0 flex-col"
+        : "flex min-w-0 flex-col gap-6"
       : "flex flex-wrap items-end gap-3",
+    surface &&
+      "w-full rounded-lg border bg-card [&>[role=alert]]:m-6 [&>[role=alert]]:w-auto [&_input:not([type=checkbox])]:h-10 [&_[data-slot=native-select]]:h-10",
   )}
   {...rest}
 >

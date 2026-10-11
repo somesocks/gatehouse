@@ -6,14 +6,16 @@
     showCloseButton = false,
     ...rest
   }: Omit<ComponentProps<typeof Content>, "class" | "style"> & {
-    size?: "default" | "compact"
+    size?: "default" | "compact" | "selector"
   } = $props()
 </script>
 
 <Content
   {showCloseButton}
-  class={size === "compact"
-    ? "max-h-[calc(100dvh-2rem)] overflow-y-auto"
-    : "max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"}
+  class={size === "selector"
+    ? "flex h-[min(44rem,85dvh)] max-h-[85dvh] flex-col gap-0 overflow-hidden p-0 sm:max-w-3xl"
+    : size === "compact"
+      ? "max-h-[calc(100dvh-2rem)] overflow-y-auto"
+      : "max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl"}
   {...rest}
 />

@@ -19,15 +19,15 @@ export function createWorkspaceAgentBindingController({
   const state = $state({
     binding: null as SystemWorkspaceAgent | null,
     form: {
-		workspace: "",
-		alias: "",
-		model: "",
-		label: "",
-		systemPrompt: "",
-		prelude: "",
-		rateLimits: "",
-		default: false,
-		enabled: true,
+      workspace: "",
+      alias: "",
+      model: "",
+      label: "",
+      systemPrompt: "",
+      prelude: "",
+      rateLimits: "",
+      default: false,
+      enabled: true,
     },
     error: "",
     loading: false,
@@ -62,11 +62,14 @@ export function createWorkspaceAgentBindingController({
       workspace: state.binding.workspace,
       alias: state.binding.alias,
       model: state.binding.model,
-		label: state.binding.label ?? "",
-		systemPrompt: state.binding.system_prompt ?? "",
-		prelude: state.binding.prelude ?? "",
-		rateLimits: state.binding.rate_limits === undefined ? "" : JSON.stringify(state.binding.rate_limits, null, 2),
-		default: state.binding.default,
+      label: state.binding.label ?? "",
+      systemPrompt: state.binding.system_prompt ?? "",
+      prelude: state.binding.prelude ?? "",
+      rateLimits:
+        state.binding.rate_limits === undefined
+          ? ""
+          : JSON.stringify(state.binding.rate_limits, null, 2),
+      default: state.binding.default,
       enabled: state.binding.enabled,
     }
     state.editing = true
@@ -82,11 +85,11 @@ export function createWorkspaceAgentBindingController({
         "PATCH",
         {
           model: form.model,
-			label: optional(form.label),
-			system_prompt: optional(form.systemPrompt),
-			prelude: optional(form.prelude),
-			rate_limits: rateLimits(form.rateLimits),
-			default: form.default,
+          label: optional(form.label),
+          system_prompt: optional(form.systemPrompt),
+          prelude: optional(form.prelude),
+          rate_limits: rateLimits(form.rateLimits),
+          default: form.default,
           enabled: form.enabled,
           expected_revision: state.binding.revision,
         },
@@ -94,9 +97,10 @@ export function createWorkspaceAgentBindingController({
       if (response.status === 401) onAuthenticationLost()
       else if (response.status === 403) onSystemAccessChange("denied")
       else if (response.status === 409) {
+        await load(state.binding.workspace, state.binding.id)
+        edit()
         state.error =
           "This binding changed elsewhere. The latest settings have been reloaded."
-        await load(state.binding.workspace, state.binding.id)
       } else if (!response.ok)
         state.error = "Workspace agent binding could not be saved."
       else {

@@ -1,59 +1,98 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-
-  import { createWorkspaceAgentBindingsController } from "./workspace-agent-bindings-controller.svelte"
+  import {
+    fetchSystemWorkspaceAgents,
+    type SystemWorkspaceAgent,
+  } from "../../../app/system"
+  import { createDirectoryController } from "../../../utils/directory-controller.svelte"
+  import SystemWorkspaceFrame from "../workspaces/SystemWorkspaceFrame.svelte"
+  import { onMount } from "svelte"
+  let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
-  const controller = untrack(() =>
-    createWorkspaceAgentBindingsController({
-      activity: runtime.activity,
-      onAuthenticationLost: runtime.requireLogin,
-      onSystemAccessChange: runtime.access.setSystemAccess,
-    }),
-  )
-  $effect(() => {
-    void controller.load()
+  const controller = createDirectoryController<SystemWorkspaceAgent>({
+    onAuthenticationLost: runtime.requireLogin,
+    onSystemAccessChange: runtime.access.setSystemAccess,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await fetchSystemWorkspaceAgents(
+        workspaceID,
+        name,
+        cursor,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            agents: SystemWorkspaceAgent[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.agents, next: result?.next_cursor }
+    },
   })
-  $effect(() => controller.start())
+  onMount(() => {
+    void controller.search()
+    return controller.stop
+  })
 </script>
 
-<UI.AppFrame
-  navigation={systemNavigation(runtime, "workspace-agent-bindings")}
-  breadcrumbs={[
-    { label: "System", href: "/app/system" },
-    { label: "Workspace agent bindings" },
-  ]}
-  ><UI.Stack as="section">
-    <UI.Row justify="between">
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>Workspace agent bindings</UI.Heading>
-        <UI.Text as="p">Bind global agent models to workspaces.</UI.Text>
-      </UI.Group>
-      <RouterLink
-        variant="default"
-        href="/app/system/workspace-agent-bindings/new">Add binding</RouterLink
-      >
-    </UI.Row>
-    <UI.List>
-      {#each controller.state.bindings as b (b.id)}<RouterLink
-          variant="item"
-          data-disabled={!b.enabled || undefined}
-          href={`/app/system/workspace-agent-bindings/${encodeURIComponent(b.workspace)}/${encodeURIComponent(b.id)}`}
-          ><UI.Stack>
-            <UI.Text as="strong" emphasis="strong"
-              >{b.workspace} / {b.alias}</UI.Text
-            ><UI.Text as="small" size="small"
-              >{b.id} / {b.default ? "default" : "manual"} / revision {b.revision}</UI.Text
+<SystemWorkspaceFrame {workspaceID} breadcrumbs={[{ label: "Agent bindings" }]}>
+  <UI.AdminContent
+    ><UI.AdminHeader
+      title="Agent bindings"
+      description="Models and reply behavior assigned to this workspace."
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/new`}
+          >Add agent binding</UI.RouterLink
+        >{/snippet}</UI.AdminHeader
+    >
+    <UI.SearchToolbar
+      bind:value={controller.state.search}
+      loading={controller.state.loading}
+      placeholder="Alias, label, model, or ID"
+      onsearch={() => void controller.search()}
+    />
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}</UI.Notice
+      >{/if}
+    <UI.RecordTable headers={["Agent", "Model", "Replies", "Status"]}
+      >{#if controller.state.loading}<UI.TableEmpty
+          columns={4}
+          message="Loading bindings…"
+        />{:else}{#each controller.state.items as binding (binding.id)}<UI.RecordRow
+          >
+            <UI.RecordCell primary
+              ><UI.RouterLink
+                href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(binding.id)}`}
+                >{binding.label ?? binding.alias}</UI.RouterLink
+              ><UI.Text as="small" size="small" tone="muted"
+                >{binding.alias}</UI.Text
+              ></UI.RecordCell
             >
-          </UI.Stack>
-          <UI.Text>{b.enabled ? "Enabled" : "Disabled"}</UI.Text></RouterLink
-        >{:else}<UI.Text as="p" tone="muted">
-          No workspace agent bindings are configured.
-        </UI.Text>{/each}
-    </UI.List>
-  </UI.Stack></UI.AppFrame
->
+            <UI.RecordCell label="Model"
+              ><UI.RouterLink
+                href={`/app/system/agent-models/${encodeURIComponent(binding.model)}`}
+                >{binding.model_alias ?? binding.model}</UI.RouterLink
+              ></UI.RecordCell
+            ><UI.RecordCell label="Replies"
+              ><UI.Badge variant={binding.default ? "secondary" : "outline"}
+                >{binding.default ? "Default" : "Manual"}</UI.Badge
+              ></UI.RecordCell
+            ><UI.RecordCell label="Status"
+              ><UI.StatusBadge enabled={binding.enabled} /></UI.RecordCell
+            >
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No bindings match your search."
+          />{/each}{/if}</UI.RecordTable
+    >
+    <UI.PaginationFooter
+      count={controller.state.items.length}
+      previous={!!controller.state.history.length}
+      next={!!controller.state.next}
+      loading={controller.state.loading}
+      onprevious={() => void controller.previous()}
+      onnext={() => void controller.next()}
+    />
+  </UI.AdminContent>
+</SystemWorkspaceFrame>

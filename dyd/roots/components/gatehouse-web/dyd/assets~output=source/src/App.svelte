@@ -16,17 +16,24 @@
   import StorageProviderListRoute from "./pages/system/storage-providers/StorageProviderListRoute.svelte"
   import StorageProviderNewRoute from "./pages/system/storage-providers/StorageProviderNewRoute.svelte"
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
+  import PrincipalDetailRoute from "./pages/system/principals/PrincipalDetailRoute.svelte"
+  import SystemGrantNewRoute from "./pages/system/grants/SystemGrantNewRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
   import SystemOverviewRoute from "./pages/system/overview/SystemOverviewRoute.svelte"
   import SystemWorkspacesRoute from "./pages/system/workspaces/SystemWorkspacesRoute.svelte"
   import SystemWorkspaceNewRoute from "./pages/system/workspaces/SystemWorkspaceNewRoute.svelte"
   import SystemWorkspaceDetailRoute from "./pages/system/workspaces/SystemWorkspaceDetailRoute.svelte"
+  import SystemWorkspaceEditRoute from "./pages/system/workspaces/SystemWorkspaceEditRoute.svelte"
+  import SystemWorkspacePrincipalsRoute from "./pages/system/workspaces/SystemWorkspacePrincipalsRoute.svelte"
+  import SystemWorkspacePrincipalNewRoute from "./pages/system/workspaces/SystemWorkspacePrincipalNewRoute.svelte"
   import WorkspaceAgentBindingDetailRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingDetailRoute.svelte"
   import WorkspaceAgentBindingListRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingListRoute.svelte"
   import WorkspaceAgentBindingNewRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingNewRoute.svelte"
+  import WorkspaceAgentBindingEditRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingEditRoute.svelte"
   import WorkspaceStorageBindingDetailRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingDetailRoute.svelte"
   import WorkspaceStorageBindingListRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingListRoute.svelte"
   import WorkspaceStorageBindingNewRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingNewRoute.svelte"
+  import WorkspaceStorageBindingEditRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingEditRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
   import ProjectFilesRoute from "./pages/project-files/ProjectFilesRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
@@ -91,7 +98,9 @@
   <AgentProviderNewRoute />
 {:else if owner === "agent-provider-detail"}
   <AgentProviderDetailRoute
-    providerID={runtime.state.route.kind === "system-agent-provider"
+    editingPage={runtime.state.route.kind === "system-agent-provider-edit"}
+    providerID={runtime.state.route.kind === "system-agent-provider" ||
+    runtime.state.route.kind === "system-agent-provider-edit"
       ? runtime.state.route.providerID
       : ""}
   />
@@ -101,19 +110,33 @@
   <AgentModelNewRoute />
 {:else if owner === "agent-model-detail"}
   <AgentModelDetailRoute
-    modelID={runtime.state.route.kind === "system-agent-model"
+    editingPage={runtime.state.route.kind === "system-agent-model-edit"}
+    modelID={runtime.state.route.kind === "system-agent-model" ||
+    runtime.state.route.kind === "system-agent-model-edit"
       ? runtime.state.route.modelID
       : ""}
   />
 {:else if owner === "storage-provider-list"}<StorageProviderListRoute />
 {:else if owner === "storage-provider-new"}<StorageProviderNewRoute />
 {:else if owner === "storage-provider-detail"}<StorageProviderDetailRoute
-    providerID={runtime.state.route.kind === "system-storage-provider"
+    editingPage={runtime.state.route.kind === "system-storage-provider-edit"}
+    providerID={runtime.state.route.kind === "system-storage-provider" ||
+    runtime.state.route.kind === "system-storage-provider-edit"
       ? runtime.state.route.providerID
       : ""}
   />
 {:else if owner === "principals"}
   <PrincipalsRoute />
+{:else if owner === "principal-detail"}
+  <PrincipalDetailRoute
+    principalID={runtime.state.route.kind === "system-principal" ||
+    runtime.state.route.kind === "system-principal-edit"
+      ? runtime.state.route.principalID
+      : ""}
+    editingPage={runtime.state.route.kind === "system-principal-edit"}
+  />
+{:else if owner === "system-grant-new"}
+  <SystemGrantNewRoute />
 {:else if owner === "system-grants"}
   <SystemGrantsRoute />
 {:else if owner === "system-overview"}
@@ -127,9 +150,31 @@
       ? runtime.state.route.workspaceID
       : ""}
   />
+{:else if owner === "system-workspace-edit"}<SystemWorkspaceEditRoute
+    workspaceID={runtime.state.route.kind === "system-workspace-edit"
+      ? runtime.state.route.workspaceID
+      : ""}
+  />
+{:else if owner === "system-workspace-principals"}<SystemWorkspacePrincipalsRoute
+    workspaceID={runtime.state.route.kind === "system-workspace-principals"
+      ? runtime.state.route.workspaceID
+      : ""}
+  />
+{:else if owner === "system-workspace-principal-new"}<SystemWorkspacePrincipalNewRoute
+    workspaceID={runtime.state.route.kind === "system-workspace-principal-new"
+      ? runtime.state.route.workspaceID
+      : ""}
+  />
 {:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute
+    workspaceID={runtime.state.route.kind === "system-workspace-agent-bindings"
+      ? runtime.state.route.workspaceID
+      : ""}
   />
 {:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute
+    workspaceID={runtime.state.route.kind ===
+    "system-workspace-agent-binding-new"
+      ? runtime.state.route.workspaceID
+      : ""}
   />
 {:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute
     workspaceID={runtime.state.route.kind === "system-workspace-agent-binding"
@@ -139,15 +184,43 @@
       ? runtime.state.route.bindingID
       : ""}
   />
+{:else if owner === "workspace-agent-binding-edit"}<WorkspaceAgentBindingEditRoute
+    workspaceID={runtime.state.route.kind ===
+    "system-workspace-agent-binding-edit"
+      ? runtime.state.route.workspaceID
+      : ""}
+    bindingID={runtime.state.route.kind ===
+    "system-workspace-agent-binding-edit"
+      ? runtime.state.route.bindingID
+      : ""}
+  />
 {:else if owner === "workspace-storage-binding-list"}<WorkspaceStorageBindingListRoute
+    workspaceID={runtime.state.route.kind ===
+    "system-workspace-storage-bindings"
+      ? runtime.state.route.workspaceID
+      : ""}
   />
 {:else if owner === "workspace-storage-binding-new"}<WorkspaceStorageBindingNewRoute
+    workspaceID={runtime.state.route.kind ===
+    "system-workspace-storage-binding-new"
+      ? runtime.state.route.workspaceID
+      : ""}
   />
 {:else if owner === "workspace-storage-binding-detail"}<WorkspaceStorageBindingDetailRoute
     workspaceID={runtime.state.route.kind === "system-workspace-storage-binding"
       ? runtime.state.route.workspaceID
       : ""}
     providerID={runtime.state.route.kind === "system-workspace-storage-binding"
+      ? runtime.state.route.providerID
+      : ""}
+  />
+{:else if owner === "workspace-storage-binding-edit"}<WorkspaceStorageBindingEditRoute
+    workspaceID={runtime.state.route.kind ===
+    "system-workspace-storage-binding-edit"
+      ? runtime.state.route.workspaceID
+      : ""}
+    providerID={runtime.state.route.kind ===
+    "system-workspace-storage-binding-edit"
       ? runtime.state.route.providerID
       : ""}
   />

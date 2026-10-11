@@ -54,7 +54,6 @@ describe("system workspace detail controller", () => {
     await new Promise((resolve) => setTimeout(resolve, 0))
     expect(controller.state.workspace?.id).toBe(first.id)
 
-    controller.beginEdit()
     controller.state.form.name = "Edited first"
     const saving = controller.save(first.id)
     await new Promise((resolve) => setTimeout(resolve, 0))

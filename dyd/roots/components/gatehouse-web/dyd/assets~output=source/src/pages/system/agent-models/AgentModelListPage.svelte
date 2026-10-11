@@ -1,10 +1,8 @@
 <script lang="ts">
-  import { RouterLink } from "../../../ui"
-  import { systemNavigation } from "../../../app/navigation"
   import * as UI from "../../../ui"
-  import { untrack } from "svelte"
+  import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-
+  import { onMount, untrack } from "svelte"
   import { createAgentModelListController } from "./agent-model-list-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -14,22 +12,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
-  const matches = (
-    model: { id: string; alias: string; provider: string; model: string },
-    search: string,
-  ) => {
-    const query = search.trim().toLocaleLowerCase()
-    return (
-      query === "" ||
-      `${model.id} ${model.alias} ${model.provider} ${model.model}`
-        .toLocaleLowerCase()
-        .includes(query)
-    )
-  }
-  $effect(() => {
-    void controller.load()
-  })
-  $effect(() => controller.start())
+  onMount(() => controller.start())
 </script>
 
 <UI.AppFrame
@@ -38,53 +21,63 @@
     { label: "System", href: "/app/system" },
     { label: "Agent models" },
   ]}
-  ><UI.Stack as="section">
-    <UI.Row justify="between">
-      <UI.Group>
-        <UI.Text as="p" size="eyebrow">System</UI.Text>
-        <UI.Heading level={2}>Agent models</UI.Heading>
-        <UI.Text as="p">
-          Workspace bindings designate the model used for automatic replies.
-        </UI.Text>
-      </UI.Group>
-      <RouterLink variant="default" href="/app/system/agent-models/new"
-        >Add model</RouterLink
-      >
-    </UI.Row>
-    <UI.Field>
-      <UI.Label
-        ><UI.Text>Search agent models</UI.Text><UI.Input
-          type="search"
-          autocomplete="off"
-          placeholder="Search by ID, alias, provider, or model"
-          bind:value={controller.state.search}
-        /></UI.Label
-      >
-    </UI.Field>
-    {#if controller.state.error !== ""}<UI.Text
-        as="p"
-        size="small"
-        role="alert"
-        aria-live="polite"
-      >
-        {controller.state.error}
-      </UI.Text>{/if}
-    <UI.List>
-      {#each controller.state.models.filter( (model) => matches(model, controller.state.search), ) as model (model.id)}<RouterLink
-          variant="item"
-          data-disabled={!model.enabled || undefined}
-          href={`/app/system/agent-models/${encodeURIComponent(model.id)}`}
-          ><UI.Stack>
-            <UI.Text as="strong" emphasis="strong">{model.alias}</UI.Text
-            ><UI.Text as="small" size="small"
-              >{model.id} / {model.provider} / {model.model} / revision {model.revision}</UI.Text
-            >
-          </UI.Stack>
-          <UI.Text>{model.enabled ? "Enabled" : "Disabled"}</UI.Text
-          ></RouterLink
-        >{:else}<UI.Text as="p" tone="muted">
-          No agent models match your search.
-        </UI.Text>{/each}
-    </UI.List>
-  </UI.Stack></UI.AppFrame
 >
+  <UI.AdminContent
+    ><UI.AdminHeader
+      title="Agent models"
+      description="Models available for workspace bindings."
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href="/app/system/agent-models/new">Create model</UI.RouterLink
+        >{/snippet}</UI.AdminHeader
+    >
+    <UI.SearchToolbar
+      bind:value={controller.state.search}
+      bind:status={controller.state.status}
+      statuses
+      loading={controller.state.loading}
+      onsearch={() => void controller.search()}
+    />
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}</UI.Notice
+      >{/if}
+    <UI.RecordTable headers={["Alias", "Provider", "Model", "Status"]}>
+      {#if controller.state.loading}<UI.TableEmpty
+          columns={4}
+          message="Loading models…"
+        />{:else}{#each controller.state.items as model (model.id)}<UI.RecordRow
+          >
+            <UI.RecordCell primary
+              ><UI.RouterLink
+                href={`/app/system/agent-models/${encodeURIComponent(model.id)}`}
+                >{model.alias}</UI.RouterLink
+              ><UI.Identifier
+                value={model.id}
+                copyable={false}
+              /></UI.RecordCell
+            >
+            <UI.RecordCell label="Provider"
+              ><UI.RouterLink
+                href={`/app/system/agent-providers/${encodeURIComponent(model.provider)}`}
+                >{model.provider_alias ?? model.provider}</UI.RouterLink
+              ></UI.RecordCell
+            >
+            <UI.RecordCell label="Model">{model.model}</UI.RecordCell>
+            <UI.RecordCell label="Status"
+              ><UI.StatusBadge enabled={model.enabled} /></UI.RecordCell
+            >
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No models match your search."
+          />{/each}{/if}
+    </UI.RecordTable>
+    <UI.PaginationFooter
+      count={controller.state.items.length}
+      previous={controller.state.history.length > 0}
+      next={!!controller.state.next}
+      loading={controller.state.loading}
+      onprevious={() => void controller.previous()}
+      onnext={() => void controller.next()}
+    />
+  </UI.AdminContent>
+</UI.AppFrame>

@@ -44,11 +44,12 @@ type SystemStorageProviderInput struct {
 }
 
 type SystemWorkspaceStorageProvider struct {
-	WorkspaceID string `json:"workspace"`
-	ProviderID  string `json:"provider"`
-	Revision    int    `json:"revision"`
-	Priority    int    `json:"priority"`
-	Enabled     bool   `json:"enabled"`
+	WorkspaceID   string  `json:"workspace"`
+	ProviderID    string  `json:"provider"`
+	ProviderAlias *string `json:"provider_alias,omitempty"`
+	Revision      int     `json:"revision"`
+	Priority      int     `json:"priority"`
+	Enabled       bool    `json:"enabled"`
 }
 
 type SystemWorkspaceStorageProviderInput struct {
@@ -122,14 +123,64 @@ func (store *Store) SystemStorageProviderUpdate(ctx context.Context, id string, 
 	return store.SystemStorageProviderGet(ctx, id)
 }
 
-func (store *Store) SystemWorkspaceStorageProvidersGet(ctx context.Context) (error, []SystemWorkspaceStorageProvider) {
-	rows, err := store.QueryContext(ctx, `SELECT workspace, provider, revision, priority, enabled FROM gatehouse_workspace_storage_providers ORDER BY workspace, provider`)
-	if err != nil { return fmt.Errorf("list system workspace storage providers: %w", err), nil }
+type SystemWorkspaceStorageProviderSearch struct {
+	WorkspaceID string
+	Name        string
+	Cursor      string
+	Limit       int
+}
+
+func (store *Store) SystemWorkspaceStorageProvidersSearch(ctx context.Context, search SystemWorkspaceStorageProviderSearch) (error, []SystemWorkspaceStorageProvider, string) {
+	if !typed_id.Valid(typed_id.Workspace, search.WorkspaceID) {
+		return nil, nil, ""
+	}
+	if search.Limit < 1 || search.Limit > 100 {
+		return fmt.Errorf("search system workspace storage providers: limit must be between 1 and 100"), nil, ""
+	}
+	if search.Cursor != "" && !typed_id.Valid(typed_id.StorageProvider, search.Cursor) {
+		return fmt.Errorf("search system workspace storage providers: cursor is invalid"), nil, ""
+	}
+	query := strings.TrimSpace(search.Name)
+	if len(query) > 256 {
+		return fmt.Errorf("search system workspace storage providers: query is too long"), nil, ""
+	}
+	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
+	placeholder := keychainPlaceholder(store.kind)
+	rows, err := store.QueryContext(ctx, `
+		SELECT bindings.workspace, bindings.provider, providers.alias, bindings.revision, bindings.priority, bindings.enabled
+		FROM gatehouse_workspace_storage_providers AS bindings
+		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
+		WHERE bindings.workspace = `+placeholder(1)+`
+			AND (
+				LOWER(providers.alias) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
+				OR LOWER(bindings.provider) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'
+			)
+			AND (`+placeholder(4)+` = '' OR bindings.provider < `+placeholder(5)+`)
+		ORDER BY bindings.provider DESC
+		LIMIT `+placeholder(6)+`
+	`, search.WorkspaceID, pattern, pattern, search.Cursor, search.Cursor, search.Limit+1)
+	if err != nil {
+		return fmt.Errorf("search system workspace storage providers: %w", err), nil, ""
+	}
 	defer rows.Close()
 	bindings := []SystemWorkspaceStorageProvider{}
-	for rows.Next() { binding, err := scanSystemWorkspaceStorageProvider(rows); if err != nil { return err, nil }; bindings = append(bindings, binding) }
-	if err := rows.Err(); err != nil { return fmt.Errorf("iterate system workspace storage providers: %w", err), nil }
-	return nil, bindings
+	for rows.Next() {
+		var binding SystemWorkspaceStorageProvider
+		var providerAlias string
+		if err := rows.Scan(&binding.WorkspaceID, &binding.ProviderID, &providerAlias, &binding.Revision, &binding.Priority, &binding.Enabled); err != nil {
+			return fmt.Errorf("scan system workspace storage provider: %w", err), nil, ""
+		}
+		binding.ProviderAlias = &providerAlias
+		bindings = append(bindings, binding)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate system workspace storage providers: %w", err), nil, ""
+	}
+	if len(bindings) <= search.Limit {
+		return nil, bindings, ""
+	}
+	nextCursor := bindings[search.Limit-1].ProviderID
+	return nil, bindings[:search.Limit], nextCursor
 }
 
 func (store *Store) SystemWorkspaceStorageProviderGet(ctx context.Context, workspaceID, providerID string) (error, *SystemWorkspaceStorageProvider) {

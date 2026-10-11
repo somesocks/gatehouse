@@ -34,6 +34,23 @@ System administration lists every workspace and can create an enabled or disable
 workspace without adding any workspace membership. Its inventory search and keyset
 pagination run on the server.
 
+### System administration page anatomy
+
+System pages compose presentation-only components from `src/ui/`:
+
+- `AdminContent` and `PageBody` use the entire available page width for every page purpose; there are no narrow form/detail width presets.
+- `AdminHeader` consistently places titles, descriptions, status badges, identifiers, and actions.
+- Directories use a full-width `SearchToolbar`, aligned `RecordTable` columns, and `PaginationFooter`. Each request selects at most 50 records; Previous/Next retain cursor history and replace the current page. Tables retain their column layout and scroll horizontally on narrow screens.
+- Detail pages use titled `DetailSection` panels and aligned `Property` rows. JSON/Lisp and rate limits have dedicated displays.
+- Create/edit pages share resource-specific field compositions. `FormSection` places the section heading/description beside a fluid field grid on desktop and above the fields on narrow screens. Long editors span the field grid, control heights are consistent, and `FormActions` provides a full-width save/cancel footer. Global providers/models and principal availability have dedicated edit URLs.
+- Hubs use the same `NavigationCard` and `NavigationGrid` for system sections and workspace children. Workspace pages fetch only their own metadata for named breadcrumbs.
+- `RecordPicker` is a read-only reference input that opens a modal search/selector. Resource-specific pickers own their API requests; search pages are fetched only when the dialog opens or the user searches/paginates. Selection is a draft until confirmed, cancelling preserves the existing reference, and closing aborts pending search requests. Keyboard navigation, focus trapping, and focus restoration are provided by the owned dialog/picker components.
+- Keychain references use the same modal field; their options are the configuration references already supplied by the provider form's existing keychain API.
+
+Each resource retains its own API and data model. Global directory APIs support a
+paginated response when `limit` is supplied; existing unpaginated callers retain
+their response shape. No generic catalog or cross-resource search is used.
+
 ## Theming
 
 `src/app.css` uses the supplied shadcn-generated default light/dark palette and
@@ -75,8 +92,10 @@ branding configuration loader can supply workspace theme data through this API.
 | Agent providers | Search, create, inspect, and edit protocols, endpoints, keychains, credentials, enabled state, and revisions. |
 | Agent models | Search, create, inspect, and edit provider/model selection, parameters, compaction, turn/token limits, enabled state, and revisions. |
 | Storage providers | Search, create, inspect, and edit embedded/S3 settings, credentials, enabled state, and revisions. |
-| Workspace agent bindings | List/create/inspect/edit model assignment, default replies, labels, prompts, Lisp preludes, token rate limits, and enabled state. |
-| Workspace storage bindings | List/create/inspect/edit provider assignment, priority, enabled state, revisions, and revision-conflict reload. |
+| Workspaces | Search and create workspaces; inspect a summary and edit name/status on a separate route. |
+| Workspace principals | Per-workspace direct-grant roster, search, server pagination, revocation, and separate add/role-assignment flow. |
+| Workspace agent bindings | Per-workspace, server-paginated list; separate create, inspect, and edit routes for model assignment, default replies, labels, prompts, Lisp preludes, token rate limits, and enabled state. |
+| Workspace storage bindings | Per-workspace, server-paginated list; separate create, inspect, and edit routes for provider assignment, priority, enabled state, revisions, and revision-conflict reload. |
 
 ## Dryad workflow
 
