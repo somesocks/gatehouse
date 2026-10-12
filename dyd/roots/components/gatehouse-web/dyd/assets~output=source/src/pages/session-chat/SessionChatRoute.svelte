@@ -373,7 +373,8 @@
     await navigator.clipboard.writeText(text)
   }
   function agentLabel(id: string): string {
-    return controller.state.agents.find((agent) => agent.id === id)?.label ?? id
+    const agent = controller.state.agents.find((agent) => agent.id === id)
+    return agent?.label ?? agent?.alias ?? "Agent"
   }
   function replyDuration(tree: ChatEventTree): string {
     const replies = finalReplies(tree)
@@ -577,7 +578,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             {#if session !== null}
@@ -951,6 +952,7 @@
                       />
                     {/each}
                     {#each finalReplies(request) as reply (reply.event.ref.id)}<UI.Message
+                        purpose="output"
                       >
                         {#snippet header()}
                           {reply.event.author_agent === undefined

@@ -48,7 +48,7 @@ describe("form field headings and labels", () => {
     const headings = [...body.matchAll(/<h[2-6]\b[^>]*>(.*?)<\/h[2-6]>/gs)].map(
       ([, content]) => content.replace(/<[^>]*>/g, ""),
     )
-    expect(headings.some((heading) => heading.includes("Visits"))).toBe(false)
+    expect(headings.some((heading) => heading.includes("Visits"))).toBe(true)
     expect(headings.some((heading) => heading.includes("Entry 1"))).toBe(true)
     const nameLabel = body.match(
       /<label[^>]*for="input-details-contact-name"[^>]*>.*?<\/label>/s,
@@ -56,7 +56,9 @@ describe("form field headings and labels", () => {
     const notesLabel = body.match(
       /<label[^>]*for="input-details-contact-notes"[^>]*>.*?<\/label>/s,
     )?.[0]
-    expect(nameLabel?.replace(/<!--.*?-->/gs, "")).toMatch(/aria-hidden="true"[^>]*>\*<\/span>/)
+    expect(nameLabel?.replace(/<!--.*?-->/gs, "")).toMatch(
+      /aria-hidden="true"[^>]*>\*<\/span>/,
+    )
     expect(notesLabel?.replace(/<!--.*?-->/gs, "")).not.toContain("*</span>")
   })
 

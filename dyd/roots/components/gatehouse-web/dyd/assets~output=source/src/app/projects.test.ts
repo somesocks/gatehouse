@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import {
-  createProject,
-  fetchDashboardProjects,
-  fetchProjects,
-} from "./projects"
+import { createProject, fetchProjects } from "./projects"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -39,19 +35,6 @@ describe("projects transport", () => {
         body: JSON.stringify({}),
         signal: controller.signal,
       },
-    )
-  })
-
-  it("loads the five latest projects for a dashboard", async () => {
-    const fetch = vi.fn(async () => Response.json({ projects: [] }))
-    vi.stubGlobal("fetch", fetch)
-    const controller = new AbortController()
-
-    await fetchDashboardProjects("wsp/test", controller.signal)
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/v1/workspaces/wsp%2Ftest/projects?limit=5",
-      { credentials: "same-origin", signal: controller.signal },
     )
   })
 })

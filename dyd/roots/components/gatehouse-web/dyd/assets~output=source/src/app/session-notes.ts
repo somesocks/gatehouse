@@ -1,4 +1,5 @@
 import type { NoteAuthor } from "./project-notes"
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
 
 export type SessionNote = {
   id: string
@@ -29,11 +30,15 @@ export async function fetchSessionNotes(
   workspaceID: string,
   sessionID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(sessionNotesAPIPath(workspaceID, sessionID), {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(sessionNotesAPIPath(workspaceID, sessionID), query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchSessionNote(
@@ -53,9 +58,13 @@ export async function fetchSessionNoteRevisions(
   sessionID: string,
   noteID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
   return await fetch(
-    `${sessionNotesAPIPath(workspaceID, sessionID)}/${encodeURIComponent(noteID)}/revisions`,
+    collectionQueryPath(
+      `${sessionNotesAPIPath(workspaceID, sessionID)}/${encodeURIComponent(noteID)}/revisions`,
+      query,
+    ),
     { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
   )
 }

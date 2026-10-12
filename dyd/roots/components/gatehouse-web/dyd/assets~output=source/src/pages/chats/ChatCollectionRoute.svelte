@@ -2,7 +2,7 @@
   import { RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
-  import { createChat, type Chat } from "../../app/chats"
+  import { createChat, createProjectChat, type Chat } from "../../app/chats"
   import { useRuntime } from "../../app/runtime.svelte"
   import * as SidebarPage from "../../ui/sidebar-page"
 
@@ -82,7 +82,9 @@
     const signal = abortController?.signal
     if (signal === undefined) return
     try {
-      const response = await createChat(route.workspaceID, signal)
+      const response = route.projectID
+        ? await createProjectChat(route.workspaceID, route.projectID, signal)
+        : await createChat(route.workspaceID, signal)
       if (!isCurrent(value, route.workspaceID, signal)) return
       if (response.status === 401) {
         runtime.requireLogin()
@@ -162,7 +164,7 @@
           ><UI.Breadcrumb.List
             ><UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
               ><UI.Breadcrumb.Page>Chats</UI.Breadcrumb.Page
@@ -174,6 +176,7 @@
         >{#if routeSignal !== null}<ChatCollectionPage
             {workspace}
             search={currentRoute.search}
+            projectID={currentRoute.projectID}
             signal={routeSignal}
             onAuthenticationLost={() => runtime.requireLogin()}
             onCreate={create}

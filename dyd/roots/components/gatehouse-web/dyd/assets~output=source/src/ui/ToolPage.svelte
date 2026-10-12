@@ -4,6 +4,6 @@
   let { children }: { children: Snippet } = $props()
 </script>
 
-<main class="mx-auto min-h-svh w-full max-w-3xl p-6">
+<main class="min-h-svh w-full min-w-0 p-6">
   <Stack gap="large">{@render children()}</Stack>
 </main>

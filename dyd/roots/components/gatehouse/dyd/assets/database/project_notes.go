@@ -70,13 +70,17 @@ func normalizeProjectNote(title, description, body *string) error {
 	return nil
 }
 
-func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []ProjectNoteSummary) {
+func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []ProjectNoteSummary) {
 	if err, available := store.ProjectGet(ctx, project, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []ProjectNoteSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "notes.id", []string{"notes.title", "notes.description"}, []any{project.Workspace.Id, project.Id}, "notes.created_at DESC, notes.id DESC")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT notes.id, notes.author_principal, principals.name, notes.author_agent, agents.label, notes.author_gateway,
 			notes.title, notes.description, revisions.sensitive, notes.created_at, notes.revision
@@ -85,8 +89,7 @@ func (store *Store) ProjectNotesGet(ctx context.Context, project model.ProjectRe
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
 		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.id = notes.author_agent
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.project = `+placeholder(2)+` AND notes.enabled = TRUE
-		ORDER BY notes.created_at DESC, notes.id DESC
-	`, project.Workspace.Id, project.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project notes: %w", err), nil
 	}
@@ -197,9 +200,9 @@ func (store *Store) ProjectNoteCreate(ctx context.Context, note model.ProjectNot
 		return err, model.ProjectNote{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_note.create",
-		ResourceKind: ActivityResourceKindProjectNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_note.create",
+		ResourceKind:        ActivityResourceKindProjectNote,
 		ResourceProjectNote: &note.Ref.Id,
 	}, []string{ActivityTopicProjectNote(note.Ref)}); err != nil {
 		return fmt.Errorf("append project note creation activity: %w", err), model.ProjectNote{}
@@ -251,9 +254,9 @@ func (store *Store) ProjectNoteDetailsSetAs(ctx context.Context, note model.Proj
 	detail.Note.AuthorPrincipal, detail.Note.AuthorAgent, detail.Note.AuthorGateway = author.Principal, author.Agent, author.Gateway
 	detail.AuthorName, detail.AuthorAgentLabel = nil, nil
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_note.update",
-		ResourceKind: ActivityResourceKindProjectNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_note.update",
+		ResourceKind:        ActivityResourceKindProjectNote,
 		ResourceProjectNote: &note.Id,
 	}, []string{ActivityTopicProjectNote(note)}); err != nil {
 		return fmt.Errorf("append project note update activity: %w", err), nil
@@ -311,9 +314,9 @@ func (store *Store) ProjectNoteRemove(ctx context.Context, note model.ProjectNot
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_note.remove",
-		ResourceKind: ActivityResourceKindProjectNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "project_note.remove",
+		ResourceKind:        ActivityResourceKindProjectNote,
 		ResourceProjectNote: &note.Id,
 	}, []string{ActivityTopicProjectNote(note)}); err != nil {
 		return fmt.Errorf("append project note removal activity: %w", err), false
@@ -324,13 +327,17 @@ func (store *Store) ProjectNoteRemove(ctx context.Context, note model.ProjectNot
 	return nil, true
 }
 
-func (store *Store) ProjectNoteRevisionsGet(ctx context.Context, note model.ProjectNoteRef, principal model.PrincipalRef) (error, []ProjectNoteRevisionSummary) {
+func (store *Store) ProjectNoteRevisionsGet(ctx context.Context, note model.ProjectNoteRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []ProjectNoteRevisionSummary) {
 	if err, current := store.ProjectNoteGet(ctx, note, principal); err != nil {
 		return err, nil
 	} else if current == nil {
 		return nil, []ProjectNoteRevisionSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "revisions.revision", []string{"revisions.title", "revisions.description"}, []any{note.Project.Workspace.Id, note.Project.Id, note.Id}, "revisions.revision DESC", true)
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT revisions.revision, revisions.author_principal, principals.name, revisions.author_agent, agents.label, revisions.author_gateway,
 			revisions.title, revisions.description, revisions.sensitive, revisions.created_at
@@ -338,8 +345,7 @@ func (store *Store) ProjectNoteRevisionsGet(ctx context.Context, note model.Proj
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = revisions.author_principal
 		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.id = revisions.author_agent
 		WHERE revisions.workspace = `+placeholder(1)+` AND revisions.project = `+placeholder(2)+` AND revisions.note = `+placeholder(3)+`
-		ORDER BY revisions.revision DESC
-	`, note.Project.Workspace.Id, note.Project.Id, note.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project note revisions: %w", err), nil
 	}

@@ -1,4 +1,5 @@
 import { fetchGatehouse as fetch } from "./api"
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
 import {
   decodeTranscriptEvent,
   type TranscriptEvent,
@@ -103,11 +104,15 @@ export async function fetchChatFiles(
   workspaceID: string,
   sessionID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(`${chatAPIPath(workspaceID, sessionID)}/files`, {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(`${chatAPIPath(workspaceID, sessionID)}/files`, query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchChatAgents(

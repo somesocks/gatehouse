@@ -8,6 +8,9 @@
     value = $bindable(""),
     search = $bindable(""),
     label,
+    compact = false,
+    showIdentifiers = true,
+    placeholder,
     selectedLabel,
     items,
     loading = false,
@@ -22,6 +25,9 @@
     value?: string
     search?: string
     label: string
+    compact?: boolean
+    showIdentifiers?: boolean
+    placeholder?: string
     selectedLabel?: string
     items: {
       id: string
@@ -41,7 +47,7 @@
   const uid = $props.id()
   const selection = createReferenceSelection()
   let open = $state(false)
-  let field = $state<HTMLInputElement>()
+  let field = $state<HTMLButtonElement>()
   let searchField = $state<HTMLInputElement>()
   let results = $state<HTMLDivElement>()
   const displayName = $derived(
@@ -50,7 +56,7 @@
       (selection.state.initial === value
         ? selection.state.initialLabel
         : undefined) ??
-      value,
+      (showIdentifiers ? value : `Selected ${label.toLowerCase()}`),
   )
   const firstSelectable = $derived(items.find((item) => !item.disabled)?.id)
   const draftOnPage = $derived(
@@ -104,57 +110,62 @@
   }}
 >
   <div class="min-w-0 space-y-2">
-    <label for={`${uid}-reference`} class="text-sm font-medium">{label}</label>
+    <label
+      id={`${uid}-label`}
+      for={`${uid}-reference`}
+      class={compact ? "sr-only" : "text-sm font-medium"}>{label}</label
+    >
     <div
       class="border-input bg-background focus-within:ring-ring flex min-w-0 items-center rounded-md border focus-within:ring-2"
     >
-      <input
+      <button
         bind:this={field}
         id={`${uid}-reference`}
-        type="text"
-        readonly
-        role="combobox"
-        aria-autocomplete="none"
-        value={value ? displayName : ""}
-        placeholder={`Select ${label.toLowerCase()}…`}
+        type="button"
+        aria-labelledby={`${uid}-label ${uid}-value`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={`${uid}-dialog`}
-        class="h-10 min-w-0 flex-1 cursor-pointer rounded-md bg-transparent px-3 text-sm outline-none"
+        class="flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-md bg-transparent px-3 text-left text-sm outline-none"
         onclick={openPicker}
         onkeydown={(event) => {
-          if (
-            event.key === "Enter" ||
-            event.key === " " ||
-            event.key === "ArrowDown"
-          ) {
+          if (event.key === "ArrowDown") {
             event.preventDefault()
             openPicker()
           }
         }}
-      />
+      >
+        <span
+          id={`${uid}-value`}
+          class={value
+            ? "min-w-0 flex-1 truncate"
+            : "text-muted-foreground min-w-0 flex-1 truncate"}
+        >
+          {value
+            ? displayName
+            : (placeholder ?? `Select ${label.toLowerCase()}…`)}
+        </span>
+        <Search
+          class="text-muted-foreground shrink-0"
+          size={17}
+          aria-hidden="true"
+        />
+      </button>
       {#if value}<button
           type="button"
           aria-label={`Clear ${label.toLowerCase()} selection`}
           title="Clear selection"
-          class="text-muted-foreground hover:text-foreground focus-visible:ring-ring rounded p-2 focus-visible:ring-2"
+          class="text-muted-foreground hover:text-foreground focus-visible:ring-ring mr-1 shrink-0 rounded p-2 focus-visible:ring-2"
           onclick={() => {
             value = ""
             selection.begin("", "")
             field?.focus()
-          }}><X size={16} /></button
+          }}><X size={16} aria-hidden="true" /></button
         >{/if}
-      <button
-        type="button"
-        aria-label={`Choose ${label.toLowerCase()}`}
-        title={`Choose ${label.toLowerCase()}`}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        class="text-muted-foreground hover:text-foreground focus-visible:ring-ring mr-1 rounded p-2 focus-visible:ring-2"
-        onclick={openPicker}><Search size={17} /></button
-      >
     </div>
-    {#if value}<p class="text-muted-foreground font-mono text-xs break-all">
+    {#if value && !compact && showIdentifiers}<p
+        class="text-muted-foreground font-mono text-xs break-all"
+      >
         {value}
       </p>{/if}
   </div>
@@ -184,7 +195,7 @@
         bind:ref={searchField}
         type="search"
         aria-label={`Search ${label.toLowerCase()}`}
-        placeholder="Name, alias, or ID"
+        placeholder={showIdentifiers ? "Name, alias, or ID" : "Search by name"}
         bind:value={search}
         onkeydown={(event) => {
           if (event.key === "Enter") {
@@ -252,10 +263,10 @@
                           class="text-muted-foreground mt-1 block text-xs"
                           >{item.description}</span
                         >{/if}
-                      <span
-                        class="text-muted-foreground mt-1 block font-mono text-xs break-all"
-                        >{item.id}</span
-                      >
+                      {#if showIdentifiers}<span
+                          class="text-muted-foreground mt-1 block font-mono text-xs break-all"
+                          >{item.id}</span
+                        >{/if}
                       {#if item.disabled}<span
                           class="text-muted-foreground mt-1 block text-xs"
                           >Disabled</span

@@ -2,6 +2,7 @@
   import Button from "./Button.svelte"
   let {
     count,
+    noun = "records",
     previous = false,
     next = false,
     loading = false,
@@ -9,6 +10,7 @@
     onnext,
   }: {
     count: number
+    noun?: string
     previous?: boolean
     next?: boolean
     loading?: boolean
@@ -20,7 +22,7 @@
 <footer class="flex flex-wrap items-center justify-between gap-4">
   <p class="text-muted-foreground text-sm">
     Showing {count}
-    {count === 1 ? "record" : "records"}
+    {count === 1 ? noun.replace(/s$/, "") : noun} on this page
   </p>
   <div class="flex gap-2">
     <Button

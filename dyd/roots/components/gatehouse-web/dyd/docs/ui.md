@@ -44,12 +44,27 @@ System pages compose presentation-only components from `src/ui/`:
 - Detail pages use titled `DetailSection` panels and aligned `Property` rows. JSON/Lisp and rate limits have dedicated displays.
 - Create/edit pages share resource-specific field compositions. `FormSection` places the section heading/description beside a fluid field grid on desktop and above the fields on narrow screens. Long editors span the field grid, control heights are consistent, and `FormActions` provides a full-width save/cancel footer. Global providers/models and principal availability have dedicated edit URLs.
 - Hubs use the same `NavigationCard` and `NavigationGrid` for system sections and workspace children. Workspace pages fetch only their own metadata for named breadcrumbs.
-- `RecordPicker` is a read-only reference input that opens a modal search/selector. Resource-specific pickers own their API requests; search pages are fetched only when the dialog opens or the user searches/paginates. Selection is a draft until confirmed, cancelling preserves the existing reference, and closing aborts pending search requests. Keyboard navigation, focus trapping, and focus restoration are provided by the owned dialog/picker components.
+- `RecordPicker` is a button styled as a reference field that opens a modal search/selector. Its name includes the field label and current selection, the search icon is part of the trigger, and clearing is a separate sibling button. Resource-specific pickers own their API requests; search pages are fetched only when the dialog opens or the user searches/paginates. Selection is a draft until confirmed, cancelling preserves the existing reference, and closing aborts pending search requests. Keyboard navigation, focus trapping, and focus restoration are provided by the owned dialog/picker components.
 - Keychain references use the same modal field; their options are the configuration references already supplied by the provider form's existing keychain API.
 
 Each resource retains its own API and data model. Global directory APIs support a
 paginated response when `limit` is supplied; existing unpaginated callers retain
 their response shape. No generic catalog or cross-resource search is used.
+
+### Workspace page anatomy
+
+Workspace pages use the same presentation components and page-purpose grammar:
+
+- Workspace and project overviews are navigation-only hubs with permanent child navigation cards. They do not load child collections or display recent-item previews. Creation and uploading are available on the corresponding collection pages; project editing has its own page.
+- Chat, project, group, file, note, task, secret, type, field, and record directories use aligned tables and bounded server search. Previous/Next replace the displayed page rather than accumulating results. Group directories describe the principal's enabled memberships.
+- Project creation/editing, note/task/secret editing, historical project-note revisions, and record-type field management have dedicated URLs. Create/edit pairs retain the same fields and section ordering.
+- Workspace tools identify resources by names, descriptions, and their meaningful content. Internal IDs are not printed in headers, tables, details, authorship labels, selected-file summaries, or selector dialogs; copyable identifiers are reserved for administration. Resource details use a common header, titled property sections, and separate Markdown content. Secret details remain metadata-only; blank replacement preserves the stored value.
+- Project, record-type, record, and file references use modal selectors backed by their own resource APIs. Selected references are hydrated by ID; candidate collections are loaded only when the selector opens or searches.
+- Native array collection endpoints retain their body shape. Supplying `limit` opts into bounded search; `X-Next-Cursor` supplies continuation when available. Records retain their existing `records`/`values` bodies and `next_cursor` fields. No generic resource entity or catalog API is introduced.
+- Record directories use configured display fields as columns; editors retain drafts across value pages. Field settings are separate from type settings, and the type overview links to Records and Fields.
+- Chat keeps its viewport-contained feed and stationary composer. Delivery selection uses an icon-only bot button; the composer has no instructional footer text. User and agent message bubbles share a 28rem minimum and 42rem maximum width, both clamped to the available width on narrow screens. Input-request forms use the available width, compact sections, and a consistent submit/cancel footer.
+- Chat-view navigation shows links at desktop widths and collapses to a dropdown below 768px. The dropdown retains every view, marks the active one, and includes Rename when available.
+- Capability-based file tools use the full page width, selected-file summaries, filter toolbars, selectable tables, pagination, and a Save selection footer. Capability transport and shared-draft completion remain unchanged.
 
 ## Theming
 
@@ -69,11 +84,11 @@ branding configuration loader can supply workspace theme data through this API.
 | Page family | Purpose and preserved behavior |
 | --- | --- |
 | Access/login | Session checks, credential submission, return destination, retry, no-access messaging, logout, and system access entry. |
-| Workspace overview | Recent chats/projects, create actions, workspace description, activity refresh, and collection links. |
+| Workspace overview | Workspace description, child navigation cards, workspace/access activity refresh, and workspace selection. |
 | Chat collection | Name search in the URL, results, pagination, chat creation, and project metadata. |
 | Project collection | Name search in the URL, results, pagination, and project creation. |
 | Groups | Search and inspect workspace groups and their identifiers. |
-| Project overview | Edit project metadata; recent chats, files, notes, tasks, secrets, and record types; create/upload actions; independent loading/errors. |
+| Project overview | Project metadata, Edit project destination, child navigation cards, and project-metadata activity refresh. |
 | Project files | Upload multiple files, inspect metadata, download, remove, refresh, and collection/detail navigation. |
 | Session files | Inspect and download chat attachments, with chat navigation and rename. |
 | Project notes | Create/edit/delete notes, sensitive content, Markdown, author metadata, revision history, and historical viewing. |

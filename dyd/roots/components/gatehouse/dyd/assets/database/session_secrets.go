@@ -45,20 +45,23 @@ func SessionSecretAssociatedData(secret model.SessionSecretRef) []byte {
 	return []byte("gh=v1|session-secret=" + secret.Session.Workspace.Id + "|session=" + secret.Session.Id + "|id=" + secret.Id)
 }
 
-func (store *Store) SessionSecretsGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []SessionSecretSummary) {
+func (store *Store) SessionSecretsGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []SessionSecretSummary) {
 	if err, available := store.SessionGet(ctx, session, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []SessionSecretSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "secrets.id", []string{"secrets.description"}, []any{session.Workspace.Id, session.Id}, "secrets.created_at DESC, secrets.id DESC")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT secrets.id, secrets.author_principal, principals.name, secrets.description, secrets.created_at, secrets.updated_at
 		FROM gatehouse_session_secrets AS secrets
 		JOIN gatehouse_principals AS principals ON principals.id = secrets.author_principal
 		WHERE secrets.workspace = `+placeholder(1)+` AND secrets.session = `+placeholder(2)+` AND secrets.enabled = TRUE
-		ORDER BY secrets.created_at DESC, secrets.id DESC
-	`, session.Workspace.Id, session.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session secrets: %w", err), nil
 	}
@@ -145,9 +148,9 @@ func (store *Store) SessionSecretCreate(ctx context.Context, secret model.Sessio
 		return fmt.Errorf("insert session secret: %w", err), model.SessionSecret{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_secret.create",
-		ResourceKind: ActivityResourceKindSessionSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "session_secret.create",
+		ResourceKind:          ActivityResourceKindSessionSecret,
 		ResourceSessionSecret: &secret.Ref.Id,
 	}, []string{ActivityTopicSessionSecret(secret.Ref)}); err != nil {
 		return fmt.Errorf("append session secret creation activity: %w", err), model.SessionSecret{}
@@ -189,9 +192,9 @@ func (store *Store) SessionSecretDetailsSet(ctx context.Context, secret model.Se
 	}
 	detail.Secret.Description, detail.Secret.Ciphertext, detail.Secret.UpdatedAt = *description, *ciphertext, updatedAt
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_secret.update",
-		ResourceKind: ActivityResourceKindSessionSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "session_secret.update",
+		ResourceKind:          ActivityResourceKindSessionSecret,
 		ResourceSessionSecret: &secret.Id,
 	}, []string{ActivityTopicSessionSecret(secret)}); err != nil {
 		return fmt.Errorf("append session secret update activity: %w", err), nil
@@ -232,9 +235,9 @@ func (store *Store) SessionSecretRemove(ctx context.Context, secret model.Sessio
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_secret.remove",
-		ResourceKind: ActivityResourceKindSessionSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "session_secret.remove",
+		ResourceKind:          ActivityResourceKindSessionSecret,
 		ResourceSessionSecret: &secret.Id,
 	}, []string{ActivityTopicSessionSecret(secret)}); err != nil {
 		return fmt.Errorf("append session secret removal activity: %w", err), false

@@ -4,12 +4,14 @@
   import type { Attributes } from "./types"
   let {
     align = "start",
+    purpose = "message",
     header,
     actions,
     children,
     ...rest
   }: Attributes & {
     align?: "start" | "end"
+    purpose?: "message" | "output" | "form"
     header?: Snippet
     actions?: Snippet
   } = $props()
@@ -18,9 +20,11 @@
 <article
   data-slot="message"
   data-align={align}
-  class={align === "end"
-    ? "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-end"
-    : "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-start"}
+  class={purpose === "form"
+    ? "relative w-full min-w-0 self-start"
+    : align === "end"
+      ? "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-end"
+      : "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-start"}
   {...rest}
 >
   <Panel tone={align === "end" ? "primary-tint" : "secondary"}>

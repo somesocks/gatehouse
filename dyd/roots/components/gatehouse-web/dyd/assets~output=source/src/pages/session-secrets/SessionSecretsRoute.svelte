@@ -16,7 +16,13 @@
 
   type SecretsRoute = Extract<
     Route,
-    { kind: "session-secrets" | "session-secret-new" | "session-secret" }
+    {
+      kind:
+        | "session-secrets"
+        | "session-secret-new"
+        | "session-secret"
+        | "session-secret-edit"
+    }
   >
   type Session = {
     id: string
@@ -257,7 +263,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             {#if session !== null}

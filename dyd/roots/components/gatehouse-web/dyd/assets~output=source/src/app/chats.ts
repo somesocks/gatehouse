@@ -15,6 +15,7 @@ export async function fetchChats(
   name: string,
   cursor: string,
   signal?: AbortSignal,
+  projectID?: string,
 ): Promise<Response> {
   const parameters = new URLSearchParams({ limit: "50" })
   if (name.trim() !== "") {
@@ -23,6 +24,7 @@ export async function fetchChats(
   if (cursor !== "") {
     parameters.set("cursor", cursor)
   }
+  if (projectID) parameters.set("project", projectID)
   return await fetch(
     `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`,
     { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
@@ -42,28 +44,6 @@ export async function createChat(
       body: JSON.stringify({}),
       ...(signal === undefined ? {} : { signal }),
     },
-  )
-}
-
-export async function fetchDashboardChats(
-  workspaceID: string,
-  signal?: AbortSignal,
-): Promise<Response> {
-  return await fetch(
-    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?limit=5`,
-    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
-  )
-}
-
-export async function fetchProjectChats(
-  workspaceID: string,
-  projectID: string,
-  signal?: AbortSignal,
-): Promise<Response> {
-  const parameters = new URLSearchParams({ limit: "5", project: projectID })
-  return await fetch(
-    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions?${parameters}`,
-    { credentials: "same-origin", signal },
   )
 }
 

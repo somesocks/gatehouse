@@ -29,7 +29,11 @@
         {kind}
       </p>{/if}
     <div class="flex flex-wrap items-center gap-3">
-      <h1 class="text-2xl font-semibold tracking-tight">{title}</h1>
+      <h1
+        class="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]"
+      >
+        {title}
+      </h1>
       {#if enabled !== undefined}<StatusBadge {enabled} />{/if}
     </div>
     {#if description}<p class="text-muted-foreground text-sm leading-relaxed">

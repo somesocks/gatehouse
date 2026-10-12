@@ -10,21 +10,24 @@ import (
 	"gatehouse/typed_id"
 )
 
-func (store *Store) SessionTasksGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []model.SessionTask) {
+func (store *Store) SessionTasksGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []model.SessionTask) {
 	if err, available := store.SessionGet(ctx, session, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []model.SessionTask{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "id", []string{"title", "description", "status"}, []any{session.Workspace.Id, session.Id}, "created_at DESC, id DESC")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT id, title, sensitive, status, enabled,
 			creator_principal, creator_agent, creator_gateway, created_at,
 			updater_principal, updater_agent, updater_gateway, updated_at
 		FROM gatehouse_session_tasks
 		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND enabled = TRUE
-		ORDER BY created_at DESC, id DESC
-	`, session.Workspace.Id, session.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session tasks: %w", err), nil
 	}

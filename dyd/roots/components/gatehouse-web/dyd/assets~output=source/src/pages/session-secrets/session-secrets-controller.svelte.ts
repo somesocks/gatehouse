@@ -8,10 +8,17 @@ import {
   type SessionSecret,
 } from "../../app/session-secrets"
 import type { Route } from "../../route"
+import { createCollectionPage } from "../../utils/collection-page.svelte"
 
 type SessionSecretsRoute = Extract<
   Route,
-  { kind: "session-secrets" | "session-secret-new" | "session-secret" }
+  {
+    kind:
+      | "session-secrets"
+      | "session-secret-new"
+      | "session-secret"
+      | "session-secret-edit"
+  }
 >
 type SessionSecretStatus = "checking" | "ready" | "unavailable"
 
@@ -26,9 +33,11 @@ export function createSessionSecretsController({
   onAuthenticationLost,
   onNavigate,
 }: SessionSecretsControllerOptions) {
+  const page = createCollectionPage()
   const state = $state({
     secrets: [] as SessionSecret[],
     status: "checking" as SessionSecretStatus,
+    detailStatus: "checking" as SessionSecretStatus,
     active: null as SessionSecret | null,
     creating: false,
     editing: false,
@@ -59,7 +68,7 @@ export function createSessionSecretsController({
   }
 
   function routeSecretID(route: SessionSecretsRoute): string | null {
-    return route.kind === "session-secret" ? route.secretID : null
+    return "secretID" in route ? route.secretID : null
   }
 
   function isCurrent(currentGeneration: number): boolean {
@@ -78,10 +87,12 @@ export function createSessionSecretsController({
       state.status = "checking"
     }
     try {
+      const requested = page.key()
       const response = await fetchSessionSecrets(
         workspaceID,
         sessionID,
         context.signal,
+        page.params(),
       )
       if (!isCurrent(currentGeneration)) {
         return false
@@ -97,14 +108,9 @@ export function createSessionSecretsController({
       if (!isCurrent(currentGeneration)) {
         return false
       }
-      state.secrets = [...secrets].sort((left, right) => {
-        const difference =
-          new Date(right.updated_at).getTime() -
-          new Date(left.updated_at).getTime()
-        return Number.isFinite(difference) && difference !== 0
-          ? difference
-          : right.id.localeCompare(left.id)
-      })
+      if (requested !== page.key()) return false
+      state.secrets = secrets
+      page.accept(response)
       state.status = "ready"
       return true
     } catch {
@@ -155,28 +161,34 @@ export function createSessionSecretsController({
     currentGeneration: number,
     showLoading = false,
   ): Promise<boolean> {
-    if (
-      !(await loadSecrets(showLoading, currentGeneration)) ||
-      !isCurrent(currentGeneration) ||
-      context === null
-    ) {
-      return false
-    }
+    if (!isCurrent(currentGeneration) || context === null) return false
+    if (route.kind === "session-secret-new") return true
     const secretID = routeSecretID(route)
     if (secretID === null) {
-      return true
+      return loadSecrets(showLoading, currentGeneration)
     }
-    const secret = await loadSecret(secretID, currentGeneration)
-    if (!isCurrent(currentGeneration) || context === null) {
+    if (showLoading) state.detailStatus = "checking"
+    try {
+      const secret = await loadSecret(secretID, currentGeneration)
+      if (!isCurrent(currentGeneration) || context === null) {
+        return false
+      }
+      if (secret === null) {
+        clearSelection()
+        onNavigate(listPath(context.workspaceID, context.sessionID), true)
+        return true
+      }
+      state.active = secret
+      if (route.kind === "session-secret-edit" && !state.editing) populateEdit()
+      state.detailStatus = "ready"
+      return true
+    } catch {
+      if (isCurrent(currentGeneration)) {
+        state.detailStatus = "unavailable"
+        state.error = "Secret could not be loaded."
+      }
       return false
     }
-    if (secret === null) {
-      clearSelection()
-      onNavigate(listPath(context.workspaceID, context.sessionID), true)
-      return true
-    }
-    state.active = secret
-    return true
   }
 
   function activateCreate(): void {
@@ -195,11 +207,13 @@ export function createSessionSecretsController({
     signal: AbortSignal,
   ): () => void {
     stop()
+    page.reset()
     context = { workspaceID, sessionID, signal }
     const currentGeneration = ++generation
     state.active = null
     state.creating = false
     state.editing = false
+    state.detailStatus = "checking"
     state.saving = false
     state.deleting = false
     state.description = ""
@@ -246,6 +260,13 @@ export function createSessionSecretsController({
   }
 
   function startEdit(): void {
+    if (context && state.active)
+      onNavigate(
+        `${detailPath(context.workspaceID, context.sessionID, state.active.id)}/edit`,
+      )
+  }
+
+  function populateEdit(): void {
     if (state.active === null) {
       return
     }
@@ -267,7 +288,10 @@ export function createSessionSecretsController({
       onNavigate(listPath(context.workspaceID, context.sessionID))
       return
     }
-    state.editing = false
+    if (state.active)
+      onNavigate(
+        detailPath(context.workspaceID, context.sessionID, state.active.id),
+      )
   }
 
   async function save(): Promise<void> {
@@ -402,6 +426,8 @@ export function createSessionSecretsController({
   }
 
   return {
+    page,
+    reload: () => loadSecrets(true, generation),
     state,
     start,
     stop,

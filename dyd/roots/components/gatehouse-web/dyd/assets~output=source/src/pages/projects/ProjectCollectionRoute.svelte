@@ -169,7 +169,7 @@
           ><UI.Breadcrumb.List
             ><UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
               ><UI.Breadcrumb.Page>Projects</UI.Breadcrumb.Page
@@ -184,7 +184,10 @@
             signal={routeSignal}
             {creating}
             onAuthenticationLost={() => runtime.requireLogin()}
-            onCreate={create}
+            onCreate={() =>
+              runtime.navigate(
+                `/app/wsp/${encodeURIComponent(workspace.id)}/prj/new`,
+              )}
             onNavigate={runtime.navigate}
           />{/if}</SidebarPage.Body
       ></SidebarPage.Page

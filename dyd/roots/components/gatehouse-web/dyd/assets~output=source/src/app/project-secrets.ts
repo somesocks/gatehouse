@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type ProjectSecret = {
   id: string
   description: string
@@ -14,8 +16,9 @@ export async function fetchProjectSecrets(
   workspaceID: string,
   projectID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(path(workspaceID, projectID), {
+  return await fetch(collectionQueryPath(path(workspaceID, projectID), query), {
     credentials: "same-origin",
     ...(signal === undefined ? {} : { signal }),
   })

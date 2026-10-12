@@ -2,15 +2,21 @@
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { setRecordReference } from "../../app/record-reference-drafts"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
+  import { dateTimeInput, dateTimeValue } from "../../utils/date-time-input"
+  import ProjectFilePicker from "./ProjectFilePicker.svelte"
+  import ProjectRecordPicker from "./ProjectRecordPicker.svelte"
+  import ProjectRecordTypePicker from "./ProjectRecordTypePicker.svelte"
   import { fetchProject, type Project } from "../../app/projects"
 
-  import { fetchProjectFiles, type ProjectFile } from "../../app/project-files"
   import {
     createProjectRecord,
     createProjectRecordAttribute,
     createProjectRecordSchema,
     fetchProjectRecord,
     fetchProjectRecordAttributes,
+    fetchProjectRecordAttribute,
     fetchProjectRecordIncomingReferences,
     fetchProjectRecordSchema,
     fetchProjectRecordSchemas,
@@ -41,6 +47,10 @@
         | "project-record-schema-new"
         | "project-record-schema"
         | "project-record-schema-edit"
+        | "project-record-schema-overview"
+        | "project-record-fields"
+        | "project-record-field-new"
+        | "project-record-field-edit"
         | "project-record-new"
         | "project-record"
         | "project-record-edit"
@@ -53,6 +63,7 @@
     value: unknown
     sensitive: boolean
     removed?: boolean
+    changed?: boolean
   }
   type AttributeForm = {
     id?: string
@@ -68,6 +79,25 @@
   }
 
   const runtime = useRuntime()
+  const typesPage = createCollectionPage()
+  const recordsPage = createCollectionPage()
+  const valuesPage = createCollectionPage()
+  const fieldsPage = createCollectionPage()
+  const incomingPage = createCollectionPage()
+  const reloadFields = () =>
+    isSchemaRoute(currentRoute)
+      ? loadSchema(currentRoute, generation, abortController!.signal)
+      : Promise.resolve(false)
+  const reloadTypes = () =>
+    loadSchemas(currentRoute, generation, abortController!.signal)
+  const reloadRecords = () =>
+    currentRoute.kind === "project-record-schema"
+      ? loadRecords(currentRoute, generation, abortController!.signal)
+      : Promise.resolve(false)
+  const reloadValues = () =>
+    "recordID" in currentRoute
+      ? loadRecord(currentRoute, generation, abortController!.signal, false)
+      : Promise.resolve(false)
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
   let projectStatus = $state<Status>("checking")
@@ -75,7 +105,6 @@
   let schemasStatus = $state<Status>("checking")
   let schema = $state<ProjectRecordSchema | null>(null)
   let attributes = $state<ProjectRecordAttribute[]>([])
-  let projectFiles = $state<ProjectFile[]>([])
   let records = $state<ProjectRecord[]>([])
   let recordsStatus = $state<Status>("ready")
   let active = $state<ProjectRecord | null>(null)
@@ -84,6 +113,7 @@
   let incomingReferencesNextCursor = $state<string | undefined>(undefined)
   let incomingReferencesLoading = $state(false)
   let drafts = $state<ValueDraft[]>([])
+  let allValuesLoaded = $state(false)
   let saving = $state(false)
   let error = $state("")
   let schemaName = $state("")
@@ -152,6 +182,11 @@
   })
 
   function activate(route: RecordsRoute): () => void {
+    typesPage.reset()
+    recordsPage.reset()
+    valuesPage.reset()
+    fieldsPage.reset()
+    incomingPage.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -163,7 +198,6 @@
     schemasStatus = "checking"
     schema = null
     attributes = []
-    projectFiles = []
     records = []
     recordsStatus =
       route.kind === "project-record-schema" ||
@@ -177,6 +211,7 @@
     incomingReferencesNextCursor = undefined
     incomingReferencesLoading = false
     drafts = []
+    allValuesLoaded = false
     saving = false
     error = ""
     schemaName = ""
@@ -237,18 +272,37 @@
       if (!response.ok) throw new Error()
       project = (await response.json()) as Project
       projectStatus = "ready"
-      if (!(await loadSchemas(route, value, signal))) return
       subscribe(route, value)
+      if (route.kind === "project-records") {
+        await loadSchemas(route, value, signal)
+        return
+      }
       if (route.kind === "project-record-schema-new") return
       if (!isSchemaRoute(route)) return
       if (!(await loadSchema(route, value, signal))) return
+      if (
+        route.kind === "project-record-fields" ||
+        route.kind === "project-record-field-new" ||
+        route.kind === "project-record-schema-overview"
+      )
+        return
+      if (route.kind === "project-record-field-edit") {
+        const field = attributes.find((item) => item.id === route.attributeID)
+        if (field) editAttribute(field)
+        else
+          runtime.navigate(
+            `${schemaPath(route.workspaceID, route.projectID, route.schemaID)}/fields`,
+            true,
+          )
+        return
+      }
       if (route.kind === "project-record-schema-edit") {
         schemaLabel = schema?.label ?? ""
         schemaDescription = schema?.description ?? ""
         return
       }
       if (route.kind === "project-record-new") {
-        drafts = attributes.map(emptyDraft)
+        drafts = []
         return
       }
       if (
@@ -281,7 +335,11 @@
       ],
       async ({ signal }) => {
         if (!isCurrent(value, route) || signal.aborted) return
-        if (!(await loadSchemas(route, value, signal)))
+        if (route.kind.endsWith("-edit") || route.kind.endsWith("-new")) return
+        if (
+          route.kind === "project-records" &&
+          !(await loadSchemas(route, value, signal))
+        )
           throw new Error("project records refresh failed")
         if (isSchemaRoute(route) && !(await loadSchema(route, value, signal)))
           throw new Error("project record type refresh failed")
@@ -311,6 +369,7 @@
         route.workspaceID,
         route.projectID,
         signal,
+        typesPage.params(),
       )
       if (!isCurrent(value, route) || signal.aborted) return false
       if (response.status === 401) {
@@ -319,6 +378,7 @@
       }
       if (!response.ok) throw new Error()
       schemas = (await response.json()) as ProjectRecordSchema[]
+      typesPage.accept(response)
       schemasStatus = "ready"
       return true
     } catch {
@@ -334,28 +394,37 @@
     signal: AbortSignal,
   ): Promise<boolean> {
     try {
-      const [schemaResponse, attributesResponse, filesResponse] =
-        await Promise.all([
-          fetchProjectRecordSchema(
-            route.workspaceID,
-            route.projectID,
-            route.schemaID,
-            signal,
-          ),
-          fetchProjectRecordAttributes(
-            route.workspaceID,
-            route.projectID,
-            route.schemaID,
-            signal,
-          ),
-          fetchProjectFiles(route.workspaceID, route.projectID, signal),
-        ])
+      const [schemaResponse, attributesResponse] = await Promise.all([
+        fetchProjectRecordSchema(
+          route.workspaceID,
+          route.projectID,
+          route.schemaID,
+          signal,
+        ),
+        route.kind === "project-record-field-edit"
+          ? fetchProjectRecordAttribute(
+              route.workspaceID,
+              route.projectID,
+              route.schemaID,
+              route.attributeID,
+              signal,
+            )
+          : route.kind === "project-record-field-new" ||
+              route.kind === "project-record-schema-overview" ||
+              route.kind === "project-record-schema-edit"
+            ? Promise.resolve(null)
+            : fetchProjectRecordAttributes(
+                route.workspaceID,
+                route.projectID,
+                route.schemaID,
+                signal,
+                route.kind === "project-record-fields"
+                  ? fieldsPage.params()
+                  : undefined,
+              ),
+      ])
       if (!isCurrent(value, route) || signal.aborted) return false
-      if (
-        schemaResponse.status === 401 ||
-        attributesResponse.status === 401 ||
-        filesResponse.status === 401
-      ) {
+      if (schemaResponse.status === 401 || attributesResponse?.status === 401) {
         runtime.requireLogin()
         return false
       }
@@ -363,11 +432,19 @@
         runtime.navigate(recordsPath(route.workspaceID, route.projectID), true)
         return false
       }
-      if (!schemaResponse.ok || !attributesResponse.ok || !filesResponse.ok)
+      if (!schemaResponse.ok || (attributesResponse && !attributesResponse.ok))
         throw new Error()
       schema = (await schemaResponse.json()) as ProjectRecordSchema
-      attributes = (await attributesResponse.json()) as ProjectRecordAttribute[]
-      projectFiles = (await filesResponse.json()) as ProjectFile[]
+      schemaName = schema.name
+      if (attributesResponse) {
+        const result = (await attributesResponse.json()) as
+          | ProjectRecordAttribute
+          | ProjectRecordAttribute[]
+        if (!isCurrent(value, route) || signal.aborted) return false
+        attributes = Array.isArray(result) ? result : [result]
+        if (route.kind === "project-record-fields")
+          fieldsPage.accept(attributesResponse)
+      }
       return true
     } catch {
       error = "The record type could not be loaded."
@@ -387,6 +464,7 @@
         route.projectID,
         route.schemaID,
         signal,
+        recordsPage.params(),
       )
       if (!isCurrent(value, route) || signal.aborted) return false
       if (response.status === 401) {
@@ -394,8 +472,13 @@
         return false
       }
       if (!response.ok) throw new Error()
-      records = ((await response.json()) as { records: ProjectRecord[] })
-        .records
+      const body = (await response.json()) as {
+        records: ProjectRecord[]
+        next_cursor?: string
+      }
+      if (!isCurrent(value, route) || signal.aborted) return false
+      records = body.records
+      recordsPage.state.next = body.next_cursor ?? ""
       recordsStatus = "ready"
       return true
     } catch {
@@ -409,8 +492,11 @@
     route: Extract<RecordsRoute, { recordID: string }>,
     value: number,
     signal: AbortSignal,
+    refreshTitle = true,
   ): Promise<boolean> {
     recordsStatus = "checking"
+    const requestedValues = valuesPage.key()
+    const requestedReferences = incomingPage.key()
     try {
       const [recordResponse, valuesResponse, referencesResponse] =
         await Promise.all([
@@ -427,13 +513,14 @@
             route.schemaID,
             route.recordID,
             signal,
+            valuesPage.params(),
           ),
           fetchProjectRecordIncomingReferences(
             route.workspaceID,
             route.projectID,
             route.schemaID,
             route.recordID,
-            undefined,
+            incomingPage.state.cursor || undefined,
             signal,
           ),
         ])
@@ -455,22 +542,60 @@
       }
       if (!recordResponse.ok || !valuesResponse.ok || !referencesResponse.ok)
         throw new Error()
-      active = (await recordResponse.json()) as ProjectRecord
-      activeValues = (
-        (await valuesResponse.json()) as { values: ProjectRecordValue[] }
-      ).values
+      const loaded = (await recordResponse.json()) as ProjectRecord
+      if (!active || refreshTitle) {
+        const summaryResponse = await fetchProjectRecords(
+          route.workspaceID,
+          route.projectID,
+          route.schemaID,
+          signal,
+          { name: route.recordID, limit: 1 },
+        )
+        if (summaryResponse.ok)
+          loaded.values = (
+            (await summaryResponse.json()) as { records: ProjectRecord[] }
+          ).records[0]?.values
+      } else loaded.values = active.values
+      if (
+        !isCurrent(value, route) ||
+        signal.aborted ||
+        requestedValues !== valuesPage.key()
+      )
+        return false
+      const values = (await valuesResponse.json()) as {
+        values: ProjectRecordValue[]
+        next_cursor?: string
+      }
       const references = (await referencesResponse.json()) as {
         groups: ProjectRecordIncomingReferenceGroup[]
         next_cursor?: string
       }
-      incomingReferences = references.groups
-      incomingReferencesNextCursor = references.next_cursor
-      drafts = activeValues.map((item) => ({
-        id: item.id,
-        attribute: item.attribute,
-        value: item.value,
-        sensitive: item.sensitive,
-      }))
+      if (
+        !isCurrent(value, route) ||
+        signal.aborted ||
+        requestedValues !== valuesPage.key()
+      )
+        return false
+      active = loaded
+      activeValues = values.values
+      valuesPage.state.next = values.next_cursor ?? ""
+      if (!values.next_cursor) allValuesLoaded = true
+      if (requestedReferences === incomingPage.key()) {
+        incomingReferences = references.groups
+        incomingPage.state.next = references.next_cursor ?? ""
+      }
+      const existing = new Set(drafts.map((item) => item.id))
+      drafts = [
+        ...drafts,
+        ...activeValues
+          .filter((item) => !existing.has(item.id))
+          .map((item) => ({
+            id: item.id,
+            attribute: item.attribute,
+            value: item.value,
+            sensitive: item.sensitive,
+          })),
+      ]
       recordsStatus = "ready"
       return true
     } catch {
@@ -504,7 +629,14 @@
     return attributes.find((attribute) => attribute.id === id)
   }
   function attributeValues(id: string) {
-    return drafts.filter((draft) => draft.attribute === id && !draft.removed)
+    return drafts.filter(
+      (draft) =>
+        draft.attribute === id &&
+        !draft.removed &&
+        (currentRoute.kind === "project-record-new" ||
+          !draft.id ||
+          activeValues.some((value) => value.id === draft.id)),
+    )
   }
   function editAttribute(attribute: ProjectRecordAttribute): void {
     attributeForm = {
@@ -522,14 +654,26 @@
   }
   function setDraft(index: number, patch: Partial<ValueDraft>): void {
     drafts = drafts.map((draft, position) =>
-      position === index ? { ...draft, ...patch } : draft,
+      position === index
+        ? {
+            ...draft,
+            ...patch,
+            changed: draft.changed || "value" in patch || "sensitive" in patch,
+          }
+        : draft,
     )
   }
   function draftIndex(draft: ValueDraft): number {
     return drafts.indexOf(draft)
   }
   function typedValue(attribute: ProjectRecordAttribute, raw: string): unknown {
-    return attribute.type === "number" ? Number(raw) : raw
+    return attribute.type === "number"
+      ? raw === ""
+        ? ""
+        : Number(raw)
+      : attribute.type === "datetime"
+        ? dateTimeValue(raw)
+        : raw
   }
   function valueLines(
     attribute: ProjectRecordAttribute,
@@ -568,18 +712,14 @@
       : undefined
   }
   function primaryLines(recordValues: ProjectRecordValue[]): string[] {
-    const attribute = attributes.find(
-      (candidate) =>
-        candidate.display === "primary" &&
-        candidate.type !== "record" &&
-        recordValues.some((item) => item.attribute === candidate.id),
-    )
-    if (attribute === undefined)
-      return [`Anonymous ${schema?.label ?? "Record"}`]
-    const value = recordValues.find((item) => item.attribute === attribute.id)
-    return value === undefined
-      ? [`Anonymous ${schema?.label ?? "Record"}`]
-      : valueLines(attribute, value)
+    const lines = attributes
+      .filter((attribute) => attribute.display === "primary")
+      .flatMap((attribute) =>
+        recordValues
+          .filter((value) => value.attribute === attribute.id)
+          .flatMap((value) => valueLines(attribute, value)),
+      )
+    return lines.length ? lines : [`Untitled ${schema?.label ?? "record"}`]
   }
   function incomingReferenceLabel(
     group: ProjectRecordIncomingReferenceGroup,
@@ -613,15 +753,11 @@
       )
     }, incomingReferences)
   }
-  async function loadMoreIncomingReferences(): Promise<void> {
+  async function loadMoreIncomingReferences(): Promise<boolean> {
     const route = currentRoute
     const value = generation
-    if (
-      route.kind !== "project-record" ||
-      incomingReferencesNextCursor === undefined ||
-      incomingReferencesLoading
-    )
-      return
+    if (route.kind !== "project-record" || incomingReferencesLoading)
+      return false
     incomingReferencesLoading = true
     try {
       const response = await fetchProjectRecordIncomingReferences(
@@ -629,23 +765,25 @@
         route.projectID,
         route.schemaID,
         route.recordID,
-        incomingReferencesNextCursor,
+        incomingPage.state.cursor || undefined,
         abortController?.signal,
       )
-      if (!isCurrent(value, route)) return
+      if (!isCurrent(value, route)) return false
       if (response.status === 401) {
         runtime.requireLogin()
-        return
+        return false
       }
       if (!response.ok) throw new Error()
       const next = (await response.json()) as {
         groups: ProjectRecordIncomingReferenceGroup[]
         next_cursor?: string
       }
-      appendIncomingReferences(next.groups)
-      incomingReferencesNextCursor = next.next_cursor
+      incomingReferences = next.groups
+      incomingPage.state.next = next.next_cursor ?? ""
+      return true
     } catch {
       error = "More reverse references could not be loaded."
+      return false
     } finally {
       if (isCurrent(value, route)) incomingReferencesLoading = false
     }
@@ -686,7 +824,7 @@
       if (!response.ok) throw new Error()
       const saved = (await response.json()) as ProjectRecordSchema
       runtime.navigate(
-        `${schemaPath(route.workspaceID, route.projectID, saved.id)}/edit`,
+        `${schemaPath(route.workspaceID, route.projectID, saved.id)}/overview`,
       )
     } catch {
       if (isCurrent(value, route))
@@ -764,8 +902,10 @@
         return
       }
       if (!response.ok) throw new Error()
-      attributes = await fetchAttributes(route)
       resetAttributeForm()
+      runtime.navigate(
+        `${schemaPath(route.workspaceID, route.projectID, route.schemaID)}/fields`,
+      )
     } catch {
       error =
         "The field could not be saved. Field names must be lowercase snake case."
@@ -790,7 +930,12 @@
     attribute: ProjectRecordAttribute,
   ): Promise<void> {
     const route = currentRoute
-    if (!isSchemaRoute(route) || !window.confirm(`Remove ${attribute.label}?`))
+    if (
+      !isSchemaRoute(route) ||
+      !window.confirm(
+        `Remove ${attribute.label}? Its stored values will be removed from records.`,
+      )
+    )
       return
     saving = true
     try {
@@ -828,7 +973,7 @@
           drafts
             .filter((draft) => !draft.removed)
             .map(({ attribute, value, sensitive }) => ({
-              attribute,
+              attribute: attributeFor(attribute)?.name ?? attribute,
               value,
               sensitive,
             })),
@@ -860,12 +1005,15 @@
           create: drafts
             .filter((draft) => draft.id === undefined && !draft.removed)
             .map(({ attribute, value, sensitive }) => ({
-              attribute,
+              attribute: attributeFor(attribute)?.name ?? attribute,
               value,
               sensitive,
             })),
           update: drafts
-            .filter((draft) => draft.id !== undefined && !draft.removed)
+            .filter(
+              (draft) =>
+                draft.id !== undefined && !draft.removed && draft.changed,
+            )
             .map(({ id, value, sensitive }) => ({ id: id!, value, sensitive })),
           delete: drafts
             .filter((draft) => draft.id !== undefined && draft.removed)
@@ -965,7 +1113,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
@@ -1008,6 +1156,111 @@
                   abortController!.signal,
                 )}>Try again</UI.Button
             >
+          {:else if currentRoute.kind === "project-record-schema-overview"}
+            {#if schema}
+              <UI.AdminHeader
+                kind="Record type"
+                title={schema.label}
+                description={schema.description}
+              >
+                {#snippet actions()}<UI.RouterLink
+                    variant="outline"
+                    href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`}
+                    >Edit type</UI.RouterLink
+                  >{/snippet}
+              </UI.AdminHeader>
+              <UI.DetailSection title="Type information"
+                ><UI.Property label="Name">{schema.name}</UI.Property
+                ><UI.Property label="Created"
+                  >{new Date(schema.created_at).toLocaleString()}</UI.Property
+                ></UI.DetailSection
+              >
+              <UI.NavigationGrid>
+                <UI.NavigationCard
+                  title="Records"
+                  description="Search and work with records of this type."
+                  href={schemaPath(
+                    workspace.id,
+                    currentRoute.projectID,
+                    schema.id,
+                  )}
+                />
+                <UI.NavigationCard
+                  title="Fields"
+                  description="Configure value types, references, constraints, and display."
+                  href={`${schemaPath(workspace.id, currentRoute.projectID, schema.id)}/fields`}
+                />
+              </UI.NavigationGrid>
+            {:else}<UI.Text role="status">Loading record type…</UI.Text>{/if}
+          {:else if currentRoute.kind === "project-record-fields"}
+            <UI.AdminHeader
+              title={`${schema?.label ?? "Record type"} fields`}
+              description="Configure the fields used by this record type."
+            >
+              {#snippet actions()}<UI.RouterLink
+                  variant="default"
+                  href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/fields/new`}
+                  >New field</UI.RouterLink
+                >{/snippet}
+            </UI.AdminHeader>
+            <UI.SearchToolbar
+              label="Search fields"
+              placeholder="Field name, label, or type"
+              bind:value={fieldsPage.state.search}
+              loading={fieldsPage.state.busy}
+              onsearch={() => void fieldsPage.search(reloadFields)}
+            />
+            <UI.RecordTable
+              headers={[
+                "Field",
+                "Type",
+                "Values",
+                "Uniqueness",
+                "Display",
+                "Actions",
+              ]}
+            >
+              {#each attributes as attribute (attribute.id)}<UI.RecordRow>
+                  <UI.RecordCell primary
+                    ><UI.RouterLink
+                      href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/fields/${encodeURIComponent(attribute.id)}/edit`}
+                      >{attribute.label}</UI.RouterLink
+                    ><UI.Text size="small" tone="muted"
+                      >{attribute.name}</UI.Text
+                    ></UI.RecordCell
+                  >
+                  <UI.RecordCell>{attribute.type}</UI.RecordCell><UI.RecordCell
+                    >{attribute.cardinality}</UI.RecordCell
+                  ><UI.RecordCell>{attribute.uniqueness}</UI.RecordCell
+                  ><UI.RecordCell
+                    >{attribute.display} · {attribute.display_order}</UI.RecordCell
+                  >
+                  <UI.RecordCell
+                    ><UI.Button
+                      variant="outline"
+                      size="sm"
+                      disabled={saving}
+                      onclick={() => void deleteAttribute(attribute)}
+                      >Remove</UI.Button
+                    ></UI.RecordCell
+                  >
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={6}
+                  message={schema ? "No fields yet." : "Loading fields…"}
+                />{/each}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="fields"
+              count={attributes.length}
+              previous={fieldsPage.state.history.length > 0}
+              next={!!fieldsPage.state.next}
+              loading={fieldsPage.state.busy || saving}
+              onprevious={() => void fieldsPage.previous(reloadFields)}
+              onnext={() => void fieldsPage.next(reloadFields)}
+            />
+          {:else if currentRoute.kind === "project-record-field-new" || currentRoute.kind === "project-record-field-edit"}
+            {#if !schema}<UI.Text role="status">Loading record type…</UI.Text
+              >{/if}
           {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}{#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<UI.Button
                   variant="outline"
                   type="button"
@@ -1015,56 +1268,61 @@
                   onclick={() => void deleteSchema()}
                   >Remove record type</UI.Button
                 >{/if}{/snippet}
+            <UI.AdminHeader
+              title={currentRoute.kind === "project-record-schema-new"
+                ? "New record type"
+                : `Edit ${schema?.label ?? "record type"}`}
+              actions={schemaActions}
+            />
             <UI.Form
+              surface
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveSchema()
               }}
             >
-              <PageHeading actions={schemaActions}>
-                <UI.Text as="p" size="eyebrow">Record type</UI.Text>
-                <UI.Heading level={2}>
-                  {currentRoute.kind === "project-record-schema-new"
-                    ? "New record type"
-                    : `Edit ${schema?.label ?? "record type"}`}
-                </UI.Heading>
-              </PageHeading>
-              <UI.Field>
-                <UI.Label for="schema-name">Name</UI.Label>
-                <UI.Input
-                  id="schema-name"
-                  required
-                  disabled={currentRoute.kind !== "project-record-schema-new"}
-                  maxlength={64}
-                  bind:value={schemaName}
-                  placeholder="contacts"
-                />
-                <UI.Text as="p" size="small">
-                  Lowercase letters, numbers, and underscores only.
-                </UI.Text>
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="schema-label">Label</UI.Label>
-                <UI.Input
-                  id="schema-label"
-                  required
-                  maxlength={256}
-                  bind:value={schemaLabel}
-                />
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="schema-description">Description</UI.Label>
-                <UI.Textarea
-                  id="schema-description"
-                  rows={3}
-                  maxlength={4096}
-                  bind:value={schemaDescription}
-                ></UI.Textarea>
-              </UI.Field>
-              {#if error !== ""}<UI.Text as="p" size="small" role="alert"
-                  >{error}</UI.Text
+              <UI.FormSection
+                title="Identity"
+                description="The technical name is permanent; the label is shown to users."
+                ><UI.Field>
+                  <UI.Label for="schema-name">Name</UI.Label>
+                  <UI.Input
+                    id="schema-name"
+                    required
+                    disabled={currentRoute.kind !== "project-record-schema-new"}
+                    maxlength={64}
+                    bind:value={schemaName}
+                    placeholder="contacts"
+                  />
+                  <UI.Text as="p" size="small">
+                    Lowercase letters, numbers, and underscores only.
+                  </UI.Text>
+                </UI.Field>
+                <UI.Field>
+                  <UI.Label for="schema-label">Label</UI.Label>
+                  <UI.Input
+                    id="schema-label"
+                    required
+                    maxlength={256}
+                    bind:value={schemaLabel}
+                  />
+                </UI.Field>
+              </UI.FormSection><UI.FormSection title="Description"
+                ><UI.Field>
+                  <UI.Label for="schema-description">Description</UI.Label>
+                  <UI.Textarea
+                    id="schema-description"
+                    rows={3}
+                    maxlength={4096}
+                    bind:value={schemaDescription}
+                  ></UI.Textarea>
+                </UI.Field>
+              </UI.FormSection>{#if error !== ""}<UI.Text
+                  as="p"
+                  size="small"
+                  role="alert">{error}</UI.Text
                 >{/if}
-              <UI.Row>
+              <UI.FormActions>
                 <UI.Button
                   variant="outline"
                   type="button"
@@ -1079,7 +1337,7 @@
                   disabled={saving}
                   >{saving ? "Saving..." : "Save record type"}</UI.Button
                 >
-              </UI.Row>
+              </UI.FormActions>
             </UI.Form>
           {:else if currentRoute.kind === "project-record"}{#snippet recordActions()}<UI.Button
                 variant="default"
@@ -1097,31 +1355,28 @@
                 <UI.Heading level={2}>
                   {#if recordsStatus === "checking"}Loading record...{:else}<UI.Stack
                       as="span"
-                      >{#each primaryLines(activeValues) as line}<UI.Text
+                      >{#each primaryLines(active?.values ?? activeValues) as line}<UI.Text
                           >{line}</UI.Text
                         >{/each}</UI.Stack
                     >{/if}
                 </UI.Heading>
               </PageHeading>
-              <UI.Stack as="section" aria-labelledby="record-heading">
-                <UI.Heading level={3} id="record-heading">Record</UI.Heading>
-                {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
-                    Loading record...
-                  </UI.Text>{:else if activeValues.length === 0}<UI.Text
-                    as="p"
-                    tone="muted"
-                  >
-                    This record has no values.
-                  </UI.Text>{:else}{#each attributes as attribute (attribute.id)}{@const items =
+              {#if active}<UI.DetailSection title="Record information"
+                  ><UI.Property label="Created"
+                    >{new Date(active.created_at).toLocaleString()}</UI.Property
+                  ></UI.DetailSection
+                >{/if}
+              <UI.DetailSection title="Record values">
+                {#if recordsStatus === "checking"}<UI.Property label="Values"
+                    >Loading record…</UI.Property
+                  >{:else if activeValues.length === 0}<UI.Property
+                    label="Values">No values on this page.</UI.Property
+                  >{:else}{#each attributes as attribute (attribute.id)}{@const items =
                       activeValues.filter(
                         (item) => item.attribute === attribute.id,
-                      )}{#if items.length !== 0}<UI.Stack
-                        as="section"
-                        gap="tight"
+                      )}{#if items.length !== 0}<UI.Property
+                        label={attribute.label}
                       >
-                        <UI.Text as="p" size="eyebrow"
-                          >{attribute.label}</UI.Text
-                        >
                         <UI.List>
                           {#each items as item (item.id)}{@const href =
                               referencePath(
@@ -1139,9 +1394,18 @@
                                 >
                               </UI.Group>{/if}{/each}
                         </UI.List>
-                      </UI.Stack>{/if}{/each}{/if}
-              </UI.Stack>
-              {#if incomingReferences.length !== 0}<UI.Stack
+                      </UI.Property>{/if}{/each}{/if}
+              </UI.DetailSection>
+              <UI.PaginationFooter
+                noun="values"
+                count={activeValues.length}
+                previous={valuesPage.state.history.length > 0}
+                next={!!valuesPage.state.next}
+                loading={valuesPage.state.busy || recordsStatus === "checking"}
+                onprevious={() => void valuesPage.previous(reloadValues)}
+                onnext={() => void valuesPage.next(reloadValues)}
+              />
+              {#if incomingReferences.length !== 0 || incomingPage.state.history.length > 0}<UI.Stack
                   as="section"
                   aria-labelledby="referenced-by-heading"
                 >
@@ -1171,16 +1435,21 @@
                           >{/each}
                       </UI.List>
                     </UI.Stack>{/each}
-                  {#if incomingReferencesNextCursor !== undefined}<UI.Button
-                      variant="outline"
-                      size="sm"
-                      type="button"
-                      disabled={incomingReferencesLoading}
-                      onclick={() => void loadMoreIncomingReferences()}
-                      >{incomingReferencesLoading
-                        ? "Loading..."
-                        : "Show more"}</UI.Button
-                    >{/if}
+                  <UI.PaginationFooter
+                    noun="references"
+                    count={incomingReferences.reduce(
+                      (count, group) => count + group.references.length,
+                      0,
+                    )}
+                    previous={incomingPage.state.history.length > 0}
+                    next={!!incomingPage.state.next}
+                    loading={incomingReferencesLoading ||
+                      incomingPage.state.busy}
+                    onprevious={() =>
+                      void incomingPage.previous(loadMoreIncomingReferences)}
+                    onnext={() =>
+                      void incomingPage.next(loadMoreIncomingReferences)}
+                  />
                 </UI.Stack>{/if}
             </UI.Stack>
           {:else if currentRoute.kind === "project-record-new" || currentRoute.kind === "project-record-edit"}{#snippet recordActions()}{#if currentRoute.kind === "project-record-edit"}<UI.Button
@@ -1189,22 +1458,20 @@
                   disabled={saving}
                   onclick={() => void deleteRecord()}>Remove record</UI.Button
                 >{/if}{/snippet}
+            <UI.AdminHeader
+              kind={schema?.label ?? "Record"}
+              title={currentRoute.kind === "project-record-new"
+                ? "New record"
+                : "Edit record"}
+              actions={recordActions}
+            />
             <UI.Form
+              surface
               onsubmit={(event) => {
                 event.preventDefault()
                 void saveRecord()
               }}
             >
-              <PageHeading actions={recordActions}>
-                <UI.Text as="p" size="eyebrow"
-                  >{schema?.label ?? "Record"}</UI.Text
-                >
-                <UI.Heading level={2}>
-                  {currentRoute.kind === "project-record-new"
-                    ? "New record"
-                    : "Edit record"}
-                </UI.Heading>
-              </PageHeading>
               {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
                   Loading record...
                 </UI.Text>{:else if attributes.length === 0}<UI.Text
@@ -1212,12 +1479,11 @@
                   tone="muted"
                 >
                   Add fields to this record type before creating records.
-                </UI.Text>{:else}{#each attributes as attribute (attribute.id)}<UI.FieldSet
+                </UI.Text>{:else}{#each attributes as attribute (attribute.id)}<UI.FormSection
+                    title={attribute.label}
+                    description={attribute.description}
                   >
-                    <UI.FieldLegend>{attribute.label}</UI.FieldLegend>
-                    {#if attribute.description !== ""}<UI.Text as="p">
-                        {attribute.description}
-                      </UI.Text>{/if}{#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index =
+                    {#each attributeValues(attribute.id) as draft (draft.id ?? `${draft.attribute}-${draftIndex(draft)}`)}{@const index =
                         draftIndex(draft)}
                       <UI.Stack gap="tight">
                         <UI.Row justify="between">
@@ -1231,30 +1497,58 @@
                                       value: checked,
                                     })}
                                 /> Yes</UI.Label
-                              >{:else if attribute.type === "file"}<UI.Select
+                              >{:else if attribute.type === "file"}<ProjectFilePicker
+                                workspaceID={workspace.id}
+                                projectID={currentRoute.projectID}
+                                label={attribute.label}
+                                bind:value={
+                                  () => valueLabel(draft.value),
+                                  (value) =>
+                                    (drafts = setRecordReference(
+                                      drafts,
+                                      index,
+                                      value,
+                                    ))
+                                }
+                              />
+                            {:else if attribute.type === "record"}<ProjectRecordPicker
+                                workspaceID={workspace.id}
+                                projectID={currentRoute.projectID}
+                                schemaID={attribute.target_schema ?? ""}
+                                label={attribute.label}
+                                bind:value={
+                                  () => valueLabel(draft.value),
+                                  (value) =>
+                                    (drafts = setRecordReference(
+                                      drafts,
+                                      index,
+                                      value,
+                                    ))
+                                }
+                              />
+                            {:else}<UI.Label
+                                for={`value-${attribute.id}-${index}`}
+                                >{attribute.type === "datetime"
+                                  ? "Date and time (local)"
+                                  : "Value"}</UI.Label
+                              ><UI.Input
+                                id={`value-${attribute.id}-${index}`}
                                 required
-                                value={valueLabel(draft.value)}
-                                onchange={(event) =>
-                                  setDraft(index, {
-                                    value: event.currentTarget.value,
-                                  })}
-                                ><UI.Option value="" disabled
-                                  >Select project file</UI.Option
-                                >{#each projectFiles as file (file.id)}<UI.Option
-                                    value={file.id}>{file.name}</UI.Option
-                                  >{/each}</UI.Select
-                              >
-                            {:else}<UI.Input
-                                required
-                                value={valueLabel(draft.value)}
+                                step={attribute.type === "number" ||
+                                attribute.type === "datetime"
+                                  ? "any"
+                                  : undefined}
+                                value={attribute.type === "datetime"
+                                  ? dateTimeInput(draft.value)
+                                  : valueLabel(draft.value)}
                                 type={attribute.type === "number"
                                   ? "number"
-                                  : "text"}
-                                placeholder={attribute.type === "datetime"
-                                  ? "RFC 3339 timestamp"
-                                  : attribute.type === "record"
-                                    ? "Record ID"
-                                    : ""}
+                                  : attribute.type === "datetime"
+                                    ? "datetime-local"
+                                    : "text"}
+                                placeholder={attribute.type === "text"
+                                  ? "Enter text"
+                                  : undefined}
                                 oninput={(event) =>
                                   setDraft(index, {
                                     value: typedValue(
@@ -1285,22 +1579,51 @@
                               })}
                           /> Sensitive</UI.Label
                         >
-                      </UI.Stack>{/each}{#if attribute.cardinality === "many"}<UI.Button
+                      </UI.Stack>{/each}
+                    {#each drafts.filter((draft) => draft.attribute === attribute.id && draft.removed) as draft}<UI.Row
+                        ><UI.Text tone="muted"
+                          >Value marked for removal.</UI.Text
+                        ><UI.Button
+                          variant="outline"
+                          onclick={() =>
+                            setDraft(draftIndex(draft), { removed: false })}
+                          >Undo removal</UI.Button
+                        ></UI.Row
+                      >{/each}
+                    {#if attribute.cardinality === "many" || !drafts.some((draft) => draft.attribute === attribute.id)}<UI.Button
                         variant="outline"
                         size="sm"
                         type="button"
+                        disabled={currentRoute.kind === "project-record-edit" &&
+                          attribute.cardinality === "one" &&
+                          !allValuesLoaded}
                         onclick={() =>
                           (drafts = [...drafts, emptyDraft(attribute)])}
-                        >Add value</UI.Button
+                        >{attribute.cardinality === "many"
+                          ? "Add value"
+                          : "Set value"}</UI.Button
                       >{/if}
-                  </UI.FieldSet>{/each}{/if}{#if error !== ""}<UI.Text
-                  as="p"
-                  size="small"
-                  role="alert"
-                >
+                    {#if currentRoute.kind === "project-record-edit" && attribute.cardinality === "one" && !allValuesLoaded && !drafts.some((draft) => draft.attribute === attribute.id)}<UI.Text
+                        size="small"
+                        tone="muted"
+                        >Browse the remaining value pages to check whether this
+                        field is already set.</UI.Text
+                      >{/if}
+                  </UI.FormSection>{/each}{/if}
+              {#if currentRoute.kind === "project-record-edit"}<UI.PaginationFooter
+                  noun="values"
+                  count={activeValues.length}
+                  previous={valuesPage.state.history.length > 0}
+                  next={!!valuesPage.state.next}
+                  loading={valuesPage.state.busy ||
+                    recordsStatus === "checking"}
+                  onprevious={() => void valuesPage.previous(reloadValues)}
+                  onnext={() => void valuesPage.next(reloadValues)}
+                />{/if}
+              {#if error !== ""}<UI.Text as="p" size="small" role="alert">
                   {error}
                 </UI.Text>{/if}
-              <UI.Row>
+              <UI.FormActions>
                 <UI.Button
                   variant="outline"
                   type="button"
@@ -1325,7 +1648,7 @@
                   disabled={saving || attributes.length === 0}
                   >{saving ? "Saving..." : "Save record"}</UI.Button
                 >
-              </UI.Row>
+              </UI.FormActions>
             </UI.Form>
           {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<UI.Button
                 variant="outline"
@@ -1333,8 +1656,8 @@
                 type="button"
                 onclick={() =>
                   runtime.navigate(
-                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/edit`,
-                  )}>Edit record type</UI.Button
+                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/overview`,
+                  )}>Type overview</UI.Button
               ><UI.Button
                 variant="default"
                 size="sm"
@@ -1344,13 +1667,18 @@
                     `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`,
                   )}>New record</UI.Button
               >{/snippet}
-            <PageHeading as="header" actions={schemaListActions}>
-              <UI.Text as="p" size="eyebrow">Record type</UI.Text>
-              <UI.Heading level={2}>{schema?.label ?? "Records"}</UI.Heading>
-              {#if schema?.description}<UI.Text as="p" tone="muted">
-                  {schema.description}
-                </UI.Text>{/if}
-            </PageHeading>
+            <UI.AdminHeader
+              title={`${schema?.label ?? "Type"} records`}
+              description={schema?.description}
+              actions={schemaListActions}
+            />
+            <UI.SearchToolbar
+              label="Search records"
+              placeholder="Record display text"
+              bind:value={recordsPage.state.search}
+              loading={recordsPage.state.busy || recordsStatus === "checking"}
+              onsearch={() => void recordsPage.search(reloadRecords)}
+            />
             {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
                 Loading records...
               </UI.Text>{:else if recordsStatus === "unavailable"}<UI.Text
@@ -1358,38 +1686,64 @@
                 tone="muted"
               >
                 Records could not be loaded.
-              </UI.Text>{:else}<UI.Grid>
-                {#each records as record (record.id)}<RouterLink
-                    variant="card"
-                    href={recordPath(
-                      workspace.id,
-                      currentRoute.projectID,
-                      currentRoute.schemaID,
-                      record.id,
-                    )}
-                    ><UI.Heading level={4}>
-                      {#each primaryLines(record.values ?? []) as line}<UI.Text
-                          >{line}</UI.Text
-                        >{/each}
-                    </UI.Heading>
-                    {#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}{@const item =
-                        record.values?.find(
-                          (candidate) => candidate.attribute === attribute.id,
-                        )}{#if item !== undefined}<UI.Stack
-                          as="section"
-                          gap="tight"
-                        >
-                          <UI.Text size="eyebrow">{attribute.label}</UI.Text>
-                          <UI.Stack as="span" gap="tight">
-                            {#each valueLines(attribute, item) as line}<UI.Text
-                                >{line}</UI.Text
-                              >{/each}
-                          </UI.Stack>
-                        </UI.Stack>{/if}{/each}</RouterLink
-                  >{:else}<UI.Text as="p" tone="muted">
-                    No records yet.
-                  </UI.Text>{/each}
-              </UI.Grid>{/if}
+              </UI.Text>{/if}
+            <UI.RecordTable
+              headers={[
+                "Record",
+                ...displayAttributes
+                  .filter((attribute) => attribute.display === "secondary")
+                  .map((attribute) => attribute.label),
+              ]}
+            >
+              {#each records as record (record.id)}<UI.RecordRow>
+                  <UI.RecordCell primary
+                    ><RouterLink
+                      href={recordPath(
+                        workspace.id,
+                        currentRoute.projectID,
+                        currentRoute.schemaID,
+                        record.id,
+                      )}
+                      >{primaryLines(record.values ?? []).join(
+                        " · ",
+                      )}</RouterLink
+                    ></UI.RecordCell
+                  >
+                  {#each displayAttributes.filter((attribute) => attribute.display === "secondary") as attribute (attribute.id)}<UI.RecordCell
+                    >
+                      <UI.Stack gap="tight"
+                        >{#each (record.values ?? []).filter((item) => item.attribute === attribute.id) as item}{@const href =
+                            referencePath(attribute, item)}{#if href}<RouterLink
+                              {href}
+                              >{valueLines(attribute, item).join(
+                                " · ",
+                              )}</RouterLink
+                            >{:else}<UI.Text
+                              >{valueLines(attribute, item).join(
+                                " · ",
+                              )}</UI.Text
+                            >{/if}{:else}<UI.Text tone="muted">—</UI.Text
+                          >{/each}</UI.Stack
+                      >
+                    </UI.RecordCell>{/each}
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={1 +
+                    displayAttributes.filter(
+                      (attribute) => attribute.display === "secondary",
+                    ).length}
+                  message={recordsStatus === "checking"
+                    ? "Loading records…"
+                    : "No matching records."}
+                />{/each}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              count={records.length}
+              previous={recordsPage.state.history.length > 0}
+              next={!!recordsPage.state.next}
+              loading={recordsPage.state.busy || recordsStatus === "checking"}
+              onprevious={() => void recordsPage.previous(reloadRecords)}
+              onnext={() => void recordsPage.next(reloadRecords)}
+            />
           {:else}{#snippet recordTypesActions()}<UI.Button
                 variant="default"
                 type="button"
@@ -1398,13 +1752,18 @@
                     `${recordsPath(workspace.id, currentRoute.projectID)}/new`,
                   )}>New record type</UI.Button
               >{/snippet}
-            <PageHeading as="header" actions={recordTypesActions}>
-              <UI.Text as="p" size="eyebrow">Project records</UI.Text>
-              <UI.Heading level={2}>Record Types</UI.Heading>
-              <UI.Text as="p" tone="muted">
-                Define reusable record types and their fields.
-              </UI.Text>
-            </PageHeading>
+            <UI.AdminHeader
+              title="Record types"
+              description="Define reusable record types and their fields."
+              actions={recordTypesActions}
+            />
+            <UI.SearchToolbar
+              label="Search record types"
+              placeholder="Name, label, or description"
+              bind:value={typesPage.state.search}
+              loading={typesPage.state.busy || schemasStatus === "checking"}
+              onsearch={() => void typesPage.search(reloadTypes)}
+            />
             {#if schemasStatus === "checking"}<UI.Text as="p" tone="muted">
                 Loading record types...
               </UI.Text>{:else if schemasStatus === "unavailable"}<UI.Text
@@ -1412,39 +1771,56 @@
                 tone="muted"
               >
                 Record types could not be loaded.
-              </UI.Text>{:else}<UI.Grid>
-                {#each schemas as item (item.id)}<RouterLink
-                    variant="card"
-                    href={schemaPath(
-                      workspace.id,
-                      currentRoute.projectID,
-                      item.id,
-                    )}
-                    ><UI.Heading level={4}>{item.label}</UI.Heading>
-                    {#if item.description !== ""}<UI.Text size="small">
-                        {item.description}
-                      </UI.Text>{/if}</RouterLink
-                  >{:else}<UI.Text as="p" tone="muted">
-                    No record types yet. Create one to begin tracking records.
-                  </UI.Text>{/each}
-              </UI.Grid>{/if}{/if}
-          {#if currentRoute.kind === "project-record-schema-edit" && schema !== null}
+              </UI.Text>{/if}
+            <UI.RecordTable headers={["Type", "Description", "Created"]}>
+              {#each schemas as item (item.id)}<UI.RecordRow>
+                  <UI.RecordCell primary
+                    ><RouterLink
+                      href={`${schemaPath(workspace.id, currentRoute.projectID, item.id)}/overview`}
+                      >{item.label}</RouterLink
+                    ><UI.Text size="small" tone="muted">{item.name}</UI.Text
+                    ></UI.RecordCell
+                  >
+                  <UI.RecordCell>{item.description || "—"}</UI.RecordCell
+                  ><UI.RecordCell
+                    >{new Date(item.created_at).toLocaleString()}</UI.RecordCell
+                  >
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={3}
+                  message={schemasStatus === "checking"
+                    ? "Loading types…"
+                    : "No matching record types."}
+                />{/each}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="types"
+              count={schemas.length}
+              previous={typesPage.state.history.length > 0}
+              next={!!typesPage.state.next}
+              loading={typesPage.state.busy || schemasStatus === "checking"}
+              onprevious={() => void typesPage.previous(reloadTypes)}
+              onnext={() => void typesPage.next(reloadTypes)}
+            />
+          {/if}
+          {#if (currentRoute.kind === "project-record-field-new" || currentRoute.kind === "project-record-field-edit") && schema !== null}
             <UI.Stack as="section">
-              <PageHeading>
-                <UI.Text as="p" size="eyebrow">Record type fields</UI.Text>
-                <UI.Heading level={2}>
-                  {attributeForm.id === undefined
-                    ? "Add field"
-                    : `Edit ${attributeForm.label}`}
-                </UI.Heading>
-              </PageHeading>
+              <UI.AdminHeader
+                kind={schema.label}
+                title={attributeForm.id === undefined
+                  ? "New field"
+                  : `Edit ${attributeForm.label}`}
+              />
               <UI.Form
+                surface
                 onsubmit={(event) => {
                   event.preventDefault()
                   void saveAttribute()
                 }}
               >
-                <UI.Grid>
+                <UI.FormSection
+                  title="Identity"
+                  description="The technical name is permanent; the label is shown to users."
+                >
                   <UI.Field>
                     <UI.Label for="attribute-name">Name</UI.Label><UI.Input
                       id="attribute-name"
@@ -1460,7 +1836,10 @@
                       bind:value={attributeForm.label}
                     />
                   </UI.Field>
-                  <UI.Field>
+                </UI.FormSection><UI.FormSection
+                  title="Value type"
+                  description="Choose the kind of value and any referenced resource type."
+                  ><UI.Field>
                     <UI.Label for="attribute-type">Type</UI.Label>
                     <UI.Select
                       id="attribute-type"
@@ -1474,21 +1853,15 @@
                       ></UI.Select
                     >
                   </UI.Field>
-                  {#if attributeForm.type === "record"}<UI.Field>
-                      <UI.Label for="attribute-target"
-                        >Target record type</UI.Label
-                      >
-                      <UI.Select
-                        id="attribute-target"
-                        required
-                        bind:value={attributeForm.target_schema}
-                        ><UI.Option value="" disabled
-                          >Select record type</UI.Option
-                        >{#each schemas as item (item.id)}<UI.Option
-                            value={item.id}>{item.label}</UI.Option
-                          >{/each}</UI.Select
-                      >
-                    </UI.Field>{/if}
+                  {#if attributeForm.type === "record"}<ProjectRecordTypePicker
+                      workspaceID={workspace.id}
+                      projectID={currentRoute.projectID}
+                      bind:value={attributeForm.target_schema}
+                    />{/if}
+                </UI.FormSection><UI.FormSection
+                  title="Constraints"
+                  description="Configure cardinality and uniqueness."
+                >
                   <UI.Field>
                     <UI.Label for="attribute-cardinality">Values</UI.Label>
                     <UI.Select
@@ -1510,8 +1883,13 @@
                       ></UI.Select
                     >
                   </UI.Field>
-                  <UI.Field>
-                    <UI.Label for="attribute-display">Card display</UI.Label>
+                </UI.FormSection><UI.FormSection
+                  title="Display"
+                  description="Choose how values identify records and appear in directories."
+                  ><UI.Field>
+                    <UI.Label for="attribute-display"
+                      >Directory display</UI.Label
+                    >
                     <UI.Select
                       id="attribute-display"
                       bind:value={attributeForm.display}
@@ -1536,53 +1914,30 @@
                       Lower numbers appear first; name breaks ties.
                     </UI.Text>
                   </UI.Field>
-                </UI.Grid>
-                <UI.Field>
-                  <UI.Label for="attribute-description">Description</UI.Label
-                  ><UI.Textarea
-                    id="attribute-description"
-                    rows={2}
-                    bind:value={attributeForm.description}
-                  ></UI.Textarea>
-                </UI.Field>
-                <UI.Row>
-                  <UI.Button
+                </UI.FormSection><UI.FormSection title="Help text">
+                  <UI.Field>
+                    <UI.Label for="attribute-description">Description</UI.Label
+                    ><UI.Textarea
+                      id="attribute-description"
+                      rows={2}
+                      bind:value={attributeForm.description}
+                    ></UI.Textarea>
+                  </UI.Field>
+                </UI.FormSection><UI.FormActions>
+                  <UI.RouterLink
                     variant="outline"
-                    type="button"
-                    onclick={resetAttributeForm}>Cancel</UI.Button
+                    href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/fields`}
+                    >Cancel</UI.RouterLink
                   ><UI.Button variant="default" type="submit" disabled={saving}
                     >{saving ? "Saving..." : "Save field"}</UI.Button
                   >
-                </UI.Row>
+                </UI.FormActions>
               </UI.Form>
-              <UI.List>
-                {#each attributes as attribute (attribute.id)}<UI.Item>
-                    <UI.Stack as="span"
-                      ><UI.Text as="strong" emphasis="strong"
-                        >{attribute.label}</UI.Text
-                      ><UI.Text
-                        >{attribute.name} · {attribute.type} · {attribute.cardinality}</UI.Text
-                      ></UI.Stack
-                    ><UI.Row as="span"
-                      ><UI.Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        onclick={() => editAttribute(attribute)}>Edit</UI.Button
-                      ><UI.Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        onclick={() => void deleteAttribute(attribute)}
-                        >Remove</UI.Button
-                      ></UI.Row
-                    >
-                  </UI.Item>{:else}<UI.Text as="p" tone="muted">
-                    No fields yet.
-                  </UI.Text>{/each}
-              </UI.List>
             </UI.Stack>
           {/if}
+          {#if error}<UI.Notice variant="destructive" role="alert"
+              >{error}</UI.Notice
+            >{/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>

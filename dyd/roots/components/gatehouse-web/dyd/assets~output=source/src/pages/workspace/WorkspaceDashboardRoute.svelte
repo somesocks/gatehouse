@@ -1,23 +1,10 @@
 <script lang="ts">
   import { RouterLink, StatusPage } from "../../ui"
-  import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
-  import { signOut } from "../../app/auth"
-  import {
-    createChat,
-    fetchDashboardChats,
-    type Chat,
-    type ChatSearchResponse,
-  } from "../../app/chats"
-  import {
-    createProject,
-    fetchDashboardProjects,
-    type Project,
-    type ProjectSearchResponse,
-  } from "../../app/projects"
-  import { useRuntime } from "../../app/runtime.svelte"
   import * as SidebarPage from "../../ui/sidebar-page"
-
+  import { workspaceNavigation } from "../../app/navigation"
+  import { signOut } from "../../app/auth"
+  import { useRuntime } from "../../app/runtime.svelte"
   import type { Route } from "../../route"
   import LoginPage from "../login/LoginPage.svelte"
   import WorkspaceDashboardPage from "./WorkspaceDashboardPage.svelte"
@@ -26,17 +13,11 @@
     Route,
     { kind: "app-home" | "workspace" | "not-found" }
   >
-
   const runtime = useRuntime()
   const { access, activity, auth } = runtime
-  let sessions = $state<Chat[]>([])
-  let projects = $state<Project[]>([])
-  let creatingProject = $state(false)
-  let error = $state("")
   let generation = 0
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
-
   const currentRoute = $derived(runtime.state.route as DashboardRoute)
   const workspace = $derived(
     currentRoute.kind === "workspace"
@@ -45,125 +26,55 @@
         ) ?? null)
       : (access.state.workspaces[0] ?? null),
   )
-  const workspacePath = (workspaceID: string) =>
-    `/app/wsp/${encodeURIComponent(workspaceID)}`
-  const chatsPath = (workspaceID: string) => `${workspacePath(workspaceID)}/ses`
-  const projectsPath = (workspaceID: string) =>
-    `${workspacePath(workspaceID)}/prj`
+  const workspacePath = (id: string) => `/app/wsp/${encodeURIComponent(id)}`
   const isCurrent = (value: number, workspaceID: string, signal: AbortSignal) =>
     value === generation &&
     !signal.aborted &&
     currentRoute.kind === "workspace" &&
     currentRoute.workspaceID === workspaceID
 
-  $effect(() => {
-    const route = currentRoute
-    return activate(route)
-  })
+  $effect(() => activate(currentRoute))
 
   function activate(route: DashboardRoute): () => void {
     const value = ++generation
     abortController?.abort()
-    abortController = new AbortController()
+    const controller = new AbortController()
+    abortController = controller
     unsubscribe?.()
     unsubscribe = undefined
-    sessions = []
-    projects = []
-    creatingProject = false
-    error = ""
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
-    )
-      void loadRoute(route, value, abortController.signal)
-    else if (
+    ) {
+      const selected =
+        route.kind === "workspace"
+          ? access.state.workspaces.find(
+              (candidate) => candidate.id === route.workspaceID,
+            )
+          : access.state.workspaces[0]
+      if (!selected) {
+        if (access.state.workspaces.length > 0)
+          runtime.navigate(workspacePath(access.state.workspaces[0].id), true)
+      } else if (
+        route.kind !== "workspace" ||
+        selected.id !== route.workspaceID
+      ) {
+        runtime.navigate(workspacePath(selected.id), true)
+      } else {
+        subscribe(value, selected.id, controller.signal)
+      }
+    } else if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "checking"
-    )
+    ) {
       void runtime.refresh()
+    }
     return () => {
+      controller.abort()
       if (value === generation) {
-        abortController?.abort()
         unsubscribe?.()
         unsubscribe = undefined
       }
-    }
-  }
-
-  async function loadRoute(
-    route: DashboardRoute,
-    value: number,
-    signal: AbortSignal,
-  ): Promise<void> {
-    const selected =
-      route.kind === "workspace"
-        ? access.state.workspaces.find(
-            (candidate) => candidate.id === route.workspaceID,
-          )
-        : access.state.workspaces[0]
-    if (selected === undefined) {
-      if (
-        access.state.workspaces.length > 0 &&
-        !signal.aborted &&
-        value === generation
-      )
-        runtime.navigate(workspacePath(access.state.workspaces[0].id), true)
-      return
-    }
-    if (route.kind !== "workspace" || selected.id !== route.workspaceID) {
-      if (!signal.aborted && value === generation)
-        runtime.navigate(workspacePath(selected.id), true)
-      return
-    }
-    await Promise.all([
-      refreshSessions(value, selected.id, signal),
-      refreshProjects(value, selected.id, signal),
-    ])
-    if (isCurrent(value, selected.id, signal))
-      subscribe(value, selected.id, signal)
-  }
-
-  async function refreshSessions(
-    value: number,
-    workspaceID: string,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    try {
-      const response = await fetchDashboardChats(workspaceID, signal)
-      if (!isCurrent(value, workspaceID, signal)) return false
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return false
-      }
-      if (!response.ok) throw new Error("dashboard chats unavailable")
-      const loaded = (await response.json()) as ChatSearchResponse
-      if (!isCurrent(value, workspaceID, signal)) return false
-      sessions = loaded.sessions
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  async function refreshProjects(
-    value: number,
-    workspaceID: string,
-    signal: AbortSignal,
-  ): Promise<boolean> {
-    try {
-      const response = await fetchDashboardProjects(workspaceID, signal)
-      if (!isCurrent(value, workspaceID, signal)) return false
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return false
-      }
-      if (!response.ok) throw new Error("dashboard projects unavailable")
-      const loaded = (await response.json()) as ProjectSearchResponse
-      if (!isCurrent(value, workspaceID, signal)) return false
-      projects = loaded.projects
-      return true
-    } catch {
-      return false
     }
   }
 
@@ -171,7 +82,7 @@
     value: number,
     workspaceID: string,
     routeSignal: AbortSignal,
-  ): void {
+  ) {
     unsubscribe = activity.subscribe(
       [
         {
@@ -179,117 +90,17 @@
           topic: workspaceID,
           events: ["workspace.*", "workspace_grant.*"],
         },
-        {
-          name: "workspace-dashboard-chats",
-          topic: workspaceID,
-          events: ["session.*"],
-        },
-        {
-          name: "workspace-dashboard-projects",
-          topic: workspaceID,
-          events: ["project.*"],
-        },
       ],
-      async ({ names, signal }) => {
+      async ({ signal }) => {
         if (!isCurrent(value, workspaceID, routeSignal) || signal.aborted)
           return
-        const refreshed = await Promise.all([
-          ...(names.has("workspace-dashboard-workspace")
-            ? [runtime.refresh()]
-            : []),
-          ...(names.has("workspace-dashboard-chats")
-            ? [refreshSessions(value, workspaceID, routeSignal)]
-            : []),
-          ...(names.has("workspace-dashboard-projects")
-            ? [refreshProjects(value, workspaceID, routeSignal)]
-            : []),
-        ])
-        if (
-          signal.aborted ||
-          !isCurrent(value, workspaceID, routeSignal) ||
-          refreshed.some((result) => result === false)
-        )
-          throw new Error("dashboard refresh failed")
+        await runtime.refresh()
       },
     )
     void activity.poll()
   }
 
-  async function createNewChat(): Promise<void> {
-    const route = currentRoute
-    if (route.kind !== "workspace") return
-    const value = generation
-    const signal = abortController?.signal
-    if (signal === undefined) return
-    error = ""
-    try {
-      const response = await createChat(route.workspaceID, signal)
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return
-      }
-      if (!response.ok) throw new Error("chat could not be created")
-      const chat = (await response.json()) as Chat
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      sessions = [
-        chat,
-        ...sessions.filter((candidate) => candidate.id !== chat.id),
-      ].slice(0, 5)
-      runtime.navigate(
-        `${chatsPath(route.workspaceID)}/${encodeURIComponent(chat.id)}`,
-      )
-    } catch {
-      if (
-        route.kind === "workspace" &&
-        isCurrent(value, route.workspaceID, signal)
-      )
-        error = "A new chat could not be created. Try again."
-    }
-  }
-
-  async function createNewProject(): Promise<void> {
-    if (creatingProject) return
-    const route = currentRoute
-    if (route.kind !== "workspace") return
-    const value = generation
-    const signal = abortController?.signal
-    if (signal === undefined) return
-    creatingProject = true
-    error = ""
-    try {
-      const response = await createProject(route.workspaceID, signal)
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return
-      }
-      if (!response.ok) throw new Error("project could not be created")
-      const project = (await response.json()) as Project
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      projects = [
-        project,
-        ...projects.filter((candidate) => candidate.id !== project.id),
-      ].slice(0, 5)
-      runtime.navigate(
-        `${projectsPath(route.workspaceID)}/${encodeURIComponent(project.id)}`,
-      )
-    } catch {
-      if (
-        route.kind === "workspace" &&
-        isCurrent(value, route.workspaceID, signal)
-      )
-        error = "A new project could not be created. Try again."
-    } finally {
-      if (
-        route.kind === "workspace" &&
-        isCurrent(value, route.workspaceID, signal)
-      )
-        creatingProject = false
-    }
-  }
-
-  async function logout(): Promise<void> {
+  async function logout() {
     try {
       await signOut()
     } finally {
@@ -300,13 +111,11 @@
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
-    {#snippet children()}
-      <UI.Text as="p">
-        {auth.state.status === "checking"
-          ? "Checking your session."
-          : "Loading your workspaces."}
-      </UI.Text>
-    {/snippet}
+    <UI.Text as="p"
+      >{auth.state.status === "checking"
+        ? "Checking your session."
+        : "Loading your workspaces."}</UI.Text
+    >
   </StatusPage>
 {:else if auth.state.status === "unavailable" || access.state.workspaceStatus === "unavailable"}
   <StatusPage
@@ -314,13 +123,10 @@
     title="Connection unavailable"
     description="Gatehouse could not load your account."
   >
-    {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => void runtime.refresh()}>Try again</UI.Button
-        ></UI.Group
-      >{/snippet}
+    <UI.Group
+      ><UI.Button onclick={() => void runtime.refresh()}>Try again</UI.Button
+      ></UI.Group
+    >
   </StatusPage>
 {:else if auth.state.status !== "authenticated"}
   <LoginPage {auth} onAuthenticated={() => void runtime.refresh()} />
@@ -330,49 +136,38 @@
     title="No workspace access"
     description="Ask an administrator to add you to a workspace group."
   >
-    {#snippet children()}
-      {#if access.state.systemAccess === "available"}<UI.Group
-          ><RouterLink variant="default" href="/app/system">System</RouterLink
-          ></UI.Group
-        >{/if}
-      <UI.Group
-        ><UI.Button
-          variant="outline"
-          type="button"
-          onclick={() => void logout()}>Log out</UI.Button
+    {#if access.state.systemAccess === "available"}<UI.Group
+        ><RouterLink variant="default" href="/app/system">System</RouterLink
         ></UI.Group
-      >
-    {/snippet}
+      >{/if}
+    <UI.Group
+      ><UI.Button variant="outline" onclick={() => void logout()}
+        >Log out</UI.Button
+      ></UI.Group
+    >
   </StatusPage>
 {:else}
-  <SidebarPage.Root
-    ><SidebarPage.Sidebar
+  <SidebarPage.Root>
+    <SidebarPage.Sidebar
       ><UI.Navigation
         {...workspaceNavigation(runtime, workspace, undefined)}
       /></SidebarPage.Sidebar
-    ><SidebarPage.Page
-      ><SidebarPage.Header
-        ><SidebarPage.Toggle />
+    >
+    <SidebarPage.Page>
+      <SidebarPage.Header>
+        <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb"
           ><UI.Breadcrumb.List
             ><UI.Breadcrumb.Item aria-current="page"
               ><UI.Breadcrumb.Page
-                >{workspace.name ?? workspace.id}</UI.Breadcrumb.Page
+                >{workspace.name ?? "Workspace"}</UI.Breadcrumb.Page
               ></UI.Breadcrumb.Item
             ></UI.Breadcrumb.List
           ></UI.Breadcrumb.Root
-        ></SidebarPage.Header
-      ><SidebarPage.Body
-        ><WorkspaceDashboardPage
-          {workspace}
-          {sessions}
-          {projects}
-          {creatingProject}
-          {error}
-          onCreateSession={createNewChat}
-          onCreateProject={createNewProject}
-        /></SidebarPage.Body
-      ></SidebarPage.Page
-    ></SidebarPage.Root
-  >
+        >
+      </SidebarPage.Header>
+      <SidebarPage.Body><WorkspaceDashboardPage {workspace} /></SidebarPage.Body
+      >
+    </SidebarPage.Page>
+  </SidebarPage.Root>
 {/if}

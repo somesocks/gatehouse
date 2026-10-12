@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte"
   import { Input } from "../lib/vendor/shadcn/input"
   import { Search } from "@lucide/svelte"
   import Button from "./Button.svelte"
@@ -8,14 +9,18 @@
     onsearch,
     statuses = false,
     placeholder = "Name, alias, or ID",
+    label = "Search records",
     loading = false,
+    filters,
   }: {
     value?: string
     status?: string
     onsearch: () => void
     statuses?: boolean
     placeholder?: string
+    label?: string
     loading?: boolean
+    filters?: Snippet
   } = $props()
 </script>
 
@@ -34,11 +39,12 @@
     <Input
       class="h-10 bg-background pl-9"
       type="search"
-      aria-label="Search records"
+      aria-label={label}
       {placeholder}
       bind:value
     />
   </div>
+  {#if filters}{@render filters()}{/if}
   <Button type="submit" variant="outline" disabled={loading}>Search</Button>
   {#if statuses}<select
       class="border-input bg-background h-10 rounded-md border px-3 text-sm"

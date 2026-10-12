@@ -70,13 +70,17 @@ func normalizeSessionNote(title, description, body *string) error {
 	return nil
 }
 
-func (store *Store) SessionNotesGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []SessionNoteSummary) {
+func (store *Store) SessionNotesGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []SessionNoteSummary) {
 	if err, available := store.SessionGet(ctx, session, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []SessionNoteSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "notes.id", []string{"notes.title", "notes.description"}, []any{session.Workspace.Id, session.Id}, "notes.created_at DESC, notes.id DESC")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT notes.id, notes.author_principal, principals.name, notes.author_agent, agents.label, notes.author_gateway,
 			notes.title, notes.description, revisions.sensitive, notes.created_at, notes.revision
@@ -85,8 +89,7 @@ func (store *Store) SessionNotesGet(ctx context.Context, session model.SessionRe
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = notes.author_principal
 		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = notes.workspace AND agents.id = notes.author_agent
 		WHERE notes.workspace = `+placeholder(1)+` AND notes.session = `+placeholder(2)+` AND notes.enabled = TRUE
-		ORDER BY notes.created_at DESC, notes.id DESC
-	`, session.Workspace.Id, session.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session notes: %w", err), nil
 	}
@@ -197,9 +200,9 @@ func (store *Store) SessionNoteCreate(ctx context.Context, note model.SessionNot
 		return err, model.SessionNote{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_note.create",
-		ResourceKind: ActivityResourceKindSessionNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_note.create",
+		ResourceKind:        ActivityResourceKindSessionNote,
 		ResourceSessionNote: &note.Ref.Id,
 	}, []string{ActivityTopicSessionNote(note.Ref)}); err != nil {
 		return fmt.Errorf("append session note creation activity: %w", err), model.SessionNote{}
@@ -250,9 +253,9 @@ func (store *Store) SessionNoteDetailsSetAs(ctx context.Context, note model.Sess
 	detail.Note.AuthorPrincipal, detail.Note.AuthorAgent, detail.Note.AuthorGateway = author.Principal, author.Agent, author.Gateway
 	detail.AuthorName, detail.AuthorAgentLabel = nil, nil
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_note.update",
-		ResourceKind: ActivityResourceKindSessionNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_note.update",
+		ResourceKind:        ActivityResourceKindSessionNote,
 		ResourceSessionNote: &note.Id,
 	}, []string{ActivityTopicSessionNote(note)}); err != nil {
 		return fmt.Errorf("append session note update activity: %w", err), nil
@@ -310,9 +313,9 @@ func (store *Store) SessionNoteRemove(ctx context.Context, note model.SessionNot
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "session_note.remove",
-		ResourceKind: ActivityResourceKindSessionNote,
+		Ref:                 model.ActivityEventRef{},
+		Event:               "session_note.remove",
+		ResourceKind:        ActivityResourceKindSessionNote,
 		ResourceSessionNote: &note.Id,
 	}, []string{ActivityTopicSessionNote(note)}); err != nil {
 		return fmt.Errorf("append session note removal activity: %w", err), false
@@ -323,13 +326,17 @@ func (store *Store) SessionNoteRemove(ctx context.Context, note model.SessionNot
 	return nil, true
 }
 
-func (store *Store) SessionNoteRevisionsGet(ctx context.Context, note model.SessionNoteRef, principal model.PrincipalRef) (error, []SessionNoteRevisionSummary) {
+func (store *Store) SessionNoteRevisionsGet(ctx context.Context, note model.SessionNoteRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []SessionNoteRevisionSummary) {
 	if err, current := store.SessionNoteGet(ctx, note, principal); err != nil {
 		return err, nil
 	} else if current == nil {
 		return nil, []SessionNoteRevisionSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "revisions.revision", []string{"revisions.title", "revisions.description"}, []any{note.Session.Workspace.Id, note.Session.Id, note.Id}, "revisions.revision DESC", true)
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT revisions.revision, revisions.author_principal, principals.name, revisions.author_agent, agents.label, revisions.author_gateway,
 			revisions.title, revisions.description, revisions.sensitive, revisions.created_at
@@ -337,8 +344,7 @@ func (store *Store) SessionNoteRevisionsGet(ctx context.Context, note model.Sess
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = revisions.author_principal
 		LEFT JOIN gatehouse_workspace_agents AS agents ON agents.workspace_id = revisions.workspace AND agents.id = revisions.author_agent
 		WHERE revisions.workspace = `+placeholder(1)+` AND revisions.session = `+placeholder(2)+` AND revisions.note = `+placeholder(3)+`
-		ORDER BY revisions.revision DESC
-	`, note.Session.Workspace.Id, note.Session.Id, note.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session note revisions: %w", err), nil
 	}

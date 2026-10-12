@@ -3,7 +3,7 @@
 export function createDirectoryController<T>({
   fetchPage,
   onAuthenticationLost,
-  onSystemAccessChange,
+  onSystemAccessChange = () => {},
 }: {
   fetchPage: (
     name: string,
@@ -12,7 +12,7 @@ export function createDirectoryController<T>({
     signal: AbortSignal,
   ) => Promise<{ response: Response; items?: T[]; next?: string }>
   onAuthenticationLost: () => void
-  onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
+  onSystemAccessChange?: (next: "available" | "denied" | "unavailable") => void
 }) {
   const state = $state({
     items: [] as T[],
@@ -46,6 +46,7 @@ export function createDirectoryController<T>({
         return false
       }
       if (result.response.status === 403) {
+        state.error = "You do not have access to these records."
         onSystemAccessChange("denied")
         return false
       }

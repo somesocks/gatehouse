@@ -139,16 +139,17 @@ func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *s
 	return nil, references
 }
 
-func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRef) (error, []SessionFileSummary) {
+func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRef, pages ...CollectionPage) (error, []SessionFileSummary) {
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "files.id", []string{"files.name", "files.media_type"}, []any{session.Workspace.Id, session.Id}, "files.created_at, files.id")
+	if err != nil { return err, nil }
 	rows, err := store.QueryContext(ctx, `
 		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
 		FROM gatehouse_session_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+`
 			AND files.enabled = TRUE AND objects.state = 'success'
-		ORDER BY files.created_at, files.id
-	`, session.Workspace.Id, session.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session files: %w", err), nil
 	}
@@ -382,21 +383,22 @@ func (store *Store) ProjectFileFinish(ctx context.Context, file model.ProjectFil
 	return nil, stored, object
 }
 
-func (store *Store) ProjectFilesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []ProjectFileSummary) {
+func (store *Store) ProjectFilesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []ProjectFileSummary) {
 	if err, available := store.ProjectGet(ctx, project, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []ProjectFileSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "files.id", []string{"files.name", "files.media_type"}, []any{project.Workspace.Id, project.Id}, "files.created_at DESC, files.id DESC")
+	if err != nil { return err, nil }
 	rows, err := store.QueryContext(ctx, `
 		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
 		FROM gatehouse_project_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 		WHERE files.workspace = `+placeholder(1)+` AND files.project = `+placeholder(2)+`
 			AND files.enabled = TRUE AND objects.state = 'success'
-		ORDER BY files.created_at DESC, files.id DESC
-	`, project.Workspace.Id, project.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project files: %w", err), nil
 	}

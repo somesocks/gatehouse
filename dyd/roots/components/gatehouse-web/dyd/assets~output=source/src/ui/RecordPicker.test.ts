@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest"
 import RecordPicker from "./RecordPicker.svelte"
 
 describe("reference field", () => {
-  it("renders a read-only modal trigger rather than an inline search form", () => {
+  it("renders an input-styled dialog button with a separate clear action", () => {
     const onsearch = vi.fn()
     const { body } = render(RecordPicker, {
       props: {
@@ -17,11 +17,37 @@ describe("reference field", () => {
       },
     })
     expect(body).toContain('aria-haspopup="dialog"')
-    expect(body).toContain('role="combobox"')
-    expect(body).toContain("readonly")
-    expect(body).toContain('value="Production model"')
-    expect(body).toContain("Choose model")
-    expect(body).not.toContain('type="search"')
+    expect(body).toMatch(
+      /<button\b[^>]*type="button"[^>]*aria-labelledby="[^"]+"[^>]*aria-haspopup="dialog"/,
+    )
+    expect(body).toContain('aria-expanded="false"')
+    expect(body).toContain("Production model")
+    expect(body).toContain("amd_selected")
+    expect(body).toContain('aria-label="Clear model selection"')
+    const buttons = [...body.matchAll(/<button\b[^>]*>(.*?)<\/button>/gs)]
+    expect(buttons).toHaveLength(2)
+    expect(buttons[0][1]).not.toMatch(/<button\b/)
+    expect(body).not.toMatch(/<input\b/)
+    expect(body).not.toContain('role="combobox"')
     expect(onsearch).not.toHaveBeenCalled()
+  })
+  it("uses friendly workspace labels without exposing a selected ID, including before hydration", () => {
+    const props = {
+      label: "Project",
+      value: "prj_internal",
+      showIdentifiers: false,
+      items: [],
+      onsearch: vi.fn(),
+      onprevious: vi.fn(),
+      onnext: vi.fn(),
+    }
+    const named = render(RecordPicker, {
+      props: { ...props, selectedLabel: "Roadmap" },
+    }).body
+    expect(named).toContain("Roadmap")
+    expect(named).not.toContain("prj_internal")
+    const unresolved = render(RecordPicker, { props }).body
+    expect(unresolved).toContain("Selected project")
+    expect(unresolved).not.toContain("prj_internal")
   })
 })

@@ -14,6 +14,8 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { userAuthorLabel } from "../../app/user-labels"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { fetchChatSession } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
   import {
@@ -55,6 +57,19 @@
   > & { revision: number; body?: string }
 
   const runtime = useRuntime()
+  const page = createCollectionPage()
+  const historyPage = createCollectionPage()
+  const reloadHistory = async () => {
+    await openHistory(false)
+    return historyError === ""
+  }
+  const reloadNotes = () =>
+    loadNotes(
+      generation,
+      currentRoute.workspaceID,
+      currentRoute.sessionID,
+      abortController!.signal,
+    )
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   let sessionStatus = $state<Status>("checking")
@@ -74,6 +89,7 @@
   let historyModal = $state<UI.DialogHandle | undefined>()
   let history = $state<Revision[]>([])
   let historyLoading = $state(false)
+  let historyRequest: AbortController | undefined
   let historyError = $state("")
   let selectedRevision = $state<Revision | null>(null)
   let generation = 0
@@ -117,13 +133,7 @@
     const number = (part: number) => part.toString().padStart(2, "0")
     return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}`
   }
-  const authorLabel = (author: SessionNote["author"]) =>
-    author.principal?.name ??
-    author.principal?.id ??
-    author.agent?.label ??
-    author.agent?.id ??
-    author.gateway ??
-    "Unknown"
+  const authorLabel = userAuthorLabel
   const sortNotes = (loaded: SessionNote[]) =>
     [...loaded].sort((left, right) => {
       const difference =
@@ -150,6 +160,7 @@
   })
 
   function activate(route: NotesRoute): () => void {
+    page.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -265,17 +276,9 @@
     showLoading = true,
   ): Promise<boolean> {
     const { workspaceID, sessionID } = route
-    const listed = await loadNotes(
-      value,
-      workspaceID,
-      sessionID,
-      signal,
-      showLoading,
-    )
-    if (!listed || !isCurrent(value, workspaceID, sessionID, signal))
-      return false
-    if (route.kind === "session-notes" || route.kind === "session-note-new")
-      return true
+    if (route.kind === "session-notes")
+      return loadNotes(value, workspaceID, sessionID, signal, showLoading)
+    if (route.kind === "session-note-new") return true
     const loaded = await loadDetail(
       route.noteID,
       value,
@@ -347,7 +350,13 @@
     if (showLoading && isCurrent(value, workspaceID, sessionID, signal))
       notesStatus = "checking"
     try {
-      const response = await fetchSessionNotes(workspaceID, sessionID, signal)
+      const requested = page.key()
+      const response = await fetchSessionNotes(
+        workspaceID,
+        sessionID,
+        signal,
+        page.params(),
+      )
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
       if (response.status === 401) {
         runtime.requireLogin()
@@ -356,7 +365,9 @@
       if (!response.ok) throw new Error("notes unavailable")
       const loaded = (await response.json()) as SessionNote[]
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
-      notes = sortNotes(loaded)
+      if (requested !== page.key()) return false
+      page.accept(response)
+      notes = loaded
       notesStatus = "ready"
       return true
     } catch {
@@ -569,14 +580,18 @@
     }
   }
 
-  async function openHistory(): Promise<void> {
+  async function openHistory(reset = true): Promise<void> {
     if (active === null) return
+    if (reset) historyPage.reset()
     const route = currentRoute
     const note = active
     const value = generation
     const signal = abortController?.signal
     if (signal === undefined) return
     const valueForHistory = ++historyGeneration
+    historyRequest?.abort()
+    const request = new AbortController()
+    historyRequest = request
     history = []
     historyError = ""
     historyLoading = true
@@ -586,7 +601,8 @@
         route.workspaceID,
         route.sessionID,
         note.id,
-        signal,
+        AbortSignal.any([signal, request.signal]),
+        historyPage.params(),
       )
       if (
         !isCurrent(value, route.workspaceID, route.sessionID, signal) ||
@@ -606,6 +622,7 @@
         valueForHistory !== historyGeneration
       )
         return
+      historyPage.accept(response)
       history = [...loaded].sort(
         (left, right) => right.revision - left.revision,
       )
@@ -637,6 +654,9 @@
   }
 
   function closeHistory(): void {
+    historyRequest?.abort()
+    historyLoading = false
+    historyPage.reset()
     historyGeneration += 1
     historyError = ""
   }
@@ -705,7 +725,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             {#if session !== null}
@@ -786,57 +806,65 @@
                   void loadRoute(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
-          {:else if editing}<UI.Form
+          {:else if editing}<UI.AdminHeader
+              title={creating ? "New note" : `Edit ${active?.title ?? "note"}`}
+              description="Update the summary, content, and sensitivity."
+            /><UI.Form
+              surface
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
-              <PageHeading>
-                <UI.Text as="p" size="eyebrow">Session Note</UI.Text>
-                <UI.Heading level={2}
-                  >{creating ? "New Note" : "Edit Note"}</UI.Heading
-                >
-              </PageHeading>
-              <UI.Field>
-                <UI.Label for="session-note-title">Title</UI.Label>
-                <UI.Input
-                  id="session-note-title"
-                  autocomplete="off"
-                  maxlength={256}
-                  required
-                  bind:value={title}
-                />
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="session-note-description"
-                  >Description (optional)</UI.Label
-                >
-                <UI.Textarea
-                  id="session-note-description"
-                  autocomplete="off"
-                  rows={3}
-                  maxlength={4096}
-                  bind:value={description}
-                ></UI.Textarea>
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="session-note-body">Content (optional)</UI.Label>
-                <UI.Textarea
-                  id="session-note-body"
-                  autocomplete="off"
-                  rows={18}
-                  maxlength={1048576}
-                  bind:value={body}
-                ></UI.Textarea>
-              </UI.Field>
-              <UI.Field>
-                <UI.Label layout="choice"
-                  ><UI.Checkbox bind:checked={sensitive} /> Sensitive: content is
-                  marked sensitive when agents read it.</UI.Label
-                >
-              </UI.Field>
-              {#if error !== ""}<UI.Text
+              <UI.FormSection
+                title="Summary"
+                description="A title and short description identify this note."
+                ><UI.Field>
+                  <UI.Label for="session-note-title">Title</UI.Label>
+                  <UI.Input
+                    id="session-note-title"
+                    autocomplete="off"
+                    maxlength={256}
+                    required
+                    bind:value={title}
+                  />
+                </UI.Field>
+                <UI.Field>
+                  <UI.Label for="session-note-description"
+                    >Description (optional)</UI.Label
+                  >
+                  <UI.Textarea
+                    id="session-note-description"
+                    autocomplete="off"
+                    rows={3}
+                    maxlength={4096}
+                    bind:value={description}
+                  ></UI.Textarea>
+                </UI.Field>
+              </UI.FormSection><UI.FormSection
+                title="Content"
+                description="Write the note using Markdown."
+                ><UI.Field>
+                  <UI.Label for="session-note-body">Content (optional)</UI.Label
+                  >
+                  <UI.Textarea
+                    id="session-note-body"
+                    autocomplete="off"
+                    rows={18}
+                    maxlength={1048576}
+                    bind:value={body}
+                  ></UI.Textarea>
+                </UI.Field>
+              </UI.FormSection><UI.FormSection
+                title="Sensitivity"
+                description="Control how agents handle the note content."
+                ><UI.Field>
+                  <UI.Label layout="choice"
+                    ><UI.Checkbox bind:checked={sensitive} /> Sensitive: content
+                    is marked sensitive when agents read it.</UI.Label
+                  >
+                </UI.Field>
+              </UI.FormSection>{#if error !== ""}<UI.Text
                   as="p"
                   size="small"
                   role="alert"
@@ -844,7 +872,7 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.Row>
+              <UI.FormActions>
                 <UI.Button
                   variant="outline"
                   type="button"
@@ -853,7 +881,7 @@
                 ><UI.Button variant="default" type="submit" disabled={saving}
                   >{saving ? "Saving..." : "Save note"}</UI.Button
                 >
-              </UI.Row>
+              </UI.FormActions>
             </UI.Form>
           {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "checking"}<UI.Text
               as="p"
@@ -918,27 +946,26 @@
                   >{deleting ? "Removing..." : "Remove"}</UI.Button
                 >{/if}{/snippet}
             <UI.Stack as="article">
-              <PageHeading as="header" actions={noteActions}>
-                <UI.Text as="p" size="eyebrow">
-                  {selectedRevision === null
-                    ? "Session Note"
-                    : `Session Note Revision ${selectedRevision.revision}`}
-                </UI.Text>
-                <UI.Heading level={2}>
-                  <UI.Text
-                    >{displayed.title}{#if displayed.sensitive}<UI.Badge
-                        >Sensitive</UI.Badge
-                      >{/if}</UI.Text
-                  >
-                </UI.Heading>
-                {#if displayed.description !== ""}<UI.Text as="p">
-                    {displayed.description}
-                  </UI.Text>{/if}<UI.Text as="small" size="small"
-                  >By {authorLabel(displayed.author)} on {dateLabel(
-                    displayed.created_at,
-                  )}</UI.Text
+              <UI.AdminHeader
+                kind={selectedRevision === null
+                  ? "Chat note"
+                  : `Historical revision ${selectedRevision.revision}`}
+                title={displayed.title}
+                description={displayed.description}
+                actions={noteActions}
+              />
+              <UI.DetailSection title="Note information">
+                <UI.Property label="Author"
+                  >{authorLabel(displayed.author)}</UI.Property
                 >
-              </PageHeading>
+                <UI.Property label="Date"
+                  >{dateLabel(displayed.created_at)}</UI.Property
+                >
+                <UI.Property label="Revision">{displayed.revision}</UI.Property>
+                <UI.Property label="Sensitivity"
+                  >{displayed.sensitive ? "Sensitive" : "Standard"}</UI.Property
+                >
+              </UI.DetailSection>
               {#if displayed.body !== undefined && displayed.body !== ""}<UI.RichText
                   html={renderMarkdown(displayed.body)}
                 ></UI.RichText>{/if}{#if error !== ""}<UI.Text
@@ -959,58 +986,71 @@
                     `${listPath(workspace.id, currentRoute.sessionID)}/new`,
                   )}>New note</UI.Button
               >{/snippet}
-            <PageHeading actions={collectionActions}>
-              <UI.Heading level={2}>Session Notes</UI.Heading>
-            </PageHeading>
-            <UI.List>
-              {#if notesStatus === "checking"}<UI.Text as="p" tone="muted">
-                  Loading notes...
-                </UI.Text>{:else if notesStatus === "unavailable"}<UI.Text
-                  as="p"
-                  tone="muted"
-                >
-                  Notes could not be loaded.
-                </UI.Text>
-                <UI.Button
-                  variant="default"
-                  size="sm"
-                  type="button"
-                  onclick={() => {
-                    const signal = abortController?.signal
-                    if (signal !== undefined)
-                      void loadNotes(
-                        generation,
-                        currentRoute.workspaceID,
-                        currentRoute.sessionID,
-                        signal,
-                      )
-                  }}>Try again</UI.Button
-                >{:else}{#each notes as note (note.id)}<RouterLink
-                    variant="item"
-                    href={detailPath(
-                      workspace.id,
-                      currentRoute.sessionID,
-                      note.id,
-                    )}
-                    ><UI.Stack as="span"
-                      ><UI.Text
-                        >{note.title}{#if note.sensitive}<UI.Badge
-                            >Sensitive</UI.Badge
-                          >{/if}</UI.Text
-                      >{#if note.description !== ""}<UI.Text tone="muted"
-                          >{note.description}</UI.Text
-                        >{/if}<UI.Row tone="muted" as="small"
-                        ><UI.Text>{authorLabel(note.author)}</UI.Text><UI.Text
-                          as="time"
-                          datetime={note.created_at}
-                          >{dateLabel(note.created_at)}</UI.Text
-                        ></UI.Row
-                      ></UI.Stack
-                    ></RouterLink
-                  >{:else}<UI.Text as="p" tone="muted">
-                    No notes yet.
-                  </UI.Text>{/each}{/if}
-            </UI.List>{/if}
+            <UI.AdminHeader
+              title="Notes"
+              description="Documents associated with this chat."
+              actions={collectionActions}
+            />
+            <UI.SearchToolbar
+              label="Search notes"
+              placeholder="Title or description"
+              bind:value={page.state.search}
+              loading={page.state.busy || notesStatus === "checking"}
+              onsearch={() => void page.search(reloadNotes)}
+            />
+            <UI.RecordTable
+              headers={["Title", "Sensitivity", "Author", "Date"]}
+            >
+              {#if notesStatus !== "ready"}<UI.TableEmpty
+                  columns={4}
+                  message={notesStatus === "checking"
+                    ? "Loading notes…"
+                    : "Notes could not be loaded."}
+                />
+              {:else}{#each notes as note (note.id)}<UI.RecordRow>
+                    <UI.RecordCell primary
+                      ><RouterLink
+                        href={detailPath(
+                          workspace.id,
+                          currentRoute.sessionID,
+                          note.id,
+                        )}>{note.title}</RouterLink
+                      ><UI.Text size="small" tone="muted"
+                        >{note.description}</UI.Text
+                      ></UI.RecordCell
+                    >
+                    <UI.RecordCell
+                      >{note.sensitive
+                        ? "Sensitive"
+                        : "Standard"}</UI.RecordCell
+                    >
+                    <UI.RecordCell>{authorLabel(note.author)}</UI.RecordCell>
+                    <UI.RecordCell>{dateLabel(note.created_at)}</UI.RecordCell>
+                  </UI.RecordRow>{:else}<UI.TableEmpty
+                    columns={4}
+                    message="No notes yet."
+                  />{/each}{/if}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="notes"
+              count={notes.length}
+              previous={page.state.history.length > 0}
+              next={!!page.state.next}
+              loading={page.state.busy || notesStatus === "checking"}
+              onprevious={() => void page.previous(reloadNotes)}
+              onnext={() => void page.next(reloadNotes)}
+            />
+            {#if notesStatus === "unavailable"}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadNotes(
+                    generation,
+                    currentRoute.workspaceID,
+                    currentRoute.sessionID,
+                    abortController!.signal,
+                  )}>Try again</UI.Button
+              >{/if}
+          {/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>
@@ -1042,31 +1082,44 @@
         >
           {historyError}
         </UI.Text>{/if}
-      <UI.List>
-        {#each history as revision (revision.revision)}<UI.Item
-            interactive
-            selected={Boolean(
-              selectedRevision?.revision === revision.revision || undefined,
-            )}
-            type="button"
-            onclick={() => selectRevision(revision.revision)}
-            ><UI.Stack as="span"
-              ><UI.Text
-                >Revision {revision.revision}: {revision.title}{#if revision.sensitive}<UI.Badge
-                    >Sensitive</UI.Badge
-                  >{/if}</UI.Text
-              >{#if revision.description !== ""}<UI.Text tone="muted"
-                  >{revision.description}</UI.Text
-                >{/if}<UI.Row tone="muted" as="small"
-                ><UI.Text>{authorLabel(revision.author)}</UI.Text><UI.Text
-                  as="time"
-                  datetime={revision.created_at}
-                  >{dateLabel(revision.created_at)}</UI.Text
-                ></UI.Row
-              ></UI.Stack
-            ></UI.Item
-          >{:else}<UI.Text as="p" tone="muted">No revisions found.</UI.Text
-          >{/each}
-      </UI.List>{/if}
+      <UI.SearchToolbar
+        label="Search revisions"
+        placeholder="Title or revision"
+        bind:value={historyPage.state.search}
+        loading={historyLoading || historyPage.state.busy}
+        onsearch={() => void historyPage.search(reloadHistory)}
+      />
+      <UI.RecordTable headers={["Revision", "Title", "Author", "Date"]}>
+        {#each history as revision (revision.revision)}<UI.RecordRow>
+            <UI.RecordCell primary
+              ><UI.Button
+                variant="link"
+                onclick={() => selectRevision(revision.revision)}
+                >Revision {revision.revision}</UI.Button
+              >{#if revision.revision === active?.revision}<UI.Badge
+                  >Current</UI.Badge
+                >{/if}</UI.RecordCell
+            >
+            <UI.RecordCell
+              >{revision.title}{#if revision.sensitive}<UI.Badge
+                  >Sensitive</UI.Badge
+                >{/if}</UI.RecordCell
+            >
+            <UI.RecordCell>{authorLabel(revision.author)}</UI.RecordCell>
+            <UI.RecordCell>{dateLabel(revision.created_at)}</UI.RecordCell>
+          </UI.RecordRow>{:else}<UI.TableEmpty
+            columns={4}
+            message="No matching revisions."
+          />{/each}
+      </UI.RecordTable>
+      <UI.PaginationFooter
+        noun="revisions"
+        count={history.length}
+        previous={historyPage.state.history.length > 0}
+        next={!!historyPage.state.next}
+        loading={historyLoading || historyPage.state.busy}
+        onprevious={() => void historyPage.previous(reloadHistory)}
+        onnext={() => void historyPage.next(reloadHistory)}
+      />{/if}
   </Modal>
 {/if}

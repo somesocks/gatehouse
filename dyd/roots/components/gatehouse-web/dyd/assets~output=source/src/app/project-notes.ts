@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type NoteAuthor = {
   principal?: { id: string; name?: string }
   agent?: { id: string; label?: string }
@@ -33,11 +35,15 @@ export async function fetchProjectNotes(
   workspaceID: string,
   projectID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(projectNotesAPIPath(workspaceID, projectID), {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(projectNotesAPIPath(workspaceID, projectID), query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchProjectNote(
@@ -57,9 +63,13 @@ export async function fetchProjectNoteRevisions(
   projectID: string,
   noteID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
   return await fetch(
-    `${projectNotesAPIPath(workspaceID, projectID)}/${encodeURIComponent(noteID)}/revisions`,
+    collectionQueryPath(
+      `${projectNotesAPIPath(workspaceID, projectID)}/${encodeURIComponent(noteID)}/revisions`,
+      query,
+    ),
     { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
   )
 }

@@ -51,7 +51,7 @@ export function workspaceNavigation(
 ): NavigationOptions {
   const base = `/app/wsp/${encodeURIComponent(workspace.id)}`;
   return {
-    title: workspace.name ?? workspace.id,
+    title: workspace.name ?? "Workspace",
     workspaceSwitcher: workspaceSwitcher(
       runtime,
       workspace.id,

@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type ProjectFile = {
   id: string
   name: string
@@ -15,11 +17,24 @@ export async function fetchProjectFiles(
   workspaceID: string,
   projectID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(path(workspaceID, projectID), {
+  return await fetch(collectionQueryPath(path(workspaceID, projectID), query), {
     credentials: "same-origin",
     signal,
   })
+}
+
+export async function fetchProjectFile(
+  workspaceID: string,
+  projectID: string,
+  fileID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch(
+    `${path(workspaceID, projectID)}/${encodeURIComponent(fileID)}`,
+    { credentials: "same-origin", signal },
+  )
 }
 
 export async function startProjectFileUpload(

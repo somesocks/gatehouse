@@ -35,6 +35,7 @@
   import WorkspaceStorageBindingNewRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingNewRoute.svelte"
   import WorkspaceStorageBindingEditRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingEditRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
+  import ProjectFormRoute from "./pages/projects/ProjectFormRoute.svelte"
   import ProjectFilesRoute from "./pages/project-files/ProjectFilesRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import TasksRoute from "./pages/tasks/TasksRoute.svelte"
@@ -72,6 +73,8 @@
 
 {#if owner === "project-dashboard"}
   <ProjectDashboardRoute />
+{:else if owner === "project-form"}
+  <ProjectFormRoute />
 {:else if owner === "project-notes"}
   <ProjectNotesRoute />
 {:else if owner === "project-files"}

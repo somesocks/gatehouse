@@ -1,4 +1,5 @@
 import type { TaskAuthor, TaskStatus } from "./project-tasks"
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
 
 export type SessionTask = {
   id: string
@@ -30,11 +31,15 @@ export async function fetchSessionTasks(
   workspaceID: string,
   sessionID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(sessionTasksAPIPath(workspaceID, sessionID), {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(sessionTasksAPIPath(workspaceID, sessionID), query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchSessionTask(

@@ -14,6 +14,7 @@
       | "default"
       | "outline"
       | "secondary"
+      | "ghost"
       | "item"
       | "entry"
       | "card"
@@ -22,7 +23,7 @@
   } = $props()
 </script>
 
-{#if variant === "default" || variant === "outline" || variant === "secondary"}
+{#if variant === "default" || variant === "outline" || variant === "secondary" || variant === "ghost"}
   <a class={buttonVariants({ variant, size })} {...rest}
     >{@render children?.()}</a
   >

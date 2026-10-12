@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../ui"
+  import { formatFileSize } from "../utils/file-size"
   import { onMount, untrack } from "svelte"
   import { InputControl } from "../ui"
   import SelectedFiles from "./SelectedFiles.svelte"
@@ -101,11 +102,11 @@
 
 <UI.Theme />
 <UI.ToolPage>
-  <UI.Stack as="header"
-    ><UI.Text as="p" size="eyebrow">Session file picker</UI.Text><UI.Heading
-      level={1}>{picker?.state.label ?? "Select session files"}</UI.Heading
-    ></UI.Stack
-  >
+  <UI.AdminHeader
+    kind="File selection"
+    title={picker?.state.label ?? "Select session files"}
+    description="Choose files for the shared form. Save the selection, then return to chat."
+  />
   {#if picker === null}
     <UI.Text as="p" role="alert"
       >The tool link is invalid. Reopen it from the input form.</UI.Text
@@ -156,21 +157,6 @@
         {#if picker.state.saved}<UI.Text as="p" role="status"
             >Selection saved. Return to the form in chat to submit it.</UI.Text
           >{/if}
-        <UI.Row justify="end">
-          <UI.Button
-            variant="outline"
-            type="button"
-            disabled={picker.state.busy}
-            onclick={cancel}>Cancel</UI.Button
-          >
-          <UI.Button
-            variant="default"
-            type="button"
-            disabled={picker.state.busy}
-            onclick={() => void saveAndClose()}
-            >{picker.state.busy ? "Working…" : "Save"}</UI.Button
-          >
-        </UI.Row>
       </UI.Stack>
 
       {#if picker.state.capabilities.includes("session.file.list")}
@@ -178,9 +164,12 @@
           <UI.Heading level={2} id="available-files-heading"
             >Available files</UI.Heading
           >
-          <UI.Form
-            onsubmit={(event) => {
-              event.preventDefault()
+          <UI.SearchToolbar
+            label="Find files by name"
+            placeholder="File name"
+            bind:value={picker.state.filterName}
+            loading={picker.state.busy || picker.state.pageLoading}
+            onsearch={() => {
               navigate({
                 name: picker.state.filterName.trim(),
                 mediaType: picker.state.filterMediaType.trim(),
@@ -190,48 +179,33 @@
               })
             }}
           >
-            <UI.Field>
-              <UI.Label for="search">Find files by name</UI.Label>
-              <InputControl
-                ><UI.Input
-                  id="search"
-                  type="search"
-                  bind:value={picker.state.filterName}
-                  disabled={picker.state.busy}
-                /></InputControl
-              >
-            </UI.Field>
-            <UI.Field>
-              <UI.Label for="media-type">Media type</UI.Label>
-              <InputControl
-                ><UI.Input
-                  id="media-type"
-                  type="text"
-                  placeholder="Any type, or image/*"
-                  bind:value={picker.state.filterMediaType}
-                  disabled={picker.state.busy}
-                /></InputControl
-              >
-            </UI.Field>
-            <UI.Row>
-              <UI.Button
-                variant="outline"
-                type="submit"
-                disabled={picker.state.busy || picker.state.pageLoading}
-                >Apply filters</UI.Button
-              >
-              <UI.Button
-                variant="outline"
-                type="button"
-                disabled={picker.state.busy || picker.state.pageLoading}
-                onclick={() =>
-                  navigate({
-                    ...fileBrowseFromSearch(""),
-                    limit: picker.state.browse.limit,
-                  })}>Clear filters</UI.Button
-              >
-            </UI.Row>
-          </UI.Form>
+            {#snippet filters()}
+              <UI.Field>
+                <UI.Label hidden for="media-type">Media type</UI.Label>
+                <InputControl
+                  ><UI.Input
+                    id="media-type"
+                    type="text"
+                    placeholder="Media type, e.g. image/*"
+                    bind:value={picker.state.filterMediaType}
+                    disabled={picker.state.busy}
+                  /></InputControl
+                >
+              </UI.Field>
+              <UI.Row>
+                <UI.Button
+                  variant="outline"
+                  type="button"
+                  disabled={picker.state.busy || picker.state.pageLoading}
+                  onclick={() =>
+                    navigate({
+                      ...fileBrowseFromSearch(""),
+                      limit: picker.state.browse.limit,
+                    })}>Clear filters</UI.Button
+                >
+              </UI.Row>
+            {/snippet}
+          </UI.SearchToolbar>
           {#if picker.state.pageLoading}<UI.Text as="p" role="status"
               >Loading files…</UI.Text
             >{/if}
@@ -240,54 +214,41 @@
             aria-busy={picker.state.pageLoading}
           >
             <UI.FieldLegend hidden>Available session files</UI.FieldLegend>
-            <UI.List scroll>
-              {#each picker.state.files as file (file.id)}
-                <UI.Item
-                  interactive
-                  selected={Boolean(
-                    picker.state.selected.some(
-                      (entry) => entry.id === file.id,
-                    ) || undefined,
-                  )}
-                  type="button"
-                  aria-pressed={picker.state.selected.some(
-                    (entry) => entry.id === file.id,
-                  )}
-                  onclick={() => picker.select(file)}
-                >
-                  <UI.Text>{file.name}</UI.Text>
-                  <UI.Text as="small" size="small"
-                    >{file.size} bytes{file.media_type
-                      ? ` · ${file.media_type}`
-                      : ""}</UI.Text
+            <UI.RecordTable
+              headers={["Name", "Size", "Media type", "Selection"]}
+            >
+              {#each picker.state.files as file (file.id)}<UI.RecordRow>
+                  <UI.RecordCell primary>{file.name}</UI.RecordCell>
+                  <UI.RecordCell>{formatFileSize(file.size)}</UI.RecordCell>
+                  <UI.RecordCell>{file.media_type ?? "Unknown"}</UI.RecordCell>
+                  <UI.RecordCell actions
+                    ><UI.Checkbox
+                      aria-label={`Select ${file.name}`}
+                      checked={picker.state.selected.some(
+                        (entry) => entry.id === file.id,
+                      )}
+                      disabled={picker.state.busy || picker.state.pageLoading}
+                      onCheckedChange={() => picker.select(file)}
+                    /></UI.RecordCell
                   >
-                </UI.Item>
-              {:else}{#if !picker.state.pageLoading}<UI.Text as="p"
-                    >No matching files on this page.</UI.Text
-                  >{/if}{/each}
-            </UI.List>
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={4}
+                  message={picker.state.pageLoading
+                    ? "Loading files…"
+                    : "No matching files on this page."}
+                />{/each}
+            </UI.RecordTable>
           </UI.FieldSet>
-          <UI.Row justify="end" as="nav" aria-label="File pages">
-            <UI.Button
-              variant="outline"
-              type="button"
-              disabled={!picker.state.previousCursor ||
-                picker.state.pageLoading ||
-                picker.state.busy}
-              onclick={() =>
-                navigate(pageLink(picker.state.previousCursor, "previous"))}
-              >Previous</UI.Button
-            >
-            <UI.Button
-              variant="outline"
-              type="button"
-              disabled={!picker.state.nextCursor ||
-                picker.state.pageLoading ||
-                picker.state.busy}
-              onclick={() => navigate(pageLink(picker.state.nextCursor))}
-              >Next</UI.Button
-            >
-          </UI.Row>
+          <UI.PaginationFooter
+            noun="files"
+            count={picker.state.files.length}
+            previous={!!picker.state.previousCursor}
+            next={!!picker.state.nextCursor}
+            loading={picker.state.pageLoading || picker.state.busy}
+            onprevious={() =>
+              navigate(pageLink(picker.state.previousCursor!, "previous"))}
+            onnext={() => navigate(pageLink(picker.state.nextCursor!))}
+          />
         </UI.Stack>
       {/if}
       {#if picker.state.capabilities.includes("session.file.upload")}
@@ -312,6 +273,17 @@
           </UI.Field>
         </UI.Stack>
       {/if}
+      <UI.FormActions
+        ><UI.Button
+          variant="outline"
+          disabled={picker.state.busy}
+          onclick={cancel}>Cancel</UI.Button
+        ><UI.Button
+          disabled={picker.state.busy}
+          onclick={() => void saveAndClose()}
+          >{picker.state.busy ? "Working…" : "Save selection"}</UI.Button
+        ></UI.FormActions
+      >
     </UI.Panel>
   {/if}
 </UI.ToolPage>

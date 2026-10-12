@@ -206,10 +206,11 @@
 {/snippet}
 
 {#if field.type === "object"}
-  <UI.Field>
-    <UI.Heading level={Math.min(depth + 1, 6)}
-      >{@render fieldTitle()}</UI.Heading
-    >
+  <UI.FormSection
+    compact
+    level={Math.min(depth + 1, 6)}
+    title={`${label}${field.optional ? " (optional)" : " (required)"}`}
+  >
     <UI.Field>
       {#if field.optional && value === undefined}
         <UI.Row>
@@ -258,15 +259,17 @@
         {/each}
       {/if}
     </UI.Field>
-  </UI.Field>
+  </UI.FormSection>
 {:else if field.type === "list"}
-  <UI.FieldSet>
-    <UI.FieldLegend
-      >{@render fieldTitle()}{#if saving}
-        <UI.Spinner role="status"
-          ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
-        >{/if}</UI.FieldLegend
-    >
+  <UI.FormSection
+    compact
+    level={Math.min(depth + 1, 6)}
+    title={`${label}${field.optional ? " (optional)" : " (required)"}`}
+  >
+    {#if saving}
+      <UI.Spinner role="status"
+        ><UI.Text hidden>Saving {label}</UI.Text></UI.Spinner
+      >{/if}
     {#if field.optional && value === undefined}
       <UI.Button
         variant="outline"
@@ -277,7 +280,7 @@
       >
     {:else}
       {#each entries as entry, index (index)}
-        <UI.Stack indent>
+        <UI.Panel>
           {#if field.item !== undefined}
             <FormField
               field={field.item}
@@ -304,10 +307,10 @@
                 entries.filter((_, position) => position !== index),
               )}>Remove entry {index + 1}</UI.Button
           >
-        </UI.Stack>
+        </UI.Panel>
       {/each}
       {#if addingEntry && field.item !== undefined}
-        <UI.Stack indent>
+        <UI.Panel>
           <FormField
             field={field.item}
             {path}
@@ -333,7 +336,7 @@
             type="button"
             onclick={() => (addingEntry = false)}>Discard new entry</UI.Button
           >
-        </UI.Stack>
+        </UI.Panel>
       {/if}
       <UI.Row>
         <UI.Button
@@ -362,7 +365,7 @@
           >{/if}
       </UI.Row>
     {/if}
-  </UI.FieldSet>
+  </UI.FormSection>
 {:else}
   <UI.Field>
     {#if field.type === "custom"}

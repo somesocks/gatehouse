@@ -154,8 +154,12 @@ func (store *Store) WorkspaceRefGetByAlias(ctx context.Context, alias string) (e
 	return nil, &workspace
 }
 
-func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Group) {
+func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []model.Group) {
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "groups.id", []string{"groups.name", "groups.alias"}, []any{workspace.Id, principal.Id}, "groups.id")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT groups.workspace_id, groups.id, groups.alias, groups.name, groups.enabled
 		FROM gatehouse_groups AS groups
@@ -172,8 +176,7 @@ func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.Work
 				FROM gatehouse_workspaces AS workspaces
 				WHERE workspaces.id = groups.workspace_id AND workspaces.enabled = TRUE
 			)
-		ORDER BY groups.id
-	`, workspace.Id, principal.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get workspace groups: %w", err), nil
 	}

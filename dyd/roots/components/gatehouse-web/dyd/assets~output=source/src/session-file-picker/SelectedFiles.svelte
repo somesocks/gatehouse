@@ -29,7 +29,7 @@
           >{file.unavailable
             ? "Unavailable"
             : file.size === undefined
-              ? file.id
+              ? "Size unavailable"
               : `${file.size} bytes${file.media_type ? ` · ${file.media_type}` : ""}`}</UI.Text
         ></UI.Row
       >

@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Search, PageBody, PageHeading, RouterLink } from "../../ui"
+  import { RouterLink } from "../../ui"
   import * as UI from "../../ui"
+  import ProjectPicker from "../projects/ProjectPicker.svelte"
   import { untrack } from "svelte"
   import type { Workspace } from "../../app/access"
   import { createChatCollectionController } from "./chat-collection-controller.svelte"
@@ -8,6 +9,7 @@
   let {
     workspace,
     search,
+    projectID = "",
     signal,
     onAuthenticationLost,
     onCreate,
@@ -15,6 +17,7 @@
   }: {
     workspace: Workspace
     search: string
+    projectID?: string
     signal: AbortSignal
     onAuthenticationLost: () => void
     onCreate: () => void | Promise<void>
@@ -27,7 +30,11 @@
   $effect(() => {
     const workspaceID = workspace.id
     const routeSearch = search
-    return untrack(() => controller.start(workspaceID, routeSearch, signal))
+    const routeProject = projectID
+    const routeSignal = signal
+    return untrack(() =>
+      controller.start(workspaceID, routeSearch, routeSignal, routeProject),
+    )
   })
 
   function sessionsPath() {
@@ -40,9 +47,11 @@
 
   function searchPath() {
     const query = controller.state.search.trim()
-    return query === ""
-      ? sessionsPath()
-      : `${sessionsPath()}?${new URLSearchParams({ name: query })}`
+    const params = new URLSearchParams()
+    if (query) params.set("name", query)
+    if (controller.state.projectID)
+      params.set("project", controller.state.projectID)
+    return params.size ? `${sessionsPath()}?${params}` : sessionsPath()
   }
 
   function createdAtLabel(value: string) {
@@ -61,62 +70,63 @@
     type="button"
     onclick={() => void onCreate()}>New chat</UI.Button
   >{/snippet}
-<PageBody fluid>
-  <PageHeading actions={chatActions}>
-    <UI.Heading level={1}>Chats</UI.Heading>
-  </PageHeading>
-  <UI.Form
-    layout="search"
-    onsubmit={(event) => {
-      event.preventDefault()
-      onNavigate(searchPath())
-    }}
+<UI.AdminContent>
+  <UI.AdminHeader
+    title="Chats"
+    description="Conversations in this workspace."
+    actions={chatActions}
+  />
+  <UI.SearchToolbar
+    label="Search chats"
+    placeholder="Chat name"
+    bind:value={controller.state.search}
+    loading={controller.state.loading}
+    onsearch={() => onNavigate(searchPath())}
   >
-    <UI.Label layout="field"
-      ><UI.Text>Search chats</UI.Text><UI.Input
-        type="search"
-        autocomplete="off"
-        placeholder="Search chats"
-        bind:value={controller.state.search}
-      /></UI.Label
-    >
-    <UI.Button
-      variant="ghost"
-      size="icon"
-      type="submit"
-      aria-label="Search chats"
-      title="Search chats"
-      ><Search size={20} strokeWidth={2} aria-hidden="true" /></UI.Button
-    >
-  </UI.Form>
-  <UI.List>
-    {#each controller.state.chats as chat}
-      <RouterLink variant="item" href={sessionPath(chat.id)}
-        ><UI.Stack as="span" gap="tight"
-          ><UI.Text>{chat.name ?? "New Chat"}</UI.Text><UI.Row
-            as="span"
-            gap="small"
-            ><UI.Text as="time" datetime={chat.created_at}
-              >{createdAtLabel(chat.created_at)}</UI.Text
-            >{#if chat.project !== undefined}<UI.Text aria-hidden="true"
-                >/</UI.Text
-              ><UI.Text>{chat.project.name ?? "New Project"}</UI.Text
-              >{/if}</UI.Row
-          ></UI.Stack
-        ></RouterLink
-      >
-    {:else}<UI.Notice>
-        {controller.state.loading
-          ? "Searching chats..."
-          : "No chats match your search."}
-      </UI.Notice>{/each}
-  </UI.List>
-  {#if controller.state.cursor !== null}<UI.Button
-      variant="outline"
-      size="sm"
-      type="button"
-      disabled={controller.state.loading}
-      onclick={() => controller.loadMore(workspace.id, search, signal)}
-      >{controller.state.loading ? "Loading..." : "Show more"}</UI.Button
+    {#snippet filters()}<ProjectPicker
+        workspaceID={workspace.id}
+        compact
+        placeholder="All projects"
+        bind:value={controller.state.projectID}
+      />{/snippet}
+  </UI.SearchToolbar>
+  {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+      >{controller.state.error}</UI.Notice
     >{/if}
-</PageBody>
+  <UI.RecordTable headers={["Name", "Project", "Created"]}>
+    {#each controller.state.chats as chat (chat.id)}
+      <UI.RecordRow>
+        <UI.RecordCell primary
+          ><RouterLink href={sessionPath(chat.id)}
+            >{chat.name ?? "Untitled chat"}</RouterLink
+          ></UI.RecordCell
+        >
+        <UI.RecordCell
+          >{#if chat.project}<RouterLink
+              href={`/app/wsp/${encodeURIComponent(workspace.id)}/prj/${encodeURIComponent(chat.project.id)}`}
+              >{chat.project.name ?? "Untitled project"}</RouterLink
+            >{:else}—{/if}</UI.RecordCell
+        >
+        <UI.RecordCell
+          ><UI.Text as="time" datetime={chat.created_at}
+            >{createdAtLabel(chat.created_at)}</UI.Text
+          ></UI.RecordCell
+        >
+      </UI.RecordRow>
+    {:else}<UI.TableEmpty
+        columns={3}
+        message={controller.state.loading
+          ? "Searching chats…"
+          : "No chats match your search."}
+      />{/each}
+  </UI.RecordTable>
+  <UI.PaginationFooter
+    noun="chats"
+    count={controller.state.chats.length}
+    previous={controller.state.history.length > 0}
+    next={controller.state.cursor !== null}
+    loading={controller.state.loading}
+    onprevious={() => controller.previous(workspace.id, search, signal)}
+    onnext={() => controller.loadMore(workspace.id, search, signal)}
+  />
+</UI.AdminContent>

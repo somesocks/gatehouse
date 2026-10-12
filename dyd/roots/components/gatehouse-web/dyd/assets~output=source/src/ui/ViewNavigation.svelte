@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { MediaQuery } from "svelte/reactivity"
+  import { Menu as MenuIcon, Check } from "@lucide/svelte"
   import * as Menu from "./dropdown-menu"
-  import { Menu as MenuIcon } from "@lucide/svelte"
   import { Button } from "../lib/vendor/shadcn/button"
   import { Input } from "../lib/vendor/shadcn/input"
   import RouterLink from "./RouterLink.svelte"
@@ -25,6 +26,7 @@
   let draft = $state("")
   let error = $state("")
   let saving = $state(false)
+  const mobile = new MediaQuery("(max-width: 767px)", false)
   function edit() {
     draft = name
     error = ""
@@ -48,24 +50,42 @@
   }
 </script>
 
-<Row as="nav" aria-label="View navigation" justify="end" push>
-  <Menu.Root>
-    <Menu.Trigger aria-label="View navigation"
-      ><MenuIcon aria-hidden="true" /></Menu.Trigger
-    >
-    <Menu.Content align="end">
-      {#if onRename}<Menu.Item onSelect={edit}>Rename</Menu.Item>{/if}
-      {#each items as item (item.href)}<Menu.Item
-          >{#snippet child({ props })}<RouterLink
-              {...props}
-              href={item.href}
-              aria-current={item.active ? "page" : undefined}
-              >{item.label}</RouterLink
-            >{/snippet}</Menu.Item
-        >{/each}
-    </Menu.Content>
-  </Menu.Root>
-</Row>
+<nav class="ml-auto flex min-w-0 items-center gap-1" aria-label="Chat views">
+  {#if mobile.current}
+    <Menu.Root>
+      <Menu.Trigger aria-label="Chat views" title="Chat views"
+        ><MenuIcon aria-hidden="true" /></Menu.Trigger
+      >
+      <Menu.Content align="end">
+        {#each items as item (item.href)}<Menu.Item>
+            {#snippet child({ props })}<RouterLink
+                {...props}
+                href={item.href}
+                aria-current={item.active ? "page" : undefined}
+              >
+                {item.label}{#if item.active}<Check
+                    size={16}
+                    aria-hidden="true"
+                  />{/if}
+              </RouterLink>{/snippet}
+          </Menu.Item>{/each}
+        {#if onRename}<Menu.Separator /><Menu.Item onSelect={edit}
+            >Rename</Menu.Item
+          >{/if}
+      </Menu.Content>
+    </Menu.Root>
+  {:else}
+    {#each items as item (item.href)}<RouterLink
+        variant={item.active ? "outline" : "ghost"}
+        size="sm"
+        href={item.href}
+        aria-current={item.active ? "page" : undefined}>{item.label}</RouterLink
+      >{/each}
+    {#if onRename}<Button variant="ghost" size="sm" onclick={edit}
+        >Rename</Button
+      >{/if}
+  {/if}
+</nav>
 <Modal
   bind:modal
   title="Rename"

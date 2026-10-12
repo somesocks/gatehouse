@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type RecordAuthor = {
   principal?: { id: string; name?: string }
   agent?: { id: string; label?: string }
@@ -113,7 +115,16 @@ export const fetchProjectRecordSchemas = (
   workspaceID: string,
   projectID: string,
   signal?: AbortSignal,
-) => request(projectRecordSchemasAPIPath(workspaceID, projectID), {}, signal)
+  query?: CollectionQuery,
+) =>
+  request(
+    collectionQueryPath(
+      projectRecordSchemasAPIPath(workspaceID, projectID),
+      query,
+    ),
+    {},
+    signal,
+  )
 export const fetchProjectRecordSchema = (
   workspaceID: string,
   projectID: string,
@@ -173,12 +184,29 @@ export const fetchProjectRecordAttributes = (
   projectID: string,
   schemaID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ) =>
   request(
-    `${projectRecordSchemasAPIPath(workspaceID, projectID)}/${encodeURIComponent(schemaID)}/attributes`,
+    collectionQueryPath(
+      `${projectRecordSchemasAPIPath(workspaceID, projectID)}/${encodeURIComponent(schemaID)}/attributes`,
+      query,
+    ),
     {},
     signal,
   )
+export const fetchProjectRecordAttribute = (
+  workspaceID: string,
+  projectID: string,
+  schemaID: string,
+  attributeID: string,
+  signal?: AbortSignal,
+) =>
+  request(
+    `${projectRecordSchemasAPIPath(workspaceID, projectID)}/${encodeURIComponent(schemaID)}/attributes/${encodeURIComponent(attributeID)}`,
+    {},
+    signal,
+  )
+
 export const createProjectRecordAttribute = (
   workspaceID: string,
   projectID: string,
@@ -230,8 +258,16 @@ export const fetchProjectRecords = (
   projectID: string,
   schemaID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ) =>
-  request(projectRecordsAPIPath(workspaceID, projectID, schemaID), {}, signal)
+  request(
+    collectionQueryPath(
+      projectRecordsAPIPath(workspaceID, projectID, schemaID),
+      query,
+    ),
+    {},
+    signal,
+  )
 export const fetchProjectRecord = (
   workspaceID: string,
   projectID: string,
@@ -278,9 +314,13 @@ export const fetchProjectRecordValues = (
   schemaID: string,
   recordID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ) =>
   request(
-    `${projectRecordsAPIPath(workspaceID, projectID, schemaID)}/${encodeURIComponent(recordID)}/values`,
+    collectionQueryPath(
+      `${projectRecordsAPIPath(workspaceID, projectID, schemaID)}/${encodeURIComponent(recordID)}/values`,
+      query,
+    ),
     {},
     signal,
   )

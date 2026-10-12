@@ -58,6 +58,7 @@
   >
 {:else if controller.state.form !== null}
   <UI.Form
+    surface
     data-input-form
     bind:ref={formElement}
     aria-label={controller.state.form.title}
@@ -71,20 +72,28 @@
       void controller.submit()
     }}
   >
-    {#each controller.state.form.fields as field (field.id)}
-      <FormField
-        {field}
-        path={[field.id ?? ""]}
-        controlID={`input-${inputID}-${field.id}`}
-        {depth}
-        value={controller.value([field.id ?? ""])}
-        busy={controller.state.terminalPending || controller.state.needsReload}
-        onSet={controller.set}
-        onRemove={controller.remove}
-        onUpload={controller.upload}
-        onOpen={controller.openCustom}
-      />
-    {/each}
+    <UI.FormSection
+      compact
+      level={Math.min(depth + 1, 6)}
+      title="Response"
+      description="Changes are saved to the shared draft. Submit when your response is ready."
+    >
+      {#each controller.state.form.fields as field (field.id)}
+        <FormField
+          {field}
+          path={[field.id ?? ""]}
+          controlID={`input-${inputID}-${field.id}`}
+          {depth}
+          value={controller.value([field.id ?? ""])}
+          busy={controller.state.terminalPending ||
+            controller.state.needsReload}
+          onSet={controller.set}
+          onRemove={controller.remove}
+          onUpload={controller.upload}
+          onOpen={controller.openCustom}
+        />
+      {/each}
+    </UI.FormSection>
     {#if controller.state.error !== ""}<UI.Text as="p" size="small" role="alert"
         >{controller.state.error}</UI.Text
       >{/if}
@@ -93,7 +102,7 @@
         type="button"
         onclick={() => void controller.load()}>Reload shared draft</UI.Button
       >{/if}
-    <UI.Row justify="end">
+    <UI.FormActions>
       <UI.Button
         variant="outline"
         type="button"
@@ -106,6 +115,6 @@
         disabled={controller.state.terminalPending ||
           controller.state.needsReload}>Submit</UI.Button
       >
-    </UI.Row>
+    </UI.FormActions>
   </UI.Form>
 {/if}

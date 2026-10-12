@@ -45,20 +45,23 @@ func ProjectSecretAssociatedData(secret model.ProjectSecretRef) []byte {
 	return []byte("gh=v1|project-secret=" + secret.Project.Workspace.Id + "|project=" + secret.Project.Id + "|id=" + secret.Id)
 }
 
-func (store *Store) ProjectSecretsGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []ProjectSecretSummary) {
+func (store *Store) ProjectSecretsGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []ProjectSecretSummary) {
 	if err, available := store.ProjectGet(ctx, project, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []ProjectSecretSummary{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	suffix, args, err := store.collectionPageSQL(pages, "secrets.id", []string{"secrets.description"}, []any{project.Workspace.Id, project.Id}, "secrets.created_at DESC, secrets.id DESC")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT secrets.id, secrets.author_principal, principals.name, secrets.description, secrets.created_at, secrets.updated_at
 		FROM gatehouse_project_secrets AS secrets
 		JOIN gatehouse_principals AS principals ON principals.id = secrets.author_principal
 		WHERE secrets.workspace = `+placeholder(1)+` AND secrets.project = `+placeholder(2)+` AND secrets.enabled = TRUE
-		ORDER BY secrets.created_at DESC, secrets.id DESC
-	`, project.Workspace.Id, project.Id)
+	`+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project secrets: %w", err), nil
 	}
@@ -145,9 +148,9 @@ func (store *Store) ProjectSecretCreate(ctx context.Context, secret model.Projec
 		return fmt.Errorf("insert project secret: %w", err), model.ProjectSecret{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_secret.create",
-		ResourceKind: ActivityResourceKindProjectSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "project_secret.create",
+		ResourceKind:          ActivityResourceKindProjectSecret,
 		ResourceProjectSecret: &secret.Ref.Id,
 	}, []string{ActivityTopicProjectSecret(secret.Ref)}); err != nil {
 		return fmt.Errorf("append project secret creation activity: %w", err), model.ProjectSecret{}
@@ -189,9 +192,9 @@ func (store *Store) ProjectSecretDetailsSet(ctx context.Context, secret model.Pr
 	}
 	detail.Secret.Description, detail.Secret.Ciphertext, detail.Secret.UpdatedAt = *description, *ciphertext, updatedAt
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_secret.update",
-		ResourceKind: ActivityResourceKindProjectSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "project_secret.update",
+		ResourceKind:          ActivityResourceKindProjectSecret,
 		ResourceProjectSecret: &secret.Id,
 	}, []string{ActivityTopicProjectSecret(secret)}); err != nil {
 		return fmt.Errorf("append project secret update activity: %w", err), nil
@@ -232,9 +235,9 @@ func (store *Store) ProjectSecretRemove(ctx context.Context, secret model.Projec
 		return nil, false
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_secret.remove",
-		ResourceKind: ActivityResourceKindProjectSecret,
+		Ref:                   model.ActivityEventRef{},
+		Event:                 "project_secret.remove",
+		ResourceKind:          ActivityResourceKindProjectSecret,
 		ResourceProjectSecret: &secret.Id,
 	}, []string{ActivityTopicProjectSecret(secret)}); err != nil {
 		return fmt.Errorf("append project secret removal activity: %w", err), false

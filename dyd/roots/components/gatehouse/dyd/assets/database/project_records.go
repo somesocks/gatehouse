@@ -298,14 +298,16 @@ func projectRecordTimestamp(value any) string {
 	}
 }
 
-func (store *Store) ProjectRecordSchemasGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []model.ProjectRecordSchema) {
+func (store *Store) ProjectRecordSchemasGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []model.ProjectRecordSchema) {
 	if err, available := store.ProjectGet(ctx, project, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []model.ProjectRecordSchema{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, author_principal, author_agent, created_at FROM gatehouse_project_record_schemas WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` ORDER BY created_at DESC, id DESC`, project.Workspace.Id, project.Id)
+	suffix, args, err := store.collectionPageSQL(pages, "id", []string{"name", "label", "description"}, []any{project.Workspace.Id, project.Id}, "created_at DESC, id DESC")
+	if err != nil { return err, nil }
+	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, author_principal, author_agent, created_at FROM gatehouse_project_record_schemas WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project record schemas: %w", err), nil
 	}
@@ -469,14 +471,16 @@ func (store *Store) ProjectRecordSchemaRemove(ctx context.Context, reference mod
 	return nil, true
 }
 
-func (store *Store) ProjectRecordAttributesGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef) (error, []model.ProjectRecordAttribute) {
+func (store *Store) ProjectRecordAttributesGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []model.ProjectRecordAttribute) {
 	if err, available := store.ProjectGet(ctx, schema.Project, principal); err != nil {
 		return err, nil
 	} else if available == nil {
 		return nil, []model.ProjectRecordAttribute{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+` ORDER BY display_order ASC, name ASC, id ASC`, schema.Project.Workspace.Id, schema.Project.Id, schema.Id)
+	suffix, args, err := store.collectionPageSQL(pages, "id", []string{"name", "label", "description", "type"}, []any{schema.Project.Workspace.Id, schema.Project.Id, schema.Id}, "display_order ASC, name ASC, id ASC")
+	if err != nil { return err, nil }
+	rows, err := store.QueryContext(ctx, `SELECT id, name, label, description, type, target_schema, cardinality, uniqueness, display, display_order, author_principal, author_agent, created_at FROM gatehouse_project_record_attributes WHERE workspace = `+placeholder(1)+` AND project = `+placeholder(2)+` AND schema = `+placeholder(3)+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get project record attributes: %w", err), nil
 	}
@@ -653,7 +657,7 @@ func (store *Store) ProjectRecordAttributeRemove(ctx context.Context, reference 
 	return nil, true
 }
 
-func (store *Store) ProjectRecordsGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, limit int, cursor string) (error, []model.ProjectRecord) {
+func (store *Store) ProjectRecordsGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, limit int, cursor string, names ...string) (error, []model.ProjectRecord) {
 	if !typed_id.Valid(typed_id.ProjectRecordSchema, schema.Id) {
 		return fmt.Errorf("get project records: schema ID is invalid"), nil
 	}
@@ -674,6 +678,17 @@ func (store *Store) ProjectRecordsGet(ctx context.Context, schema model.ProjectR
 	if cursor != "" {
 		query += ` AND id < ` + placeholder(4)
 		arguments = append(arguments, cursor)
+	}
+	if len(names) > 0 && strings.TrimSpace(names[0]) != "" {
+		if len(names[0]) > 256 { return fmt.Errorf("invalid record search"), nil }
+		if typed_id.Valid(typed_id.ProjectRecord, strings.TrimSpace(names[0])) {
+			arguments = append(arguments, strings.TrimSpace(names[0]))
+			query += ` AND id = ` + placeholder(len(arguments))
+		} else {
+			var predicate string
+			predicate, arguments = store.recordSearchSQL(names[0], arguments)
+			query += predicate
+		}
 	}
 	query += ` ORDER BY id DESC LIMIT ` + placeholder(len(arguments)+1)
 	arguments = append(arguments, limit)
@@ -697,8 +712,8 @@ func (store *Store) ProjectRecordsGet(ctx context.Context, schema model.ProjectR
 }
 
 // ProjectRecordCardsGet returns collection-card values and one shallow level of reference display data.
-func (store *Store) ProjectRecordCardsGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, limit int, cursor string) (error, []ProjectRecordCard) {
-	err, records := store.ProjectRecordsGet(ctx, schema, principal, limit, cursor)
+func (store *Store) ProjectRecordCardsGet(ctx context.Context, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, limit int, cursor string, names ...string) (error, []ProjectRecordCard) {
+	err, records := store.ProjectRecordsGet(ctx, schema, principal, limit, cursor, names...)
 	if err != nil || len(records) == 0 {
 		return err, []ProjectRecordCard{}
 	}

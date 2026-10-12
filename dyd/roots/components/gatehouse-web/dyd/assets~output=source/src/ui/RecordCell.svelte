@@ -21,7 +21,11 @@
       : "px-5 py-4 align-middle last:text-right"}
 >
   {#if label}<span class="sr-only">{label}: </span>{/if}
-  <div class={primary ? "flex min-w-0 flex-col gap-1" : "min-w-0"}>
+  <div
+    class={primary
+      ? "flex min-w-0 flex-col gap-1 [overflow-wrap:anywhere] [&>a]:line-clamp-2"
+      : "min-w-0 [overflow-wrap:anywhere]"}
+  >
     {@render children()}
   </div>
 </td>

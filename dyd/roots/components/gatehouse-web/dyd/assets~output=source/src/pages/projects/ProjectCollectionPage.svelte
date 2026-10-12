@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Search, PageBody, PageHeading, RouterLink } from "../../ui"
+  import { RouterLink } from "../../ui"
   import * as UI from "../../ui"
   import { untrack } from "svelte"
   import type { Workspace } from "../../app/access"
@@ -29,7 +29,10 @@
   $effect(() => {
     const workspaceID = workspace.id
     const routeSearch = search
-    return untrack(() => controller.start(workspaceID, routeSearch, signal))
+    const routeSignal = signal
+    return untrack(() =>
+      controller.start(workspaceID, routeSearch, routeSignal),
+    )
   })
 
   function projectsPath() {
@@ -64,57 +67,48 @@
     disabled={creating}
     onclick={() => void onCreate()}>New project</UI.Button
   >{/snippet}
-<PageBody fluid>
-  <PageHeading actions={projectActions}>
-    <UI.Heading level={1}>Projects</UI.Heading>
-  </PageHeading>
-  <UI.Form
-    layout="search"
-    onsubmit={(event) => {
-      event.preventDefault()
-      onNavigate(searchPath())
-    }}
-  >
-    <UI.Label layout="field"
-      ><UI.Text>Search projects</UI.Text><UI.Input
-        type="search"
-        autocomplete="off"
-        placeholder="Search projects"
-        bind:value={controller.state.search}
-      /></UI.Label
-    >
-    <UI.Button
-      variant="ghost"
-      size="icon"
-      type="submit"
-      aria-label="Search projects"
-      title="Search projects"
-      ><Search size={20} strokeWidth={2} aria-hidden="true" /></UI.Button
-    >
-  </UI.Form>
-  <UI.List>
-    {#each controller.state.projects as project}
-      <RouterLink variant="item" href={projectPath(project.id)}
-        ><UI.Stack as="span" gap="tight"
-          ><UI.Text>{project.name ?? "New Project"}</UI.Text><UI.Text
-            as="time"
-            datetime={project.created_at}
-            >{createdAtLabel(project.created_at)}</UI.Text
-          ></UI.Stack
-        ></RouterLink
-      >
-    {:else}<UI.Notice>
-        {controller.state.loading
-          ? "Searching projects..."
-          : "No projects match your search."}
-      </UI.Notice>{/each}
-  </UI.List>
-  {#if controller.state.cursor !== null}<UI.Button
-      variant="outline"
-      size="sm"
-      type="button"
-      disabled={controller.state.loading}
-      onclick={() => controller.loadMore(workspace.id, search, signal)}
-      >{controller.state.loading ? "Loading..." : "Show more"}</UI.Button
+<UI.AdminContent>
+  <UI.AdminHeader
+    title="Projects"
+    description="Organize shared work and project resources."
+    actions={projectActions}
+  />
+  <UI.SearchToolbar
+    label="Search projects"
+    placeholder="Project name"
+    bind:value={controller.state.search}
+    loading={controller.state.loading}
+    onsearch={() => onNavigate(searchPath())}
+  />
+  {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+      >{controller.state.error}</UI.Notice
     >{/if}
-</PageBody>
+  <UI.RecordTable headers={["Name", "Created"]}>
+    {#each controller.state.projects as project (project.id)}<UI.RecordRow>
+        <UI.RecordCell primary
+          ><RouterLink href={projectPath(project.id)}
+            >{project.name ?? "Untitled project"}</RouterLink
+          ></UI.RecordCell
+        >
+        <UI.RecordCell
+          ><UI.Text as="time" datetime={project.created_at}
+            >{createdAtLabel(project.created_at)}</UI.Text
+          ></UI.RecordCell
+        >
+      </UI.RecordRow>{:else}<UI.TableEmpty
+        columns={2}
+        message={controller.state.loading
+          ? "Searching projects…"
+          : "No projects match your search."}
+      />{/each}
+  </UI.RecordTable>
+  <UI.PaginationFooter
+    noun="projects"
+    count={controller.state.projects.length}
+    previous={controller.state.history.length > 0}
+    next={controller.state.cursor !== null}
+    loading={controller.state.loading}
+    onprevious={() => controller.previous(workspace.id, search, signal)}
+    onnext={() => controller.loadMore(workspace.id, search, signal)}
+  />
+</UI.AdminContent>

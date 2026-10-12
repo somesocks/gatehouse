@@ -3,6 +3,8 @@ export type ProjectNotesRouteKind =
   | "project-notes"
   | "project-note-new"
   | "project-note"
+  | "project-note-edit"
+  | "project-note-revision"
 
 export type ProjectNotesRouteState = {
   notesStatus: ProjectNotesListStatus
@@ -17,7 +19,12 @@ export function activateProjectNotesRoute(
   const creating = kind === "project-note-new"
   return {
     notesStatus: "checking",
-    detailStatus: kind === "project-note" ? "checking" : "ready",
+    detailStatus:
+      kind === "project-note" ||
+      kind === "project-note-edit" ||
+      kind === "project-note-revision"
+        ? "checking"
+        : "ready",
     creating,
     editing: creating,
   }

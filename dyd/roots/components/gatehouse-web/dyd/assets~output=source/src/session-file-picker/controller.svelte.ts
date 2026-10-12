@@ -74,7 +74,7 @@ export function createSessionFilePicker(transport: FieldTransport, initialBrowse
       state.mediaTypes = (inputs.media_types as string[] | undefined) ?? []
       state.maxFiles = inputs.max_files === undefined ? null : Number(inputs.max_files)
       const ids = Array.isArray(field.value?.file_ids) ? field.value.file_ids.filter((id): id is string => typeof id === "string") : typeof field.value?.file_id === "string" ? [field.value.file_id] : []
-      state.selected = [...new Set(ids)].map((id) => ({ id, name: id }))
+      state.selected = [...new Set(ids)].map((id) => ({ id, name: "Selected file" }))
       if (state.capabilities.includes("session.file.list")) {
         // Hydrate just the saved selection, never the whole file collection.
         const available = new Map<string, SessionFile>()
@@ -84,7 +84,7 @@ export function createSessionFilePicker(transport: FieldTransport, initialBrowse
           if (disposed) return
           for (const file of response.files) available.set(file.id, file)
         }
-        state.selected = state.selected.map((file) => available.get(file.id) ?? { ...file, unavailable: true })
+        state.selected = state.selected.map((file) => available.get(file.id) ?? { ...file, name: "Unavailable file", unavailable: true })
       }
       state.saved = false
       state.status = "ready"

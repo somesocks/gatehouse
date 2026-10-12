@@ -12,6 +12,8 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { userAuthorLabel } from "../../app/user-labels"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { fetchChatSession } from "../../app/chat"
   import { fetchProject, type Project } from "../../app/projects"
   import {
@@ -45,14 +47,22 @@
         | "project-tasks"
         | "project-task-new"
         | "project-task"
+        | "project-task-edit"
         | "session-tasks"
         | "session-task-new"
         | "session-task"
+        | "session-task-edit"
     }
   >
   type ProjectTaskRoute = Extract<
     TaskRoute,
-    { kind: "project-tasks" | "project-task-new" | "project-task" }
+    {
+      kind:
+        | "project-tasks"
+        | "project-task-new"
+        | "project-task"
+        | "project-task-edit"
+    }
   >
   type Task = ProjectTask | SessionTask
   type Session = {
@@ -64,6 +74,9 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const page = createCollectionPage()
+  const reloadTasks = () =>
+    loadTasks(currentRoute, generation, abortController!.signal)
   const { access, activity, auth } = runtime
   const statuses: { value: TaskStatus; label: string }[] = [
     { value: "draft", label: "Draft" },
@@ -100,8 +113,7 @@
     route.kind.startsWith("project-")
   const isDetailRoute = (
     route: TaskRoute,
-  ): route is Extract<TaskRoute, { kind: "project-task" | "session-task" }> =>
-    route.kind === "project-task" || route.kind === "session-task"
+  ): route is Extract<TaskRoute, { taskID: string }> => "taskID" in route
   const ownerProject = $derived(
     owner !== null && "project" in owner ? owner.project : undefined,
   )
@@ -126,13 +138,7 @@
     const part = (number: number) => number.toString().padStart(2, "0")
     return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}`
   }
-  const authorLabel = (author: TaskAuthor) =>
-    author.principal?.name ??
-    author.principal?.id ??
-    author.agent?.label ??
-    author.agent?.id ??
-    author.gateway ??
-    "Unknown"
+  const authorLabel = userAuthorLabel
   const statusLabel = (value: TaskStatus) =>
     statuses.find((candidate) => candidate.value === value)?.label ?? value
   const isCurrent = (value: number, route: TaskRoute, signal: AbortSignal) =>
@@ -148,6 +154,7 @@
   })
 
   function activate(route: TaskRoute): () => void {
+    page.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -158,7 +165,7 @@
     tasks = []
     tasksStatus = "checking"
     active = null
-    detailStatus = route.kind.endsWith("-task") ? "checking" : "ready"
+    detailStatus = isDetailRoute(route) ? "checking" : "ready"
     editing = route.kind.endsWith("-task-new")
     saving = false
     deleting = false
@@ -208,8 +215,8 @@
     if (!(await loadOwner(route, value, signal))) return
     if (!isCurrent(value, route, signal)) return
     subscribe(route, value, signal)
-    const listed = await loadTasks(route, value, signal)
-    if (listed && isDetailRoute(route))
+    if (route.kind.endsWith("-tasks")) await loadTasks(route, value, signal)
+    if (isDetailRoute(route))
       await loadDetail(route.taskID, route, value, signal)
   }
 
@@ -270,7 +277,9 @@
         if (!isCurrent(value, route, signal) || refreshSignal.aborted) return
         const refreshed = await Promise.all([
           loadOwner(route, value, signal, false),
-          loadTasks(route, value, signal, false),
+          ...(route.kind.endsWith("-tasks")
+            ? [loadTasks(route, value, signal, false)]
+            : []),
           ...(isDetailRoute(route)
             ? [loadDetail(route.taskID, route, value, signal)]
             : []),
@@ -294,9 +303,20 @@
   ): Promise<boolean> {
     if (showLoading && isCurrent(value, route, signal)) tasksStatus = "checking"
     try {
+      const requested = page.key()
       const response = isProjectRoute(route)
-        ? await fetchProjectTasks(route.workspaceID, route.projectID, signal)
-        : await fetchSessionTasks(route.workspaceID, route.sessionID, signal)
+        ? await fetchProjectTasks(
+            route.workspaceID,
+            route.projectID,
+            signal,
+            page.params(),
+          )
+        : await fetchSessionTasks(
+            route.workspaceID,
+            route.sessionID,
+            signal,
+            page.params(),
+          )
       if (!isCurrent(value, route, signal)) return false
       if (response.status === 401) {
         runtime.requireLogin()
@@ -305,7 +325,9 @@
       if (!response.ok) throw new Error("tasks unavailable")
       const loaded = (await response.json()) as Task[]
       if (!isCurrent(value, route, signal)) return false
+      if (requested !== page.key()) return false
       tasks = loaded
+      page.accept(response)
       tasksStatus = "ready"
       return true
     } catch {
@@ -348,6 +370,7 @@
       const loaded = (await response.json()) as Task
       if (!isCurrent(value, route, signal)) return false
       active = loaded
+      if (route.kind.endsWith("-edit") && !editing) populateEdit()
       detailStatus = "ready"
       return true
     } catch {
@@ -357,6 +380,10 @@
   }
 
   function startEdit(): void {
+    if (active) runtime.navigate(`${detailPath(currentRoute, active.id)}/edit`)
+  }
+
+  function populateEdit(): void {
     if (active === null) return
     title = active.title
     description = active.description ?? ""
@@ -371,7 +398,7 @@
     error = ""
     if (currentRoute.kind.endsWith("-task-new"))
       runtime.navigate(listPath(currentRoute))
-    else editing = false
+    else if (active) runtime.navigate(detailPath(currentRoute, active.id))
   }
 
   async function save(): Promise<void> {
@@ -535,7 +562,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             {#if isProjectRoute(currentRoute)}
@@ -619,58 +646,65 @@
                   void loadRoute(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
-          {:else if editing}<UI.Form
+          {:else if editing}<UI.AdminHeader
+              title={currentRoute.kind.endsWith("new")
+                ? "New task"
+                : `Edit ${active?.title ?? "task"}`}
+              description="Update task information, workflow, and sensitivity."
+            /><UI.Form
+              surface
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
-              <PageHeading>
-                <UI.Text as="p" size="eyebrow">
-                  {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-                </UI.Text>
-                <UI.Heading level={2}>
-                  {currentRoute.kind.endsWith("new") ? "New Task" : "Edit Task"}
-                </UI.Heading>
-              </PageHeading>
-              <UI.Field>
-                <UI.Label for="task-title">Title</UI.Label>
-                <UI.Input
-                  id="task-title"
-                  autocomplete="off"
-                  maxlength={256}
-                  required
-                  bind:value={title}
-                />
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="task-status">Status</UI.Label>
+              <UI.FormSection
+                title="Task information"
+                description="Name the task and choose its workflow status."
+                ><UI.Field>
+                  <UI.Label for="task-title">Title</UI.Label>
+                  <UI.Input
+                    id="task-title"
+                    autocomplete="off"
+                    maxlength={256}
+                    required
+                    bind:value={title}
+                  />
+                </UI.Field>
+                <UI.Field>
+                  <UI.Label for="task-status">Status</UI.Label>
 
-                <UI.Select id="task-status" bind:value={status}
-                  >{#each statuses as option}<UI.Option value={option.value}
-                      >{option.label}</UI.Option
-                    >{/each}</UI.Select
-                >
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="task-description"
-                  >Description (optional Markdown)</UI.Label
-                >
-                <UI.Textarea
-                  id="task-description"
-                  autocomplete="off"
-                  rows={12}
-                  maxlength={4096}
-                  bind:value={description}
-                ></UI.Textarea>
-              </UI.Field>
-              <UI.Field>
-                <UI.Label layout="choice"
-                  ><UI.Checkbox bind:checked={sensitive} /> Sensitive: the description
-                  is marked sensitive when agents read it.</UI.Label
-                >
-              </UI.Field>
-              {#if error !== ""}<UI.Text
+                  <UI.Select id="task-status" bind:value={status}
+                    >{#each statuses as option}<UI.Option value={option.value}
+                        >{option.label}</UI.Option
+                      >{/each}</UI.Select
+                  >
+                </UI.Field>
+              </UI.FormSection><UI.FormSection
+                title="Description"
+                description="Describe the work using Markdown."
+                ><UI.Field>
+                  <UI.Label for="task-description"
+                    >Description (optional Markdown)</UI.Label
+                  >
+                  <UI.Textarea
+                    id="task-description"
+                    autocomplete="off"
+                    rows={12}
+                    maxlength={4096}
+                    bind:value={description}
+                  ></UI.Textarea>
+                </UI.Field>
+              </UI.FormSection><UI.FormSection
+                title="Sensitivity"
+                description="Control how agents handle the description."
+                ><UI.Field>
+                  <UI.Label layout="choice"
+                    ><UI.Checkbox bind:checked={sensitive} /> Sensitive: the description
+                    is marked sensitive when agents read it.</UI.Label
+                  >
+                </UI.Field>
+              </UI.FormSection>{#if error !== ""}<UI.Text
                   as="p"
                   size="small"
                   role="alert"
@@ -678,7 +712,7 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.Row>
+              <UI.FormActions>
                 <UI.Button
                   variant="outline"
                   type="button"
@@ -687,15 +721,15 @@
                 ><UI.Button variant="default" type="submit" disabled={saving}
                   >{saving ? "Saving..." : "Save task"}</UI.Button
                 >
-              </UI.Row>
+              </UI.FormActions>
             </UI.Form>
-          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "checking"}<UI.Text
+          {:else if isDetailRoute(currentRoute) && detailStatus === "checking"}<UI.Text
               as="p"
               tone="muted"
             >
               Loading task...
             </UI.Text>
-          {:else if currentRoute.kind.endsWith("-task") && detailStatus === "unavailable"}<UI.Text
+          {:else if isDetailRoute(currentRoute) && detailStatus === "unavailable"}<UI.Text
               as="p"
               tone="muted"
             >
@@ -729,26 +763,32 @@
                 >{deleting ? "Removing..." : "Remove"}</UI.Button
               >{/snippet}
             <UI.Stack as="article">
-              <PageHeading as="header" actions={taskActions}>
-                <UI.Text as="p" size="eyebrow">
-                  {isProjectRoute(currentRoute) ? "Project" : "Session"} Task
-                </UI.Text>
-                <UI.Heading level={2}>
-                  {active.title}
-                  <UI.Badge>{statusLabel(active.status)}</UI.Badge
-                  >{#if active.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}
-                </UI.Heading>
-                {#if isProjectRoute(currentRoute)}<UI.Text
-                    as="small"
-                    size="small">{dateLabel(active.created_at)}</UI.Text
-                  >{:else}<UI.Text as="small" size="small"
-                    >Created {dateLabel(active.created_at)} by {authorLabel(
-                      active.creator,
-                    )}. Updated {dateLabel(active.updated_at)} by {authorLabel(
-                      active.updater,
-                    )}.</UI.Text
-                  >{/if}
-              </PageHeading>
+              <UI.AdminHeader
+                kind={isProjectRoute(currentRoute)
+                  ? "Project task"
+                  : "Chat task"}
+                title={active.title}
+                actions={taskActions}
+              />
+              <UI.DetailSection title="Task information">
+                <UI.Property label="Status"
+                  ><UI.Badge>{statusLabel(active.status)}</UI.Badge
+                  ></UI.Property
+                >
+                <UI.Property label="Sensitivity"
+                  >{active.sensitive ? "Sensitive" : "Standard"}</UI.Property
+                >
+                <UI.Property label="Created"
+                  >{dateLabel(active.created_at)} · {authorLabel(
+                    active.creator,
+                  )}</UI.Property
+                >
+                <UI.Property label="Updated"
+                  >{dateLabel(active.updated_at)} · {authorLabel(
+                    active.updater,
+                  )}</UI.Property
+                >
+              </UI.DetailSection>
               {#if active.description !== undefined && active.description !== ""}<UI.RichText
                   html={renderMarkdown(active.description)}
                 ></UI.RichText>{:else}<UI.Text as="p" tone="muted">
@@ -770,60 +810,67 @@
                   runtime.navigate(`${listPath(currentRoute)}/new`)}
                 >New task</UI.Button
               >{/snippet}
-            <PageHeading actions={collectionActions}>
-              <UI.Heading level={2}>
-                {isProjectRoute(currentRoute) ? "Project" : "Session"} Tasks
-              </UI.Heading>
-            </PageHeading>
-            <UI.List>
-              {#if tasksStatus === "checking"}<UI.Text as="p" tone="muted">
-                  Loading tasks...
-                </UI.Text>{:else if tasksStatus === "unavailable"}<UI.Text
-                  as="p"
-                  tone="muted"
-                >
-                  Tasks could not be loaded.
-                </UI.Text>
-                <UI.Button
-                  variant="default"
-                  size="sm"
-                  type="button"
-                  onclick={() => {
-                    const signal = abortController?.signal
-                    if (signal !== undefined)
-                      void loadTasks(currentRoute, generation, signal)
-                  }}>Try again</UI.Button
-                >{:else}{#each tasks as task (task.id)}<RouterLink
-                    variant="item"
-                    href={detailPath(currentRoute, task.id)}
-                    ><UI.Stack as="span"
-                      ><UI.Text
-                        ><UI.Text as="strong" emphasis="strong"
-                          >{task.title}</UI.Text
-                        >
-                        <UI.Badge>{statusLabel(task.status)}</UI.Badge
-                        >{#if task.sensitive}<UI.Badge>Sensitive</UI.Badge
-                          >{/if}</UI.Text
-                      ><UI.Row tone="muted" as="small"
-                        >{#if isProjectRoute(currentRoute)}<UI.Text
-                            as="time"
-                            datetime={task.created_at}
-                            >{dateLabel(task.created_at)}</UI.Text
-                          >{:else}<UI.Text
-                            >Created {dateLabel(task.created_at)} by {authorLabel(
-                              task.creator,
-                            )}</UI.Text
-                          ><UI.Text
-                            >Updated {dateLabel(task.updated_at)} by {authorLabel(
-                              task.updater,
-                            )}</UI.Text
-                          >{/if}</UI.Row
-                      ></UI.Stack
-                    ></RouterLink
-                  >{:else}<UI.Text as="p" tone="muted">
-                    No tasks yet.
-                  </UI.Text>{/each}{/if}
-            </UI.List>{/if}
+            <UI.AdminHeader
+              title="Tasks"
+              description="Track work and workflow status."
+              actions={collectionActions}
+            />
+            <UI.SearchToolbar
+              label="Search tasks"
+              placeholder="Title, description, or status"
+              bind:value={page.state.search}
+              loading={page.state.busy || tasksStatus === "checking"}
+              onsearch={() => void page.search(reloadTasks)}
+            />
+            <UI.RecordTable
+              headers={["Task", "Status", "Sensitivity", "Updated"]}
+            >
+              {#if tasksStatus !== "ready"}<UI.TableEmpty
+                  columns={4}
+                  message={tasksStatus === "checking"
+                    ? "Loading tasks…"
+                    : "Tasks could not be loaded."}
+                />
+              {:else}{#each tasks as task (task.id)}<UI.RecordRow>
+                    <UI.RecordCell primary
+                      ><RouterLink href={detailPath(currentRoute, task.id)}
+                        >{task.title}</RouterLink
+                      ></UI.RecordCell
+                    >
+                    <UI.RecordCell
+                      ><UI.Badge>{statusLabel(task.status)}</UI.Badge
+                      ></UI.RecordCell
+                    >
+                    <UI.RecordCell
+                      >{task.sensitive
+                        ? "Sensitive"
+                        : "Standard"}</UI.RecordCell
+                    >
+                    <UI.RecordCell>{dateLabel(task.updated_at)}</UI.RecordCell>
+                  </UI.RecordRow>{:else}<UI.TableEmpty
+                    columns={4}
+                    message="No tasks yet."
+                  />{/each}{/if}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="tasks"
+              count={tasks.length}
+              previous={page.state.history.length > 0}
+              next={!!page.state.next}
+              loading={page.state.busy || tasksStatus === "checking"}
+              onprevious={() => void page.previous(reloadTasks)}
+              onnext={() => void page.next(reloadTasks)}
+            />
+            {#if tasksStatus === "unavailable"}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadTasks(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Try again</UI.Button
+              >{/if}
+          {/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>

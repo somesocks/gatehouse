@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type SessionSecret = {
   id: string
   description: string
@@ -14,11 +16,15 @@ export async function fetchSessionSecrets(
   workspaceID: string,
   sessionID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(sessionSecretsPath(workspaceID, sessionID), {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(sessionSecretsPath(workspaceID, sessionID), query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchSessionSecret(

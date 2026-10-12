@@ -2,6 +2,7 @@
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { fetchProject, type Project } from "../../app/projects"
   import {
     createProjectSecret,
@@ -18,11 +19,25 @@
 
   type SecretsRoute = Extract<
     Route,
-    { kind: "project-secrets" | "project-secret-new" | "project-secret" }
+    {
+      kind:
+        | "project-secrets"
+        | "project-secret-new"
+        | "project-secret"
+        | "project-secret-edit"
+    }
   >
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const page = createCollectionPage()
+  const reloadSecrets = () =>
+    loadSecrets(
+      generation,
+      currentRoute.workspaceID,
+      currentRoute.projectID,
+      abortController!.signal,
+    )
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
   let projectStatus = $state<Status>("checking")
@@ -62,8 +77,7 @@
     const number = (part: number) => part.toString().padStart(2, "0")
     return `${date.getFullYear()}-${number(date.getMonth() + 1)}-${number(date.getDate())} ${number(date.getHours())}:${number(date.getMinutes())}`
   }
-  const authorLabel = (author: ProjectSecret["author"]) =>
-    author.name ?? author.id
+  const authorLabel = (author: ProjectSecret["author"]) => author.name ?? "User"
   const sortSecrets = (loaded: ProjectSecret[]) =>
     [...loaded].sort((left, right) => {
       const difference =
@@ -85,6 +99,7 @@
   })
 
   function activate(route: SecretsRoute): () => void {
+    page.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -95,7 +110,7 @@
     secrets = []
     secretsStatus = "checking"
     active = null
-    detailStatus = route.kind === "project-secret" ? "checking" : "ready"
+    detailStatus = "secretID" in route ? "checking" : "ready"
     creating = route.kind === "project-secret-new"
     editing = creating
     saving = false
@@ -162,8 +177,10 @@
       projectStatus = "ready"
       subscribe(route, value)
       await Promise.all([
-        loadSecrets(value, workspaceID, projectID, signal),
-        ...(route.kind === "project-secret"
+        ...(route.kind === "project-secrets"
+          ? [loadSecrets(value, workspaceID, projectID, signal)]
+          : []),
+        ...("secretID" in route
           ? [loadDetail(route.secretID, value, workspaceID, projectID, signal)]
           : []),
       ])
@@ -185,15 +202,11 @@
       ],
       async ({ signal }) => {
         if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
-        const listed = await loadSecrets(
-          value,
-          workspaceID,
-          projectID,
-          signal,
-          false,
-        )
+        const listed =
+          route.kind !== "project-secrets" ||
+          (await loadSecrets(value, workspaceID, projectID, signal, false))
         const detailed =
-          route.kind !== "project-secret" ||
+          !("secretID" in route) ||
           (await loadDetail(
             route.secretID,
             value,
@@ -223,7 +236,13 @@
     if (showLoading && isCurrent(value, workspaceID, projectID))
       secretsStatus = "checking"
     try {
-      const response = await fetchProjectSecrets(workspaceID, projectID, signal)
+      const requested = page.key()
+      const response = await fetchProjectSecrets(
+        workspaceID,
+        projectID,
+        signal,
+        page.params(),
+      )
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
       if (response.status === 401) {
@@ -234,7 +253,9 @@
       const loaded = (await response.json()) as ProjectSecret[]
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
-      secrets = sortSecrets(loaded)
+      if (requested !== page.key()) return false
+      page.accept(response)
+      secrets = loaded
       secretsStatus = "ready"
       return true
     } catch {
@@ -274,6 +295,8 @@
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
       active = loaded
+      if (currentRoute.kind === "project-secret-edit" && !editing)
+        populateEdit()
       detailStatus = "ready"
       return true
     } catch {
@@ -284,6 +307,13 @@
   }
 
   function startEdit(): void {
+    if (active)
+      runtime.navigate(
+        `${detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id)}/edit`,
+      )
+  }
+
+  function populateEdit(): void {
     if (active === null) return
     description = active.description
     secretValue = ""
@@ -299,7 +329,10 @@
       runtime.navigate(
         listPath(currentRoute.workspaceID, currentRoute.projectID),
       )
-    else editing = false
+    else if (active)
+      runtime.navigate(
+        detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id),
+      )
   }
 
   async function save(): Promise<void> {
@@ -469,7 +502,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
@@ -528,47 +561,54 @@
                   abortController!.signal,
                 )}>Try again</UI.Button
             >
-          {:else if editing}<UI.Form
+          {:else if editing}<UI.AdminHeader
+              title={creating ? "New secret" : "Edit secret"}
+              description="Update the description and optionally replace the write-only value."
+            /><UI.Form
+              surface
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
-              <PageHeading>
-                <UI.Text as="p" size="eyebrow">Project Secret</UI.Text>
-                <UI.Heading level={2}
-                  >{creating ? "New Secret" : "Edit Secret"}</UI.Heading
-                >
-              </PageHeading>
-              <UI.Field>
-                <UI.Label for="project-secret-description">Description</UI.Label
-                >
-                <UI.Textarea
-                  id="project-secret-description"
-                  autocomplete="off"
-                  rows={3}
-                  maxlength={4096}
-                  required
-                  bind:value={description}
-                ></UI.Textarea>
-              </UI.Field>
-              <UI.Field>
-                <UI.Label for="project-secret-value"
-                  >{creating ? "Value" : "New value (optional)"}</UI.Label
-                >
-                <UI.Textarea
-                  id="project-secret-value"
-                  autocomplete="new-password"
-                  rows={5}
-                  maxlength={1048576}
-                  required={creating}
-                  bind:value={secretValue}
-                ></UI.Textarea>
-                {#if !creating}<UI.Text as="p" size="small">
-                    Leave blank to keep the current value.
-                  </UI.Text>{/if}
-              </UI.Field>
-              {#if error !== ""}<UI.Text
+              <UI.FormSection
+                title="Description"
+                description="Identify the secret without including its value."
+                ><UI.Field>
+                  <UI.Label for="project-secret-description"
+                    >Description</UI.Label
+                  >
+                  <UI.Textarea
+                    id="project-secret-description"
+                    autocomplete="off"
+                    rows={3}
+                    maxlength={4096}
+                    required
+                    bind:value={description}
+                  ></UI.Textarea>
+                </UI.Field>
+              </UI.FormSection><UI.FormSection
+                title="Secret value"
+                description={creating
+                  ? "Values are write-only and cannot be displayed later."
+                  : "Leave the replacement blank to keep the current value."}
+                ><UI.Field>
+                  <UI.Label for="project-secret-value"
+                    >{creating ? "Value" : "New value (optional)"}</UI.Label
+                  >
+                  <UI.Textarea
+                    id="project-secret-value"
+                    autocomplete="new-password"
+                    rows={5}
+                    maxlength={1048576}
+                    required={creating}
+                    bind:value={secretValue}
+                  ></UI.Textarea>
+                  {#if !creating}<UI.Text as="p" size="small">
+                      Leave blank to keep the current value.
+                    </UI.Text>{/if}
+                </UI.Field>
+              </UI.FormSection>{#if error !== ""}<UI.Text
                   as="p"
                   size="small"
                   role="alert"
@@ -576,7 +616,7 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.Row>
+              <UI.FormActions>
                 <UI.Button
                   variant="outline"
                   type="button"
@@ -585,15 +625,15 @@
                 ><UI.Button variant="default" type="submit" disabled={saving}
                   >{saving ? "Saving..." : "Save secret"}</UI.Button
                 >
-              </UI.Row>
+              </UI.FormActions>
             </UI.Form>
-          {:else if currentRoute.kind === "project-secret" && detailStatus === "checking"}<UI.Text
+          {:else if "secretID" in currentRoute && detailStatus === "checking"}<UI.Text
               as="p"
               tone="muted"
             >
               Loading secret...
             </UI.Text>
-          {:else if currentRoute.kind === "project-secret" && detailStatus === "unavailable"}<UI.Text
+          {:else if "secretID" in currentRoute && detailStatus === "unavailable"}<UI.Text
               as="p"
               tone="muted"
             >
@@ -625,16 +665,28 @@
                 >{deleting ? "Removing..." : "Remove"}</UI.Button
               >{/snippet}
             <UI.Stack as="article">
-              <PageHeading as="header" actions={secretActions}>
-                <UI.Text as="p" size="eyebrow">Project Secret</UI.Text>
-                <UI.Heading level={2}>{active.description}</UI.Heading>
-                <UI.Text as="small" size="small"
-                  >By {authorLabel(active.author)} on {dateLabel(
-                    active.created_at,
-                  )}{#if active.updated_at !== active.created_at}
-                    / Updated {dateLabel(active.updated_at)}{/if}</UI.Text
+              <UI.AdminHeader
+                kind="Project secret"
+                title="Secret"
+                actions={secretActions}
+              />
+              <UI.DetailSection title="Secret information">
+                <UI.Property label="Description"
+                  >{active.description}</UI.Property
                 >
-              </PageHeading>
+                <UI.Property label="Author"
+                  >{authorLabel(active.author)}</UI.Property
+                >
+                <UI.Property label="Created"
+                  >{dateLabel(active.created_at)}</UI.Property
+                >
+                <UI.Property label="Updated"
+                  >{dateLabel(active.updated_at)}</UI.Property
+                >
+                <UI.Property label="Value"
+                  >Write-only; edit to replace the stored value.</UI.Property
+                >
+              </UI.DetailSection>
               {#if error !== ""}<UI.Text
                   as="p"
                   size="small"
@@ -653,51 +705,63 @@
                     `${listPath(workspace.id, currentRoute.projectID)}/new`,
                   )}>New secret</UI.Button
               >{/snippet}
-            <PageHeading actions={collectionActions}>
-              <UI.Heading level={2}>Project Secrets</UI.Heading>
-            </PageHeading>
-            <UI.List>
-              {#if secretsStatus === "checking"}<UI.Text as="p" tone="muted">
-                  Loading secrets...
-                </UI.Text>{:else if secretsStatus === "unavailable"}<UI.Text
-                  as="p"
-                  tone="muted"
-                >
-                  Secrets could not be loaded.
-                </UI.Text>
-                <UI.Button
-                  variant="default"
-                  size="sm"
-                  type="button"
-                  onclick={() =>
-                    void loadSecrets(
-                      generation,
-                      currentRoute.workspaceID,
-                      currentRoute.projectID,
-                      abortController!.signal,
-                    )}>Try again</UI.Button
-                >{:else}{#each secrets as secret (secret.id)}<RouterLink
-                    variant="item"
-                    href={detailPath(
-                      workspace.id,
-                      currentRoute.projectID,
-                      secret.id,
-                    )}
-                    ><UI.Stack as="span"
-                      ><UI.Text>{secret.description}</UI.Text><UI.Row
-                        tone="muted"
-                        as="small"
-                        ><UI.Text>{authorLabel(secret.author)}</UI.Text><UI.Text
-                          as="time"
-                          datetime={secret.updated_at}
-                          >Updated {dateLabel(secret.updated_at)}</UI.Text
-                        ></UI.Row
-                      ></UI.Stack
-                    ></RouterLink
-                  >{:else}<UI.Text as="p" tone="muted">
-                    No secrets yet.
-                  </UI.Text>{/each}{/if}
-            </UI.List>{/if}
+            <UI.AdminHeader
+              title="Secrets"
+              description="Manage descriptions and write-only secret values."
+              actions={collectionActions}
+            />
+            <UI.SearchToolbar
+              label="Search secrets"
+              placeholder="Description"
+              bind:value={page.state.search}
+              loading={page.state.busy || secretsStatus === "checking"}
+              onsearch={() => void page.search(reloadSecrets)}
+            />
+            <UI.RecordTable headers={["Description", "Author", "Updated"]}>
+              {#if secretsStatus !== "ready"}<UI.TableEmpty
+                  columns={3}
+                  message={secretsStatus === "checking"
+                    ? "Loading secrets…"
+                    : "Secrets could not be loaded."}
+                />
+              {:else}{#each secrets as secret (secret.id)}<UI.RecordRow>
+                    <UI.RecordCell primary
+                      ><RouterLink
+                        href={detailPath(
+                          workspace.id,
+                          currentRoute.projectID,
+                          secret.id,
+                        )}>{secret.description}</RouterLink
+                      ></UI.RecordCell
+                    >
+                    <UI.RecordCell>{authorLabel(secret.author)}</UI.RecordCell>
+                    <UI.RecordCell>{dateLabel(secret.updated_at)}</UI.RecordCell
+                    >
+                  </UI.RecordRow>{:else}<UI.TableEmpty
+                    columns={3}
+                    message="No secrets yet."
+                  />{/each}{/if}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="secrets"
+              count={secrets.length}
+              previous={page.state.history.length > 0}
+              next={!!page.state.next}
+              loading={page.state.busy || secretsStatus === "checking"}
+              onprevious={() => void page.previous(reloadSecrets)}
+              onnext={() => void page.next(reloadSecrets)}
+            />
+            {#if secretsStatus === "unavailable"}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadSecrets(
+                    generation,
+                    currentRoute.workspaceID,
+                    currentRoute.projectID,
+                    abortController!.signal,
+                  )}>Try again</UI.Button
+              >{/if}
+          {/if}
         </PageBody></SidebarPage.Body
       >
     </SidebarPage.Page>

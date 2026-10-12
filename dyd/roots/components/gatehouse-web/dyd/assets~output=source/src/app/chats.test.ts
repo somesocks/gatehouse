@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import {
-  createChat,
-  createProjectChat,
-  fetchChats,
-  fetchDashboardChats,
-  fetchProjectChats,
-} from "./chats"
+import { createChat, createProjectChat, fetchChats } from "./chats"
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -44,33 +38,13 @@ describe("chats transport", () => {
     )
   })
 
-  it("loads the five latest chats for a dashboard", async () => {
-    const fetch = vi.fn(async () => Response.json({ sessions: [] }))
-    vi.stubGlobal("fetch", fetch)
-    const controller = new AbortController()
-
-    await fetchDashboardChats("wsp/test", controller.signal)
-
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/v1/workspaces/wsp%2Ftest/sessions?limit=5",
-      { credentials: "same-origin", signal: controller.signal },
-    )
-  })
-
-  it("loads and creates chats scoped to a project", async () => {
+  it("creates chats scoped to a project", async () => {
     const fetch = vi.fn(async () => Response.json({ sessions: [] }))
     vi.stubGlobal("fetch", fetch)
 
-    await fetchProjectChats("wsp/test", "prj/test")
     await createProjectChat("wsp/test", "prj/test")
 
-    expect(fetch).toHaveBeenNthCalledWith(
-      1,
-      "/api/v1/workspaces/wsp%2Ftest/sessions?limit=5&project=prj%2Ftest",
-      { credentials: "same-origin", signal: undefined },
-    )
-    expect(fetch).toHaveBeenNthCalledWith(
-      2,
+    expect(fetch).toHaveBeenCalledWith(
       "/api/v1/workspaces/wsp%2Ftest/sessions",
       {
         method: "POST",

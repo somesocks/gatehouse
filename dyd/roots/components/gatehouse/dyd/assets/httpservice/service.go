@@ -750,7 +750,9 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		if !ok {
 			return
 		}
-		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, claims.Principal.Ref)
+		pages, ok := collectionPageParameters(response, request, typed_id.Group)
+		if !ok { return }
+		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -759,7 +761,7 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		for _, group := range groups {
 			result = append(result, groupResponse{ID: group.Ref.Id, Name: group.Name})
 		}
-		writeJSON(response, result)
+		writeCollectionPage(response, result, pages, func(group groupResponse) string { return group.ID })
 	}
 }
 
@@ -939,7 +941,9 @@ func workspaceProjectRecordSchemas(store *database.Store, tokens *auth.BearerTok
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, schemas := store.ProjectRecordSchemasGet(request.Context(), project, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.ProjectRecordSchema)
+			if !ok { return }
+			err, schemas := store.ProjectRecordSchemasGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -948,7 +952,7 @@ func workspaceProjectRecordSchemas(store *database.Store, tokens *auth.BearerTok
 			for _, schema := range schemas {
 				result = append(result, projectRecordSchemaResponseFromModel(schema))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(schema projectRecordSchemaResponse) string { return schema.ID })
 		case http.MethodPost:
 			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaCreate) {
 				return
@@ -1065,7 +1069,9 @@ func workspaceProjectRecordAttributes(store *database.Store, tokens *auth.Bearer
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, attributes := store.ProjectRecordAttributesGet(request.Context(), schema.Ref, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.ProjectRecordAttribute)
+			if !ok { return }
+			err, attributes := store.ProjectRecordAttributesGet(request.Context(), schema.Ref, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -1074,7 +1080,7 @@ func workspaceProjectRecordAttributes(store *database.Store, tokens *auth.Bearer
 			for _, attribute := range attributes {
 				result = append(result, projectRecordAttributeResponseFromModel(attribute))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(attribute projectRecordAttributeResponse) string { return attribute.ID })
 		case http.MethodPost:
 			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectRecordSchemaEdit) {
 				return
@@ -1183,7 +1189,9 @@ func workspaceProjectRecords(store *database.Store, tokens *auth.BearerTokens) h
 			if !ok {
 				return
 			}
-			err, cards := store.ProjectRecordCardsGet(request.Context(), schema.Ref, claims.Principal.Ref, limit, cursor)
+			name := strings.TrimSpace(request.URL.Query().Get("name"))
+			if len(name) > 256 { http.Error(response, "invalid record search", http.StatusBadRequest); return }
+			err, cards := store.ProjectRecordCardsGet(request.Context(), schema.Ref, claims.Principal.Ref, limit, cursor, name)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -1194,7 +1202,7 @@ func workspaceProjectRecords(store *database.Store, tokens *auth.BearerTokens) h
 				result = append(result, projectRecordResponseFromCard(card))
 				records = append(records, card.Record)
 			}
-			nextCursor, err := projectRecordNextCursor(request.Context(), store, schema.Ref, claims.Principal.Ref, records, limit)
+			nextCursor, err := projectRecordNextCursor(request.Context(), store, schema.Ref, claims.Principal.Ref, records, limit, name)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -1873,12 +1881,14 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			return
 		}
 		if request.Method == http.MethodGet {
-			err, files := store.SessionFilesGet(request.Context(), session)
+			pages, ok := collectionPageParameters(response, request, typed_id.SessionFile)
+			if !ok { return }
+			err, files := store.SessionFilesGet(request.Context(), session, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
 			}
-			writeJSON(response, files)
+			writeCollectionPage(response, files, pages, func(file database.SessionFileSummary) string { return file.ID })
 			return
 		}
 		if !sessionActionAllowed(response, request, store, claims, session, authz.SessionFileCreate) {
@@ -2051,7 +2061,9 @@ func workspaceProjectFiles(store *database.Store, tokens *auth.BearerTokens) htt
 		if !ok {
 			return
 		}
-		err, files := store.ProjectFilesGet(request.Context(), project, claims.Principal.Ref)
+		pages, ok := collectionPageParameters(response, request, typed_id.ProjectFile)
+		if !ok { return }
+		err, files := store.ProjectFilesGet(request.Context(), project, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -2069,7 +2081,7 @@ func workspaceProjectFiles(store *database.Store, tokens *auth.BearerTokens) htt
 				CreatedAt: createdAt.Format("2006-01-02T15:04:05.000Z"),
 			})
 		}
-		writeJSON(response, result)
+		writeCollectionPage(response, result, pages, func(file projectFileResponse) string { return file.ID })
 	}
 }
 
@@ -2085,7 +2097,9 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, notes := store.ProjectNotesGet(request.Context(), project, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.ProjectNote)
+			if !ok { return }
+			err, notes := store.ProjectNotesGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2094,7 +2108,7 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			for _, note := range notes {
 				result = append(result, projectNoteResponseFromSummary(note))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(note projectNoteResponse) string { return note.ID })
 		case http.MethodPost:
 			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectNoteCreate) {
 				return
@@ -2225,7 +2239,9 @@ func workspaceProjectTasks(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, tasks := store.ProjectTasksGet(request.Context(), project, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.ProjectTask)
+			if !ok { return }
+			err, tasks := store.ProjectTasksGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2234,7 +2250,7 @@ func workspaceProjectTasks(store *database.Store, tokens *auth.BearerTokens) htt
 			for _, task := range tasks {
 				result = append(result, projectTaskResponseFromSummary(task))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(task taskResponse) string { return task.ID })
 		case http.MethodPost:
 			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectTaskCreate) {
 				return
@@ -2361,20 +2377,21 @@ func workspaceProjectNoteRevisions(store *database.Store, tokens *auth.BearerTok
 		if !ok {
 			return
 		}
-		err, revisions := store.ProjectNoteRevisionsGet(request.Context(), note, claims.Principal.Ref)
+		pages, ok := collectionPageParameters(response, request, "")
+		if !ok { return }
+		err, current := store.ProjectNoteGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
+		if current == nil { http.NotFound(response, request); return }
+		err, revisions := store.ProjectNoteRevisionsGet(request.Context(), note, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if len(revisions) == 0 {
-			http.NotFound(response, request)
 			return
 		}
 		result := make([]noteRevisionResponse, 0, len(revisions))
 		for _, revision := range revisions {
 			result = append(result, projectNoteRevisionResponseFromSummary(revision))
 		}
-		writeJSON(response, result)
+		writeCollectionPage(response, result, pages, func(revision noteRevisionResponse) string { return strconv.Itoa(revision.Revision) })
 	}
 }
 
@@ -2423,7 +2440,9 @@ func workspaceProjectSecrets(store *database.Store, tokens *auth.BearerTokens) h
 		noStore(response)
 		switch request.Method {
 		case http.MethodGet:
-			err, secrets := store.ProjectSecretsGet(request.Context(), project, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.ProjectSecret)
+			if !ok { return }
+			err, secrets := store.ProjectSecretsGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2432,7 +2451,7 @@ func workspaceProjectSecrets(store *database.Store, tokens *auth.BearerTokens) h
 			for _, secret := range secrets {
 				result = append(result, projectSecretResponseFromSummary(secret))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(secret projectSecretResponse) string { return secret.ID })
 		case http.MethodPost:
 			if !projectActionAllowed(response, request, store, claims, project, authz.ProjectSecretCreate) {
 				return
@@ -2561,7 +2580,9 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, notes := store.SessionNotesGet(request.Context(), session, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.SessionNote)
+			if !ok { return }
+			err, notes := store.SessionNotesGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2570,7 +2591,7 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 			for _, note := range notes {
 				result = append(result, sessionNoteResponseFromSummary(note))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(note sessionNoteResponse) string { return note.ID })
 		case http.MethodPost:
 			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionNoteCreate) {
 				return
@@ -2701,7 +2722,9 @@ func workspaceSessionTasks(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		switch request.Method {
 		case http.MethodGet:
-			err, tasks := store.SessionTasksGet(request.Context(), session, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.SessionTask)
+			if !ok { return }
+			err, tasks := store.SessionTasksGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2710,7 +2733,7 @@ func workspaceSessionTasks(store *database.Store, tokens *auth.BearerTokens) htt
 			for _, task := range tasks {
 				result = append(result, sessionTaskResponseFromSummary(task))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(task taskResponse) string { return task.ID })
 		case http.MethodPost:
 			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionTaskCreate) {
 				return
@@ -2837,20 +2860,21 @@ func workspaceSessionNoteRevisions(store *database.Store, tokens *auth.BearerTok
 		if !ok {
 			return
 		}
-		err, revisions := store.SessionNoteRevisionsGet(request.Context(), note, claims.Principal.Ref)
+		pages, ok := collectionPageParameters(response, request, "")
+		if !ok { return }
+		err, current := store.SessionNoteGet(request.Context(), note, claims.Principal.Ref)
+		if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
+		if current == nil { http.NotFound(response, request); return }
+		err, revisions := store.SessionNoteRevisionsGet(request.Context(), note, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
-			return
-		}
-		if len(revisions) == 0 {
-			http.NotFound(response, request)
 			return
 		}
 		result := make([]noteRevisionResponse, 0, len(revisions))
 		for _, revision := range revisions {
 			result = append(result, sessionNoteRevisionResponseFromSummary(revision))
 		}
-		writeJSON(response, result)
+		writeCollectionPage(response, result, pages, func(revision noteRevisionResponse) string { return strconv.Itoa(revision.Revision) })
 	}
 }
 
@@ -2899,7 +2923,9 @@ func workspaceSessionSecrets(store *database.Store, tokens *auth.BearerTokens) h
 		noStore(response)
 		switch request.Method {
 		case http.MethodGet:
-			err, secrets := store.SessionSecretsGet(request.Context(), session, claims.Principal.Ref)
+			pages, ok := collectionPageParameters(response, request, typed_id.SessionSecret)
+			if !ok { return }
+			err, secrets := store.SessionSecretsGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -2908,7 +2934,7 @@ func workspaceSessionSecrets(store *database.Store, tokens *auth.BearerTokens) h
 			for _, secret := range secrets {
 				result = append(result, sessionSecretResponseFromSummary(secret))
 			}
-			writeJSON(response, result)
+			writeCollectionPage(response, result, pages, func(secret sessionSecretResponse) string { return secret.ID })
 		case http.MethodPost:
 			if !sessionActionAllowed(response, request, store, claims, session, authz.SessionSecretCreate) {
 				return
@@ -3154,7 +3180,7 @@ func workspaceProjectFileDownload(store *database.Store, tokens *auth.BearerToke
 
 func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPatch && request.Method != http.MethodDelete {
+		if request.Method != http.MethodGet && request.Method != http.MethodPatch && request.Method != http.MethodDelete {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
 		}
@@ -3167,6 +3193,8 @@ func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http
 			return
 		}
 		switch request.Method {
+		case http.MethodGet:
+			writeJSON(response, projectFileResponseFromModel(*file, object))
 		case http.MethodPatch:
 			if !projectActionAllowed(response, request, store, claims, file.Ref.Project, authz.ProjectFileUpdate) {
 				return
@@ -3817,11 +3845,11 @@ func projectRecordPagination(response http.ResponseWriter, request *http.Request
 	return limit, cursor, true
 }
 
-func projectRecordNextCursor(ctx context.Context, store *database.Store, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, records []model.ProjectRecord, limit int) (string, error) {
+func projectRecordNextCursor(ctx context.Context, store *database.Store, schema model.ProjectRecordSchemaRef, principal model.PrincipalRef, records []model.ProjectRecord, limit int, names ...string) (string, error) {
 	if len(records) < limit {
 		return "", nil
 	}
-	err, more := store.ProjectRecordsGet(ctx, schema, principal, 1, records[len(records)-1].Ref.Id)
+	err, more := store.ProjectRecordsGet(ctx, schema, principal, 1, records[len(records)-1].Ref.Id, names...)
 	if err != nil {
 		return "", err
 	}

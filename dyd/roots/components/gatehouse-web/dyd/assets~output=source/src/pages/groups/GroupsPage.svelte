@@ -21,44 +21,50 @@
     createGroupsController({ activity, onAuthenticationLost }),
   )
 
-  $effect(() => controller.start(workspace.id, signal))
-
-  function ordered<T extends { id: string }>(items: T[]) {
-    return [...items].sort((left, right) => right.id.localeCompare(left.id))
-  }
-
-  function matchesSearch(item: { id: string; name?: string }, search: string) {
-    const query = search.trim().toLocaleLowerCase()
-    return (
-      query === "" ||
-      item.id.toLocaleLowerCase().includes(query) ||
-      item.name?.toLocaleLowerCase().includes(query) === true
-    )
-  }
+  $effect(() => {
+    const workspaceID = workspace.id
+    const routeSignal = signal
+    return untrack(() => controller.start(workspaceID, routeSignal))
+  })
 </script>
 
-<PageBody>
-  <PageHeading>
-    <UI.Heading level={1}>Groups</UI.Heading>
-  </PageHeading>
-  <UI.Field>
-    <UI.Label layout="field"
-      ><UI.Text>Search groups</UI.Text><UI.Input
-        type="search"
-        autocomplete="off"
-        placeholder="Search groups"
-        bind:value={controller.state.search}
-      /></UI.Label
-    >
-  </UI.Field>
-  <UI.List>
-    {#each ordered(controller.state.groups.filter( (group) => matchesSearch(group, controller.state.search), )) as group}
-      <UI.Item>
-        <UI.Text>{group.name ?? "New Group"}</UI.Text><UI.Text
-          as="small"
-          size="small">{group.id}</UI.Text
-        >
-      </UI.Item>
-    {:else}<UI.Notice>No groups match your search.</UI.Notice>{/each}
-  </UI.List>
-</PageBody>
+<UI.AdminContent>
+  <UI.AdminHeader
+    title="Groups"
+    description="Your enabled group memberships in this workspace."
+  />
+  <UI.SearchToolbar
+    label="Search groups"
+    placeholder="Group name or alias"
+    bind:value={controller.page.state.search}
+    loading={controller.state.loading || controller.page.state.busy}
+    onsearch={() =>
+      void controller.page.search(() => controller.load(workspace.id, signal))}
+  />
+  {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+      >{controller.state.error}</UI.Notice
+    >{/if}
+  <UI.RecordTable headers={["Name"]}>
+    {#each controller.state.groups as group (group.id)}<UI.RecordRow>
+        <UI.RecordCell primary>{group.name ?? "Unnamed group"}</UI.RecordCell>
+      </UI.RecordRow>{:else}<UI.TableEmpty
+        columns={1}
+        message={controller.state.loading
+          ? "Searching groups…"
+          : "No groups match your search."}
+      />{/each}
+  </UI.RecordTable>
+  <UI.PaginationFooter
+    noun="groups"
+    count={controller.state.groups.length}
+    previous={controller.page.state.history.length > 0}
+    next={!!controller.page.state.next}
+    loading={controller.state.loading || controller.page.state.busy}
+    onprevious={() =>
+      void controller.page.previous(() =>
+        controller.load(workspace.id, signal),
+      )}
+    onnext={() =>
+      void controller.page.next(() => controller.load(workspace.id, signal))}
+  />
+</UI.AdminContent>

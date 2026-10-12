@@ -6,6 +6,7 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
   import {
     chatFileDownloadPath,
     fetchChatFiles,
@@ -28,6 +29,14 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const page = createCollectionPage()
+  const reloadFiles = () =>
+    loadFiles(
+      generation,
+      currentRoute.workspaceID,
+      currentRoute.sessionID,
+      abortController!.signal,
+    )
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   let sessionStatus = $state<Status>("checking")
@@ -71,6 +80,7 @@
   })
 
   function activate(route: FilesRoute): () => void {
+    page.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -179,14 +189,27 @@
     if (showLoading && isCurrent(value, workspaceID, sessionID, signal))
       filesStatus = "checking"
     try {
-      const response = await fetchChatFiles(workspaceID, sessionID, signal)
+      const requested = page.key()
+      const response = await fetchChatFiles(
+        workspaceID,
+        sessionID,
+        signal,
+        page.params(),
+      )
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
       if (response.status === 401) {
         runtime.requireLogin()
         return false
       }
       if (!response.ok) throw new Error("session files unavailable")
-      files = (await response.json()) as ChatFile[]
+      const loaded = (await response.json()) as ChatFile[]
+      if (
+        !isCurrent(value, workspaceID, sessionID, signal) ||
+        requested !== page.key()
+      )
+        return false
+      files = loaded
+      page.accept(response)
       filesStatus = "ready"
       return true
     } catch {
@@ -260,7 +283,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={workspacePath(workspace.id)}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             {#if session !== null}
@@ -306,46 +329,56 @@
           <UI.Text as="p" tone="muted">This chat could not be loaded.</UI.Text>
         {:else}
           <PageBody fluid>
-            <PageHeading>
-              <UI.Heading level={2}>Files</UI.Heading>
-            </PageHeading>
-            <UI.List>
-              {#if filesStatus === "checking"}
-                <UI.Text as="p" tone="muted" aria-busy="true"
-                  >Loading files...</UI.Text
-                >
-              {:else if filesStatus === "unavailable"}
-                <UI.Text as="p" tone="muted">Files could not be loaded.</UI.Text
-                >
-              {:else}
-                {#each files as file (file.id)}
-                  <UI.Item>
-                    <UI.Stack as="span"
-                      ><UI.Text>{file.name}</UI.Text><UI.Row
-                        tone="muted"
-                        as="small"
-                        ><UI.Text>{file.media_type ?? "Unknown type"}</UI.Text
-                        ><UI.Text>{sizeLabel(file.size)}</UI.Text></UI.Row
-                      ></UI.Stack
-                    >
-                    <UI.Link
+            <UI.AdminHeader
+              title="Files"
+              description="Inspect and download chat attachments."
+            />
+            <UI.SearchToolbar
+              label="Search files"
+              placeholder="File name or media type"
+              bind:value={page.state.search}
+              loading={page.state.busy || filesStatus === "checking"}
+              onsearch={() => void page.search(reloadFiles)}
+            />
+            {#if filesStatus === "unavailable"}<UI.Notice
+                variant="destructive"
+                role="alert">Files could not be loaded.</UI.Notice
+              ><UI.Button variant="outline" onclick={() => void reloadFiles()}
+                >Try again</UI.Button
+              >{/if}
+            <UI.RecordTable headers={["Name", "Media type", "Size", "Actions"]}>
+              {#each files as file (file.id)}<UI.RecordRow>
+                  <UI.RecordCell primary>{file.name}</UI.RecordCell>
+                  <UI.RecordCell>{file.media_type ?? "Unknown"}</UI.RecordCell>
+                  <UI.RecordCell>{sizeLabel(file.size)}</UI.RecordCell>
+                  <UI.RecordCell
+                    ><UI.Link
                       size="sm"
                       href={chatFileDownloadPath(
                         workspace.id,
-                        session?.id ?? "",
+                        currentRoute.sessionID,
                         file.id,
                       )}
                       target="_blank"
                       rel="noopener">Download</UI.Link
-                    >
-                  </UI.Item>
-                {:else}
-                  <UI.Text as="p" tone="muted">
-                    No files attached to this session.
-                  </UI.Text>
-                {/each}
-              {/if}
-            </UI.List>
+                    ></UI.RecordCell
+                  >
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={4}
+                  message={filesStatus === "checking"
+                    ? "Loading files…"
+                    : "No matching files."}
+                />{/each}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="files"
+              count={files.length}
+              previous={page.state.history.length > 0}
+              next={!!page.state.next}
+              loading={page.state.busy || filesStatus === "checking"}
+              onprevious={() => void page.previous(reloadFiles)}
+              onnext={() => void page.next(reloadFiles)}
+            />
           </PageBody>
         {/if}
       </SidebarPage.Body>

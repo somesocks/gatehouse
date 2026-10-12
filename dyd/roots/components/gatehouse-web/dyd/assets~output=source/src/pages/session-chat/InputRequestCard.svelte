@@ -116,7 +116,10 @@
 </script>
 
 {#if !resolved}
-  <UI.Message aria-label={request.event.payload.description ?? "Input form"}>
+  <UI.Message
+    purpose="form"
+    aria-label={request.event.payload.description ?? "Input form"}
+  >
     <UI.Heading level={2}
       >{controller?.state.form?.title ??
         request.event.payload.description ??

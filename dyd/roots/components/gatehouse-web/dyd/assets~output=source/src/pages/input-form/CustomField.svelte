@@ -26,7 +26,10 @@
     const opener = onOpen
     const key = JSON.stringify(path)
     const attempt = retry
-    if (opener === undefined) return
+    if (opener === undefined) {
+      error = "This tool is unavailable for this field."
+      return
+    }
     let active = true
     url = ""
     error = ""
@@ -69,14 +72,14 @@
         href={url}
         target="_blank"
         rel="noopener noreferrer"
-        referrerpolicy="no-referrer">Open</RouterLink
+        referrerpolicy="no-referrer">Open {label}</RouterLink
       >
     {:else if error === ""}
       <UI.Text role="status">Preparing tool link…</UI.Text>
     {/if}
     {#if value !== undefined || saving}
       {#if value !== undefined}<UI.Text size="small" role="status"
-          >Saved</UI.Text
+          >Saved selection</UI.Text
         >{/if}
       <UI.Button
         variant="ghost"
@@ -94,6 +97,9 @@
       </UI.Button>
     {/if}
   </UI.Row>
+  {#if url}<UI.Text size="small" tone="muted"
+      >Save your selection in the tool, then return here to submit the form.</UI.Text
+    >{/if}
   {#if error !== ""}
     <UI.Text as="p" role="alert">{error}</UI.Text>
     <UI.Button

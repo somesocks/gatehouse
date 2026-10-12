@@ -2,6 +2,7 @@ import type { Route } from "./route"
 
 export type RouteOwner =
   | "project-dashboard"
+  | "project-form"
   | "project-files"
   | "project-notes"
   | "project-tasks"
@@ -54,25 +55,36 @@ export function routeOwner(route: Route): RouteOwner {
   switch (route.kind) {
     case "project":
       return "project-dashboard"
+    case "project-new":
+    case "project-edit":
+      return "project-form"
     case "project-files":
     case "project-file":
       return "project-files"
     case "project-notes":
     case "project-note-new":
     case "project-note":
+    case "project-note-edit":
+    case "project-note-revision":
       return "project-notes"
     case "project-tasks":
     case "project-task-new":
     case "project-task":
+    case "project-task-edit":
       return "project-tasks"
     case "project-secrets":
     case "project-secret-new":
     case "project-secret":
+    case "project-secret-edit":
       return "project-secrets"
     case "project-records":
     case "project-record-schema-new":
     case "project-record-schema":
     case "project-record-schema-edit":
+    case "project-record-schema-overview":
+    case "project-record-fields":
+    case "project-record-field-new":
+    case "project-record-field-edit":
     case "project-record-new":
     case "project-record":
     case "project-record-edit":
@@ -90,10 +102,12 @@ export function routeOwner(route: Route): RouteOwner {
     case "session-tasks":
     case "session-task-new":
     case "session-task":
+    case "session-task-edit":
       return "session-tasks"
     case "session-secrets":
     case "session-secret-new":
     case "session-secret":
+    case "session-secret-edit":
       return "session-secrets"
     case "session-collection":
       return "chat-collection"

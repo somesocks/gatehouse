@@ -2,9 +2,12 @@
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createCollectionPage } from "../../utils/collection-page.svelte"
+  import { formatFileSize } from "../../utils/file-size"
 
   import {
     fetchProjectFiles,
+    fetchProjectFile,
     finishProjectFileUpload,
     projectFileDownloadPath,
     removeProjectFile,
@@ -21,6 +24,9 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const page = createCollectionPage()
+  const reloadFiles = () =>
+    loadFiles(currentRoute, generation, abortController!.signal)
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
   let projectStatus = $state<Status>("checking")
@@ -74,6 +80,7 @@
   $effect(() => activate(currentRoute))
 
   function activate(route: FilesRoute): () => void {
+    page.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
@@ -184,18 +191,40 @@
   ): Promise<boolean> {
     if (showLoading && isCurrent(value, route)) filesStatus = "checking"
     try {
-      const response = await fetchProjectFiles(
-        route.workspaceID,
-        route.projectID,
-        signal,
-      )
+      const requested = page.key()
+      const response =
+        route.kind === "project-file"
+          ? await fetchProjectFile(
+              route.workspaceID,
+              route.projectID,
+              route.fileID,
+              signal,
+            )
+          : await fetchProjectFiles(
+              route.workspaceID,
+              route.projectID,
+              signal,
+              page.params(),
+            )
       if (!isCurrent(value, route) || signal.aborted) return false
       if (response.status === 401) {
         runtime.requireLogin()
         return false
       }
+      if (response.status === 404 && route.kind === "project-file") {
+        runtime.navigate(filesPath(route.workspaceID, route.projectID), true)
+        return false
+      }
       if (!response.ok) throw new Error()
-      files = sortByCreated((await response.json()) as ProjectFile[])
+      const result = (await response.json()) as ProjectFile | ProjectFile[]
+      if (
+        !isCurrent(value, route) ||
+        requested !== page.key() ||
+        signal.aborted
+      )
+        return false
+      files = Array.isArray(result) ? result : [result]
+      page.accept(response)
       filesStatus = "ready"
       return true
     } catch {
@@ -346,7 +375,7 @@
           <UI.Breadcrumb.List>
             <UI.Breadcrumb.Item
               ><RouterLink href={`/app/wsp/${encodeURIComponent(workspace.id)}`}
-                >{workspace.name ?? workspace.id}</RouterLink
+                >{workspace.name ?? "Workspace"}</RouterLink
               ></UI.Breadcrumb.Item
             >
             <UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
@@ -400,12 +429,29 @@
                   abortController!.signal,
                 )}>Try again</UI.Button
             >
-          {:else if currentRoute.kind === "project-file"}<PageHeading
-              as="header"
-              ><UI.Text as="p" size="eyebrow">Project file</UI.Text>
-              <UI.Heading level={1}>{selectedFile?.name ?? "File"}</UI.Heading
-              ></PageHeading
-            >
+          {:else if currentRoute.kind === "project-file"}
+            {#snippet fileActions()}{#if selectedFile}<UI.Link
+                  variant="default"
+                  href={projectFileDownloadPath(
+                    workspace.id,
+                    currentRoute.projectID,
+                    selectedFile.id,
+                  )}
+                  target="_blank"
+                  rel="noopener">Download</UI.Link
+                ><UI.Button
+                  variant="outline"
+                  disabled={removingFileIDs.has(selectedFile.id)}
+                  onclick={() => selectedFile && void deleteFile(selectedFile)}
+                  >{removingFileIDs.has(selectedFile.id)
+                    ? "Removing…"
+                    : "Remove"}</UI.Button
+                >{/if}{/snippet}
+            <UI.AdminHeader
+              kind="Project file"
+              title={selectedFile?.name ?? "File"}
+              actions={fileActions}
+            />
             {#if filesStatus === "checking"}<UI.Notice>
                 Loading file...
               </UI.Notice>
@@ -423,161 +469,111 @@
                     abortController!.signal,
                   )}>Try again</UI.Button
               >
-            {:else if selectedFile !== null}<UI.Panel>
-                <UI.Row justify="between">
-                  <UI.Heading level={2}>File details</UI.Heading>
-                  <UI.Row>
-                    <UI.Group>
-                      <UI.Link
-                        variant="default"
-                        href={projectFileDownloadPath(
-                          workspace.id,
-                          currentRoute.projectID,
-                          selectedFile.id,
-                        )}
-                        target="_blank"
-                        rel="noopener">Download</UI.Link
-                      >
-                    </UI.Group>
-                    <UI.Group>
-                      <UI.Button
-                        variant="outline"
-                        size="sm"
-                        type="button"
-                        disabled={removingFileIDs.has(selectedFile.id)}
-                        onclick={() => void deleteFile(selectedFile)}
-                        >{removingFileIDs.has(selectedFile.id)
-                          ? "Removing..."
-                          : "Remove"}</UI.Button
-                      >
-                    </UI.Group>
-                  </UI.Row>
-                </UI.Row>
-                <UI.Stack as="dl">
-                  <UI.Item>
-                    <UI.Stack gap="tight">
-                      <UI.Text as="dt" size="small">
-                        <UI.Text as="small" size="small">Name</UI.Text>
-                      </UI.Text>
-                      <UI.Text as="dd">{selectedFile.name}</UI.Text>
-                    </UI.Stack>
-                  </UI.Item>
-                  <UI.Item>
-                    <UI.Stack gap="tight">
-                      <UI.Text as="dt" size="small">
-                        <UI.Text as="small" size="small">Created</UI.Text>
-                      </UI.Text>
-                      <UI.Text as="dd">
-                        <UI.Text as="time" datetime={selectedFile.created_at}
-                          >{dateLabel(selectedFile.created_at)}</UI.Text
-                        >
-                      </UI.Text>
-                    </UI.Stack>
-                  </UI.Item>
-                  <UI.Item>
-                    <UI.Stack gap="tight">
-                      <UI.Text as="dt" size="small">
-                        <UI.Text as="small" size="small">Size</UI.Text>
-                      </UI.Text>
-                      <UI.Text as="dd">{selectedFile.size} bytes</UI.Text>
-                    </UI.Stack>
-                  </UI.Item>
-                  <UI.Item>
-                    <UI.Stack gap="tight">
-                      <UI.Text as="dt" size="small">
-                        <UI.Text as="small" size="small">Media type</UI.Text>
-                      </UI.Text>
-                      <UI.Text as="dd">
-                        {selectedFile.media_type ?? "Unknown"}
-                      </UI.Text>
-                    </UI.Stack>
-                  </UI.Item>
-                  <UI.Item>
-                    <UI.Stack gap="tight">
-                      <UI.Text as="dt" size="small">
-                        <UI.Text as="small" size="small">Fingerprint</UI.Text>
-                      </UI.Text>
-                      <UI.Text as="dd">{selectedFile.fingerprint}</UI.Text>
-                    </UI.Stack>
-                  </UI.Item>
-                </UI.Stack>
-              </UI.Panel>{/if}
+            {:else if selectedFile !== null}<UI.DetailSection
+                title="File information"
+              >
+                <UI.Property label="Created"
+                  >{dateLabel(selectedFile.created_at)}</UI.Property
+                >
+                <UI.Property label="Size"
+                  >{formatFileSize(selectedFile.size)}</UI.Property
+                >
+                <UI.Property label="Media type"
+                  >{selectedFile.media_type ?? "Unknown"}</UI.Property
+                >
+              </UI.DetailSection>{/if}
             {#if filesError !== ""}<UI.Notice
                 variant="destructive"
                 aria-live="polite"
               >
                 {filesError}
               </UI.Notice>{/if}
-          {:else}<PageHeading as="header"
-              ><UI.Text as="p" size="eyebrow">Project files</UI.Text>
-              <UI.Heading level={1}>Files</UI.Heading></PageHeading
-            >
-            <UI.Panel>
-              <UI.Row justify="between">
-                <UI.Heading level={2}>Project Files</UI.Heading>
-                <UI.Button
-                  variant="default"
-                  size="sm"
-                  type="button"
-                  disabled={uploadingFiles > 0}
-                  onclick={() => fileInput?.click()}
-                  >{uploadingFiles > 0
-                    ? "Uploading..."
-                    : "Upload files"}</UI.Button
-                >
-              </UI.Row>
-              <UI.FileInput
-                hidden
-                type="file"
-                autocomplete="off"
-                multiple
-                bind:ref={fileInput}
-                onchange={(event) => void uploadFiles(event.currentTarget)}
-              />
-              {#if filesStatus === "checking"}<UI.Notice>
-                  Loading files...
-                </UI.Notice>
-              {:else if filesStatus === "unavailable"}<UI.Notice>
-                  Files could not be loaded.
-                </UI.Notice>
-                <UI.Button
-                  variant="default"
-                  size="sm"
-                  type="button"
-                  onclick={() =>
-                    void loadFiles(
-                      currentRoute,
-                      generation,
-                      abortController!.signal,
-                    )}>Try again</UI.Button
-                >
-              {:else}{#each files as file (file.id)}<RouterLink
-                    variant="item"
-                    href={filePath(
-                      workspace.id,
-                      currentRoute.projectID,
-                      file.id,
-                    )}
-                    ><UI.Stack as="span" gap="tight"
-                      ><UI.Text>{file.name}</UI.Text><UI.Row
-                        as="span"
-                        gap="small"
-                        ><UI.Text as="time" datetime={file.created_at}
-                          >{dateLabel(file.created_at)}</UI.Text
-                        ><UI.Text>{file.size} bytes</UI.Text
-                        >{#if file.media_type !== undefined}<UI.Text
-                            >{file.media_type}</UI.Text
-                          >{/if}</UI.Row
-                      ></UI.Stack
-                    ></RouterLink
-                  >{:else}<UI.Notice>No files yet.</UI.Notice>{/each}{/if}
-              {#if filesError !== ""}<UI.Notice
-                  variant="destructive"
-                  aria-live="polite"
-                >
-                  {filesError}
-                </UI.Notice>{/if}
-            </UI.Panel>
+          {:else}{#snippet uploadActions()}
+              <UI.Button
+                variant="default"
+                size="sm"
+                type="button"
+                disabled={uploadingFiles > 0}
+                onclick={() => fileInput?.click()}
+                >{uploadingFiles > 0
+                  ? "Uploading..."
+                  : "Upload files"}</UI.Button
+              >
+            {/snippet}
+            <UI.AdminHeader
+              title="Files"
+              description="Upload, inspect, and download project files."
+              actions={uploadActions}
+            />
+            <UI.SearchToolbar
+              label="Search files"
+              placeholder="File name or media type"
+              bind:value={page.state.search}
+              loading={page.state.busy || filesStatus === "checking"}
+              onsearch={() => void page.search(reloadFiles)}
+            />
+            <UI.FileInput
+              hidden
+              type="file"
+              autocomplete="off"
+              multiple
+              bind:ref={fileInput}
+              onchange={(event) => void uploadFiles(event.currentTarget)}
+            />
+            {#if filesStatus === "checking"}<UI.Notice>
+                Loading files...
+              </UI.Notice>
+            {:else if filesStatus === "unavailable"}<UI.Notice>
+                Files could not be loaded.
+              </UI.Notice>
+              <UI.Button
+                variant="default"
+                size="sm"
+                type="button"
+                onclick={() =>
+                  void loadFiles(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Try again</UI.Button
+              >
+            {/if}
+            <UI.RecordTable headers={["Name", "Media type", "Size", "Created"]}>
+              {#each files as file (file.id)}<UI.RecordRow>
+                  <UI.RecordCell primary
+                    ><RouterLink
+                      href={filePath(
+                        workspace.id,
+                        currentRoute.projectID,
+                        file.id,
+                      )}>{file.name}</RouterLink
+                    ></UI.RecordCell
+                  >
+                  <UI.RecordCell>{file.media_type ?? "Unknown"}</UI.RecordCell>
+                  <UI.RecordCell>{formatFileSize(file.size)}</UI.RecordCell>
+                  <UI.RecordCell>{dateLabel(file.created_at)}</UI.RecordCell>
+                </UI.RecordRow>{:else}<UI.TableEmpty
+                  columns={4}
+                  message={filesStatus === "checking"
+                    ? "Loading files…"
+                    : "No matching files."}
+                />{/each}
+            </UI.RecordTable>
+            <UI.PaginationFooter
+              noun="files"
+              count={files.length}
+              previous={page.state.history.length > 0}
+              next={!!page.state.next}
+              loading={page.state.busy || filesStatus === "checking"}
+              onprevious={() => void page.previous(reloadFiles)}
+              onnext={() => void page.next(reloadFiles)}
+            />
+            {#if filesError !== ""}<UI.Notice
+                variant="destructive"
+                aria-live="polite"
+              >
+                {filesError}
+              </UI.Notice>{/if}
           {/if}
         </PageBody></SidebarPage.Body
       >

@@ -1,3 +1,5 @@
+import { collectionQueryPath, type CollectionQuery } from "./collection-query"
+
 export type TaskAuthor = {
   principal?: { id: string; name?: string }
   agent?: { id: string; label?: string }
@@ -41,11 +43,15 @@ export async function fetchProjectTasks(
   workspaceID: string,
   projectID: string,
   signal?: AbortSignal,
+  query?: CollectionQuery,
 ): Promise<Response> {
-  return await fetch(projectTasksAPIPath(workspaceID, projectID), {
-    credentials: "same-origin",
-    ...(signal === undefined ? {} : { signal }),
-  })
+  return await fetch(
+    collectionQueryPath(projectTasksAPIPath(workspaceID, projectID), query),
+    {
+      credentials: "same-origin",
+      ...(signal === undefined ? {} : { signal }),
+    },
+  )
 }
 
 export async function fetchProjectTask(
