@@ -11,6 +11,7 @@
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import { onMount } from "svelte"
   const runtime = useRuntime()
+  const lifetime = new AbortController()
   let subjects = $state<SystemPrincipal[]>([])
   let updating = $state(new Set<string>())
   let mutationError = $state("")
@@ -32,7 +33,10 @@
   })
   onMount(() => {
     void controller.search()
-    return controller.stop
+    return () => {
+      lifetime.abort()
+      controller.stop()
+    }
   })
   function name(id: string) {
     const principal = subjects.find((p) => p.id === id)
@@ -50,17 +54,25 @@
     updating = new Set(updating).add(grant.ref.id)
     mutationError = ""
     try {
-      const response = await updateSystemGrant(grant.ref.id, !grant.enabled)
+      const response = await updateSystemGrant(
+        grant.ref.id,
+        !grant.enabled,
+        lifetime.signal,
+      )
+      if (lifetime.signal.aborted) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
       else if (!response.ok) mutationError = "Grant could not be updated."
       else await controller.reload()
     } catch {
-      mutationError = "Grant could not be updated."
+      if (!lifetime.signal.aborted)
+        mutationError = "Grant could not be updated."
     } finally {
-      const next = new Set(updating)
-      next.delete(grant.ref.id)
-      updating = next
+      if (!lifetime.signal.aborted) {
+        const next = new Set(updating)
+        next.delete(grant.ref.id)
+        updating = next
+      }
     }
   }
 </script>
@@ -85,7 +97,7 @@
       bind:value={controller.state.search}
       bind:status={controller.state.status}
       statuses
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onsearch={() => void controller.search()}
     />
     {#if controller.state.error || mutationError}<UI.Notice
@@ -93,9 +105,11 @@
         role="alert">{mutationError || controller.state.error}</UI.Notice
       >{/if}
     <UI.RecordTable headers={["Principal", "Role", "Grant status", "Actions"]}>
-      {#if controller.state.loading}<UI.TableEmpty
+      {#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={4}
-          message="Loading grants…"
+          message={controller.state.error
+            ? "Grants could not be loaded."
+            : "Loading grants…"}
         />{:else}{#each controller.state.items as grant (grant.ref.id)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -138,7 +152,7 @@
       count={controller.state.items.length}
       previous={!!controller.state.history.length}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

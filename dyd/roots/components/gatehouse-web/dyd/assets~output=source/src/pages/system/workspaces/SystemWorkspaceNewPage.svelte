@@ -2,7 +2,7 @@
   import * as UI from "../../../ui"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import { untrack } from "svelte"
+  import { onDestroy, untrack } from "svelte"
   import { createSystemWorkspaceFormController } from "./system-workspaces-controller.svelte"
   const runtime = useRuntime()
   const controller = untrack(() =>
@@ -11,8 +11,10 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
+  onDestroy(controller.stop)
   async function create() {
-    if (await controller.create())
+    const route = runtime.state.route
+    if ((await controller.create()) && runtime.state.route === route)
       runtime.navigate("/app/system/workspaces", true)
   }
 </script>

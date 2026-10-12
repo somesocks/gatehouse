@@ -32,7 +32,8 @@ export function createAgentProviderListController(options: {
     const unsubscribe = options.activity.subscribe(
       [{ name: "agent-providers", topic: "sys", events: ["agent_provider.*"] }],
       async () => {
-        await directory.reload()
+        if (!(await directory.reload()))
+          throw new Error("Provider refresh failed")
       },
     )
     return () => {

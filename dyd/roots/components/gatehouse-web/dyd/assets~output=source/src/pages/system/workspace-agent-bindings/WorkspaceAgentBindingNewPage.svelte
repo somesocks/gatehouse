@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import { untrack } from "svelte"
+  import { onDestroy, untrack } from "svelte"
   import { createWorkspaceAgentBindingsController } from "./workspace-agent-bindings-controller.svelte"
   import WorkspaceAgentBindingFields from "./WorkspaceAgentBindingFields.svelte"
   import SystemWorkspaceFrame from "../workspaces/SystemWorkspaceFrame.svelte"
@@ -15,6 +15,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
+  onDestroy(controller.stop)
   async function create() {
     const route = runtime.state.route
     await controller.create()

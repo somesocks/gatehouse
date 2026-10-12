@@ -3,6 +3,7 @@ import {
   updateSystemWorkspace,
   type SystemWorkspace,
 } from "../../../app/system"
+import { createLoadState } from "../../../utils/load-state.svelte"
 
 export function createSystemWorkspaceDetailController({
   onAuthenticationLost,
@@ -11,12 +12,25 @@ export function createSystemWorkspaceDetailController({
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const resource = createLoadState()
+  const errors = $state({ value: "" })
+  let owner = ""
   const state = $state({
     workspace: null as SystemWorkspace | null,
     form: { name: "", enabled: true },
-    loading: true,
+    get loading() {
+      return resource.loading
+    },
+    get reloading() {
+      return resource.reloading
+    },
     saving: false,
-    error: "",
+    get error() {
+      return errors.value || resource.state.error
+    },
+    set error(value: string) {
+      errors.value = value
+    },
   })
   let generation = 0
   let request: AbortController | undefined
@@ -26,7 +40,8 @@ export function createSystemWorkspaceDetailController({
     currentGeneration: number,
     signal: AbortSignal,
   ): Promise<void> {
-    state.loading = true
+    const token = resource.begin(signal)
+    signal = token.signal
     state.error = ""
     try {
       const response = await fetchSystemWorkspace(workspaceID, signal)
@@ -40,22 +55,26 @@ export function createSystemWorkspaceDetailController({
         return
       }
       if (response.status === 404) {
-        state.workspace = null
-        state.error = "Workspace was not found."
-        return
+        throw new Error("Workspace was not found.")
       }
       if (!response.ok) {
-        state.error = "Workspace could not be loaded."
-        return
+        throw new Error("Workspace could not be loaded.")
       }
       const workspace = (await response.json()) as SystemWorkspace
       if (currentGeneration !== generation || signal.aborted) return
-      state.workspace = workspace
-      state.form = { name: workspace.name ?? "", enabled: workspace.enabled }
-    } catch {
-      if (!signal.aborted) state.error = "Workspace could not be loaded."
+      const first = !resource.state.hasLoaded
+      token.commit(() => {
+        state.workspace = workspace
+        if (first)
+          state.form = {
+            name: workspace.name ?? "",
+            enabled: workspace.enabled,
+          }
+      })
+    } catch (error) {
+      token.fail(error)
     } finally {
-      if (currentGeneration === generation) state.loading = false
+      token.finish()
     }
   }
 
@@ -63,14 +82,19 @@ export function createSystemWorkspaceDetailController({
     const currentGeneration = ++generation
     request?.abort()
     request = new AbortController()
-    state.workspace = null
-    state.form = { name: "", enabled: true }
+    if (owner !== workspaceID) {
+      owner = workspaceID
+      resource.reset()
+      state.workspace = null
+      state.form = { name: "", enabled: true }
+    }
     state.saving = false
     void loadWorkspace(workspaceID, currentGeneration, request.signal)
     return () => {
       if (currentGeneration === generation) {
         generation += 1
         request?.abort()
+        resource.stop()
         state.saving = false
       }
     }
@@ -82,10 +106,14 @@ export function createSystemWorkspaceDetailController({
     state.saving = true
     state.error = ""
     try {
-      const response = await updateSystemWorkspace(workspaceID, {
-        name: state.form.name,
-        enabled: state.form.enabled,
-      })
+      const response = await updateSystemWorkspace(
+        workspaceID,
+        {
+          name: state.form.name,
+          enabled: state.form.enabled,
+        },
+        request?.signal,
+      )
       if (currentGeneration !== generation) return false
       if (response.status === 401) {
         onAuthenticationLost()
@@ -106,6 +134,7 @@ export function createSystemWorkspaceDetailController({
       }
       const workspace = (await response.json()) as SystemWorkspace
       if (currentGeneration !== generation) return false
+      resource.stop()
       state.workspace = workspace
       state.form = { name: workspace.name ?? "", enabled: workspace.enabled }
       return true
@@ -118,5 +147,13 @@ export function createSystemWorkspaceDetailController({
     }
   }
 
-  return { state, load, save }
+  return {
+    state,
+    load,
+    save,
+    reload: () =>
+      owner && request
+        ? loadWorkspace(owner, generation, request.signal)
+        : Promise.resolve(),
+  }
 }

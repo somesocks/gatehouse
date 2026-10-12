@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import {
     PageBody,
     PageHeading,
@@ -74,6 +76,9 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const ownerLoad = createLoadState()
+  const tasksLoad = createLoadState()
+  const detailLoad = createLoadState()
   const page = createCollectionPage()
   const reloadTasks = () =>
     loadTasks(currentRoute, generation, abortController!.signal)
@@ -86,11 +91,10 @@
     { value: "cancelled", label: "Cancelled" },
   ]
   let owner = $state<Owner | null>(null)
-  let ownerStatus = $state<Status>("checking")
+  const ownerStatus = $derived(ownerLoad.status)
   let tasks = $state<Task[]>([])
-  let tasksStatus = $state<Status>("checking")
+  const tasksStatus = $derived(tasksLoad.status)
   let active = $state<Task | null>(null)
-  let detailStatus = $state<Status>("ready")
   let editing = $state(false)
   let saving = $state(false)
   let deleting = $state(false)
@@ -104,6 +108,9 @@
   let unsubscribe: (() => void) | undefined
 
   const currentRoute = $derived(runtime.state.route as TaskRoute)
+  const detailStatus = $derived(
+    "taskID" in currentRoute ? detailLoad.status : "ready",
+  )
   const workspace = $derived(
     access.state.workspaces.find(
       (candidate) => candidate.id === currentRoute.workspaceID,
@@ -148,24 +155,33 @@
     resourceID(currentRoute) === resourceID(route) &&
     isProjectRoute(currentRoute) === isProjectRoute(route)
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: TaskRoute): () => void {
     page.reset()
+    ownerLoad.reset()
+    tasksLoad.reset()
+    detailLoad.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     owner = null
-    ownerStatus = "checking"
     tasks = []
-    tasksStatus = "checking"
     active = null
-    detailStatus = isDetailRoute(route) ? "checking" : "ready"
     editing = route.kind.endsWith("-task-new")
     saving = false
     deleting = false
@@ -187,6 +203,9 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        ownerLoad.stop()
+        tasksLoad.stop()
+        detailLoad.stop()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -226,7 +245,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, route, signal)) ownerStatus = "checking"
+    const request = ownerLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = isProjectRoute(route)
         ? await fetchProject(route.workspaceID, route.projectID, signal)
@@ -248,12 +270,15 @@
       if (!response.ok) throw new Error("owner unavailable")
       const loaded = (await response.json()) as Owner
       if (!isCurrent(value, route, signal)) return false
-      owner = loaded
-      ownerStatus = "ready"
-      return true
+      return request.commit(() => {
+        owner = loaded
+      })
     } catch {
-      if (isCurrent(value, route, signal)) ownerStatus = "unavailable"
+      if (isCurrent(value, route, signal))
+        request.fail(new Error("Project or chat could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -262,6 +287,7 @@
     value: number,
     signal: AbortSignal,
   ): void {
+    unsubscribe?.()
     const project = isProjectRoute(route)
     const event = project ? "project_task.*" : "session_task.*"
     const ownerEvent = project ? "project.*" : "session.*"
@@ -276,12 +302,31 @@
       async ({ signal: refreshSignal }) => {
         if (!isCurrent(value, route, signal) || refreshSignal.aborted) return
         const refreshed = await Promise.all([
-          loadOwner(route, value, signal, false),
+          loadOwner(
+            route,
+            value,
+            AbortSignal.any([signal, refreshSignal]),
+            false,
+          ),
           ...(route.kind.endsWith("-tasks")
-            ? [loadTasks(route, value, signal, false)]
+            ? [
+                loadTasks(
+                  route,
+                  value,
+                  AbortSignal.any([signal, refreshSignal]),
+                  false,
+                ),
+              ]
             : []),
           ...(isDetailRoute(route)
-            ? [loadDetail(route.taskID, route, value, signal)]
+            ? [
+                loadDetail(
+                  route.taskID,
+                  route,
+                  value,
+                  AbortSignal.any([signal, refreshSignal]),
+                ),
+              ]
             : []),
         ])
         if (
@@ -301,7 +346,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, route, signal)) tasksStatus = "checking"
+    const request = tasksLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const requested = page.key()
       const response = isProjectRoute(route)
@@ -326,13 +374,16 @@
       const loaded = (await response.json()) as Task[]
       if (!isCurrent(value, route, signal)) return false
       if (requested !== page.key()) return false
-      tasks = loaded
-      page.accept(response)
-      tasksStatus = "ready"
-      return true
+      return request.commit(() => {
+        tasks = loaded
+        page.accept(response)
+      })
     } catch {
-      if (isCurrent(value, route, signal)) tasksStatus = "unavailable"
+      if (isCurrent(value, route, signal))
+        request.fail(new Error("Tasks could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -342,7 +393,10 @@
     value: number,
     signal: AbortSignal,
   ): Promise<boolean> {
-    if (isCurrent(value, route, signal)) detailStatus = "checking"
+    const request = detailLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = isProjectRoute(route)
         ? await fetchProjectTask(
@@ -369,13 +423,16 @@
       if (!response.ok) throw new Error("task unavailable")
       const loaded = (await response.json()) as Task
       if (!isCurrent(value, route, signal)) return false
-      active = loaded
-      if (route.kind.endsWith("-edit") && !editing) populateEdit()
-      detailStatus = "ready"
-      return true
+      return request.commit(() => {
+        active = loaded
+        if (route.kind.endsWith("-edit") && !editing) populateEdit()
+      })
     } catch {
-      if (isCurrent(value, route, signal)) detailStatus = "unavailable"
+      if (isCurrent(value, route, signal))
+        request.fail(new Error("Task could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -402,6 +459,7 @@
   }
 
   async function save(): Promise<void> {
+    if (saving || deleting) return
     if (title.trim() === "") {
       error = "Title is required."
       return
@@ -630,6 +688,24 @@
       >
       <SidebarPage.Body
         ><PageBody fluid>
+          {#if ownerLoad.reloading || tasksLoad.reloading || detailLoad.reloading}<UI.Text
+              role="status">Refreshing tasks…</UI.Text
+            >{/if}
+          {#if ownerLoad.state.error || tasksLoad.state.error || detailLoad.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{ownerLoad.state.error ||
+                tasksLoad.state.error ||
+                detailLoad.state.error}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadRoute(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if ownerStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading {isProjectRoute(currentRoute) ? "project" : "chat"}...
             </UI.Text>
@@ -819,7 +895,7 @@
               label="Search tasks"
               placeholder="Title, description, or status"
               bind:value={page.state.search}
-              loading={page.state.busy || tasksStatus === "checking"}
+              loading={page.state.busy || tasksLoad.state.pending}
               onsearch={() => void page.search(reloadTasks)}
             />
             <UI.RecordTable
@@ -827,9 +903,11 @@
             >
               {#if tasksStatus !== "ready"}<UI.TableEmpty
                   columns={4}
-                  message={tasksStatus === "checking"
-                    ? "Loading tasks…"
-                    : "Tasks could not be loaded."}
+                  message={tasksStatus === "unavailable"
+                    ? "Tasks could not be loaded."
+                    : tasksStatus === "checking"
+                      ? "Loading tasks…"
+                      : "Tasks could not be loaded."}
                 />
               {:else}{#each tasks as task (task.id)}<UI.RecordRow>
                     <UI.RecordCell primary
@@ -857,7 +935,7 @@
               count={tasks.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
-              loading={page.state.busy || tasksStatus === "checking"}
+              loading={page.state.busy || tasksLoad.state.pending}
               onprevious={() => void page.previous(reloadTasks)}
               onnext={() => void page.next(reloadTasks)}
             />

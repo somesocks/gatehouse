@@ -52,7 +52,7 @@
     label: principal.name ?? principal.alias ?? principal.id,
     description: principal.alias,
   }))}
-  loading={controller.state.loading}
+  loading={controller.state.busy}
   error={controller.state.error}
   previous={!!controller.state.history.length}
   next={!!controller.state.next}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte"
   import { RouterLink, StatusPage } from "../../ui"
   import * as UI from "../../ui"
   import * as SidebarPage from "../../ui/sidebar-page"
@@ -33,7 +34,19 @@
     currentRoute.kind === "workspace" &&
     currentRoute.workspaceID === workspaceID
 
-  $effect(() => activate(currentRoute))
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace?.id,
+    ]),
+  )
+  $effect(() => {
+    activation
+    return untrack(() => activate(currentRoute))
+  })
 
   function activate(route: DashboardRoute): () => void {
     const value = ++generation
@@ -94,7 +107,8 @@
       async ({ signal }) => {
         if (!isCurrent(value, workspaceID, routeSignal) || signal.aborted)
           return
-        await runtime.refresh()
+        if (!(await runtime.refresh()))
+          throw new Error("Workspace access refresh failed")
       },
     )
     void activity.poll()

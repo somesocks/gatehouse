@@ -32,7 +32,7 @@ export function createAgentModelListController(options: {
     const unsubscribe = options.activity.subscribe(
       [{ name: "agent-models", topic: "sys", events: ["agent_model.*"] }],
       async () => {
-        await directory.reload()
+        if (!(await directory.reload())) throw new Error("Model refresh failed")
       },
     )
     return () => {

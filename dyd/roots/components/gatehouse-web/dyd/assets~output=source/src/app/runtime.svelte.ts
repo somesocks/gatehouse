@@ -16,8 +16,9 @@ export function createApplicationRuntime() {
   let started = false
   let stopRouter: (() => void) | undefined
   let accessPrincipalID: string | undefined
-  let initializing: Promise<void> | null = null
+  let initializing: Promise<boolean> | null = null
   let handlingAuthenticationLoss = false
+  let generation = 0
 
   const auth = createAuth()
   const activity = createActivityClient({ onAuthenticationLost: requireLogin })
@@ -31,6 +32,8 @@ export function createApplicationRuntime() {
   function requireLogin(): void {
     if (handlingAuthenticationLoss) return
     handlingAuthenticationLoss = true
+    generation++
+    initializing = null
     accessPrincipalID = undefined
     access.clear()
     activity.dispose()
@@ -42,30 +45,33 @@ export function createApplicationRuntime() {
     }
   }
 
-  async function refresh(): Promise<void> {
+  async function refresh(): Promise<boolean> {
     if (initializing !== null) return await initializing
+    const value = generation
     const pending = (async () => {
       const status = await auth.check()
+      if (value !== generation || auth.state.reloadError) return false
       if (status !== "authenticated") {
         if (status === "anonymous") requireLogin()
-        return
+        return false
       }
       handlingAuthenticationLoss = false
       const principalID = auth.state.claims?.principal.ref.id
       if (principalID === undefined) {
         requireLogin()
-        return
+        return false
       }
       if (accessPrincipalID !== principalID) {
         access.start(principalID)
         accessPrincipalID = principalID
       }
-      await access.refresh()
-      router.resolve()
+      const loaded = await access.refresh()
+      if (value === generation) router.resolve()
+      return loaded && value === generation
     })()
     initializing = pending
     try {
-      await pending
+      return await pending
     } finally {
       if (initializing === pending) initializing = null
     }
@@ -82,9 +88,12 @@ export function createApplicationRuntime() {
   function stop(): void {
     if (!started) return
     started = false
+    generation++
+    initializing = null
     stopRouter?.()
     stopRouter = undefined
-    access.stop()
+    access.clear()
+    auth.stop()
     activity.dispose()
   }
 

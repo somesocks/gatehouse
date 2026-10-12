@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
@@ -30,6 +32,9 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const projectLoad = createLoadState()
+  const secretsLoad = createLoadState()
+  const detailLoad = createLoadState()
   const page = createCollectionPage()
   const reloadSecrets = () =>
     loadSecrets(
@@ -40,11 +45,11 @@
     )
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
-  let projectStatus = $state<Status>("checking")
+  const projectStatus = $derived(projectLoad.status)
   let secrets = $state<ProjectSecret[]>([])
-  let secretsStatus = $state<Status>("checking")
+  const secretsStatus = $derived(secretsLoad.status)
   let active = $state<ProjectSecret | null>(null)
-  let detailStatus = $state<Status>("ready")
+  const detailStatus = $derived(detailLoad.status)
   let creating = $state(false)
   let editing = $state(false)
   let saving = $state(false)
@@ -93,24 +98,33 @@
     currentRoute.projectID === projectID &&
     !abortController?.signal.aborted
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: SecretsRoute): () => void {
     page.reset()
+    projectLoad.reset()
+    secretsLoad.reset()
+    detailLoad.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     project = null
-    projectStatus = "checking"
     secrets = []
-    secretsStatus = "checking"
     active = null
-    detailStatus = "secretID" in route ? "checking" : "ready"
     creating = route.kind === "project-secret-new"
     editing = creating
     saving = false
@@ -132,6 +146,10 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        projectLoad.stop()
+        secretsLoad.stop()
+        detailLoad.stop()
+        secretValue = ""
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -156,6 +174,8 @@
         )
       return
     }
+    const request = projectLoad.begin(signal)
+    signal = request.signal
     try {
       const response = await fetchProject(workspaceID, projectID, signal)
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
@@ -173,8 +193,12 @@
       if (!response.ok) throw new Error("project unavailable")
       const loaded = (await response.json()) as Project
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
-      project = loaded
-      projectStatus = "ready"
+      if (
+        !request.commit(() => {
+          project = loaded
+        })
+      )
+        return
       subscribe(route, value)
       await Promise.all([
         ...(route.kind === "project-secrets"
@@ -186,11 +210,14 @@
       ])
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        projectStatus = "unavailable"
+        request.fail(new Error("Project could not be loaded."))
+    } finally {
+      request.finish()
     }
   }
 
   function subscribe(route: SecretsRoute, value: number): void {
+    unsubscribe?.()
     const { workspaceID, projectID } = route
     unsubscribe = activity.subscribe(
       [
@@ -233,8 +260,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, projectID))
-      secretsStatus = "checking"
+    const request = secretsLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const requested = page.key()
       const response = await fetchProjectSecrets(
@@ -254,14 +283,16 @@
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
       if (requested !== page.key()) return false
-      page.accept(response)
-      secrets = loaded
-      secretsStatus = "ready"
-      return true
+      return request.commit(() => {
+        page.accept(response)
+        secrets = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        secretsStatus = "unavailable"
+        request.fail(new Error("Secrets could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -272,7 +303,10 @@
     projectID: string,
     signal: AbortSignal,
   ): Promise<boolean> {
-    if (isCurrent(value, workspaceID, projectID)) detailStatus = "checking"
+    const request = detailLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchProjectSecret(
         workspaceID,
@@ -294,15 +328,17 @@
       const loaded = (await response.json()) as ProjectSecret
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
-      active = loaded
-      if (currentRoute.kind === "project-secret-edit" && !editing)
-        populateEdit()
-      detailStatus = "ready"
-      return true
+      return request.commit(() => {
+        active = loaded
+        if (currentRoute.kind === "project-secret-edit" && !editing)
+          populateEdit()
+      })
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        detailStatus = "unavailable"
+        request.fail(new Error("Secret could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -336,6 +372,7 @@
   }
 
   async function save(): Promise<void> {
+    if (saving || deleting) return
     if (description.trim() === "") {
       error = "Description is required."
       return
@@ -389,7 +426,6 @@
         saved,
         ...secrets.filter((candidate) => candidate.id !== saved.id),
       ])
-      secretsStatus = "ready"
       runtime.navigate(detailPath(route.workspaceID, route.projectID, saved.id))
     } catch {
       if (isCurrent(value, route.workspaceID, route.projectID))
@@ -542,6 +578,24 @@
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
+          {#if projectLoad.reloading || secretsLoad.reloading || detailLoad.reloading}<UI.Text
+              role="status">Refreshing secrets…</UI.Text
+            >{/if}
+          {#if projectLoad.state.error || secretsLoad.state.error || detailLoad.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{projectLoad.state.error ||
+                secretsLoad.state.error ||
+                detailLoad.state.error}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadRoute(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
             </UI.Text>
@@ -714,15 +768,17 @@
               label="Search secrets"
               placeholder="Description"
               bind:value={page.state.search}
-              loading={page.state.busy || secretsStatus === "checking"}
+              loading={page.state.busy || secretsLoad.state.pending}
               onsearch={() => void page.search(reloadSecrets)}
             />
             <UI.RecordTable headers={["Description", "Author", "Updated"]}>
               {#if secretsStatus !== "ready"}<UI.TableEmpty
                   columns={3}
-                  message={secretsStatus === "checking"
-                    ? "Loading secrets…"
-                    : "Secrets could not be loaded."}
+                  message={secretsStatus === "unavailable"
+                    ? "Secrets could not be loaded."
+                    : secretsStatus === "checking"
+                      ? "Loading secrets…"
+                      : "Secrets could not be loaded."}
                 />
               {:else}{#each secrets as secret (secret.id)}<UI.RecordRow>
                     <UI.RecordCell primary
@@ -747,7 +803,7 @@
               count={secrets.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
-              loading={page.state.busy || secretsStatus === "checking"}
+              loading={page.state.busy || secretsLoad.state.pending}
               onprevious={() => void page.previous(reloadSecrets)}
               onnext={() => void page.next(reloadSecrets)}
             />

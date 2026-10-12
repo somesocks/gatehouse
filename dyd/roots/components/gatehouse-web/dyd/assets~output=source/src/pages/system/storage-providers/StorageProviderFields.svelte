@@ -6,12 +6,18 @@
   let {
     form = $bindable(),
     keychains,
+    keychainsLoading = false,
+    keychainsError = "",
+    onKeychainsReload,
     editing = false,
   }: {
     form: ReturnType<
       typeof createStorageProviderFormController
     >["state"]["form"]
     keychains: SystemKeychain[]
+    keychainsLoading?: boolean
+    keychainsError?: string
+    onKeychainsReload?: () => void
     editing?: boolean
   } = $props()
 </script>
@@ -73,7 +79,13 @@
         bind:value={form.accessKeyID}
       /></UI.Field
     >
-    <KeychainPicker bind:value={form.keychain} {keychains} />
+    <KeychainPicker
+      bind:value={form.keychain}
+      {keychains}
+      loading={keychainsLoading}
+      error={keychainsError}
+      onreload={onKeychainsReload}
+    />
     <UI.Field
       ><UI.Label for="storage-secret"
         >{editing

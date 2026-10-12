@@ -50,16 +50,18 @@
       bind:value={controller.state.search}
       bind:status={controller.state.status}
       statuses
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onsearch={() => void controller.search()}
     />
     {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
         >{controller.state.error}</UI.Notice
       >{/if}
     <UI.RecordTable headers={["Principal", "Alias", "Identities", "Status"]}>
-      {#if controller.state.loading}<UI.TableEmpty
+      {#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={4}
-          message="Loading principals…"
+          message={controller.state.error
+            ? "Principals could not be loaded."
+            : "Loading principals…"}
         />{:else}{#each controller.state.items as principal (principal.id)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -92,7 +94,7 @@
       count={controller.state.items.length}
       previous={!!controller.state.history.length}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

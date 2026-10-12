@@ -4,6 +4,7 @@ import {
   type SystemWorkspaceSearchResponse,
   type SystemWorkspace,
 } from "../../../app/system"
+import { createLoadState } from "../../../utils/load-state.svelte"
 
 export function createSystemWorkspacesController({
   onAuthenticationLost,
@@ -102,24 +103,31 @@ export function createSystemWorkspaceFormController({
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const mutation = createLoadState()
   const state = $state({
     alias: "",
     name: "",
     enabled: true,
-    saving: false,
+    get saving() {
+      return mutation.state.pending
+    },
     error: "",
   })
 
   async function create(): Promise<boolean> {
     if (state.saving) return false
     state.error = ""
-    state.saving = true
+    const request = mutation.begin()
     try {
-      const response = await createSystemWorkspace({
-        alias: state.alias.trim(),
-        ...(state.name.trim() === "" ? {} : { name: state.name.trim() }),
-        enabled: state.enabled,
-      })
+      const response = await createSystemWorkspace(
+        {
+          alias: state.alias.trim(),
+          ...(state.name.trim() === "" ? {} : { name: state.name.trim() }),
+          enabled: state.enabled,
+        },
+        request.signal,
+      )
+      if (!request.current()) return false
       if (response.status === 401) {
         onAuthenticationLost()
         return false
@@ -133,8 +141,9 @@ export function createSystemWorkspaceFormController({
         return false
       }
       if (response.status === 400) {
-        state.error =
-          (await response.text()) || "The workspace details are invalid."
+        const message = await response.text()
+        if (!request.current()) return false
+        state.error = message || "The workspace details are invalid."
         return false
       }
       if (!response.ok) {
@@ -143,12 +152,12 @@ export function createSystemWorkspaceFormController({
       }
       return true
     } catch {
-      state.error = "The workspace could not be created."
+      if (request.current()) state.error = "The workspace could not be created."
       return false
     } finally {
-      state.saving = false
+      request.finish()
     }
   }
 
-  return { state, create }
+  return { state, create, stop: mutation.stop }
 }

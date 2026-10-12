@@ -12,8 +12,12 @@ export type AuthenticationStatus =
   | "unavailable"
 
 type AuthenticationTransport = {
-  check: () => Promise<Claims | null>
-  signIn: (identity: string, password: string) => Promise<boolean>
+  check: (signal?: AbortSignal) => Promise<Claims | null>
+  signIn: (
+    identity: string,
+    password: string,
+    signal?: AbortSignal,
+  ) => Promise<boolean>
 }
 
 export type Auth = ReturnType<typeof createAuth>
@@ -24,21 +28,32 @@ export function createAuth(
     signIn: submitCredentials,
   },
 ) {
-  const state = $state<{ status: AuthenticationStatus; claims: Claims | null }>(
-    { status: "checking", claims: null },
-  )
+  const state = $state<{
+    status: AuthenticationStatus
+    claims: Claims | null
+    reloading: boolean
+    reloadError: string
+  }>({ status: "checking", claims: null, reloading: false, reloadError: "" })
   let checkPromise: Promise<AuthenticationStatus> | null = null
   let generation = 0
+  let controller: AbortController | undefined
 
   async function check(): Promise<AuthenticationStatus> {
     if (checkPromise !== null) {
       return await checkPromise
     }
     const currentGeneration = ++generation
-    state.status = "checking"
+    controller?.abort()
+    controller = new AbortController()
+    const signal = controller.signal
+    const loaded =
+      state.status === "authenticated" || state.status === "anonymous"
+    if (!loaded) state.status = "checking"
+    state.reloading = loaded
+    state.reloadError = ""
     const pending = (async () => {
       try {
-        const claims = await transport.check()
+        const claims = await transport.check(signal)
         if (currentGeneration !== generation) {
           return state.status
         }
@@ -46,8 +61,11 @@ export function createAuth(
         state.status = claims === null ? "anonymous" : "authenticated"
       } catch {
         if (currentGeneration === generation) {
-          state.claims = null
-          state.status = "unavailable"
+          if (!loaded) {
+            state.claims = null
+            state.status = "unavailable"
+          }
+          state.reloadError = "Authentication could not be refreshed."
         }
       }
       return state.status
@@ -58,30 +76,51 @@ export function createAuth(
     } finally {
       if (checkPromise === pending) {
         checkPromise = null
+        state.reloading = false
       }
     }
   }
 
-  function clear(): void {
+  function stop(): void {
     generation += 1
+    controller?.abort()
+    checkPromise = null
+    state.reloading = false
+  }
+
+  function clear(): void {
+    stop()
     clearAccessToken()
     state.claims = null
     state.status = "anonymous"
+    state.reloading = false
+    state.reloadError = ""
+    checkPromise = null
   }
 
   async function signIn(
     identity: string,
     password: string,
   ): Promise<AuthenticationStatus | "invalid"> {
+    const currentGeneration = ++generation
+    controller?.abort()
+    controller = new AbortController()
+    const signal = controller.signal
+    checkPromise = null
     try {
-      if (!(await transport.signIn(identity, password))) {
+      const valid = await transport.signIn(identity, password, signal)
+      if (currentGeneration !== generation || signal.aborted)
+        return state.status
+      if (!valid) {
         return "invalid"
       }
       return await check()
     } catch {
+      if (currentGeneration !== generation || signal.aborted)
+        return state.status
       return "unavailable"
     }
   }
 
-  return { state, check, clear, signIn }
+  return { state, check, clear, signIn, stop }
 }

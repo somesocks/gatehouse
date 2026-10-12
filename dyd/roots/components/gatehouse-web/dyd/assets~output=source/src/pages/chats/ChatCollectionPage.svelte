@@ -10,6 +10,7 @@
     workspace,
     search,
     projectID = "",
+    creating = false,
     signal,
     onAuthenticationLost,
     onCreate,
@@ -18,6 +19,7 @@
     workspace: Workspace
     search: string
     projectID?: string
+    creating?: boolean
     signal: AbortSignal
     onAuthenticationLost: () => void
     onCreate: () => void | Promise<void>
@@ -68,6 +70,7 @@
     variant="default"
     size="sm"
     type="button"
+    disabled={creating}
     onclick={() => void onCreate()}>New chat</UI.Button
   >{/snippet}
 <UI.AdminContent>
@@ -80,8 +83,12 @@
     label="Search chats"
     placeholder="Chat name"
     bind:value={controller.state.search}
-    loading={controller.state.loading}
-    onsearch={() => onNavigate(searchPath())}
+    loading={controller.state.busy}
+    onsearch={() =>
+      controller.state.search.trim() === search.trim() &&
+      controller.state.projectID === projectID
+        ? void controller.search()
+        : onNavigate(searchPath())}
   >
     {#snippet filters()}<ProjectPicker
         workspaceID={workspace.id}
@@ -92,6 +99,13 @@
   </UI.SearchToolbar>
   {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
       >{controller.state.error}</UI.Notice
+    >{/if}
+  {#if controller.state.reloading}<UI.Text role="status"
+      >Refreshing chats…</UI.Text
+    >{/if}
+  {#if controller.state.error}<UI.Button
+      variant="outline"
+      onclick={() => void controller.retry()}>Try again</UI.Button
     >{/if}
   <UI.RecordTable headers={["Name", "Project", "Created"]}>
     {#each controller.state.chats as chat (chat.id)}
@@ -115,9 +129,11 @@
       </UI.RecordRow>
     {:else}<UI.TableEmpty
         columns={3}
-        message={controller.state.loading
-          ? "Searching chats…"
-          : "No chats match your search."}
+        message={!controller.state.hasLoaded && controller.state.error
+          ? "Chats could not be loaded."
+          : controller.state.loading
+            ? "Searching chats…"
+            : "No chats match your search."}
       />{/each}
   </UI.RecordTable>
   <UI.PaginationFooter
@@ -125,7 +141,7 @@
     count={controller.state.chats.length}
     previous={controller.state.history.length > 0}
     next={controller.state.cursor !== null}
-    loading={controller.state.loading}
+    loading={controller.state.busy}
     onprevious={() => controller.previous(workspace.id, search, signal)}
     onnext={() => controller.loadMore(workspace.id, search, signal)}
   />

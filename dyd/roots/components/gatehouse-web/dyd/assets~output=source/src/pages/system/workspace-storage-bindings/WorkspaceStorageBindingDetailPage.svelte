@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
@@ -17,16 +19,22 @@
     editingPage?: boolean
   } = $props()
   const runtime = useRuntime()
+  const resource = createLoadState()
+  const mutation = createLoadState()
   let binding = $state<SystemWorkspaceStorageProvider | null>(null),
     provider = $state<SystemStorageProvider | null>(null)
   let priority = $state(1),
     enabled = $state(true),
-    loading = $state(true),
-    saving = $state(false),
     error = $state("")
+  const loading = $derived(resource.loading)
+  const saving = $derived(mutation.state.pending)
   let generation = 0
+  let editRevision: number | undefined
+  let conflict = $state(false)
+  let metadataRequest: AbortController | undefined
   async function load(signal?: AbortSignal) {
-    loading = true
+    const request = resource.begin(signal)
+    signal = request.signal
     error = ""
     const current = generation
     try {
@@ -39,66 +47,83 @@
       if (current !== generation || signal?.aborted) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
-      else if (!response.ok) error = "Binding could not be loaded."
+      else if (!response.ok) throw new Error("Binding could not be loaded.")
       else {
         const result = (await response.json()) as SystemWorkspaceStorageProvider
-        if (current === generation) {
+        const first = !resource.state.hasLoaded
+        request.commit(() => {
           binding = result
-          priority = result.priority
-          enabled = result.enabled
-        }
+          if (first) {
+            priority = result.priority
+            enabled = result.enabled
+            editRevision = result.revision
+          }
+        })
       }
     } catch {
       if (!signal?.aborted && current === generation)
-        error = "Binding could not be loaded."
+        request.fail(new Error("Binding could not be loaded."))
     } finally {
-      if (current === generation) loading = false
+      request.finish()
     }
   }
   $effect(() => {
     const workspace = workspaceID
     const id = providerID
-    generation++
-    binding = null
-    provider = null
-    const request = new AbortController()
-    void load(request.signal)
-    void systemAdministration(
-      `storage-providers/${encodeURIComponent(id)}`,
-      "GET",
-      undefined,
-      request.signal,
-    )
-      .then(async (response) => {
-        if (response.ok) {
-          const result = (await response.json()) as SystemStorageProvider
-          if (!request.signal.aborted) provider = result
-        }
-      })
-      .catch(() => {})
+    editingPage
+    untrack(() => {
+      generation++
+      resource.reset()
+      mutation.stop()
+      conflict = false
+      binding = null
+      provider = null
+      const request = new AbortController()
+      metadataRequest?.abort()
+      metadataRequest = request
+      void load()
+      void systemAdministration(
+        `storage-providers/${encodeURIComponent(id)}`,
+        "GET",
+        undefined,
+        request.signal,
+      )
+        .then(async (response) => {
+          if (response.ok) {
+            const result = (await response.json()) as SystemStorageProvider
+            if (!request.signal.aborted) provider = result
+          }
+        })
+        .catch(() => {})
+    })
     return () => {
       generation++
-      request.abort()
+      resource.stop()
+      mutation.stop()
+      metadataRequest?.abort()
     }
   })
   async function save() {
     if (!binding || saving) return
     const current = generation
-    saving = true
+    const request = mutation.begin()
     error = ""
     try {
       const response = await systemAdministration(
         `workspace-storage-providers/${encodeURIComponent(workspaceID)}/${encodeURIComponent(providerID)}`,
         "PATCH",
-        { priority, enabled, expected_revision: binding.revision },
+        { priority, enabled, expected_revision: editRevision },
+        request.signal,
       )
-      if (current !== generation) return
+      if (current !== generation || !request.current()) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
       else if (response.status === 409) {
         await load()
+        if (current !== generation || !request.current()) return
         error =
-          "This binding changed elsewhere. The latest settings have been reloaded."
+          "This binding changed elsewhere. Your draft is preserved; review it before retrying."
+        conflict = true
       } else if (!response.ok) error = "Binding could not be saved."
       else
         runtime.navigate(
@@ -106,9 +131,10 @@
           true,
         )
     } catch {
-      if (current === generation) error = "Binding could not be saved."
+      if (current === generation && request.current())
+        error = "Binding could not be saved."
     } finally {
-      if (current === generation) saving = false
+      request.finish()
     }
   }
 </script>
@@ -130,6 +156,26 @@
   ]}
 >
   <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if conflict && binding}<UI.Button
+        variant="outline"
+        onclick={() => {
+          if (binding) {
+            priority = binding.priority
+            enabled = binding.enabled
+            editRevision = binding.revision
+            conflict = false
+            error = ""
+          }
+        }}>Replace draft with latest settings</UI.Button
+      >{/if}
+    {#if resource.reloading}<UI.Text role="status">Refreshing binding…</UI.Text
+      >{/if}
+    {#if resource.state.error}<UI.Notice variant="destructive" role="alert"
+        >{resource.state.error}<UI.Button
+          variant="outline"
+          onclick={() => void load()}>Retry</UI.Button
+        ></UI.Notice
+      >{/if}
     {#if loading}<UI.Text tone="muted">Loading binding…</UI.Text
       >{:else if !binding}<UI.Notice variant="destructive" role="alert"
         >{error || "Binding was not found."}</UI.Notice

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte"
+  import { onMount, untrack } from "svelte"
+  import { createAsyncResource } from "../../utils/load-state.svelte"
   import * as UI from "../../ui"
   import { useRuntime } from "../../app/runtime.svelte"
   import {
@@ -14,7 +15,8 @@
     value = $bindable(""),
   }: { workspaceID: string; projectID: string; value?: string } = $props()
   const runtime = useRuntime()
-  let selected = $state<ProjectRecordSchema | null>(null)
+  const selection = createAsyncResource<ProjectRecordSchema>()
+  const selected = $derived(selection.value ?? null)
   const controller = createDirectoryController<ProjectRecordSchema>({
     onAuthenticationLost: runtime.requireLogin,
     fetchPage: async (name, cursor, _status, signal) => {
@@ -34,23 +36,35 @@
     },
   })
   onMount(() => controller.stop)
+  const scope = $derived(`${workspaceID}/${projectID}`)
+  $effect(() => {
+    scope
+    untrack(controller.reset)
+  })
   $effect(() => {
     const id = value
+    const workspace = workspaceID
+    const project = projectID
     const found = controller.state.items.find((item) => item.id === id)
-    if (found) selected = found
-    else if (id) {
-      const request = new AbortController()
-      void fetchProjectRecordSchema(workspaceID, projectID, id, request.signal)
-        .then(async (response) => {
-          if (response.status === 401) runtime.requireLogin()
-          if (response.ok) {
-            const schema = (await response.json()) as ProjectRecordSchema
-            if (!request.signal.aborted) selected = schema
-          }
-        })
-        .catch(() => {})
-      return () => request.abort()
-    } else selected = null
+    untrack(() => {
+      selection.context(`${workspace}/${project}/${id}`)
+      if (!id) return
+      void selection.load(async (signal) => {
+        if (found) return found
+        const response = await fetchProjectRecordSchema(
+          workspace,
+          project,
+          id,
+          signal,
+        )
+        signal.throwIfAborted()
+        if (response.status === 401) runtime.requireLogin()
+        if (!response.ok)
+          throw new Error("The selected record type could not be loaded.")
+        return (await response.json()) as ProjectRecordSchema
+      })
+    })
+    return selection.stop
   })
 </script>
 
@@ -65,8 +79,8 @@
     label: schema.label,
     description: schema.description || schema.name,
   }))}
-  loading={controller.state.loading}
-  error={controller.state.error}
+  loading={controller.state.busy}
+  error={controller.state.error || selection.lifecycle.state.error}
   previous={!!controller.state.history.length}
   next={!!controller.state.next}
   onsearch={() => void controller.search()}

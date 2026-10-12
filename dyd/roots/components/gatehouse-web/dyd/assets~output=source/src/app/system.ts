@@ -166,12 +166,15 @@ export async function fetchSystemWorkspaces(
   })
 }
 
-export async function createSystemWorkspace(input: {
-  alias: string
-  name?: string
-  enabled: boolean
-}): Promise<Response> {
-  return await systemAdministration("workspaces", "POST", input)
+export async function createSystemWorkspace(
+  input: {
+    alias: string
+    name?: string
+    enabled: boolean
+  },
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await systemAdministration("workspaces", "POST", input, signal)
 }
 
 export async function fetchSystemWorkspace(
@@ -237,21 +240,26 @@ export async function createSystemWorkspacePrincipalGrant(
   workspaceID: string,
   principal: string,
   role: WorkspaceRole,
+  signal?: AbortSignal,
 ): Promise<Response> {
   return await systemAdministration(
     `workspaces/${encodeURIComponent(workspaceID)}/principals`,
     "POST",
     { principal, role },
+    signal,
   )
 }
 
 export async function removeSystemWorkspacePrincipalGrants(
   workspaceID: string,
   principalID: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   return await systemAdministration(
     `workspaces/${encodeURIComponent(workspaceID)}/principals/${encodeURIComponent(principalID)}`,
     "DELETE",
+    undefined,
+    signal,
   )
 }
 
@@ -295,8 +303,13 @@ export async function fetchSystemWorkspaceStorageBindings(
   )
 }
 
-export async function fetchSystemGrants(): Promise<Response> {
-  return await fetch("/api/v1/system/grants", { credentials: "same-origin" })
+export async function fetchSystemGrants(
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await fetch("/api/v1/system/grants", {
+    credentials: "same-origin",
+    signal,
+  })
 }
 
 export async function searchSystemAgentProviders(
@@ -377,35 +390,43 @@ export async function searchSystemGrants(
   return systemAdministration(`grants?${query}`, "GET", undefined, signal)
 }
 
-export async function createSystemGrant(principal: string): Promise<Response> {
+export async function createSystemGrant(
+  principal: string,
+  signal?: AbortSignal,
+): Promise<Response> {
   return await fetch("/api/v1/system/grants", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ principal }),
+    signal,
   })
 }
 
 export async function updateSystemGrant(
   id: string,
   enabled: boolean,
+  signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`/api/v1/system/grants/${encodeURIComponent(id)}`, {
     method: "PATCH",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
+    signal,
   })
 }
 
 export async function updateSystemPrincipal(
   id: string,
   enabled: boolean,
+  signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`/api/v1/system/principals/${encodeURIComponent(id)}`, {
     method: "PATCH",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ enabled }),
+    signal,
   })
 }

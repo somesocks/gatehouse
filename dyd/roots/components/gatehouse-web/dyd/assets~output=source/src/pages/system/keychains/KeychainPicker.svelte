@@ -6,7 +6,16 @@
   let {
     value = $bindable(""),
     keychains,
-  }: { value?: string; keychains: SystemKeychain[] } = $props()
+    loading = false,
+    error = "",
+    onreload,
+  }: {
+    value?: string
+    keychains: SystemKeychain[]
+    loading?: boolean
+    error?: string
+    onreload?: () => void
+  } = $props()
   let search = $state("")
   let appliedSearch = $state("")
   let page = $state(0)
@@ -21,6 +30,8 @@
 
 <UI.RecordPicker
   label="Keychain"
+  {loading}
+  {error}
   bind:value
   bind:search
   selectedLabel={selected?.id}
@@ -32,6 +43,7 @@
   previous={page > 0}
   next={(page + 1) * 50 < matches.length}
   onsearch={() => {
+    if (error) onreload?.()
     appliedSearch = search.trim()
     page = 0
   }}

@@ -2,6 +2,7 @@ import {
   systemAdministration,
   type SystemAgentModel,
 } from "../../../app/system"
+import { createLoadState } from "../../../utils/load-state.svelte"
 type Form = {
   alias: string
   provider: string
@@ -30,21 +31,53 @@ export function createAgentModelFormController({
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const resource = createLoadState()
+  const mutation = createLoadState()
+  const errors = $state({ value: "" })
+  let owner = ""
+  let disposed = false
+  let editRevision: number | undefined
   const state = $state({
     model: null as SystemAgentModel | null,
     form: blank(),
-    error: "",
-    loading: false,
-    saving: false,
+    get error() {
+      return errors.value || resource.state.error
+    },
+    set error(value: string) {
+      errors.value = value
+    },
+    get loading() {
+      return resource.loading
+    },
+    get reloading() {
+      return resource.reloading
+    },
+    get saving() {
+      return mutation.state.pending
+    },
     editing: false,
+    conflict: false,
   })
   async function load(id: string): Promise<void> {
+    disposed = false
+    if (owner !== id) {
+      owner = id
+      resource.reset()
+      mutation.stop()
+      state.model = null
+      state.editing = false
+      state.form = blank()
+    }
     state.error = ""
-    state.loading = true
+    const request = resource.begin()
     try {
       const response = await systemAdministration(
         `agent-models/${encodeURIComponent(id)}`,
+        "GET",
+        undefined,
+        request.signal,
       )
+      if (!request.current()) return
       if (response.status === 401) {
         onAuthenticationLost()
         return
@@ -54,22 +87,25 @@ export function createAgentModelFormController({
         return
       }
       if (response.status === 404) {
-        state.error = "Agent model was not found."
-        return
+        throw new Error("Agent model was not found.")
       }
       if (!response.ok) {
-        state.error = "Agent model could not be loaded."
-        return
+        throw new Error("Agent model could not be loaded.")
       }
-      state.model = (await response.json()) as SystemAgentModel
-    } catch {
-      state.error = "Agent model could not be loaded."
+      const model = (await response.json()) as SystemAgentModel
+      request.commit(() => {
+        state.model = model
+      })
+    } catch (error) {
+      request.fail(error)
     } finally {
-      state.loading = false
+      request.finish()
     }
   }
   async function beginEdit(): Promise<void> {
-    if (state.model === null) return
+    if (disposed || state.model === null || state.editing) return
+    editRevision = state.model.revision
+    state.conflict = false
     state.form = {
       alias: state.model.alias,
       provider: state.model.provider,
@@ -90,13 +126,13 @@ export function createAgentModelFormController({
     return true
   }
   async function create(): Promise<SystemAgentModel | null> {
-    if (state.saving) return null
+    if (disposed || state.saving) return null
     state.error = ""
     if (!valid()) return null
     return await save("agent-models", "POST", state.form)
   }
   async function update(): Promise<boolean> {
-    if (state.saving) return false
+    if (disposed || state.saving) return false
     if (state.model === null) return false
     state.error = ""
     if (!valid()) return false
@@ -104,9 +140,11 @@ export function createAgentModelFormController({
       `agent-models/${encodeURIComponent(state.model.id)}`,
       "PATCH",
       state.form,
-      state.model.revision,
+      editRevision,
     )
     if (saved === null) return false
+    if (disposed) return false
+    resource.stop()
     state.model = saved
     state.editing = false
     return true
@@ -117,19 +155,25 @@ export function createAgentModelFormController({
     form: Form,
     revision?: number,
   ): Promise<SystemAgentModel | null> {
-    state.saving = true
+    const request = mutation.begin()
     try {
-      const response = await systemAdministration(path, method, {
-        alias: form.alias,
-        provider: form.provider,
-        model: form.model,
-        parameters: form.parameters,
-        compaction: form.compaction,
-        max_turns: form.maxTurns,
-        max_output_tokens: form.maxOutputTokens,
-        enabled: form.enabled,
-        ...(revision === undefined ? {} : { expected_revision: revision }),
-      })
+      const response = await systemAdministration(
+        path,
+        method,
+        {
+          alias: form.alias,
+          provider: form.provider,
+          model: form.model,
+          parameters: form.parameters,
+          compaction: form.compaction,
+          max_turns: form.maxTurns,
+          max_output_tokens: form.maxOutputTokens,
+          enabled: form.enabled,
+          ...(revision === undefined ? {} : { expected_revision: revision }),
+        },
+        request.signal,
+      )
+      if (!request.current()) return null
       if (response.status === 401) {
         onAuthenticationLost()
         return null
@@ -141,23 +185,38 @@ export function createAgentModelFormController({
       if (response.status === 409) {
         if (state.model !== null) {
           await load(state.model.id)
-          await beginEdit()
         }
+        if (!request.current()) return null
         state.error =
-          "This model changed elsewhere. Review the reloaded settings before saving."
+          "This model changed elsewhere. Your draft is preserved; review it before retrying."
+        state.conflict = true
         return null
       }
       if (!response.ok) {
         state.error = "Agent model could not be saved."
         return null
       }
-      return (await response.json()) as SystemAgentModel
+      const result = (await response.json()) as SystemAgentModel
+      return request.current() ? result : null
     } catch {
-      state.error = "Agent model could not be saved."
+      if (request.current()) state.error = "Agent model could not be saved."
       return null
     } finally {
-      state.saving = false
+      request.finish()
     }
   }
-  return { state, load, beginEdit, create, update }
+  function stop() {
+    disposed = true
+    resource.stop()
+    mutation.stop()
+    state.editing = false
+  }
+  function replaceDraft() {
+    if (!disposed) {
+      state.editing = false
+      state.error = ""
+      return beginEdit()
+    }
+  }
+  return { state, load, beginEdit, create, update, stop, replaceDraft }
 }

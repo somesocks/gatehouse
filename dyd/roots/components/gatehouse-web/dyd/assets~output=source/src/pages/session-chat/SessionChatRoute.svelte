@@ -23,6 +23,7 @@
   } from "../../app/navigation"
   import * as UI from "../../ui"
   import { onMount, tick, untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import {
     chatFileDownloadPath,
     fetchChatSession,
@@ -71,9 +72,10 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const sessionLoad = createLoadState()
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
-  let sessionStatus = $state<Status>("checking")
+  const sessionStatus = $derived(sessionLoad.status)
   let feedElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
@@ -86,6 +88,7 @@
   let pendingMentionStart: number | undefined
   let deliveryOpen = $state(false)
   let generation = 0
+  let startedSessionKey = ""
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
@@ -133,7 +136,15 @@
   async function followLatest(
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
+    const value = generation
+    const element = feedElement
     await tick()
+    if (
+      value !== generation ||
+      element !== feedElement ||
+      abortController?.signal.aborted
+    )
+      return
     if (
       document.activeElement instanceof Element &&
       document.activeElement.closest("[data-input-form]") !== null
@@ -199,9 +210,21 @@
         : `Direct chat with @${directAgent.alias}`,
   )
 
+  const activation = $derived(
+    JSON.stringify([
+      sessionKey,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const [workspaceID, sessionID] = sessionKey.split("\u0000")
-    return activate({ workspaceID, sessionID })
+    activation
+    return untrack(() => {
+      const [workspaceID, sessionID] = sessionKey.split("\u0000")
+      return activate({ workspaceID, sessionID })
+    })
   })
   $effect(() => {
     directAgentID = currentRoute.agent
@@ -231,13 +254,14 @@
 
   function activate(route: SessionTarget): () => void {
     const value = ++generation
+    sessionLoad.reset()
+    startedSessionKey = ""
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     controller.stop()
     session = null
-    sessionStatus = "checking"
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
@@ -251,6 +275,7 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        sessionLoad.stop()
         unsubscribe?.()
         unsubscribe = undefined
         controller.stop()
@@ -278,7 +303,16 @@
     }
     if (!(await loadSession(value, workspaceID, sessionID, signal))) return
     if (!isCurrent(value, workspaceID, sessionID, signal)) return
-    controller.start(workspaceID, sessionID, signal)
+    const key = `${workspaceID}/${sessionID}`
+    if (startedSessionKey !== key) {
+      startedSessionKey = key
+      controller.start(workspaceID, sessionID, signal)
+    } else
+      await Promise.all([
+        controller.refreshEvents(),
+        controller.refreshAgents(),
+      ])
+    if (!isCurrent(value, workspaceID, sessionID, signal)) return
     subscribe(route, value, signal)
   }
 
@@ -289,8 +323,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, sessionID, signal))
-      sessionStatus = "checking"
+    const request = sessionLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchChatSession(workspaceID, sessionID, signal)
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
@@ -305,13 +341,15 @@
       if (!response.ok) throw new Error("session unavailable")
       const loaded = (await response.json()) as Session
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
-      session = loaded
-      sessionStatus = "ready"
-      return true
+      return request.commit(() => {
+        session = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, sessionID, signal))
-        sessionStatus = "unavailable"
+        request.fail(new Error("Chat information could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -320,6 +358,7 @@
     value: number,
     routeSignal: AbortSignal,
   ): void {
+    unsubscribe?.()
     const { workspaceID, sessionID } = route
     unsubscribe = activity.subscribe(
       [
@@ -350,12 +389,18 @@
         const refreshed = await Promise.all([
           ...(names.has("session-chat")
             ? [
-                controller.refreshEvents(),
-                loadSession(value, workspaceID, sessionID, routeSignal, false),
+                controller.refreshEvents(signal),
+                loadSession(
+                  value,
+                  workspaceID,
+                  sessionID,
+                  AbortSignal.any([routeSignal, signal]),
+                  false,
+                ),
               ]
             : []),
           ...(names.has("session-chat-agent")
-            ? [controller.refreshAgents()]
+            ? [controller.refreshAgents(signal)]
             : []),
         ])
         if (
@@ -640,6 +685,24 @@
             aria-live="polite"
             onscroll={() => controller.trackScroll()}
           >
+            {#if sessionLoad.reloading || controller.state.reloading}<UI.Text
+                role="status">Refreshing conversation…</UI.Text
+              >{/if}
+            {#if sessionLoad.state.error || controller.state.reloadError || controller.state.agentsError}<UI.Notice
+                variant="destructive"
+                role="alert"
+                >{sessionLoad.state.error ||
+                  controller.state.reloadError ||
+                  controller.state.agentsError}<UI.Button
+                  variant="outline"
+                  onclick={() =>
+                    void loadRoute(
+                      currentRoute,
+                      generation,
+                      abortController!.signal,
+                    )}>Retry</UI.Button
+                ></UI.Notice
+              >{/if}
             {#if controller.state.status === "unavailable"}<UI.Text
                 as="p"
                 tone="muted"

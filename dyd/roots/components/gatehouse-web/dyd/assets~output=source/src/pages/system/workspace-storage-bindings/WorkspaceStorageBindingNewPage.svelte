@@ -1,7 +1,7 @@
 <script lang="ts">
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import { untrack } from "svelte"
+  import { onDestroy, untrack } from "svelte"
   import { createWorkspaceStorageBindingsController } from "./workspace-storage-bindings-controller.svelte"
   import StorageProviderPicker from "../storage-providers/StorageProviderPicker.svelte"
   import SystemWorkspaceFrame from "../workspaces/SystemWorkspaceFrame.svelte"
@@ -15,6 +15,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
+  onDestroy(controller.stop)
   controller.state.form.priority = 1
   async function create() {
     const route = runtime.state.route

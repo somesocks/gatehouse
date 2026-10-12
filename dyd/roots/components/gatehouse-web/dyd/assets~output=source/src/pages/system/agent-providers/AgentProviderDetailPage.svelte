@@ -19,9 +19,17 @@
   $effect(() => {
     const id = providerID
     const edit = editingPage
-    void controller.load(id).then(() => {
-      if (edit) void controller.beginEdit()
-    })
+    let active = true
+    untrack(
+      () =>
+        void controller.load(id).then(() => {
+          if (active && edit) void controller.beginEdit()
+        }),
+    )
+    return () => {
+      active = false
+      controller.stop()
+    }
   })
   async function save() {
     const route = runtime.state.route
@@ -48,6 +56,25 @@
   ]}
 >
   <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing provider…</UI.Text
+      >{/if}
+    {#if !editingPage && controller.state.provider && controller.state.error}<UI.Notice
+        variant="destructive"
+        role="alert">{controller.state.error}</UI.Notice
+      >{/if}
+    {#if controller.state.error}<UI.Button
+        variant="outline"
+        onclick={() =>
+          void controller.load(providerID).then(() => {
+            if (editingPage) void controller.beginEdit()
+          })}>Retry loading</UI.Button
+      >{/if}
+    {#if controller.state.conflict}<UI.Button
+        variant="outline"
+        onclick={() => void controller.replaceDraft()}
+        >Replace draft with latest settings</UI.Button
+      >{/if}
     {#if controller.state.loading}<UI.Text tone="muted"
         >Loading provider…</UI.Text
       >
@@ -72,6 +99,9 @@
         <AgentProviderFields
           bind:form={controller.state.form}
           keychains={controller.state.keychains}
+          keychainsLoading={controller.state.keychainsLoading}
+          keychainsError={controller.state.keychainsError}
+          onKeychainsReload={() => void controller.keychains()}
           editing
         />
         {#if controller.state.error}<UI.Notice

@@ -1,6 +1,7 @@
 import type { ActivityClient } from "../../app/activity"
 import { fetchWorkspaceGroups, type Group } from "../../app/groups"
 import { createCollectionPage } from "../../utils/collection-page.svelte"
+import { createLoadState } from "../../utils/load-state.svelte"
 
 type GroupsControllerOptions = {
   activity: ActivityClient
@@ -11,11 +12,25 @@ export function createGroupsController({
   activity,
   onAuthenticationLost,
 }: GroupsControllerOptions) {
+  const resource = createLoadState()
   const state = $state({
     groups: [] as Group[],
     search: "",
-    loading: false,
-    error: "",
+    get loading() {
+      return resource.loading
+    },
+    get reloading() {
+      return resource.reloading
+    },
+    get busy() {
+      return resource.state.pending
+    },
+    get hasLoaded() {
+      return resource.state.hasLoaded
+    },
+    get error() {
+      return resource.state.error
+    },
   })
   const page = createCollectionPage()
   let unsubscribe: (() => void) | undefined
@@ -26,8 +41,8 @@ export function createGroupsController({
     signal: AbortSignal,
     currentGeneration = generation,
   ): Promise<boolean> {
-    state.loading = true
-    state.error = ""
+    const request = resource.begin(signal)
+    signal = request.signal
     try {
       const requested = page.key()
       const response = await fetchWorkspaceGroups(
@@ -35,7 +50,7 @@ export function createGroupsController({
         signal,
         page.params(),
       )
-      if (currentGeneration !== generation || signal.aborted) {
+      if (currentGeneration !== generation || !request.current()) {
         return false
       }
       if (response.status === 401) {
@@ -46,26 +61,27 @@ export function createGroupsController({
         throw new Error("groups could not be refreshed")
       }
       const groups = (await response.json()) as Group[]
-      if (currentGeneration !== generation || signal.aborted) {
+      if (currentGeneration !== generation || !request.current()) {
         return false
       }
       if (requested !== page.key()) return false
-      state.groups = groups
-      page.accept(response)
-      return true
+      return request.commit(() => {
+        state.groups = groups
+        page.accept(response)
+      })
     } catch (cause) {
       if (currentGeneration === generation && !signal.aborted)
-        state.error =
-          cause instanceof Error ? cause.message : "Groups could not be loaded."
+        request.fail(cause)
       return false
     } finally {
-      if (currentGeneration === generation) state.loading = false
+      request.finish()
     }
   }
 
   function start(workspaceID: string, routeSignal: AbortSignal): () => void {
     stop()
     page.reset()
+    resource.reset()
     const currentGeneration = ++generation
     state.groups = []
     void load(workspaceID, routeSignal, currentGeneration)
@@ -95,6 +111,7 @@ export function createGroupsController({
 
   function stop(): void {
     generation += 1
+    resource.stop()
     unsubscribe?.()
     unsubscribe = undefined
   }

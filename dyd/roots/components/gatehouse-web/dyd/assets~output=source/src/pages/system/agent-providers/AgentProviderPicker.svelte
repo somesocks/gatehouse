@@ -68,7 +68,7 @@
     description: provider.protocol,
     disabled: !provider.enabled && provider.id !== value,
   }))}
-  loading={controller.state.loading}
+  loading={controller.state.busy}
   error={controller.state.error}
   previous={!!controller.state.history.length}
   next={!!controller.state.next}

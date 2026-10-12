@@ -8,9 +8,12 @@ export type Claims = {
   identity: string
 }
 
-export async function checkAuthentication(): Promise<Claims | null> {
+export async function checkAuthentication(
+  signal?: AbortSignal,
+): Promise<Claims | null> {
   const response = await fetchGatehouse("/api/v1/auth/me", {
     credentials: "same-origin",
+    signal,
   })
   if (response.status === 401) {
     return null
@@ -24,12 +27,14 @@ export async function checkAuthentication(): Promise<Claims | null> {
 export async function signIn(
   identity: string,
   password: string,
+  signal?: AbortSignal,
 ): Promise<boolean> {
   const response = await fetch("/api/v1/auth/login", {
     method: "POST",
     credentials: "same-origin",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ identity, password }),
+    signal,
   })
   if (response.status === 401) {
     return false
@@ -38,7 +43,11 @@ export async function signIn(
     throw new Error(`login returned ${response.status}`)
   }
   const credentials = (await response.json()) as { access_token: string }
-  if (typeof credentials.access_token !== "string" || credentials.access_token === "")
+  signal?.throwIfAborted()
+  if (
+    typeof credentials.access_token !== "string" ||
+    credentials.access_token === ""
+  )
     throw new Error("login did not return an access token")
   setAccessToken(credentials.access_token)
   return true

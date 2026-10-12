@@ -66,6 +66,44 @@ Workspace pages use the same presentation components and page-purpose grammar:
 - Chat-view navigation shows links at desktop widths and collapses to a dropdown below 768px. The dropdown retains every view, marks the active one, and includes Rename when available.
 - Capability-based file tools use the full page width, selected-file summaries, filter toolbars, selectable tables, pagination, and a Save selection footer. Capability transport and shared-draft completion remain unchanged.
 
+## Request and draft lifecycle
+
+Each page owns its native resource snapshots, form drafts, and mutation state.
+`src/utils/load-state.svelte.ts` supplies request ownership and cancellation;
+it does not introduce a generic resource model or transport.
+
+- Before the first successful response, show loading, then an explicit failure
+  and retry if the request fails. An empty successful collection is a snapshot.
+- Reloading an existing context keeps its content and form controls mounted.
+  Pending work and reload failures are separate indicators; transient failures
+  retain the last successful data and the user's draft.
+- Authentication and access refreshes retain settled claims/access on transient
+  failure. Confirmed loss of authentication or access stops the affected work.
+  Principal, workspace, owner, resource, mode, and revision changes establish a
+  new context; equivalent route resolution and renamed workspace metadata do not.
+- Controller activation effects track their intended identity/access inputs and
+  execute controller internals through `untrack`. Synchronous cleanup cancels
+  requests and subscriptions. Request ownership is checked after decoding and
+  before publication, errors, authentication callbacks, navigation, or focus.
+- Collection results, applied filters, continuation, and cursor history commit
+  after successful requests. Failed search/Next/Previous retain the current page.
+- Edit baselines are separate from refreshed snapshots. A conflicting admin write
+  preserves the draft and its expected revision; replacing it with the latest
+  settings requires the explicit form action.
+- Shared input forms keep optimistic answers after a failed patch. Explicit retry
+  reads the authoritative draft and reapplies only unsaved field operations;
+  invalid answers remain editable, and terminal submission waits for uploads and
+  successful writes. Field removal is validated against the descriptor as well.
+- Activity reconciliation reports failure to the poller so it can retry rather
+  than acknowledging an unsuccessful refresh. Chat refreshes preserve composer
+  state and keep agent branches, input cards, and scrolling behavior independent
+  of metadata reloads.
+
+Lifecycle regressions compile the real rune modules and route activation scripts
+against Svelte's client runtime with controlled promises. These checks require no
+browser or DOM and cover failed reloads, access updates, conflicts, overlapping
+responses, late decoding, and disposal.
+
 ## Theming
 
 `src/app.css` uses the supplied shadcn-generated default light/dark palette and
@@ -87,7 +125,7 @@ branding configuration loader can supply workspace theme data through this API.
 | Workspace overview | Workspace description, child navigation cards, workspace/access activity refresh, and workspace selection. |
 | Chat collection | Name search in the URL, results, pagination, chat creation, and project metadata. |
 | Project collection | Name search in the URL, results, pagination, and project creation. |
-| Groups | Search and inspect workspace groups and their identifiers. |
+| Groups | Search and inspect workspace groups and enabled memberships. |
 | Project overview | Project metadata, Edit project destination, child navigation cards, and project-metadata activity refresh. |
 | Project files | Upload multiple files, inspect metadata, download, remove, refresh, and collection/detail navigation. |
 | Session files | Inspect and download chat attachments, with chat navigation and rename. |

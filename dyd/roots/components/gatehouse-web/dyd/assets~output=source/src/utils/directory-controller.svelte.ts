@@ -1,5 +1,6 @@
-// Shared cursor/navigation behavior. Resource controllers provide their own
-// typed fetch function and response decoding; this does not define a record model.
+import { createLoadState } from "./load-state.svelte"
+
+// Shared request/cursor mechanics; each caller owns its typed native transport.
 export function createDirectoryController<T>({
   fetchPage,
   onAuthenticationLost,
@@ -14,86 +15,119 @@ export function createDirectoryController<T>({
   onAuthenticationLost: () => void
   onSystemAccessChange?: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const lifecycle = createLoadState()
   const state = $state({
     items: [] as T[],
     search: "",
     status: "",
-    loading: true,
-    error: "",
     cursor: "",
     next: "",
     history: [] as string[],
+    get loading() {
+      return lifecycle.loading
+    },
+    get reloading() {
+      return lifecycle.reloading
+    },
+    get busy() {
+      return lifecycle.state.pending
+    },
+    get hasLoaded() {
+      return lifecycle.state.hasLoaded
+    },
+    get error() {
+      return lifecycle.state.error
+    },
+    set error(value: string) {
+      lifecycle.state.error = value
+    },
   })
-  let request: AbortController | undefined
   let appliedSearch = ""
   let appliedStatus = ""
-  async function page(cursor: string): Promise<boolean> {
-    request?.abort()
-    const current = new AbortController()
-    request = current
-    state.loading = true
-    state.error = ""
+  let attempted:
+    | { cursor: string; name: string; status: string; history: string[] }
+    | undefined
+  async function page(
+    cursor: string,
+    name = appliedSearch,
+    status = appliedStatus,
+    history = state.history,
+  ): Promise<boolean> {
+    attempted = { cursor, name, status, history: [...history] }
+    const request = lifecycle.begin()
     try {
-      const result = await fetchPage(
-        appliedSearch,
-        cursor,
-        appliedStatus,
-        current.signal,
-      )
-      if (current.signal.aborted) return false
+      const result = await fetchPage(name, cursor, status, request.signal)
+      if (!request.current()) return false
       if (result.response.status === 401) {
         onAuthenticationLost()
-        return false
+        throw new Error("Sign in is required.")
       }
       if (result.response.status === 403) {
-        state.error = "You do not have access to these records."
         onSystemAccessChange("denied")
-        return false
+        throw new Error("You do not have access to these records.")
       }
-      if (!result.response.ok) {
-        state.error = "Records could not be loaded. Try again."
-        return false
-      }
-      state.items = result.items ?? []
-      state.next = result.next ?? ""
-      state.cursor = cursor
-      return true
-    } catch {
-      if (!current.signal.aborted)
-        state.error = "Records could not be loaded. Try again."
+      if (!result.response.ok)
+        throw new Error("Records could not be loaded. Try again.")
+      return request.commit(() => {
+        state.items = result.items ?? []
+        state.next = result.next ?? ""
+        state.cursor = cursor
+        appliedSearch = name
+        appliedStatus = status
+        state.history = history
+      })
+    } catch (error) {
+      request.fail(error)
       return false
     } finally {
-      if (request === current) state.loading = false
+      request.finish()
     }
   }
-  async function search() {
-    appliedSearch = state.search
-    appliedStatus = state.status
-    state.history = []
-    state.next = ""
-    state.cursor = ""
-    state.items = []
-    return page("")
-  }
+  const search = () => page("", state.search.trim(), state.status, [])
   async function next() {
-    if (!state.next || state.loading) return
+    if (!state.next || state.busy) return
     const previous = state.cursor
-    if (await page(state.next)) state.history = [...state.history, previous]
+    await page(state.next, appliedSearch, appliedStatus, [
+      ...state.history,
+      previous,
+    ])
   }
   async function previous() {
-    if (!state.history.length || state.loading) return
+    if (!state.history.length || state.busy) return
     const target = state.history[state.history.length - 1]
-    if (await page(target)) state.history = state.history.slice(0, -1)
+    await page(target, appliedSearch, appliedStatus, state.history.slice(0, -1))
   }
-  function stop() {
-    request?.abort()
+  function reset() {
+    attempted = undefined
+    lifecycle.reset()
+    appliedSearch = ""
+    appliedStatus = ""
+    Object.assign(state, {
+      items: [],
+      search: "",
+      status: "",
+      cursor: "",
+      next: "",
+      history: [],
+    })
   }
   return {
     state,
     search,
     next,
     previous,
-    stop,
+    reset,
+    stop: lifecycle.stop,
     reload: () => page(state.cursor),
+    retry: () =>
+      attempted
+        ? page(
+            attempted.cursor,
+            attempted.name,
+            attempted.status,
+            attempted.history,
+          )
+        : search(),
+    lifecycle,
   }
 }

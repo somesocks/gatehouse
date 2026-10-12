@@ -29,6 +29,15 @@
   ]}
 >
   <UI.AdminContent mode="hub">
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing workspace…</UI.Text
+      >{/if}
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}<UI.Button
+          variant="outline"
+          onclick={() => void controller.reload()}>Retry</UI.Button
+        ></UI.Notice
+      >{/if}
     {#if controller.state.loading}<UI.Text as="p" tone="muted">
         Loading workspace...
       </UI.Text>{:else if controller.state.workspace === null}<UI.Text

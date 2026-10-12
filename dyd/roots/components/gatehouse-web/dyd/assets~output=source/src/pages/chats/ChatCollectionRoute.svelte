@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte"
   import { RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
@@ -14,6 +15,8 @@
   const runtime = useRuntime()
   const { access, auth } = runtime
   let generation = 0
+  let creating = $state(false)
+  let error = $state("")
   let abortController: AbortController | null = null
   let routeSignal = $state<AbortSignal | null>(null)
 
@@ -31,13 +34,24 @@
     !signal.aborted &&
     currentRoute.workspaceID === workspaceID
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: ChatCollectionRoute): () => void {
     const value = ++generation
+    creating = false
+    error = ""
     abortController?.abort()
     abortController = new AbortController()
     routeSignal = abortController.signal
@@ -77,10 +91,13 @@
   }
 
   async function create(): Promise<void> {
+    if (creating) return
     const route = currentRoute
     const value = generation
     const signal = abortController?.signal
     if (signal === undefined) return
+    creating = true
+    error = ""
     try {
       const response = route.projectID
         ? await createProjectChat(route.workspaceID, route.projectID, signal)
@@ -97,7 +114,10 @@
         `${chatsPath(route.workspaceID)}/${encodeURIComponent(chat.id)}`,
       )
     } catch {
-      // The existing collection has no error surface for failed creation.
+      if (isCurrent(value, route.workspaceID, signal))
+        error = "Chat could not be created. Try again."
+    } finally {
+      if (isCurrent(value, route.workspaceID, signal)) creating = false
     }
   }
 </script>
@@ -173,10 +193,14 @@
           ></UI.Breadcrumb.Root
         ></SidebarPage.Header
       ><SidebarPage.Body
-        >{#if routeSignal !== null}<ChatCollectionPage
+        >{#if error}<UI.Notice variant="destructive" role="alert"
+            >{error}</UI.Notice
+          >{/if}
+        {#if routeSignal !== null}<ChatCollectionPage
             {workspace}
             search={currentRoute.search}
             projectID={currentRoute.projectID}
+            {creating}
             signal={routeSignal}
             onAuthenticationLost={() => runtime.requireLogin()}
             onCreate={create}

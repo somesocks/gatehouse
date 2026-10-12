@@ -13,9 +13,13 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
-  $effect(() => controller.load())
+  $effect(() => {
+    workspaceID
+    return untrack(() => controller.load())
+  })
   async function add() {
-    if (await controller.add(workspaceID))
+    const route = runtime.state.route
+    if ((await controller.add(workspaceID)) && runtime.state.route === route)
       runtime.navigate(
         `/app/system/workspaces/${encodeURIComponent(workspaceID)}/principals`,
         true,

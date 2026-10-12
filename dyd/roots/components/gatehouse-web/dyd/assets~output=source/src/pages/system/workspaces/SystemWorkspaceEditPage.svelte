@@ -17,7 +17,8 @@
     return untrack(() => controller.load(id))
   })
   async function save() {
-    if (await controller.save(workspaceID))
+    const route = runtime.state.route
+    if ((await controller.save(workspaceID)) && runtime.state.route === route)
       runtime.navigate(
         `/app/system/workspaces/${encodeURIComponent(workspaceID)}`,
         true,
@@ -41,6 +42,13 @@
   ]}
 >
   <UI.AdminContent mode="form">
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing workspace…</UI.Text
+      >{/if}
+    {#if controller.state.error}<UI.Button
+        variant="outline"
+        onclick={() => void controller.reload()}>Retry loading</UI.Button
+      >{/if}
     {#if controller.state.loading}<UI.Text tone="muted"
         >Loading workspace…</UI.Text
       >{:else if !controller.state.workspace}<UI.Notice

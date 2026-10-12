@@ -220,8 +220,8 @@
     >
       {#if error}<p class="text-destructive p-6 text-sm" role="alert">
           {error}
-        </p>
-      {:else if loading}<p
+        </p>{/if}
+      {#if loading && !items.length}<p
           class="text-muted-foreground p-8 text-center text-sm"
           role="status"
         >
@@ -284,7 +284,9 @@
                 </td>
               </tr>{/each}
           </tbody>
-        </table>{:else}<p class="text-muted-foreground p-8 text-center text-sm">
+        </table>{:else if !error}<p
+          class="text-muted-foreground p-8 text-center text-sm"
+        >
           No matches. Try another search.
         </p>{/if}
     </div>

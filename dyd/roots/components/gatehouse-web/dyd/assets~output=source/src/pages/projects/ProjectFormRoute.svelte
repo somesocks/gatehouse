@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import * as UI from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import { useRuntime } from "../../app/runtime.svelte"
@@ -12,6 +13,7 @@
   import type { Route } from "../../route"
 
   const runtime = useRuntime()
+  const resource = createLoadState()
   const route = $derived(
     runtime.state.route as Extract<
       Route,
@@ -34,25 +36,44 @@
   let project = $state<Project | null>(null)
   let name = $state("")
   let description = $state("")
-  let loading = $state(false)
+  const loading = $derived(route.kind === "project-edit" && resource.loading)
   let loaded = $state(false)
   let saving = $state(false)
   let error = $state("")
   let controller: AbortController
   let contextKey = ""
-  onDestroy(() => controller?.abort())
+  onDestroy(() => {
+    controller?.abort()
+    resource.stop()
+  })
 
+  const activation = $derived(
+    JSON.stringify([
+      route,
+      runtime.auth.state.status,
+      runtime.access.state.workspaceStatus,
+      workspace !== undefined,
+    ]),
+  )
   $effect(() => {
-    const selected = route
-    const ready =
-      runtime.auth.state.status === "authenticated" &&
-      runtime.access.state.workspaceStatus === "ready" &&
-      !!workspace
-    untrack(() => {
-      if (!ready) return
+    activation
+    return untrack(() => {
+      const selected = route
+      const ready =
+        runtime.auth.state.status === "authenticated" &&
+        runtime.access.state.workspaceStatus === "ready" &&
+        !!workspace
+      if (!ready) {
+        controller?.abort()
+        resource.stop()
+        contextKey = ""
+        loaded = false
+        return
+      }
       const key = `${selected.kind}/${selected.workspaceID}/${"projectID" in selected ? selected.projectID : ""}`
       if (contextKey === key && loaded) return
       controller?.abort()
+      resource.reset()
       contextKey = key
       controller = new AbortController()
       project = null
@@ -61,9 +82,12 @@
       error = ""
       saving = false
       loaded = selected.kind === "project-new"
-      loading = selected.kind === "project-edit"
       if (selected.kind === "project-edit")
         void load(selected, controller.signal)
+      return () => {
+        controller?.abort()
+        resource.stop()
+      }
     })
   })
 
@@ -71,7 +95,8 @@
     selected: Extract<Route, { kind: "project-edit" }>,
     signal: AbortSignal,
   ) {
-    loading = true
+    const request = resource.begin(signal)
+    signal = request.signal
     error = ""
     try {
       const response = await fetchProject(
@@ -92,18 +117,23 @@
         )
       const result = (await response.json()) as Project
       if (signal.aborted) return
-      project = result
-      name = result.name ?? ""
-      description = result.description ?? ""
-      loaded = true
+      request.commit(() => {
+        project = result
+        if (!loaded) {
+          name = result.name ?? ""
+          description = result.description ?? ""
+        }
+        loaded = true
+      })
     } catch (cause) {
+      request.fail(cause)
       if (!signal.aborted)
         error =
           cause instanceof Error
             ? cause.message
             : "Project could not be loaded."
     } finally {
-      if (!signal.aborted) loading = false
+      request.finish()
     }
   }
 
@@ -183,6 +213,9 @@
           : `Edit ${project?.name ?? "project"}`}
         description="Organize shared work with a name and description."
       />
+      {#if resource.reloading}<UI.Text role="status"
+          >Refreshing project…</UI.Text
+        >{/if}
       {#if loading}<UI.Text role="status">Loading project…</UI.Text>
       {:else if loaded}<UI.Form
           surface

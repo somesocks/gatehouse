@@ -2,6 +2,7 @@ import {
   systemAdministration,
   type SystemWorkspaceAgent,
 } from "../../../app/system"
+import { createLoadState } from "../../../utils/load-state.svelte"
 
 const optional = (value: string) =>
   value.trim() === "" ? undefined : value.trim()
@@ -16,6 +17,12 @@ export function createWorkspaceAgentBindingController({
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const resource = createLoadState()
+  const mutation = createLoadState()
+  const errors = $state({ value: "" })
+  let owner = ""
+  let disposed = false
+  let editRevision: number | undefined
   const state = $state({
     binding: null as SystemWorkspaceAgent | null,
     form: {
@@ -29,35 +36,68 @@ export function createWorkspaceAgentBindingController({
       default: false,
       enabled: true,
     },
-    error: "",
-    loading: false,
-    saving: false,
+    get error() {
+      return errors.value || resource.state.error
+    },
+    set error(value: string) {
+      errors.value = value
+    },
+    get loading() {
+      return resource.loading
+    },
+    get reloading() {
+      return resource.reloading
+    },
+    get saving() {
+      return mutation.state.pending
+    },
     editing: false,
+    conflict: false,
   })
 
   async function load(workspace: string, bindingID: string) {
-    state.loading = true
+    disposed = false
+    const key = `${workspace}/${bindingID}`
+    if (owner !== key) {
+      owner = key
+      resource.reset()
+      mutation.stop()
+      state.binding = null
+      state.editing = false
+    }
+    const request = resource.begin()
     state.error = ""
     try {
       const response = await systemAdministration(
         `workspace-agents/${encodeURIComponent(workspace)}/${encodeURIComponent(bindingID)}`,
+        "GET",
+        undefined,
+        request.signal,
       )
+      if (!request.current()) return
       if (response.status === 401) onAuthenticationLost()
       else if (response.status === 403) onSystemAccessChange("denied")
       else if (response.status === 404)
-        state.error = "Workspace agent binding was not found."
+        throw new Error("Workspace agent binding was not found.")
       else if (!response.ok)
-        state.error = "Workspace agent binding could not be loaded."
-      else state.binding = (await response.json()) as SystemWorkspaceAgent
-    } catch {
-      state.error = "Workspace agent binding could not be loaded."
+        throw new Error("Workspace agent binding could not be loaded.")
+      else {
+        const binding = (await response.json()) as SystemWorkspaceAgent
+        request.commit(() => {
+          state.binding = binding
+        })
+      }
+    } catch (error) {
+      request.fail(error)
     } finally {
-      state.loading = false
+      request.finish()
     }
   }
 
   function edit() {
-    if (!state.binding) return
+    if (disposed || !state.binding || state.editing) return
+    editRevision = state.binding.revision
+    state.conflict = false
     state.form = {
       workspace: state.binding.workspace,
       alias: state.binding.alias,
@@ -76,8 +116,8 @@ export function createWorkspaceAgentBindingController({
   }
 
   async function update() {
-    if (!state.binding) return
-    state.saving = true
+    if (disposed || !state.binding || state.saving) return
+    const request = mutation.begin()
     try {
       const form = state.form
       const response = await systemAdministration(
@@ -91,28 +131,47 @@ export function createWorkspaceAgentBindingController({
           rate_limits: rateLimits(form.rateLimits),
           default: form.default,
           enabled: form.enabled,
-          expected_revision: state.binding.revision,
+          expected_revision: editRevision,
         },
+        request.signal,
       )
+      if (!request.current()) return
       if (response.status === 401) onAuthenticationLost()
       else if (response.status === 403) onSystemAccessChange("denied")
       else if (response.status === 409) {
         await load(state.binding.workspace, state.binding.id)
-        edit()
+        if (!request.current()) return
         state.error =
-          "This binding changed elsewhere. The latest settings have been reloaded."
+          "This binding changed elsewhere. Your draft is preserved; review it before retrying."
+        state.conflict = true
       } else if (!response.ok)
         state.error = "Workspace agent binding could not be saved."
       else {
-        state.binding = (await response.json()) as SystemWorkspaceAgent
-        state.editing = false
+        const binding = (await response.json()) as SystemWorkspaceAgent
+        request.commit(() => {
+          resource.stop()
+          state.binding = binding
+          state.editing = false
+        })
       }
     } catch {
-      state.error = "Workspace agent binding could not be saved."
+      if (request.current())
+        state.error = "Workspace agent binding could not be saved."
     } finally {
-      state.saving = false
+      request.finish()
     }
   }
 
-  return { state, load, edit, update }
+  function stop() {
+    disposed = true
+    resource.stop()
+    mutation.stop()
+  }
+  function replaceDraft() {
+    if (disposed) return
+    state.editing = false
+    state.error = ""
+    edit()
+  }
+  return { state, load, edit, update, stop, replaceDraft }
 }

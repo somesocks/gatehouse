@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import {
     workspaceNavigation,
@@ -29,6 +31,8 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const sessionLoad = createLoadState()
+  const filesLoad = createLoadState()
   const page = createCollectionPage()
   const reloadFiles = () =>
     loadFiles(
@@ -39,9 +43,9 @@
     )
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
-  let sessionStatus = $state<Status>("checking")
+  const sessionStatus = $derived(sessionLoad.status)
   let files = $state<ChatFile[]>([])
-  let filesStatus = $state<Status>("checking")
+  const filesStatus = $derived(filesLoad.status)
   let generation = 0
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
@@ -74,22 +78,31 @@
     if (session !== null) session = { ...session, name }
   }
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: FilesRoute): () => void {
     page.reset()
+    sessionLoad.reset()
+    filesLoad.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     session = null
-    sessionStatus = "checking"
     files = []
-    filesStatus = "checking"
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
@@ -103,6 +116,8 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        sessionLoad.stop()
+        filesLoad.stop()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -130,6 +145,7 @@
     if (!(await loadSession(value, workspaceID, sessionID, signal))) return
     if (!(await loadFiles(value, workspaceID, sessionID, signal))) return
     if (!isCurrent(value, workspaceID, sessionID, signal)) return
+    unsubscribe?.()
     unsubscribe = activity.subscribe(
       [
         {
@@ -157,6 +173,8 @@
     sessionID: string,
     signal: AbortSignal,
   ): Promise<boolean> {
+    const request = sessionLoad.begin(signal)
+    signal = request.signal
     try {
       const response = await fetchChatSession(workspaceID, sessionID, signal)
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
@@ -169,13 +187,16 @@
         return false
       }
       if (!response.ok) throw new Error("session unavailable")
-      session = (await response.json()) as Session
-      sessionStatus = "ready"
-      return true
+      const loaded = (await response.json()) as Session
+      return request.commit(() => {
+        session = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, sessionID, signal))
-        sessionStatus = "unavailable"
+        request.fail(new Error("Chat could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -186,8 +207,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, sessionID, signal))
-      filesStatus = "checking"
+    const request = filesLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const requested = page.key()
       const response = await fetchChatFiles(
@@ -208,14 +231,16 @@
         requested !== page.key()
       )
         return false
-      files = loaded
-      page.accept(response)
-      filesStatus = "ready"
-      return true
+      return request.commit(() => {
+        files = loaded
+        page.accept(response)
+      })
     } catch {
       if (isCurrent(value, workspaceID, sessionID, signal))
-        filesStatus = "unavailable"
+        request.fail(new Error("Files could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -321,6 +346,22 @@
           />{/if}
       </SidebarPage.Header>
       <SidebarPage.Body>
+        {#if filesLoad.reloading || sessionLoad.reloading}<UI.Text role="status"
+            >Refreshing files…</UI.Text
+          >{/if}
+        {#if filesLoad.state.error || sessionLoad.state.error}<UI.Notice
+            variant="destructive"
+            role="alert"
+            >{filesLoad.state.error || sessionLoad.state.error}<UI.Button
+              variant="outline"
+              onclick={() =>
+                void loadRoute(
+                  currentRoute,
+                  generation,
+                  abortController!.signal,
+                )}>Retry</UI.Button
+            ></UI.Notice
+          >{/if}
         {#if sessionStatus === "checking"}
           <UI.Text as="p" tone="muted" aria-busy="true" aria-live="polite">
             Loading chat...
@@ -337,7 +378,7 @@
               label="Search files"
               placeholder="File name or media type"
               bind:value={page.state.search}
-              loading={page.state.busy || filesStatus === "checking"}
+              loading={page.state.busy || filesLoad.state.pending}
               onsearch={() => void page.search(reloadFiles)}
             />
             {#if filesStatus === "unavailable"}<UI.Notice
@@ -365,9 +406,11 @@
                   >
                 </UI.RecordRow>{:else}<UI.TableEmpty
                   columns={4}
-                  message={filesStatus === "checking"
-                    ? "Loading files…"
-                    : "No matching files."}
+                  message={filesStatus === "unavailable"
+                    ? "Files could not be loaded."
+                    : filesStatus === "checking"
+                      ? "Loading files…"
+                      : "No matching files."}
                 />{/each}
             </UI.RecordTable>
             <UI.PaginationFooter
@@ -375,7 +418,7 @@
               count={files.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
-              loading={page.state.busy || filesStatus === "checking"}
+              loading={page.state.busy || filesLoad.state.pending}
               onprevious={() => void page.previous(reloadFiles)}
               onnext={() => void page.next(reloadFiles)}
             />

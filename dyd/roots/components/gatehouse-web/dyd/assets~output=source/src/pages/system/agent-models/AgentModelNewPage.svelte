@@ -2,7 +2,7 @@
   import * as UI from "../../../ui"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import { untrack } from "svelte"
+  import { onDestroy, untrack } from "svelte"
   import { createAgentModelFormController } from "./agent-model-form-controller.svelte"
   import AgentModelFields from "./AgentModelFields.svelte"
   const runtime = useRuntime()
@@ -12,6 +12,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
+  onDestroy(controller.stop)
   async function create() {
     const route = runtime.state.route
     const model = await controller.create()

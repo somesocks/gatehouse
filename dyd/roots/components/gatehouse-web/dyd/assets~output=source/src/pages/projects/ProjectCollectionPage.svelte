@@ -77,11 +77,21 @@
     label="Search projects"
     placeholder="Project name"
     bind:value={controller.state.search}
-    loading={controller.state.loading}
-    onsearch={() => onNavigate(searchPath())}
+    loading={controller.state.busy}
+    onsearch={() =>
+      controller.state.search.trim() === search.trim()
+        ? void controller.search()
+        : onNavigate(searchPath())}
   />
   {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
       >{controller.state.error}</UI.Notice
+    >{/if}
+  {#if controller.state.reloading}<UI.Text role="status"
+      >Refreshing projects…</UI.Text
+    >{/if}
+  {#if controller.state.error}<UI.Button
+      variant="outline"
+      onclick={() => void controller.retry()}>Try again</UI.Button
     >{/if}
   <UI.RecordTable headers={["Name", "Created"]}>
     {#each controller.state.projects as project (project.id)}<UI.RecordRow>
@@ -97,9 +107,11 @@
         >
       </UI.RecordRow>{:else}<UI.TableEmpty
         columns={2}
-        message={controller.state.loading
-          ? "Searching projects…"
-          : "No projects match your search."}
+        message={!controller.state.hasLoaded && controller.state.error
+          ? "Projects could not be loaded."
+          : controller.state.loading
+            ? "Searching projects…"
+            : "No projects match your search."}
       />{/each}
   </UI.RecordTable>
   <UI.PaginationFooter
@@ -107,7 +119,7 @@
     count={controller.state.projects.length}
     previous={controller.state.history.length > 0}
     next={controller.state.cursor !== null}
-    loading={controller.state.loading}
+    loading={controller.state.busy}
     onprevious={() => controller.previous(workspace.id, search, signal)}
     onnext={() => controller.loadMore(workspace.id, search, signal)}
   />

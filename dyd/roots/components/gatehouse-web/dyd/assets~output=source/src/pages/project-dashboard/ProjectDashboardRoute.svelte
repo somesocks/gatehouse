@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { RouterLink, StatusPage } from "../../ui"
   import * as UI from "../../ui"
   import * as SidebarPage from "../../ui/sidebar-page"
@@ -10,9 +12,10 @@
   type DashboardRoute = Extract<Route, { kind: "project" }>
   type Status = "checking" | "ready" | "unavailable"
   const runtime = useRuntime()
+  const resource = createLoadState()
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
-  let projectStatus = $state<Status>("checking")
+  const projectStatus = $derived(resource.status)
   let generation = 0
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
@@ -33,17 +36,29 @@
     currentRoute.projectID === projectID &&
     !abortController?.signal.aborted
 
-  $effect(() => activate(currentRoute))
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
+  $effect(() => {
+    activation
+    return untrack(() => activate(currentRoute))
+  })
 
   function activate(route: DashboardRoute): () => void {
     const value = ++generation
+    resource.reset()
     abortController?.abort()
     const controller = new AbortController()
     abortController = controller
     unsubscribe?.()
     unsubscribe = undefined
     project = null
-    projectStatus = "checking"
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
@@ -57,6 +72,7 @@
     }
     return () => {
       controller.abort()
+      resource.stop()
       if (value === generation) {
         unsubscribe?.()
         unsubscribe = undefined
@@ -97,8 +113,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, projectID))
-      projectStatus = "checking"
+    const request = resource.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchProject(workspaceID, projectID, signal)
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
@@ -118,13 +136,15 @@
       const loaded = (await response.json()) as Project
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
-      project = loaded
-      projectStatus = "ready"
-      return true
+      return request.commit(() => {
+        project = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        projectStatus = "unavailable"
+        request.fail(new Error("Project could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -222,6 +242,22 @@
       </SidebarPage.Header>
       <SidebarPage.Body>
         <UI.AdminContent mode="hub">
+          {#if resource.reloading}<UI.Text role="status"
+              >Refreshing project…</UI.Text
+            >{/if}
+          {#if resource.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{resource.state.error}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadRoute(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if projectStatus === "checking"}<UI.Notice
               ><UI.Text as="p">Loading project…</UI.Text></UI.Notice
             >

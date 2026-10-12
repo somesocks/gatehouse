@@ -38,7 +38,8 @@ export function createStorageProviderListController(options: {
         },
       ],
       async () => {
-        await directory.reload()
+        if (!(await directory.reload()))
+          throw new Error("Storage refresh failed")
       },
     )
     return () => {

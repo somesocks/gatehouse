@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import {
     X,
     Modal,
@@ -51,6 +53,9 @@
   > & { revision: number; body?: string }
 
   const runtime = useRuntime()
+  const projectLoad = createLoadState()
+  const notesLoad = createLoadState()
+  const detailLoad = createLoadState()
   const page = createCollectionPage()
   const historyPage = createCollectionPage()
   const reloadHistory = async () => {
@@ -66,11 +71,11 @@
     )
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
-  let projectStatus = $state<Status>("checking")
+  const projectStatus = $derived(projectLoad.status)
   let notes = $state<ProjectNote[]>([])
-  let notesStatus = $state<Status>("checking")
+  const notesStatus = $derived(notesLoad.status)
   let active = $state<ProjectNote | null>(null)
-  let detailStatus = $state<Status>("ready")
+  const detailStatus = $derived(detailLoad.status)
   let creating = $state(false)
   let editing = $state(false)
   let saving = $state(false)
@@ -129,13 +134,25 @@
       projectID,
     )
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: NotesRoute): () => void {
     page.reset()
+    projectLoad.reset()
+    notesLoad.reset()
+    detailLoad.reset()
     const value = ++generation
     const routeState = activateProjectNotesRoute(route.kind)
     abortController?.abort()
@@ -143,11 +160,8 @@
     unsubscribe?.()
     unsubscribe = undefined
     project = null
-    projectStatus = "checking"
     notes = []
-    notesStatus = routeState.notesStatus
     active = null
-    detailStatus = routeState.detailStatus
     creating = routeState.creating
     editing = routeState.editing
     saving = false
@@ -174,6 +188,10 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        projectLoad.stop()
+        notesLoad.stop()
+        detailLoad.stop()
+        historyRequest?.abort()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -200,6 +218,8 @@
         )
       return
     }
+    const request = projectLoad.begin(signal)
+    signal = request.signal
     try {
       const response = await fetchProject(workspaceID, projectID, signal)
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
@@ -217,8 +237,12 @@
       if (!response.ok) throw new Error("project unavailable")
       const loaded = (await response.json()) as Project
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted) return
-      project = loaded
-      projectStatus = "ready"
+      if (
+        !request.commit(() => {
+          project = loaded
+        })
+      )
+        return
       subscribeToNotes(route, value)
       await Promise.all([
         ...(route.kind === "project-notes"
@@ -230,11 +254,14 @@
       ])
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        projectStatus = "unavailable"
+        request.fail(new Error("Project could not be loaded."))
+    } finally {
+      request.finish()
     }
   }
 
   function subscribeToNotes(route: NotesRoute, value: number): void {
+    unsubscribe?.()
     const { workspaceID, projectID } = route
     unsubscribe = activity.subscribe(
       [
@@ -271,8 +298,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, projectID))
-      notesStatus = "checking"
+    const request = notesLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const requested = page.key()
       const response = await fetchProjectNotes(
@@ -292,14 +321,16 @@
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
       if (requested !== page.key()) return false
-      page.accept(response)
-      notes = loaded
-      notesStatus = settledProjectNotesListStatus(true)
-      return true
+      return request.commit(() => {
+        page.accept(response)
+        notes = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        notesStatus = settledProjectNotesListStatus(false)
+        request.fail(new Error("Notes could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -310,7 +341,10 @@
     projectID: string,
     signal: AbortSignal,
   ): Promise<boolean> {
-    detailStatus = "checking"
+    const request = detailLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchProjectNote(
         workspaceID,
@@ -332,7 +366,6 @@
       const loaded = (await response.json()) as ProjectNote
       if (!isCurrent(value, workspaceID, projectID) || signal.aborted)
         return false
-      active = loaded
       if (currentRoute.kind === "project-note-revision") {
         const response = await fetchProjectNoteRevision(
           workspaceID,
@@ -349,13 +382,17 @@
           return false
         selectedRevision = revision
       }
-      if (currentRoute.kind === "project-note-edit" && !editing) populateEdit()
-      detailStatus = "ready"
-      return true
+      return request.commit(() => {
+        active = loaded
+        if (currentRoute.kind === "project-note-edit" && !editing)
+          populateEdit()
+      })
     } catch {
       if (isCurrent(value, workspaceID, projectID) && !signal.aborted)
-        detailStatus = "unavailable"
+        request.fail(new Error("Note could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -390,6 +427,7 @@
   }
 
   async function save(): Promise<void> {
+    if (saving || deleting) return
     if (title.trim() === "") {
       error = "Title is required."
       return
@@ -433,7 +471,6 @@
         saved,
         ...notes.filter((candidate) => candidate.id !== saved.id),
       ])
-      notesStatus = "ready"
       runtime.navigate(detailPath(route.workspaceID, route.projectID, saved.id))
     } catch {
       if (isCurrent(value, route.workspaceID, route.projectID))
@@ -494,7 +531,7 @@
     const route = currentRoute
     const note = active
     const value = generation
-    history = []
+    if (reset) history = []
     historyError = ""
     historyLoading = true
     if (!historyModal?.open) historyModal?.showModal()
@@ -661,6 +698,24 @@
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
+          {#if projectLoad.reloading || notesLoad.reloading || detailLoad.reloading}<UI.Text
+              role="status">Refreshing notes…</UI.Text
+            >{/if}
+          {#if projectLoad.state.error || notesLoad.state.error || detailLoad.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{projectLoad.state.error ||
+                notesLoad.state.error ||
+                detailLoad.state.error}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadRoute(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
             </UI.Text>
@@ -864,7 +919,7 @@
               label="Search notes"
               placeholder="Title or description"
               bind:value={page.state.search}
-              loading={page.state.busy || notesStatus === "checking"}
+              loading={page.state.busy || notesLoad.state.pending}
               onsearch={() => void page.search(reloadNotes)}
             />
             <UI.RecordTable
@@ -872,9 +927,11 @@
             >
               {#if notesStatus !== "ready"}<UI.TableEmpty
                   columns={4}
-                  message={notesStatus === "checking"
-                    ? "Loading notes…"
-                    : "Notes could not be loaded."}
+                  message={notesStatus === "unavailable"
+                    ? "Notes could not be loaded."
+                    : notesStatus === "checking"
+                      ? "Loading notes…"
+                      : "Notes could not be loaded."}
                 />
               {:else}{#each notes as note (note.id)}<UI.RecordRow>
                     <UI.RecordCell primary
@@ -905,7 +962,7 @@
               count={notes.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
-              loading={page.state.busy || notesStatus === "checking"}
+              loading={page.state.busy || notesLoad.state.pending}
               onprevious={() => void page.previous(reloadNotes)}
               onnext={() => void page.next(reloadNotes)}
             />

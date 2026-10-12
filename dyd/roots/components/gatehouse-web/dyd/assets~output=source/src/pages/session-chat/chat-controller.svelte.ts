@@ -1,4 +1,5 @@
 import { tick } from "svelte"
+import { createLoadState } from "../../utils/load-state.svelte"
 import {
   cancelChatReply,
   decodeChatEvent,
@@ -32,9 +33,23 @@ export function createChatController({
   followLatest,
   focusComposer,
 }: ChatControllerOptions) {
+  const eventsLoad = createLoadState()
+  const agentsLoad = createLoadState()
+  let lifetime = new AbortController()
   const state = $state({
     events: [] as ChatEventTree[],
-    status: "checking" as "checking" | "ready" | "unavailable",
+    get status() {
+      return eventsLoad.status
+    },
+    get reloading() {
+      return eventsLoad.reloading
+    },
+    get reloadError() {
+      return eventsLoad.state.error
+    },
+    get agentsError() {
+      return agentsLoad.state.error
+    },
     agents: [] as ChatAgent[],
     messageText: "",
     composerFiles: [] as ChatComposerFile[],
@@ -56,7 +71,8 @@ export function createChatController({
   } | null = null
   let generation = 0
   let followingLatest = false
-  const current = (value: number) => value === generation
+  const current = (value: number) =>
+    value === generation && context !== null && !context.signal.aborted
   const validContext = (
     value: number,
     workspaceID: string,
@@ -69,27 +85,37 @@ export function createChatController({
   async function refreshEvents(
     value: number,
     showLoading = false,
+    parent?: AbortSignal,
   ): Promise<boolean> {
     if (context === null) return false
     const { workspaceID, sessionID, signal } = context
-    if (showLoading) state.status = "checking"
+    const request = eventsLoad.begin(
+      parent ? AbortSignal.any([signal, parent]) : signal,
+    )
     try {
-      const response = await fetchChatEvents(workspaceID, sessionID, signal)
-      if (!validContext(value, workspaceID, sessionID)) return false
+      const response = await fetchChatEvents(
+        workspaceID,
+        sessionID,
+        request.signal,
+      )
+      if (!validContext(value, workspaceID, sessionID) || !request.current())
+        return false
       if (response.status === 401) {
         state.authenticationRequired = true
         return false
       }
       if (!response.ok) throw new Error("session events could not be loaded")
       const loaded = decodeChatEventTrees(await response.json())
-      if (!validContext(value, workspaceID, sessionID)) return false
+      if (!validContext(value, workspaceID, sessionID) || !request.current())
+        return false
       const knownEvents = new Set(state.events.flatMap(eventTreeIDs))
       const hasNewEvents = loaded.some((tree) =>
         eventTreeIDs(tree).some((id) => !knownEvents.has(id)),
       )
       const shouldFollow = showLoading || isNearBottom()
-      state.events = loaded
-      state.status = "ready"
+      request.commit(() => {
+        state.events = loaded
+      })
       if (showLoading || hasNewEvents) {
         if (shouldFollow) void followLatest(showLoading ? "instant" : "smooth")
         else state.showJumpToLatest = true
@@ -115,17 +141,26 @@ export function createChatController({
       return true
     } catch {
       if (validContext(value, workspaceID, sessionID))
-        state.status = "unavailable"
+        request.fail("Conversation could not be refreshed.")
       return false
+    } finally {
+      request.finish()
     }
   }
 
-  async function refreshAgents(value: number): Promise<boolean> {
+  async function refreshAgents(
+    value: number,
+    parent?: AbortSignal,
+  ): Promise<boolean> {
     if (context === null) return false
     const { workspaceID, sessionID, signal } = context
+    const request = agentsLoad.begin(
+      parent ? AbortSignal.any([signal, parent]) : signal,
+    )
     try {
-      const response = await fetchChatAgents(workspaceID, signal)
-      if (!validContext(value, workspaceID, sessionID)) return false
+      const response = await fetchChatAgents(workspaceID, request.signal)
+      if (!validContext(value, workspaceID, sessionID) || !request.current())
+        return false
       if (response.status === 401) {
         state.authenticationRequired = true
         return false
@@ -133,10 +168,16 @@ export function createChatController({
       if (!response.ok) throw new Error("agents could not be refreshed")
       const agents = (await response.json()) as ChatAgent[]
       if (!validContext(value, workspaceID, sessionID)) return false
-      state.agents = agents
+      if (!request.current()) return false
+      request.commit(() => {
+        state.agents = agents
+      })
       return true
     } catch {
+      request.fail("Agents could not be refreshed.")
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -146,10 +187,16 @@ export function createChatController({
     signal: AbortSignal,
   ): void {
     stop()
-    context = { workspaceID, sessionID, signal }
+    lifetime = new AbortController()
+    context = {
+      workspaceID,
+      sessionID,
+      signal: AbortSignal.any([signal, lifetime.signal]),
+    }
+    eventsLoad.reset()
+    agentsLoad.reset()
     const value = ++generation
     state.events = []
-    state.status = "checking"
     state.agents = []
     state.messageText = ""
     state.composerFiles = []
@@ -168,6 +215,9 @@ export function createChatController({
   }
 
   function stop(): void {
+    lifetime.abort()
+    eventsLoad.stop()
+    agentsLoad.stop()
     generation += 1
     context = null
     state.events = []
@@ -197,6 +247,7 @@ export function createChatController({
     const { workspaceID, sessionID, signal } = context
     const value = generation
     const text = state.messageText
+    const files = [...state.composerFiles]
     if (delivery.mode === "direct" && delivery.agentID === undefined) {
       state.messageError =
         "The direct agent is unavailable. Choose another agent."
@@ -206,10 +257,15 @@ export function createChatController({
     state.messageError = ""
     state.sendingMessage = true
     try {
-      const attachments = await Promise.all(
-        state.composerFiles.map((entry) =>
+      const uploads = await Promise.allSettled(
+        files.map((entry) =>
           uploadComposerFile(entry, value, workspaceID, sessionID),
         ),
+      )
+      const failed = uploads.find((result) => result.status === "rejected")
+      if (failed) throw failed.reason
+      const attachments = uploads.map(
+        (result) => (result as PromiseFulfilledResult<string>).value,
       )
       if (!validContext(value, workspaceID, sessionID)) return
       const response = await sendChatMessage(
@@ -232,9 +288,12 @@ export function createChatController({
       if (event.kind !== "message.text")
         throw new Error("invalid message response")
       if (!validContext(value, workspaceID, sessionID)) return
-      state.messageText = ""
-      state.composerFiles = []
+      if (state.messageText === text) state.messageText = ""
+      state.composerFiles = state.composerFiles.filter(
+        (entry) => !files.some((sent) => sent.file === entry.file),
+      )
       await tick()
+      if (!validContext(value, workspaceID, sessionID)) return
       state.events = [...state.events, { event, children: [] }]
       void followLatest()
       if (agents.length > 0)
@@ -247,7 +306,7 @@ export function createChatController({
       if (current(value)) {
         state.sendingMessage = false
         await tick()
-        focusComposer()
+        if (validContext(value, workspaceID, sessionID)) focusComposer()
       }
     }
   }
@@ -446,10 +505,11 @@ export function createChatController({
     state.showJumpToLatest = !isNearBottom()
   }
   async function jumpToLatest(): Promise<void> {
+    const value = generation
     followingLatest = true
     state.showJumpToLatest = false
     await followLatest()
-    if (isNearBottom()) followingLatest = false
+    if (current(value) && isNearBottom()) followingLatest = false
   }
   function updateActivityTimestamp(): void {
     state.activityTimestamp = Date.now()
@@ -459,8 +519,9 @@ export function createChatController({
     state,
     start,
     stop,
-    refreshEvents: () => refreshEvents(generation),
-    refreshAgents: () => refreshAgents(generation),
+    refreshEvents: (signal?: AbortSignal) =>
+      refreshEvents(generation, false, signal),
+    refreshAgents: (signal?: AbortSignal) => refreshAgents(generation, signal),
     sendMessage,
     cancelReply,
     respondToApproval,

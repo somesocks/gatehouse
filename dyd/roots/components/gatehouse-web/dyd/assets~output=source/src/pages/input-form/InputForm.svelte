@@ -72,6 +72,9 @@
       void controller.submit()
     }}
   >
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing shared draft…</UI.Text
+      >{/if}
     <UI.FormSection
       compact
       level={Math.min(depth + 1, 6)}
@@ -97,10 +100,11 @@
     {#if controller.state.error !== ""}<UI.Text as="p" size="small" role="alert"
         >{controller.state.error}</UI.Text
       >{/if}
-    {#if controller.state.needsReload}<UI.Button
+    {#if controller.state.needsReload || controller.state.invalidAnswer}<UI.Button
         variant="outline"
         type="button"
-        onclick={() => void controller.load()}>Reload shared draft</UI.Button
+        disabled={controller.state.reloading}
+        onclick={() => void controller.load()}>Retry unsaved changes</UI.Button
       >{/if}
     <UI.FormActions>
       <UI.Button
@@ -113,6 +117,7 @@
         variant="default"
         type="submit"
         disabled={controller.state.terminalPending ||
+          controller.state.reloading ||
           controller.state.needsReload}>Submit</UI.Button
       >
     </UI.FormActions>

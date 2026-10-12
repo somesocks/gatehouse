@@ -9,6 +9,7 @@ import {
 } from "../../app/session-secrets"
 import type { Route } from "../../route"
 import { createCollectionPage } from "../../utils/collection-page.svelte"
+import { createLoadState } from "../../utils/load-state.svelte"
 
 type SessionSecretsRoute = Extract<
   Route,
@@ -34,10 +35,25 @@ export function createSessionSecretsController({
   onNavigate,
 }: SessionSecretsControllerOptions) {
   const page = createCollectionPage()
+  const listLoad = createLoadState()
+  const detailLoad = createLoadState()
   const state = $state({
     secrets: [] as SessionSecret[],
-    status: "checking" as SessionSecretStatus,
-    detailStatus: "checking" as SessionSecretStatus,
+    get status() {
+      return listLoad.status
+    },
+    get detailStatus() {
+      return detailLoad.status
+    },
+    get reloading() {
+      return listLoad.reloading || detailLoad.reloading
+    },
+    get reloadError() {
+      return listLoad.state.error || detailLoad.state.error
+    },
+    get busy() {
+      return listLoad.state.pending || detailLoad.state.pending
+    },
     active: null as SessionSecret | null,
     creating: false,
     editing: false,
@@ -53,6 +69,7 @@ export function createSessionSecretsController({
     signal: AbortSignal
   } | null = null
   let generation = 0
+  let selectedRoute: SessionSecretsRoute | undefined
   let unsubscribe: (() => void) | undefined
 
   function listPath(workspaceID: string, sessionID: string): string {
@@ -72,7 +89,11 @@ export function createSessionSecretsController({
   }
 
   function isCurrent(currentGeneration: number): boolean {
-    return currentGeneration === generation
+    return (
+      currentGeneration === generation &&
+      context !== null &&
+      !context.signal.aborted
+    )
   }
 
   async function loadSecrets(
@@ -83,18 +104,16 @@ export function createSessionSecretsController({
       return false
     }
     const { workspaceID, sessionID } = context
-    if (showLoading) {
-      state.status = "checking"
-    }
+    const request = listLoad.begin(context.signal)
     try {
       const requested = page.key()
       const response = await fetchSessionSecrets(
         workspaceID,
         sessionID,
-        context.signal,
+        request.signal,
         page.params(),
       )
-      if (!isCurrent(currentGeneration)) {
+      if (!isCurrent(currentGeneration) || !request.current()) {
         return false
       }
       if (response.status === 401) {
@@ -105,25 +124,28 @@ export function createSessionSecretsController({
         throw new Error("session secrets could not be loaded")
       }
       const secrets = (await response.json()) as SessionSecret[]
-      if (!isCurrent(currentGeneration)) {
+      if (!isCurrent(currentGeneration) || !request.current()) {
         return false
       }
       if (requested !== page.key()) return false
-      state.secrets = secrets
-      page.accept(response)
-      state.status = "ready"
-      return true
+      return request.commit(() => {
+        state.secrets = secrets
+        page.accept(response)
+      })
     } catch {
       if (isCurrent(currentGeneration)) {
-        state.status = "unavailable"
+        request.fail(new Error("Secrets could not be loaded."))
       }
       return false
+    } finally {
+      request.finish()
     }
   }
 
   async function loadSecret(
     secretID: string,
     currentGeneration: number,
+    signal: AbortSignal,
   ): Promise<SessionSecret | null> {
     if (context === null) {
       return null
@@ -133,14 +155,14 @@ export function createSessionSecretsController({
       workspaceID,
       sessionID,
       secretID,
-      context.signal,
+      signal,
     )
-    if (!isCurrent(currentGeneration)) {
+    if (!isCurrent(currentGeneration) || signal.aborted) {
       return null
     }
     if (response.status === 401) {
       onAuthenticationLost()
-      return null
+      throw new Error("Sign in is required.")
     }
     if (response.status === 404) {
       return null
@@ -150,6 +172,7 @@ export function createSessionSecretsController({
     }
     const loaded = (await response.json()) as SessionSecret
     return isCurrent(currentGeneration) &&
+      !signal.aborted &&
       context?.workspaceID === workspaceID &&
       context?.sessionID === sessionID
       ? loaded
@@ -167,10 +190,18 @@ export function createSessionSecretsController({
     if (secretID === null) {
       return loadSecrets(showLoading, currentGeneration)
     }
-    if (showLoading) state.detailStatus = "checking"
+    const request = detailLoad.begin(context.signal)
     try {
-      const secret = await loadSecret(secretID, currentGeneration)
-      if (!isCurrent(currentGeneration) || context === null) {
+      const secret = await loadSecret(
+        secretID,
+        currentGeneration,
+        request.signal,
+      )
+      if (
+        !isCurrent(currentGeneration) ||
+        context === null ||
+        !request.current()
+      ) {
         return false
       }
       if (secret === null) {
@@ -178,16 +209,18 @@ export function createSessionSecretsController({
         onNavigate(listPath(context.workspaceID, context.sessionID), true)
         return true
       }
-      state.active = secret
-      if (route.kind === "session-secret-edit" && !state.editing) populateEdit()
-      state.detailStatus = "ready"
-      return true
+      return request.commit(() => {
+        state.active = secret
+        if (route.kind === "session-secret-edit" && !state.editing)
+          populateEdit()
+      })
     } catch {
       if (isCurrent(currentGeneration)) {
-        state.detailStatus = "unavailable"
-        state.error = "Secret could not be loaded."
+        request.fail(new Error("Secret could not be loaded."))
       }
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -208,12 +241,15 @@ export function createSessionSecretsController({
   ): () => void {
     stop()
     page.reset()
+    listLoad.reset()
+    detailLoad.reset()
     context = { workspaceID, sessionID, signal }
+    selectedRoute = route
     const currentGeneration = ++generation
     state.active = null
+    state.secrets = []
     state.creating = false
     state.editing = false
-    state.detailStatus = "checking"
     state.saving = false
     state.deleting = false
     state.description = ""
@@ -245,6 +281,8 @@ export function createSessionSecretsController({
 
   function stop(): void {
     generation += 1
+    listLoad.stop()
+    detailLoad.stop()
     unsubscribe?.()
     unsubscribe = undefined
     context = null
@@ -295,6 +333,7 @@ export function createSessionSecretsController({
   }
 
   async function save(): Promise<void> {
+    if (state.saving || state.deleting) return
     if (context === null || state.description.trim() === "") {
       state.error = "Description is required."
       return
@@ -361,7 +400,8 @@ export function createSessionSecretsController({
       ]
       onNavigate(detailPath(workspaceID, sessionID, saved.id))
     } catch {
-      state.error = "The secret could not be saved. Try again."
+      if (isCurrent(currentGeneration))
+        state.error = "The secret could not be saved. Try again."
     } finally {
       if (isCurrent(currentGeneration)) {
         state.saving = false
@@ -411,7 +451,8 @@ export function createSessionSecretsController({
       )
       onNavigate(listPath(workspaceID, sessionID))
     } catch {
-      state.error = "The secret could not be removed. Try again."
+      if (isCurrent(currentGeneration))
+        state.error = "The secret could not be removed. Try again."
     } finally {
       if (isCurrent(currentGeneration)) {
         state.deleting = false
@@ -427,7 +468,10 @@ export function createSessionSecretsController({
 
   return {
     page,
-    reload: () => loadSecrets(true, generation),
+    reload: () =>
+      selectedRoute
+        ? refresh(selectedRoute, generation, true)
+        : Promise.resolve(false),
     state,
     start,
     stop,

@@ -11,36 +11,67 @@ const descriptor = {
     { id: "name", label: "Name", type: "text" },
     { id: "approved", label: "Approved", type: "boolean" },
     { id: "attachments", label: "Attachments", type: "files", optional: true },
-    { id: "profile", label: "Profile", type: "object", optional: true, fields: [
-      { id: "city", label: "City", type: "text" },
-    ] },
+    {
+      id: "profile",
+      label: "Profile",
+      type: "object",
+      optional: true,
+      fields: [{ id: "city", label: "City", type: "text" }],
+    },
   ],
 }
 
-function sharedInput(): { transport: () => InputTransport; snapshot: () => { draft: Record<string, unknown>; terminal: string | null } } {
+function sharedInput(): {
+  transport: () => InputTransport
+  snapshot: () => { draft: Record<string, unknown>; terminal: string | null }
+} {
   let draft: Record<string, unknown> = {}
   let terminal: string | null = null
   return {
     transport: () => ({
-      openCustom: async () => { throw new Error("not used") },
-      read: async () => terminal === null
-        ? new Response(JSON.stringify({ form: descriptor, draft, updated_at: null }), { status: 200 })
-        : new Response(null, { status: 409 }),
+      openCustom: async () => {
+        throw new Error("not used")
+      },
+      read: async () =>
+        terminal === null
+          ? new Response(
+              JSON.stringify({ form: descriptor, draft, updated_at: null }),
+              { status: 200 },
+            )
+          : new Response(null, { status: 409 }),
       patch: async (body: string) => {
         if (terminal !== null) return new Response(null, { status: 409 })
-        const operation = JSON.parse(body) as { op: string; path: string[]; value?: unknown }
-        draft = patchDraft(draft, operation.path, operation.value, operation.op === "remove")
+        const operation = JSON.parse(body) as {
+          op: string
+          path: string[]
+          value?: unknown
+        }
+        draft = patchDraft(
+          draft,
+          operation.path,
+          operation.value,
+          operation.op === "remove",
+        )
         return new Response(null, { status: 204 })
       },
-      createFile: async () => { throw new Error("not used") },
-      uploadFile: async () => { throw new Error("not used") },
-      finishFile: async () => { throw new Error("not used") },
+      createFile: async () => {
+        throw new Error("not used")
+      },
+      uploadFile: async () => {
+        throw new Error("not used")
+      },
+      finishFile: async () => {
+        throw new Error("not used")
+      },
       terminal: async (action: "submit" | "cancel") => {
         if (terminal !== null) return new Response(null, { status: 409 })
         if (action === "submit" && typeof draft.name !== "string")
           return new Response("name is required", { status: 422 })
         terminal = action
-        return new Response(JSON.stringify({ event_id: "sev_result", kind: action }), { status: 202 })
+        return new Response(
+          JSON.stringify({ event_id: "sev_result", kind: action }),
+          { status: 202 },
+        )
       },
     }),
     snapshot: () => ({ draft, terminal }),
@@ -52,25 +83,38 @@ describe("shared input form controller", () => {
     const server = sharedInput()
     const transport = server.transport()
     let created = 0
-    transport.createFile = async () => Response.json({ file: { ref: { id: `sfi_${++created}` } }, upload_url: "/storage" })
+    transport.createFile = async () =>
+      Response.json({
+        file: { ref: { id: `sfi_${++created}` } },
+        upload_url: "/storage",
+      })
     let finishPut!: (response: Response) => void
     let startedPut!: () => void
-    const putStarted = new Promise<void>((resolve) => { startedPut = resolve })
+    const putStarted = new Promise<void>((resolve) => {
+      startedPut = resolve
+    })
     let putCount = 0
     transport.uploadFile = () => {
       if (++putCount === 1) {
         startedPut()
-        return new Promise<Response>((resolve) => { finishPut = resolve })
+        return new Promise<Response>((resolve) => {
+          finishPut = resolve
+        })
       }
       return Promise.resolve(new Response(null, { status: 204 }))
     }
-    transport.finishFile = async (_path, id) => Response.json({ id, name: `${id}.txt`, size: 4 })
+    transport.finishFile = async (_path, id) =>
+      Response.json({ id, name: `${id}.txt`, size: 4 })
     const user = createInputFormController(transport)
     await user.load()
     await user.set(["name"], "Ada")
     const files = [new File(["data"], "one.txt"), new File(["data"], "two.txt")]
     const uploading = user.upload(["attachments"], files, (summary) =>
-      user.set(["attachments"], [...(user.value(["attachments"]) as object[] ?? []), summary]))
+      user.set(
+        ["attachments"],
+        [...((user.value(["attachments"]) as object[]) ?? []), summary],
+      ),
+    )
     await putStarted
     const submitting = user.submit()
     expect(server.snapshot().terminal).toBeNull()
@@ -91,7 +135,10 @@ describe("shared input form controller", () => {
     await alice.set(["name"], "Ada")
     await bob.set(["profile", "city"], "Paris")
     expect(alice.state.draft).toEqual({ name: "Ada" })
-    expect(server.snapshot().draft).toEqual({ name: "Ada", profile: { city: "Paris" } })
+    expect(server.snapshot().draft).toEqual({
+      name: "Ada",
+      profile: { city: "Paris" },
+    })
     await alice.submit()
     expect(server.snapshot()).toEqual({
       draft: { name: "Ada", approved: false, profile: { city: "Paris" } },
@@ -111,7 +158,7 @@ describe("shared input form controller", () => {
     expect(server.snapshot().terminal).toBe("cancel")
   })
 
-  it("requires a shared-draft reload after a failed save", async () => {
+  it("preserves and retries optimistic edits after a failed save", async () => {
     const server = sharedInput()
     const transport = server.transport()
     const patch = transport.patch
@@ -130,7 +177,8 @@ describe("shared input form controller", () => {
     expect(server.snapshot().terminal).toBeNull()
     expect(user.state.needsReload).toBe(true)
     await user.load()
-    expect(user.state.draft).toEqual({})
+    expect(user.state.draft).toEqual({ name: "Ada" })
+    expect(server.snapshot().draft).toEqual({ name: "Ada" })
     expect(await user.set(["name"], "Ada")).toBe(true)
     await user.submit()
     expect(user.state.status).toBe("submitted")
@@ -164,7 +212,10 @@ describe("shared input form controller", () => {
     const user = createInputFormController(transport)
     await user.load()
     let finishRead!: (value: Response) => void
-    transport.read = () => new Promise<Response>((resolve) => { finishRead = resolve })
+    transport.read = () =>
+      new Promise<Response>((resolve) => {
+        finishRead = resolve
+      })
     const refreshing = user.refresh()
     await Promise.resolve()
     const saved = user.set(["name"], "Local")

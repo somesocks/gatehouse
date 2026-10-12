@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createAsyncResource } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
   import {
     fetchSystemWorkspace,
@@ -17,29 +19,26 @@
     children: Snippet
   } = $props()
   const runtime = useRuntime()
-  let workspace = $state<SystemWorkspace | null>(null)
-  let error = $state("")
+  const resource = createAsyncResource<SystemWorkspace>()
+  const workspace = $derived(resource.value ?? null)
+  const error = $derived(resource.lifecycle.state.error)
+  async function load() {
+    return resource.load(async (signal) => {
+      const response = await fetchSystemWorkspace(workspaceID, signal)
+      signal.throwIfAborted()
+      if (response.status === 401) runtime.requireLogin()
+      if (response.status === 403) runtime.access.setSystemAccess("denied")
+      if (!response.ok) throw new Error("Workspace could not be loaded.")
+      return (await response.json()) as SystemWorkspace
+    })
+  }
   $effect(() => {
     const id = workspaceID
-    const request = new AbortController()
-    workspace = null
-    error = ""
-    void fetchSystemWorkspace(id, request.signal)
-      .then(async (response) => {
-        if (request.signal.aborted) return
-        if (response.status === 401) runtime.requireLogin()
-        else if (response.status === 403)
-          runtime.access.setSystemAccess("denied")
-        else if (!response.ok) error = "Workspace could not be loaded."
-        else {
-          const result = (await response.json()) as SystemWorkspace
-          if (!request.signal.aborted) workspace = result
-        }
-      })
-      .catch(() => {
-        if (!request.signal.aborted) error = "Workspace could not be loaded."
-      })
-    return () => request.abort()
+    untrack(() => {
+      resource.context(id)
+      void load()
+    })
+    return resource.stop
   })
 </script>
 
@@ -56,9 +55,16 @@
   ]}
 >
   {#if error}<UI.AdminContent
-      ><UI.Notice variant="destructive" role="alert">{error}</UI.Notice
+      ><UI.Notice variant="destructive" role="alert"
+        >{error}<UI.Button variant="outline" onclick={() => void load()}
+          >Retry</UI.Button
+        ></UI.Notice
       ></UI.AdminContent
-    >{:else if workspace}{@render children()}{:else}<UI.Text tone="muted"
+    >{/if}
+  {#if resource.lifecycle.reloading}<UI.Text role="status"
+      >Refreshing workspace…</UI.Text
+    >{/if}
+  {#if workspace}{@render children()}{:else if !error}<UI.Text tone="muted"
       >Loading workspace…</UI.Text
     >{/if}
 </UI.AppFrame>

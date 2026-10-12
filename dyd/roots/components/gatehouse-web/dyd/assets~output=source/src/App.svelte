@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte"
   import { Theme } from "./ui"
+  import * as UI from "./ui"
   import {
     createApplicationRuntime,
     provideRuntime,
@@ -71,168 +72,183 @@
     : undefined}
 />
 
-{#if owner === "project-dashboard"}
-  <ProjectDashboardRoute />
-{:else if owner === "project-form"}
-  <ProjectFormRoute />
-{:else if owner === "project-notes"}
-  <ProjectNotesRoute />
-{:else if owner === "project-files"}
-  <ProjectFilesRoute />
-{:else if owner === "project-tasks" || owner === "session-tasks"}
-  <TasksRoute />
-{:else if owner === "project-secrets"}
-  <ProjectSecretsRoute />
-{:else if owner === "project-records"}
-  <ProjectRecordsRoute />
-{:else if owner === "session-chat"}
-  <SessionChatRoute />
-{:else if owner === "session-files"}
-  <SessionFilesRoute />
-{:else if owner === "session-notes"}
-  <SessionNotesRoute />
-{:else if owner === "session-secrets"}
-  <SessionSecretsRoute />
-{:else if owner === "groups"}
-  <GroupsRoute />
-{:else if owner === "agent-provider-list"}
-  <AgentProviderListRoute />
-{:else if owner === "agent-provider-new"}
-  <AgentProviderNewRoute />
-{:else if owner === "agent-provider-detail"}
-  <AgentProviderDetailRoute
-    editingPage={runtime.state.route.kind === "system-agent-provider-edit"}
-    providerID={runtime.state.route.kind === "system-agent-provider" ||
-    runtime.state.route.kind === "system-agent-provider-edit"
-      ? runtime.state.route.providerID
-      : ""}
-  />
-{:else if owner === "agent-model-list"}
-  <AgentModelListRoute />
-{:else if owner === "agent-model-new"}
-  <AgentModelNewRoute />
-{:else if owner === "agent-model-detail"}
-  <AgentModelDetailRoute
-    editingPage={runtime.state.route.kind === "system-agent-model-edit"}
-    modelID={runtime.state.route.kind === "system-agent-model" ||
-    runtime.state.route.kind === "system-agent-model-edit"
-      ? runtime.state.route.modelID
-      : ""}
-  />
-{:else if owner === "storage-provider-list"}<StorageProviderListRoute />
-{:else if owner === "storage-provider-new"}<StorageProviderNewRoute />
-{:else if owner === "storage-provider-detail"}<StorageProviderDetailRoute
-    editingPage={runtime.state.route.kind === "system-storage-provider-edit"}
-    providerID={runtime.state.route.kind === "system-storage-provider" ||
-    runtime.state.route.kind === "system-storage-provider-edit"
-      ? runtime.state.route.providerID
-      : ""}
-  />
-{:else if owner === "principals"}
-  <PrincipalsRoute />
-{:else if owner === "principal-detail"}
-  <PrincipalDetailRoute
-    principalID={runtime.state.route.kind === "system-principal" ||
-    runtime.state.route.kind === "system-principal-edit"
-      ? runtime.state.route.principalID
-      : ""}
-    editingPage={runtime.state.route.kind === "system-principal-edit"}
-  />
-{:else if owner === "system-grant-new"}
-  <SystemGrantNewRoute />
-{:else if owner === "system-grants"}
-  <SystemGrantsRoute />
-{:else if owner === "system-overview"}
-  <SystemOverviewRoute />
-{:else if owner === "system-workspaces"}
-  <SystemWorkspacesRoute />
-{:else if owner === "system-workspace-new"}
-  <SystemWorkspaceNewRoute />
-{:else if owner === "system-workspace-detail"}<SystemWorkspaceDetailRoute
-    workspaceID={runtime.state.route.kind === "system-workspace"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "system-workspace-edit"}<SystemWorkspaceEditRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-edit"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "system-workspace-principals"}<SystemWorkspacePrincipalsRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-principals"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "system-workspace-principal-new"}<SystemWorkspacePrincipalNewRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-principal-new"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-agent-bindings"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute
-    workspaceID={runtime.state.route.kind ===
-    "system-workspace-agent-binding-new"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-agent-binding"
-      ? runtime.state.route.workspaceID
-      : ""}
-    bindingID={runtime.state.route.kind === "system-workspace-agent-binding"
-      ? runtime.state.route.bindingID
-      : ""}
-  />
-{:else if owner === "workspace-agent-binding-edit"}<WorkspaceAgentBindingEditRoute
-    workspaceID={runtime.state.route.kind ===
-    "system-workspace-agent-binding-edit"
-      ? runtime.state.route.workspaceID
-      : ""}
-    bindingID={runtime.state.route.kind ===
-    "system-workspace-agent-binding-edit"
-      ? runtime.state.route.bindingID
-      : ""}
-  />
-{:else if owner === "workspace-storage-binding-list"}<WorkspaceStorageBindingListRoute
-    workspaceID={runtime.state.route.kind ===
-    "system-workspace-storage-bindings"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "workspace-storage-binding-new"}<WorkspaceStorageBindingNewRoute
-    workspaceID={runtime.state.route.kind ===
-    "system-workspace-storage-binding-new"
-      ? runtime.state.route.workspaceID
-      : ""}
-  />
-{:else if owner === "workspace-storage-binding-detail"}<WorkspaceStorageBindingDetailRoute
-    workspaceID={runtime.state.route.kind === "system-workspace-storage-binding"
-      ? runtime.state.route.workspaceID
-      : ""}
-    providerID={runtime.state.route.kind === "system-workspace-storage-binding"
-      ? runtime.state.route.providerID
-      : ""}
-  />
-{:else if owner === "workspace-storage-binding-edit"}<WorkspaceStorageBindingEditRoute
-    workspaceID={runtime.state.route.kind ===
-    "system-workspace-storage-binding-edit"
-      ? runtime.state.route.workspaceID
-      : ""}
-    providerID={runtime.state.route.kind ===
-    "system-workspace-storage-binding-edit"
-      ? runtime.state.route.providerID
-      : ""}
-  />
-{:else if owner === "chat-collection"}
-  <ChatCollectionRoute />
-{:else if owner === "project-collection"}
-  <ProjectCollectionRoute />
-{:else if owner === "workspace-dashboard"}
-  <WorkspaceDashboardRoute />
-{:else if owner === "access"}
-  <AccessRoute />
+{#if runtime.auth.state.status === "authenticated" && (runtime.auth.state.reloadError || runtime.access.state.reloadError)}
+  <UI.Notice variant="destructive" role="alert"
+    >{runtime.auth.state.reloadError ||
+      runtime.access.state.reloadError}<UI.Button
+      variant="outline"
+      onclick={() => void runtime.refresh()}>Retry</UI.Button
+    ></UI.Notice
+  >
 {/if}
+
+{#key JSON.stringify( [runtime.auth.state.claims?.principal.ref.id, "workspaceID" in runtime.state.route ? runtime.state.route.workspaceID : ""], )}
+  {#if owner === "project-dashboard"}
+    <ProjectDashboardRoute />
+  {:else if owner === "project-form"}
+    <ProjectFormRoute />
+  {:else if owner === "project-notes"}
+    <ProjectNotesRoute />
+  {:else if owner === "project-files"}
+    <ProjectFilesRoute />
+  {:else if owner === "project-tasks" || owner === "session-tasks"}
+    <TasksRoute />
+  {:else if owner === "project-secrets"}
+    <ProjectSecretsRoute />
+  {:else if owner === "project-records"}
+    <ProjectRecordsRoute />
+  {:else if owner === "session-chat"}
+    <SessionChatRoute />
+  {:else if owner === "session-files"}
+    <SessionFilesRoute />
+  {:else if owner === "session-notes"}
+    <SessionNotesRoute />
+  {:else if owner === "session-secrets"}
+    <SessionSecretsRoute />
+  {:else if owner === "groups"}
+    <GroupsRoute />
+  {:else if owner === "agent-provider-list"}
+    <AgentProviderListRoute />
+  {:else if owner === "agent-provider-new"}
+    <AgentProviderNewRoute />
+  {:else if owner === "agent-provider-detail"}
+    <AgentProviderDetailRoute
+      editingPage={runtime.state.route.kind === "system-agent-provider-edit"}
+      providerID={runtime.state.route.kind === "system-agent-provider" ||
+      runtime.state.route.kind === "system-agent-provider-edit"
+        ? runtime.state.route.providerID
+        : ""}
+    />
+  {:else if owner === "agent-model-list"}
+    <AgentModelListRoute />
+  {:else if owner === "agent-model-new"}
+    <AgentModelNewRoute />
+  {:else if owner === "agent-model-detail"}
+    <AgentModelDetailRoute
+      editingPage={runtime.state.route.kind === "system-agent-model-edit"}
+      modelID={runtime.state.route.kind === "system-agent-model" ||
+      runtime.state.route.kind === "system-agent-model-edit"
+        ? runtime.state.route.modelID
+        : ""}
+    />
+  {:else if owner === "storage-provider-list"}<StorageProviderListRoute />
+  {:else if owner === "storage-provider-new"}<StorageProviderNewRoute />
+  {:else if owner === "storage-provider-detail"}<StorageProviderDetailRoute
+      editingPage={runtime.state.route.kind === "system-storage-provider-edit"}
+      providerID={runtime.state.route.kind === "system-storage-provider" ||
+      runtime.state.route.kind === "system-storage-provider-edit"
+        ? runtime.state.route.providerID
+        : ""}
+    />
+  {:else if owner === "principals"}
+    <PrincipalsRoute />
+  {:else if owner === "principal-detail"}
+    <PrincipalDetailRoute
+      principalID={runtime.state.route.kind === "system-principal" ||
+      runtime.state.route.kind === "system-principal-edit"
+        ? runtime.state.route.principalID
+        : ""}
+      editingPage={runtime.state.route.kind === "system-principal-edit"}
+    />
+  {:else if owner === "system-grant-new"}
+    <SystemGrantNewRoute />
+  {:else if owner === "system-grants"}
+    <SystemGrantsRoute />
+  {:else if owner === "system-overview"}
+    <SystemOverviewRoute />
+  {:else if owner === "system-workspaces"}
+    <SystemWorkspacesRoute />
+  {:else if owner === "system-workspace-new"}
+    <SystemWorkspaceNewRoute />
+  {:else if owner === "system-workspace-detail"}<SystemWorkspaceDetailRoute
+      workspaceID={runtime.state.route.kind === "system-workspace"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "system-workspace-edit"}<SystemWorkspaceEditRoute
+      workspaceID={runtime.state.route.kind === "system-workspace-edit"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "system-workspace-principals"}<SystemWorkspacePrincipalsRoute
+      workspaceID={runtime.state.route.kind === "system-workspace-principals"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "system-workspace-principal-new"}<SystemWorkspacePrincipalNewRoute
+      workspaceID={runtime.state.route.kind === "system-workspace-principal-new"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "workspace-agent-binding-list"}<WorkspaceAgentBindingListRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-agent-bindings"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "workspace-agent-binding-new"}<WorkspaceAgentBindingNewRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-agent-binding-new"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "workspace-agent-binding-detail"}<WorkspaceAgentBindingDetailRoute
+      workspaceID={runtime.state.route.kind === "system-workspace-agent-binding"
+        ? runtime.state.route.workspaceID
+        : ""}
+      bindingID={runtime.state.route.kind === "system-workspace-agent-binding"
+        ? runtime.state.route.bindingID
+        : ""}
+    />
+  {:else if owner === "workspace-agent-binding-edit"}<WorkspaceAgentBindingEditRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-agent-binding-edit"
+        ? runtime.state.route.workspaceID
+        : ""}
+      bindingID={runtime.state.route.kind ===
+      "system-workspace-agent-binding-edit"
+        ? runtime.state.route.bindingID
+        : ""}
+    />
+  {:else if owner === "workspace-storage-binding-list"}<WorkspaceStorageBindingListRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-storage-bindings"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "workspace-storage-binding-new"}<WorkspaceStorageBindingNewRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-storage-binding-new"
+        ? runtime.state.route.workspaceID
+        : ""}
+    />
+  {:else if owner === "workspace-storage-binding-detail"}<WorkspaceStorageBindingDetailRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-storage-binding"
+        ? runtime.state.route.workspaceID
+        : ""}
+      providerID={runtime.state.route.kind ===
+      "system-workspace-storage-binding"
+        ? runtime.state.route.providerID
+        : ""}
+    />
+  {:else if owner === "workspace-storage-binding-edit"}<WorkspaceStorageBindingEditRoute
+      workspaceID={runtime.state.route.kind ===
+      "system-workspace-storage-binding-edit"
+        ? runtime.state.route.workspaceID
+        : ""}
+      providerID={runtime.state.route.kind ===
+      "system-workspace-storage-binding-edit"
+        ? runtime.state.route.providerID
+        : ""}
+    />
+  {:else if owner === "chat-collection"}
+    <ChatCollectionRoute />
+  {:else if owner === "project-collection"}
+    <ProjectCollectionRoute />
+  {:else if owner === "workspace-dashboard"}
+    <WorkspaceDashboardRoute />
+  {:else if owner === "access"}
+    <AccessRoute />
+  {/if}
+{/key}

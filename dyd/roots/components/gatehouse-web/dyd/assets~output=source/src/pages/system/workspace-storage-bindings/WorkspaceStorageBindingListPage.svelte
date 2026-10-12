@@ -51,7 +51,7 @@
     >
     <UI.SearchToolbar
       bind:value={controller.state.search}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       placeholder="Provider alias or ID"
       onsearch={() => void controller.search()}
     />
@@ -59,9 +59,11 @@
         >{controller.state.error}</UI.Notice
       >{/if}
     <UI.RecordTable headers={["Provider", "Priority", "Status"]}
-      >{#if controller.state.loading}<UI.TableEmpty
+      >{#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={3}
-          message="Loading bindings…"
+          message={controller.state.error
+            ? "Bindings could not be loaded."
+            : "Loading bindings…"}
         />{:else}{#each controller.state.items as binding (binding.provider)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -85,7 +87,7 @@
       count={controller.state.items.length}
       previous={!!controller.state.history.length}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

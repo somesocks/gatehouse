@@ -36,16 +36,18 @@
       bind:value={controller.state.search}
       bind:status={controller.state.status}
       statuses
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onsearch={() => void controller.search()}
     />
     {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
         >{controller.state.error}</UI.Notice
       >{/if}
     <UI.RecordTable headers={["Provider", "Protocol", "Bucket", "Status"]}>
-      {#if controller.state.loading}<UI.TableEmpty
+      {#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={4}
-          message="Loading providers…"
+          message={controller.state.error
+            ? "Providers could not be loaded."
+            : "Loading providers…"}
         />{:else}{#each controller.state.items as provider (provider.id)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -73,7 +75,7 @@
       count={controller.state.items.length}
       previous={controller.state.history.length > 0}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

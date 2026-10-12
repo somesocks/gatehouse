@@ -13,7 +13,8 @@
     }),
   )
   $effect(() => {
-    void controller.keychains()
+    untrack(() => void controller.keychains())
+    return controller.stop
   })
   async function create() {
     const route = runtime.state.route
@@ -49,6 +50,9 @@
       <AgentProviderFields
         bind:form={controller.state.form}
         keychains={controller.state.keychains}
+        keychainsLoading={controller.state.keychainsLoading}
+        keychainsError={controller.state.keychainsError}
+        onKeychainsReload={() => void controller.keychains()}
       />
       {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
           >{controller.state.error}</UI.Notice

@@ -45,6 +45,9 @@
 
   $effect(() => {
     const currentRoute = route
+    const workspace = workspaceID
+    const session = sessionID
+    const requestSignal = signal
     if (
       currentRoute.kind === "session-secrets" ||
       currentRoute.kind === "session-secret-new" ||
@@ -52,7 +55,7 @@
       currentRoute.kind === "session-secret-edit"
     ) {
       return untrack(() =>
-        controller.start(workspaceID, sessionID, currentRoute, signal),
+        controller.start(workspace, session, currentRoute, requestSignal),
       )
     }
   })
@@ -81,6 +84,17 @@
 </script>
 
 <PageBody fluid>
+  {#if controller.state.reloading}<UI.Text role="status"
+      >Refreshing secrets…</UI.Text
+    >{/if}
+  {#if controller.state.reloadError}<UI.Notice
+      variant="destructive"
+      role="alert"
+      >{controller.state.reloadError}<UI.Button
+        variant="outline"
+        onclick={() => void controller.reload()}>Retry</UI.Button
+      ></UI.Notice
+    >{/if}
   {#if "secretID" in route && controller.state.detailStatus !== "ready"}
     <UI.AdminHeader title="Secret" />
     {#if controller.state.detailStatus === "checking"}<UI.Text role="status"

@@ -3,6 +3,7 @@ import {
   type SystemAgentProvider,
   type SystemKeychain,
 } from "../../../app/system"
+import { createLoadState } from "../../../utils/load-state.svelte"
 
 type Form = {
   alias: string
@@ -29,35 +30,92 @@ export function createAgentProviderFormController({
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
+  const resource = createLoadState()
+  const options = createLoadState()
+  const mutation = createLoadState()
+  const errors = $state({ value: "" })
+  let owner = ""
+  let disposed = false
+  let editRevision: number | undefined
   const state = $state({
     provider: null as SystemAgentProvider | null,
     keychains: [] as SystemKeychain[],
+    get keychainsLoading() {
+      return options.state.pending
+    },
+    get keychainsError() {
+      return options.state.error
+    },
     form: blank(),
-    error: "",
-    loading: false,
-    saving: false,
+    get error() {
+      return errors.value || resource.state.error || options.state.error
+    },
+    set error(value: string) {
+      errors.value = value
+    },
+    get loading() {
+      return resource.loading
+    },
+    get reloading() {
+      return resource.reloading
+    },
+    get saving() {
+      return mutation.state.pending
+    },
     editing: false,
+    conflict: false,
   })
   async function keychains(): Promise<void> {
-    const response = await systemAdministration("keychains")
-    if (response.status === 401) {
-      onAuthenticationLost()
-      return
+    if (disposed) return
+    const request = options.begin()
+    try {
+      const response = await systemAdministration(
+        "keychains",
+        "GET",
+        undefined,
+        request.signal,
+      )
+      if (!request.current()) return
+      if (response.status === 401) {
+        onAuthenticationLost()
+        return
+      }
+      if (response.status === 403) {
+        onSystemAccessChange("denied")
+        return
+      }
+      if (!response.ok) throw new Error("Keychains could not be loaded.")
+      const keys = (await response.json()) as SystemKeychain[]
+      request.commit(() => {
+        state.keychains = keys
+      })
+    } catch (error) {
+      request.fail(error)
+    } finally {
+      request.finish()
     }
-    if (response.status === 403) {
-      onSystemAccessChange("denied")
-      return
-    }
-    if (response.ok)
-      state.keychains = (await response.json()) as SystemKeychain[]
   }
   async function load(id: string): Promise<void> {
+    disposed = false
+    if (owner !== id) {
+      owner = id
+      resource.reset()
+      mutation.stop()
+      options.stop()
+      state.provider = null
+      state.editing = false
+      state.form = blank()
+    }
     state.error = ""
-    state.loading = true
+    const request = resource.begin()
     try {
       const response = await systemAdministration(
         `agent-providers/${encodeURIComponent(id)}`,
+        "GET",
+        undefined,
+        request.signal,
       )
+      if (!request.current()) return
       if (response.status === 401) {
         onAuthenticationLost()
         return
@@ -67,22 +125,25 @@ export function createAgentProviderFormController({
         return
       }
       if (response.status === 404) {
-        state.error = "Agent provider was not found."
-        return
+        throw new Error("Agent provider was not found.")
       }
       if (!response.ok) {
-        state.error = "Agent provider could not be loaded."
-        return
+        throw new Error("Agent provider could not be loaded.")
       }
-      state.provider = (await response.json()) as SystemAgentProvider
-    } catch {
-      state.error = "Agent provider could not be loaded."
+      const provider = (await response.json()) as SystemAgentProvider
+      request.commit(() => {
+        state.provider = provider
+      })
+    } catch (error) {
+      request.fail(error)
     } finally {
-      state.loading = false
+      request.finish()
     }
   }
   async function beginEdit(): Promise<void> {
-    if (state.provider === null) return
+    if (disposed || state.provider === null || state.editing) return
+    editRevision = state.provider.revision
+    state.conflict = false
     state.form = {
       alias: state.provider.alias,
       protocol: state.provider.protocol,
@@ -91,8 +152,8 @@ export function createAgentProviderFormController({
       apiKey: "",
       enabled: state.provider.enabled,
     }
-    await keychains()
     state.editing = true
+    await keychains()
   }
   function validate(replacementRequired: boolean): boolean {
     if (state.form.protocol !== "builtin" && state.form.keychain === "") {
@@ -110,13 +171,13 @@ export function createAgentProviderFormController({
     return true
   }
   async function create(): Promise<SystemAgentProvider | null> {
-    if (state.saving) return null
+    if (disposed || state.saving) return null
     state.error = ""
     if (!validate(state.form.protocol !== "builtin")) return null
     return await save("agent-providers", "POST", state.form)
   }
   async function update(): Promise<boolean> {
-    if (state.saving) return false
+    if (disposed || state.saving) return false
     if (state.provider === null) return false
     state.error = ""
     const replacement =
@@ -127,9 +188,11 @@ export function createAgentProviderFormController({
       `agent-providers/${encodeURIComponent(state.provider.id)}`,
       "PATCH",
       state.form,
-      state.provider.revision,
+      editRevision,
     )
     if (saved === null) return false
+    if (disposed) return false
+    resource.stop()
     state.provider = saved
     state.editing = false
     return true
@@ -140,20 +203,26 @@ export function createAgentProviderFormController({
     form: Form,
     revision?: number,
   ): Promise<SystemAgentProvider | null> {
-    state.saving = true
+    const request = mutation.begin()
     try {
-      const response = await systemAdministration(path, method, {
-        alias: form.alias,
-        protocol: form.protocol,
-        base_url:
-          form.protocol === "builtin" ? undefined : optional(form.baseURL),
-        keychain:
-          form.protocol === "builtin" ? undefined : optional(form.keychain),
-        api_key:
-          form.protocol === "builtin" ? undefined : optional(form.apiKey),
-        enabled: form.enabled,
-        ...(revision === undefined ? {} : { expected_revision: revision }),
-      })
+      const response = await systemAdministration(
+        path,
+        method,
+        {
+          alias: form.alias,
+          protocol: form.protocol,
+          base_url:
+            form.protocol === "builtin" ? undefined : optional(form.baseURL),
+          keychain:
+            form.protocol === "builtin" ? undefined : optional(form.keychain),
+          api_key:
+            form.protocol === "builtin" ? undefined : optional(form.apiKey),
+          enabled: form.enabled,
+          ...(revision === undefined ? {} : { expected_revision: revision }),
+        },
+        request.signal,
+      )
+      if (!request.current()) return null
       if (response.status === 401) {
         onAuthenticationLost()
         return null
@@ -165,23 +234,49 @@ export function createAgentProviderFormController({
       if (response.status === 409) {
         if (state.provider !== null) {
           await load(state.provider.id)
-          await beginEdit()
         }
+        if (!request.current()) return null
         state.error =
-          "This provider changed elsewhere. Review the reloaded settings before saving."
+          "This provider changed elsewhere. Your draft is preserved; review it before retrying."
+        state.conflict = true
         return null
       }
       if (!response.ok) {
         state.error = "Agent provider could not be saved."
         return null
       }
-      return (await response.json()) as SystemAgentProvider
+      const result = (await response.json()) as SystemAgentProvider
+      return request.current() ? result : null
     } catch {
-      state.error = "Agent provider could not be saved."
+      if (request.current()) state.error = "Agent provider could not be saved."
       return null
     } finally {
-      state.saving = false
+      request.finish()
     }
   }
-  return { state, keychains, load, beginEdit, create, update }
+  function stop() {
+    disposed = true
+    resource.stop()
+    options.stop()
+    mutation.stop()
+    state.form.apiKey = ""
+    state.editing = false
+  }
+  function replaceDraft() {
+    if (!disposed) {
+      state.editing = false
+      state.error = ""
+      return beginEdit()
+    }
+  }
+  return {
+    state,
+    keychains,
+    load,
+    beginEdit,
+    create,
+    update,
+    stop,
+    replaceDraft,
+  }
 }

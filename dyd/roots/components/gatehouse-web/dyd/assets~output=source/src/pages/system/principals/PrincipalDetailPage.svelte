@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
@@ -12,48 +14,58 @@
     editingPage = false,
   }: { principalID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
+  const resource = createLoadState()
+  const mutation = createLoadState()
   let principal = $state<SystemPrincipal | null>(null)
   let enabled = $state(true),
-    loading = $state(true),
-    saving = $state(false),
     error = $state("")
+  const loading = $derived(resource.loading)
+  const saving = $derived(mutation.state.pending)
   let generation = 0
-  $effect(() => {
-    const id = principalID
-    const current = ++generation
-    const request = new AbortController()
-    principal = null
-    loading = true
+  async function load() {
+    const current = generation
+    const request = resource.begin()
     error = ""
-    void systemAdministration(
-      `principals/${encodeURIComponent(id)}`,
-      "GET",
-      undefined,
-      request.signal,
-    )
-      .then(async (response) => {
-        if (current !== generation) return
-        if (response.status === 401) runtime.requireLogin()
-        else if (response.status === 403)
-          runtime.access.setSystemAccess("denied")
-        else if (!response.ok) error = "Principal could not be loaded."
-        else {
-          const result = (await response.json()) as SystemPrincipal
-          if (current === generation) {
-            principal = result
-            enabled = result.enabled
-          }
-        }
-      })
-      .catch(() => {
-        if (!request.signal.aborted) error = "Principal could not be loaded."
-      })
-      .finally(() => {
-        if (current === generation) loading = false
-      })
+    try {
+      const response = await systemAdministration(
+        `principals/${encodeURIComponent(principalID)}`,
+        "GET",
+        undefined,
+        request.signal,
+      )
+      if (current !== generation || !request.current()) return
+      if (response.status === 401) runtime.requireLogin()
+      else if (response.status === 403) runtime.access.setSystemAccess("denied")
+      else if (!response.ok) throw new Error("Principal could not be loaded.")
+      else {
+        const result = (await response.json()) as SystemPrincipal
+        const first = !resource.state.hasLoaded
+        request.commit(() => {
+          principal = result
+          if (first) enabled = result.enabled
+        })
+      }
+    } catch (cause) {
+      request.fail(cause)
+    } finally {
+      request.finish()
+    }
+  }
+  $effect(() => {
+    principalID
+    editingPage
+    untrack(() => {
+      generation++
+      resource.reset()
+      mutation.stop()
+      principal = null
+      enabled = true
+      void load()
+    })
     return () => {
       generation++
-      request.abort()
+      resource.stop()
+      mutation.stop()
     }
   })
   async function save() {
@@ -66,11 +78,15 @@
     )
       return
     const current = generation
-    saving = true
+    const request = mutation.begin()
     error = ""
     try {
-      const response = await updateSystemPrincipal(principalID, enabled)
-      if (current !== generation) return
+      const response = await updateSystemPrincipal(
+        principalID,
+        enabled,
+        request.signal,
+      )
+      if (current !== generation || !request.current()) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
       else if (!response.ok) error = "Principal could not be saved."
@@ -87,9 +103,10 @@
           )
       }
     } catch {
-      if (current === generation) error = "Principal could not be saved."
+      if (current === generation && request.current())
+        error = "Principal could not be saved."
     } finally {
-      if (current === generation) saving = false
+      request.finish()
     }
   }
 </script>
@@ -109,6 +126,15 @@
   ]}
 >
   <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if resource.reloading}<UI.Text role="status"
+        >Refreshing principal…</UI.Text
+      >{/if}
+    {#if resource.state.error}<UI.Notice variant="destructive" role="alert"
+        >{resource.state.error}<UI.Button
+          variant="outline"
+          onclick={() => void load()}>Retry</UI.Button
+        ></UI.Notice
+      >{/if}
     {#if loading}<UI.Text tone="muted">Loading principal…</UI.Text
       >{:else if !principal}<UI.Notice variant="destructive" role="alert"
         >{error || "Principal was not found."}</UI.Notice

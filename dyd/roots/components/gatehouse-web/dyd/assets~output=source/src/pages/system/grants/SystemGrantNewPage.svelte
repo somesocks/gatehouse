@@ -1,19 +1,24 @@
 <script lang="ts">
+  import { onDestroy } from "svelte"
+  import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import { createSystemGrant } from "../../../app/system"
   import PrincipalPicker from "../principals/PrincipalPicker.svelte"
   const runtime = useRuntime()
+  const mutation = createLoadState()
+  onDestroy(mutation.stop)
+  const saving = $derived(mutation.state.pending)
   let principal = $state(""),
-    saving = $state(false),
     error = $state("")
   async function create() {
     if (!principal || saving) return
-    saving = true
+    const request = mutation.begin()
     error = ""
     try {
-      const response = await createSystemGrant(principal)
+      const response = await createSystemGrant(principal, request.signal)
+      if (!request.current()) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
       else if (response.status === 409)
@@ -22,9 +27,9 @@
       else if (!response.ok) error = "System access could not be granted."
       else runtime.navigate("/app/system/grants", true)
     } catch {
-      error = "System access could not be granted."
+      if (request.current()) error = "System access could not be granted."
     } finally {
-      saving = false
+      request.finish()
     }
   }
 </script>

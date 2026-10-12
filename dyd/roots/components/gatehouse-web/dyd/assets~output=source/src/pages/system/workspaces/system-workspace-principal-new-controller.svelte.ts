@@ -26,8 +26,11 @@ export function createSystemWorkspacePrincipalNewController({
   })
   let generation = 0
   let request: AbortController | undefined
+  let lifetime = new AbortController()
 
   function load(): () => void {
+    lifetime.abort()
+    lifetime = new AbortController()
     const currentGeneration = ++generation
     request?.abort()
     state.principals = []
@@ -41,6 +44,7 @@ export function createSystemWorkspacePrincipalNewController({
       if (currentGeneration === generation) {
         generation += 1
         request?.abort()
+        lifetime.abort()
       }
     }
   }
@@ -56,9 +60,6 @@ export function createSystemWorkspacePrincipalNewController({
     if (append) state.loadingMore = true
     else {
       state.loading = true
-      state.principals = []
-      state.cursor = ""
-      state.selectedPrincipalID = ""
     }
     state.error = ""
     try {
@@ -106,7 +107,7 @@ export function createSystemWorkspacePrincipalNewController({
       if (!currentRequest.signal.aborted)
         state.error = "Principal search could not be loaded."
     } finally {
-      if (currentGeneration === generation) {
+      if (currentGeneration === generation && currentRequest === request) {
         if (append) state.loadingMore = false
         else state.loading = false
       }
@@ -123,6 +124,7 @@ export function createSystemWorkspacePrincipalNewController({
         workspaceID,
         state.selectedPrincipalID,
         state.role,
+        lifetime.signal,
       )
       if (currentGeneration !== generation) return false
       if (response.status === 401) {

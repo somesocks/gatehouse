@@ -95,7 +95,10 @@ describe("workspace directory route lifecycle", () => {
       await vi.waitFor(() =>
         expect(controller.state.chats[0]?.id).toBe("project-chat"),
       )
-      expect(fetch.mock.calls.at(-1)?.[1].signal).toBe(newRoute.signal)
+      const requestSignal = fetch.mock.calls.at(-1)?.[1].signal
+      expect(requestSignal?.aborted).toBe(false)
+      newRoute.abort()
+      expect(requestSignal?.aborted).toBe(true)
       expect(controller.state.error).toBe("")
     } finally {
       subscription.dispose()
@@ -139,7 +142,10 @@ describe("workspace directory route lifecycle", () => {
       await vi.waitFor(() =>
         expect(controller.state.projects[0]?.id).toBe("matching-project"),
       )
-      expect(fetch.mock.calls.at(-1)?.[1].signal).toBe(newRoute.signal)
+      const requestSignal = fetch.mock.calls.at(-1)?.[1].signal
+      expect(requestSignal?.aborted).toBe(false)
+      newRoute.abort()
+      expect(requestSignal?.aborted).toBe(true)
     } finally {
       subscription.dispose()
       controller.stop()

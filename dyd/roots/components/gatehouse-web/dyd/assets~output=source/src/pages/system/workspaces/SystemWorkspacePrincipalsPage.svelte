@@ -11,6 +11,7 @@
   import { onMount } from "svelte"
   let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
+  const lifetime = new AbortController()
   let removing = $state(new Set<string>()),
     error = $state("")
   const controller = createDirectoryController<SystemWorkspacePrincipal>({
@@ -34,7 +35,10 @@
   })
   onMount(() => {
     void controller.search()
-    return controller.stop
+    return () => {
+      lifetime.abort()
+      controller.stop()
+    }
   })
   async function remove(principal: SystemWorkspacePrincipal) {
     if (
@@ -50,17 +54,22 @@
       const response = await removeSystemWorkspacePrincipalGrants(
         workspaceID,
         principal.id,
+        lifetime.signal,
       )
+      if (lifetime.signal.aborted) return
       if (response.status === 401) runtime.requireLogin()
       else if (response.status === 403) runtime.access.setSystemAccess("denied")
       else if (!response.ok) error = "Direct access could not be removed."
       else await controller.reload()
     } catch {
-      error = "Direct access could not be removed."
+      if (!lifetime.signal.aborted)
+        error = "Direct access could not be removed."
     } finally {
-      const next = new Set(removing)
-      next.delete(principal.id)
-      removing = next
+      if (!lifetime.signal.aborted) {
+        const next = new Set(removing)
+        next.delete(principal.id)
+        removing = next
+      }
     }
   }
 </script>
@@ -78,7 +87,7 @@
     >
     <UI.SearchToolbar
       bind:value={controller.state.search}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onsearch={() => void controller.search()}
     />
     {#if controller.state.error || error}<UI.Notice
@@ -87,9 +96,11 @@
       >{/if}
     <UI.RecordTable
       headers={["Principal", "Direct roles", "Account status", "Actions"]}
-      >{#if controller.state.loading}<UI.TableEmpty
+      >{#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={4}
-          message="Loading principals…"
+          message={controller.state.error
+            ? "Principals could not be loaded."
+            : "Loading principals…"}
         />{:else}{#each controller.state.items as principal (principal.id)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -129,7 +140,7 @@
       count={controller.state.items.length}
       previous={!!controller.state.history.length}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

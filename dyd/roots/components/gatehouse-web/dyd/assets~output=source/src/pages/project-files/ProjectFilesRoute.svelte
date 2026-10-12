@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
@@ -24,14 +26,16 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const projectLoad = createLoadState()
+  const filesLoad = createLoadState()
   const page = createCollectionPage()
   const reloadFiles = () =>
     loadFiles(currentRoute, generation, abortController!.signal)
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
-  let projectStatus = $state<Status>("checking")
+  const projectStatus = $derived(projectLoad.status)
   let files = $state<ProjectFile[]>([])
-  let filesStatus = $state<Status>("checking")
+  const filesStatus = $derived(filesLoad.status)
   let filesError = $state("")
   let uploadingFiles = $state(0)
   let removingFileIDs = $state<Set<string>>(new Set())
@@ -77,19 +81,31 @@
     return `${date.getFullYear()}-${part(date.getMonth() + 1)}-${part(date.getDate())} ${part(date.getHours())}:${part(date.getMinutes())}`
   }
 
-  $effect(() => activate(currentRoute))
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
+  $effect(() => {
+    activation
+    return untrack(() => activate(currentRoute))
+  })
 
   function activate(route: FilesRoute): () => void {
     page.reset()
+    projectLoad.reset()
+    filesLoad.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     project = null
-    projectStatus = "checking"
     files = []
-    filesStatus = "checking"
     filesError = ""
     uploadingFiles = 0
     removingFileIDs = new Set()
@@ -102,6 +118,8 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        projectLoad.stop()
+        filesLoad.stop()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -124,6 +142,8 @@
       )
       return
     }
+    const request = projectLoad.begin(signal)
+    signal = request.signal
     try {
       const response = await fetchProject(
         route.workspaceID,
@@ -143,8 +163,13 @@
         return
       }
       if (!response.ok) throw new Error()
-      project = (await response.json()) as Project
-      projectStatus = "ready"
+      const loaded = (await response.json()) as Project
+      if (
+        !request.commit(() => {
+          project = loaded
+        })
+      )
+        return
       if (!(await loadFiles(route, value, signal))) return
       if (!isCurrent(value, route) || signal.aborted) return
       if (
@@ -154,6 +179,7 @@
         runtime.navigate(filesPath(route.workspaceID, route.projectID), true)
         return
       }
+      unsubscribe?.()
       unsubscribe = activity.subscribe(
         [
           {
@@ -179,7 +205,9 @@
       void activity.poll()
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        projectStatus = "unavailable"
+        request.fail(new Error("Project could not be loaded."))
+    } finally {
+      request.finish()
     }
   }
 
@@ -189,7 +217,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, route)) filesStatus = "checking"
+    const request = filesLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const requested = page.key()
       const response =
@@ -223,14 +254,16 @@
         signal.aborted
       )
         return false
-      files = Array.isArray(result) ? result : [result]
-      page.accept(response)
-      filesStatus = "ready"
-      return true
+      return request.commit(() => {
+        files = Array.isArray(result) ? result : [result]
+        page.accept(response)
+      })
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        filesStatus = "unavailable"
+        request.fail(new Error("Files could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -250,6 +283,7 @@
       )
       if (!isCurrent(value, route)) return
       await loadFiles(route, value, abortController!.signal, false)
+      if (!isCurrent(value, route)) return
       if (results.some((result) => result.status === "rejected"))
         filesError = "Some files could not be uploaded. Try again."
     } finally {
@@ -268,6 +302,7 @@
       file,
       signal,
     )
+    signal?.throwIfAborted()
     if (started.status === 401) {
       runtime.requireLogin()
       throw new Error()
@@ -277,12 +312,14 @@
       file: ProjectFile
       upload_url: string
     }
+    signal?.throwIfAborted()
     const put = await fetch(upload.upload_url, {
       method: "PUT",
       body: file,
       ...(file.type === "" ? {} : { headers: { "Content-Type": file.type } }),
       signal,
     })
+    signal?.throwIfAborted()
     if (!put.ok) throw new Error()
     const finished = await finishProjectFileUpload(
       route.workspaceID,
@@ -290,6 +327,7 @@
       upload.file.id,
       signal,
     )
+    signal?.throwIfAborted()
     if (finished.status === 401) {
       runtime.requireLogin()
       throw new Error()
@@ -413,6 +451,17 @@
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
+          {#if filesLoad.reloading || projectLoad.reloading}<UI.Text
+              role="status">Refreshing files…</UI.Text
+            >{/if}
+          {#if filesLoad.state.error || projectLoad.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{filesLoad.state.error || projectLoad.state.error}<UI.Button
+                variant="outline"
+                onclick={() => void reloadFiles()}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if projectStatus === "checking"}<UI.Notice>
               Loading project...
             </UI.Notice>
@@ -509,7 +558,7 @@
               label="Search files"
               placeholder="File name or media type"
               bind:value={page.state.search}
-              loading={page.state.busy || filesStatus === "checking"}
+              loading={page.state.busy || filesLoad.state.pending}
               onsearch={() => void page.search(reloadFiles)}
             />
             <UI.FileInput
@@ -554,9 +603,11 @@
                   <UI.RecordCell>{dateLabel(file.created_at)}</UI.RecordCell>
                 </UI.RecordRow>{:else}<UI.TableEmpty
                   columns={4}
-                  message={filesStatus === "checking"
-                    ? "Loading files…"
-                    : "No matching files."}
+                  message={filesStatus === "unavailable"
+                    ? "Files could not be loaded."
+                    : filesStatus === "checking"
+                      ? "Loading files…"
+                      : "No matching files."}
                 />{/each}
             </UI.RecordTable>
             <UI.PaginationFooter
@@ -564,7 +615,7 @@
               count={files.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
-              loading={page.state.busy || filesStatus === "checking"}
+              loading={page.state.busy || filesLoad.state.pending}
               onprevious={() => void page.previous(reloadFiles)}
               onnext={() => void page.next(reloadFiles)}
             />

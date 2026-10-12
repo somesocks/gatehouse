@@ -50,7 +50,7 @@
     label: provider.alias,
     description: provider.bucket ?? provider.protocol,
   }))}
-  loading={controller.state.loading}
+  loading={controller.state.busy}
   error={controller.state.error}
   previous={!!controller.state.history.length}
   next={!!controller.state.next}

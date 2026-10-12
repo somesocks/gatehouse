@@ -47,16 +47,18 @@
     >
     <UI.SearchToolbar
       bind:value={controller.state.search}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onsearch={() => void controller.search()}
     />
     {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
         >{controller.state.error}</UI.Notice
       >{/if}
     <UI.RecordTable headers={["Workspace", "Alias", "Status"]}
-      >{#if controller.state.loading}<UI.TableEmpty
+      >{#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={3}
-          message="Loading workspaces…"
+          message={controller.state.error
+            ? "Workspaces could not be loaded."
+            : "Loading workspaces…"}
         />{:else}{#each controller.state.items as workspace (workspace.id)}<UI.RecordRow
           >
             <UI.RecordCell primary
@@ -84,7 +86,7 @@
       count={controller.state.items.length}
       previous={!!controller.state.history.length}
       next={!!controller.state.next}
-      loading={controller.state.loading}
+      loading={controller.state.busy}
       onprevious={() => void controller.previous()}
       onnext={() => void controller.next()}
     />

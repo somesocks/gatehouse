@@ -28,10 +28,10 @@ export function clientCode(source: string): string {
 
 // Compile actual rune modules and their relative dependencies for client-runtime
 // tests. No DOM or browser process is required for controller/effect lifecycles.
-export function clientModuleURL(url: URL): string {
-  const cached = cache.get(url.href)
+export function clientModuleURL(url: URL, source?: string): string {
+  const cached = source === undefined ? cache.get(url.href) : undefined
   if (cached) return cached
-  let code = clientCode(readFileSync(url, "utf8"))
+  let code = clientCode(source ?? readFileSync(url, "utf8"))
   for (const match of [...code.matchAll(/from\s+(['"])(\.[^'"]+)\1/g)]) {
     const candidate = new URL(match[2], url)
     const filename = fileURLToPath(candidate)
@@ -46,7 +46,7 @@ export function clientModuleURL(url: URL): string {
     )
   }
   const uri = `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`
-  cache.set(url.href, uri)
+  if (source === undefined) cache.set(url.href, uri)
   return uri
 }
 

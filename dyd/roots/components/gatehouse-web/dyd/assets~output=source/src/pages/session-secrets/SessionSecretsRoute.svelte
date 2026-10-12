@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { RouterLink, StatusPage } from "../../ui"
   import {
     workspaceNavigation,
@@ -33,9 +35,10 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const resource = createLoadState()
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
-  let sessionStatus = $state<Status>("checking")
+  const sessionStatus = $derived(resource.status)
   let secretBreadcrumb = $state<string | null>(null)
   let generation = 0
   let abortController: AbortController | null = null
@@ -72,20 +75,29 @@
     currentRoute.workspaceID === workspaceID &&
     currentRoute.sessionID === sessionID
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: SecretsRoute): () => void {
     const value = ++generation
+    resource.reset()
     abortController?.abort()
     abortController = new AbortController()
     routeSignal = abortController.signal
     unsubscribe?.()
     unsubscribe = undefined
     session = null
-    sessionStatus = "checking"
     secretBreadcrumb = null
     if (
       auth.state.status === "authenticated" &&
@@ -100,6 +112,7 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        resource.stop()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -136,8 +149,10 @@
     signal: AbortSignal,
     showLoading = true,
   ): Promise<boolean> {
-    if (showLoading && isCurrent(value, workspaceID, sessionID, signal))
-      sessionStatus = "checking"
+    const request = resource.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchChatSession(workspaceID, sessionID, signal)
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
@@ -152,13 +167,15 @@
       if (!response.ok) throw new Error("session unavailable")
       const loaded = (await response.json()) as Session
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
-      session = loaded
-      sessionStatus = "ready"
-      return true
+      return request.commit(() => {
+        session = loaded
+      })
     } catch {
       if (isCurrent(value, workspaceID, sessionID, signal))
-        sessionStatus = "unavailable"
+        request.fail(new Error("Chat could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -167,6 +184,7 @@
     value: number,
     routeSignal: AbortSignal,
   ): void {
+    unsubscribe?.()
     const { workspaceID, sessionID } = route
     unsubscribe = activity.subscribe(
       [
@@ -187,7 +205,7 @@
             value,
             workspaceID,
             sessionID,
-            routeSignal,
+            AbortSignal.any([routeSignal, signal]),
             false,
           )) ||
           signal.aborted ||

@@ -6,10 +6,16 @@
   let {
     form = $bindable(),
     keychains,
+    keychainsLoading = false,
+    keychainsError = "",
+    onKeychainsReload,
     editing = false,
   }: {
     form: ReturnType<typeof createAgentProviderFormController>["state"]["form"]
     keychains: SystemKeychain[]
+    keychainsLoading?: boolean
+    keychainsError?: string
+    onKeychainsReload?: () => void
     editing?: boolean
   } = $props()
 </script>
@@ -51,7 +57,13 @@
     title="Credentials"
     description="Credentials are write-only. Existing secrets are never displayed."
   >
-    <KeychainPicker bind:value={form.keychain} {keychains} />
+    <KeychainPicker
+      bind:value={form.keychain}
+      {keychains}
+      loading={keychainsLoading}
+      error={keychainsError}
+      onreload={onKeychainsReload}
+    />
     <UI.Field
       ><UI.Label for="provider-key"
         >{editing ? "Replacement API key" : "API key"}</UI.Label

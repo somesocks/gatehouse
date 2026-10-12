@@ -24,9 +24,17 @@
   $effect(() => {
     const id = modelID
     const edit = editingPage
-    void controller.load(id).then(() => {
-      if (edit) void controller.beginEdit()
-    })
+    let active = true
+    untrack(
+      () =>
+        void controller.load(id).then(() => {
+          if (active && edit) void controller.beginEdit()
+        }),
+    )
+    return () => {
+      active = false
+      controller.stop()
+    }
   })
   $effect(() => {
     const id = controller.state.model?.provider
@@ -73,6 +81,25 @@
   ]}
 >
   <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing model…</UI.Text
+      >{/if}
+    {#if !editingPage && controller.state.model && controller.state.error}<UI.Notice
+        variant="destructive"
+        role="alert">{controller.state.error}</UI.Notice
+      >{/if}
+    {#if controller.state.error}<UI.Button
+        variant="outline"
+        onclick={() =>
+          void controller.load(modelID).then(() => {
+            if (editingPage) void controller.beginEdit()
+          })}>Retry loading</UI.Button
+      >{/if}
+    {#if controller.state.conflict}<UI.Button
+        variant="outline"
+        onclick={() => void controller.replaceDraft()}
+        >Replace draft with latest settings</UI.Button
+      >{/if}
     {#if controller.state.loading}<UI.Text tone="muted">Loading model…</UI.Text>
     {:else if !controller.state.model}<UI.Notice
         variant="destructive"

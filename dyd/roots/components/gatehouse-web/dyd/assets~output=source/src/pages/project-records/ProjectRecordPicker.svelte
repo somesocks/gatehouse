@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { onMount } from "svelte"
+  import { onMount, untrack } from "svelte"
+  import { createAsyncResource } from "../../utils/load-state.svelte"
   import * as UI from "../../ui"
   import { useRuntime } from "../../app/runtime.svelte"
   import {
@@ -22,7 +23,8 @@
     label?: string
   } = $props()
   const runtime = useRuntime()
-  let selected = $state<ProjectRecord | null>(null)
+  const selection = createAsyncResource<ProjectRecord>()
+  const selected = $derived(selection.value ?? null)
   const display = (record: ProjectRecord) =>
     record.values
       ?.map(
@@ -52,30 +54,40 @@
     },
   })
   onMount(() => controller.stop)
+  const scope = $derived(`${workspaceID}/${projectID}/${schemaID}`)
+  $effect(() => {
+    scope
+    untrack(controller.reset)
+  })
   $effect(() => {
     const id = value
+    const workspace = workspaceID
+    const project = projectID
+    const type = schemaID
     const found = controller.state.items.find((item) => item.id === id)
-    if (found) selected = found
-    else if (id) {
-      const request = new AbortController()
-      void fetchProjectRecords(
-        workspaceID,
-        projectID,
-        schemaID,
-        request.signal,
-        { name: id, limit: 1 },
-      )
-        .then(async (response) => {
-          if (response.status === 401) runtime.requireLogin()
-          if (response.ok) {
-            const body = (await response.json()) as ProjectRecordsResponse
-            if (!request.signal.aborted)
-              selected = body.records.find((record) => record.id === id) ?? null
-          }
-        })
-        .catch(() => {})
-      return () => request.abort()
-    } else selected = null
+    untrack(() => {
+      selection.context(`${workspace}/${project}/${type}/${id}`)
+      if (!id) return
+      void selection.load(async (signal) => {
+        if (found) return found
+        const response = await fetchProjectRecords(
+          workspace,
+          project,
+          type,
+          signal,
+          { name: id, limit: 1 },
+        )
+        signal.throwIfAborted()
+        if (response.status === 401) runtime.requireLogin()
+        if (!response.ok)
+          throw new Error("The selected record could not be loaded.")
+        const body = (await response.json()) as ProjectRecordsResponse
+        const record = body.records.find((record) => record.id === id)
+        if (!record) throw new Error("The selected record is unavailable.")
+        return record
+      })
+    })
+    return selection.stop
   })
 </script>
 
@@ -90,8 +102,8 @@
     label: display(record),
     description: record.created_at,
   }))}
-  loading={controller.state.loading}
-  error={controller.state.error}
+  loading={controller.state.busy}
+  error={controller.state.error || selection.lifecycle.state.error}
   previous={!!controller.state.history.length}
   next={!!controller.state.next}
   onsearch={() => void controller.search()}

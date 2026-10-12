@@ -151,8 +151,13 @@
         {#if picker.state.maxFiles !== null}<UI.Text as="p" size="small"
             >Maximum {picker.state.maxFiles} files.</UI.Text
           >{/if}
+        {#if picker.state.reloading}<UI.Text role="status"
+            >Refreshing file selection…</UI.Text
+          >{/if}
         {#if picker.state.error}<UI.Text as="p" role="alert"
             >{picker.state.error}</UI.Text
+          ><UI.Button variant="outline" onclick={() => void picker.load()}
+            >Retry</UI.Button
           >{/if}
         {#if picker.state.saved}<UI.Text as="p" role="status"
             >Selection saved. Return to the form in chat to submit it.</UI.Text
@@ -233,9 +238,11 @@
                   >
                 </UI.RecordRow>{:else}<UI.TableEmpty
                   columns={4}
-                  message={picker.state.pageLoading
-                    ? "Loading files…"
-                    : "No matching files on this page."}
+                  message={!picker.state.filesLoaded && picker.state.error
+                    ? "Files could not be loaded."
+                    : picker.state.pageLoading
+                      ? "Loading files…"
+                      : "No matching files on this page."}
                 />{/each}
             </UI.RecordTable>
           </UI.FieldSet>

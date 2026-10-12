@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte"
+  import { createLoadState } from "../../utils/load-state.svelte"
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
@@ -79,6 +81,12 @@
   }
 
   const runtime = useRuntime()
+  const projectLoad = createLoadState()
+  const schemasLoad = createLoadState()
+  const schemaLoad = createLoadState()
+  const recordsLoad = createLoadState()
+  const recordLoad = createLoadState()
+  const referencesLoad = createLoadState()
   const typesPage = createCollectionPage()
   const recordsPage = createCollectionPage()
   const valuesPage = createCollectionPage()
@@ -100,18 +108,17 @@
       : Promise.resolve(false)
   const { activity, access, auth } = runtime
   let project = $state<Project | null>(null)
-  let projectStatus = $state<Status>("checking")
+  const projectStatus = $derived(projectLoad.status)
   let schemas = $state<ProjectRecordSchema[]>([])
-  let schemasStatus = $state<Status>("checking")
+  const schemasStatus = $derived(schemasLoad.status)
   let schema = $state<ProjectRecordSchema | null>(null)
   let attributes = $state<ProjectRecordAttribute[]>([])
   let records = $state<ProjectRecord[]>([])
-  let recordsStatus = $state<Status>("ready")
   let active = $state<ProjectRecord | null>(null)
   let activeValues = $state<ProjectRecordValue[]>([])
   let incomingReferences = $state<ProjectRecordIncomingReferenceGroup[]>([])
   let incomingReferencesNextCursor = $state<string | undefined>(undefined)
-  let incomingReferencesLoading = $state(false)
+  const incomingReferencesLoading = $derived(referencesLoad.state.pending)
   let drafts = $state<ValueDraft[]>([])
   let allValuesLoaded = $state(false)
   let saving = $state(false)
@@ -131,10 +138,18 @@
     display_order: 0,
   })
   let generation = 0
+  let draftSeeded = false
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
   const currentRoute = $derived(runtime.state.route as RecordsRoute)
+  const recordsStatus = $derived(
+    "recordID" in currentRoute
+      ? recordLoad.status
+      : currentRoute.kind === "project-record-schema"
+        ? recordsLoad.status
+        : "ready",
+  )
   const workspace = $derived(
     access.state.workspaces.find(
       (candidate) => candidate.id === currentRoute.workspaceID,
@@ -176,9 +191,18 @@
     attributes.filter((attribute) => attribute.display !== "none"),
   )
 
+  const activation = $derived(
+    JSON.stringify([
+      currentRoute,
+      auth.state.status,
+      auth.state.claims?.principal.ref.id,
+      access.state.workspaceStatus,
+      workspace !== null,
+    ]),
+  )
   $effect(() => {
-    const route = currentRoute
-    return activate(route)
+    activation
+    return untrack(() => activate(currentRoute))
   })
 
   function activate(route: RecordsRoute): () => void {
@@ -187,29 +211,27 @@
     valuesPage.reset()
     fieldsPage.reset()
     incomingPage.reset()
+    projectLoad.reset()
+    schemasLoad.reset()
+    schemaLoad.reset()
+    recordsLoad.reset()
+    recordLoad.reset()
+    referencesLoad.reset()
+    draftSeeded = false
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
     project = null
-    projectStatus = "checking"
     schemas = []
-    schemasStatus = "checking"
     schema = null
     attributes = []
     records = []
-    recordsStatus =
-      route.kind === "project-record-schema" ||
-      route.kind === "project-record" ||
-      route.kind === "project-record-edit"
-        ? "checking"
-        : "ready"
     active = null
     activeValues = []
     incomingReferences = []
     incomingReferencesNextCursor = undefined
-    incomingReferencesLoading = false
     drafts = []
     allValuesLoaded = false
     saving = false
@@ -227,6 +249,12 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        projectLoad.stop()
+        schemasLoad.stop()
+        schemaLoad.stop()
+        recordsLoad.stop()
+        recordLoad.stop()
+        referencesLoad.stop()
         unsubscribe?.()
         unsubscribe = undefined
       }
@@ -251,6 +279,8 @@
       )
       return
     }
+    const request = projectLoad.begin(signal)
+    signal = request.signal
     try {
       const response = await fetchProject(
         route.workspaceID,
@@ -270,8 +300,13 @@
         return
       }
       if (!response.ok) throw new Error()
-      project = (await response.json()) as Project
-      projectStatus = "ready"
+      const loaded = (await response.json()) as Project
+      if (
+        !request.commit(() => {
+          project = loaded
+        })
+      )
+        return
       subscribe(route, value)
       if (route.kind === "project-records") {
         await loadSchemas(route, value, signal)
@@ -280,6 +315,7 @@
       if (route.kind === "project-record-schema-new") return
       if (!isSchemaRoute(route)) return
       if (!(await loadSchema(route, value, signal))) return
+      if (!isCurrent(value, route) || signal.aborted) return
       if (
         route.kind === "project-record-fields" ||
         route.kind === "project-record-field-new" ||
@@ -288,8 +324,12 @@
         return
       if (route.kind === "project-record-field-edit") {
         const field = attributes.find((item) => item.id === route.attributeID)
-        if (field) editAttribute(field)
-        else
+        if (field) {
+          if (!draftSeeded) {
+            editAttribute(field)
+            draftSeeded = true
+          }
+        } else
           runtime.navigate(
             `${schemaPath(route.workspaceID, route.projectID, route.schemaID)}/fields`,
             true,
@@ -297,12 +337,18 @@
         return
       }
       if (route.kind === "project-record-schema-edit") {
-        schemaLabel = schema?.label ?? ""
-        schemaDescription = schema?.description ?? ""
+        if (!draftSeeded) {
+          schemaLabel = schema?.label ?? ""
+          schemaDescription = schema?.description ?? ""
+          draftSeeded = true
+        }
         return
       }
       if (route.kind === "project-record-new") {
-        drafts = []
+        if (!draftSeeded) {
+          drafts = []
+          draftSeeded = true
+        }
         return
       }
       if (
@@ -315,11 +361,14 @@
       await loadRecords(route, value, signal)
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        projectStatus = "unavailable"
+        request.fail(new Error("Project could not be loaded."))
+    } finally {
+      request.finish()
     }
   }
 
   function subscribe(route: RecordsRoute, value: number): void {
+    unsubscribe?.()
     unsubscribe = activity.subscribe(
       [
         {
@@ -363,7 +412,10 @@
     value: number,
     signal: AbortSignal,
   ): Promise<boolean> {
-    schemasStatus = "checking"
+    const request = schemasLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchProjectRecordSchemas(
         route.workspaceID,
@@ -377,14 +429,17 @@
         return false
       }
       if (!response.ok) throw new Error()
-      schemas = (await response.json()) as ProjectRecordSchema[]
-      typesPage.accept(response)
-      schemasStatus = "ready"
-      return true
+      const loaded = (await response.json()) as ProjectRecordSchema[]
+      return request.commit(() => {
+        schemas = loaded
+        typesPage.accept(response)
+      })
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        schemasStatus = "unavailable"
+        request.fail(new Error("Record types could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -393,6 +448,10 @@
     value: number,
     signal: AbortSignal,
   ): Promise<boolean> {
+    const request = schemaLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const [schemaResponse, attributesResponse] = await Promise.all([
         fetchProjectRecordSchema(
@@ -434,21 +493,27 @@
       }
       if (!schemaResponse.ok || (attributesResponse && !attributesResponse.ok))
         throw new Error()
-      schema = (await schemaResponse.json()) as ProjectRecordSchema
-      schemaName = schema.name
+      const loaded = (await schemaResponse.json()) as ProjectRecordSchema
+      let fields: ProjectRecordAttribute[] | undefined
       if (attributesResponse) {
         const result = (await attributesResponse.json()) as
           | ProjectRecordAttribute
           | ProjectRecordAttribute[]
         if (!isCurrent(value, route) || signal.aborted) return false
-        attributes = Array.isArray(result) ? result : [result]
-        if (route.kind === "project-record-fields")
-          fieldsPage.accept(attributesResponse)
+        fields = Array.isArray(result) ? result : [result]
       }
-      return true
+      return request.commit(() => {
+        schema = loaded
+        schemaName = loaded.name
+        if (fields) attributes = fields
+        if (route.kind === "project-record-fields" && attributesResponse)
+          fieldsPage.accept(attributesResponse)
+      })
     } catch {
-      error = "The record type could not be loaded."
+      request.fail(new Error("The record type could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -457,7 +522,10 @@
     value: number,
     signal: AbortSignal,
   ): Promise<boolean> {
-    recordsStatus = "checking"
+    const request = recordsLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     try {
       const response = await fetchProjectRecords(
         route.workspaceID,
@@ -477,14 +545,16 @@
         next_cursor?: string
       }
       if (!isCurrent(value, route) || signal.aborted) return false
-      records = body.records
-      recordsPage.state.next = body.next_cursor ?? ""
-      recordsStatus = "ready"
-      return true
+      return request.commit(() => {
+        records = body.records
+        recordsPage.state.next = body.next_cursor ?? ""
+      })
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        recordsStatus = "unavailable"
+        request.fail(new Error("Records could not be loaded."))
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -494,42 +564,31 @@
     signal: AbortSignal,
     refreshTitle = true,
   ): Promise<boolean> {
-    recordsStatus = "checking"
+    const request = recordLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
+    signal = request.signal
     const requestedValues = valuesPage.key()
-    const requestedReferences = incomingPage.key()
     try {
-      const [recordResponse, valuesResponse, referencesResponse] =
-        await Promise.all([
-          fetchProjectRecord(
-            route.workspaceID,
-            route.projectID,
-            route.schemaID,
-            route.recordID,
-            signal,
-          ),
-          fetchProjectRecordValues(
-            route.workspaceID,
-            route.projectID,
-            route.schemaID,
-            route.recordID,
-            signal,
-            valuesPage.params(),
-          ),
-          fetchProjectRecordIncomingReferences(
-            route.workspaceID,
-            route.projectID,
-            route.schemaID,
-            route.recordID,
-            incomingPage.state.cursor || undefined,
-            signal,
-          ),
-        ])
+      const [recordResponse, valuesResponse] = await Promise.all([
+        fetchProjectRecord(
+          route.workspaceID,
+          route.projectID,
+          route.schemaID,
+          route.recordID,
+          signal,
+        ),
+        fetchProjectRecordValues(
+          route.workspaceID,
+          route.projectID,
+          route.schemaID,
+          route.recordID,
+          signal,
+          valuesPage.params(),
+        ),
+      ])
       if (!isCurrent(value, route) || signal.aborted) return false
-      if (
-        recordResponse.status === 401 ||
-        valuesResponse.status === 401 ||
-        referencesResponse.status === 401
-      ) {
+      if (recordResponse.status === 401 || valuesResponse.status === 401) {
         runtime.requireLogin()
         return false
       }
@@ -540,9 +599,9 @@
         )
         return false
       }
-      if (!recordResponse.ok || !valuesResponse.ok || !referencesResponse.ok)
-        throw new Error()
+      if (!recordResponse.ok || !valuesResponse.ok) throw new Error()
       const loaded = (await recordResponse.json()) as ProjectRecord
+      if (!request.current()) return false
       if (!active || refreshTitle) {
         const summaryResponse = await fetchProjectRecords(
           route.workspaceID,
@@ -551,10 +610,16 @@
           signal,
           { name: route.recordID, limit: 1 },
         )
-        if (summaryResponse.ok)
-          loaded.values = (
-            (await summaryResponse.json()) as { records: ProjectRecord[] }
-          ).records[0]?.values
+        if (!request.current()) return false
+        if (summaryResponse.status === 401) {
+          runtime.requireLogin()
+          return false
+        }
+        if (!summaryResponse.ok)
+          throw new Error("Record title could not be loaded.")
+        loaded.values = (
+          (await summaryResponse.json()) as { records: ProjectRecord[] }
+        ).records[0]?.values
       } else loaded.values = active.values
       if (
         !isCurrent(value, route) ||
@@ -566,42 +631,44 @@
         values: ProjectRecordValue[]
         next_cursor?: string
       }
-      const references = (await referencesResponse.json()) as {
-        groups: ProjectRecordIncomingReferenceGroup[]
-        next_cursor?: string
-      }
       if (
         !isCurrent(value, route) ||
         signal.aborted ||
         requestedValues !== valuesPage.key()
       )
         return false
-      active = loaded
-      activeValues = values.values
-      valuesPage.state.next = values.next_cursor ?? ""
-      if (!values.next_cursor) allValuesLoaded = true
-      if (requestedReferences === incomingPage.key()) {
-        incomingReferences = references.groups
-        incomingPage.state.next = references.next_cursor ?? ""
-      }
-      const existing = new Set(drafts.map((item) => item.id))
-      drafts = [
-        ...drafts,
-        ...activeValues
-          .filter((item) => !existing.has(item.id))
-          .map((item) => ({
-            id: item.id,
-            attribute: item.attribute,
-            value: item.value,
-            sensitive: item.sensitive,
-          })),
-      ]
-      recordsStatus = "ready"
-      return true
+      const committed = request.commit(() => {
+        active = loaded
+        activeValues = values.values
+        valuesPage.state.next = values.next_cursor ?? ""
+        if (!values.next_cursor) allValuesLoaded = true
+        const existing = new Set(drafts.map((item) => item.id))
+        drafts = [
+          ...drafts,
+          ...activeValues
+            .filter((item) => !existing.has(item.id))
+            .map((item) => ({
+              id: item.id,
+              attribute: item.attribute,
+              value: item.value,
+              sensitive: item.sensitive,
+            })),
+        ]
+      })
+      if (!committed) return false
+      return (
+        !refreshTitle ||
+        route.kind !== "project-record" ||
+        (await loadReferences(route, value, signal))
+      )
     } catch {
       if (isCurrent(value, route) && !signal.aborted)
-        recordsStatus = "unavailable"
+        request.fail(
+          new Error("Record metadata and values could not be loaded."),
+        )
       return false
+    } finally {
+      request.finish()
     }
   }
 
@@ -755,20 +822,27 @@
   }
   async function loadMoreIncomingReferences(): Promise<boolean> {
     const route = currentRoute
-    const value = generation
-    if (route.kind !== "project-record" || incomingReferencesLoading)
-      return false
-    incomingReferencesLoading = true
+    if (route.kind !== "project-record") return false
+    return loadReferences(route, generation, abortController!.signal)
+  }
+  async function loadReferences(
+    route: Extract<RecordsRoute, { recordID: string }>,
+    value: number,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    const request = referencesLoad.begin(
+      AbortSignal.any([signal, abortController!.signal]),
+    )
     try {
       const response = await fetchProjectRecordIncomingReferences(
         route.workspaceID,
         route.projectID,
         route.schemaID,
         route.recordID,
-        incomingPage.state.cursor || undefined,
-        abortController?.signal,
+        incomingPage.params().cursor || undefined,
+        request.signal,
       )
-      if (!isCurrent(value, route)) return false
+      if (!isCurrent(value, route) || !request.current()) return false
       if (response.status === 401) {
         runtime.requireLogin()
         return false
@@ -778,18 +852,20 @@
         groups: ProjectRecordIncomingReferenceGroup[]
         next_cursor?: string
       }
-      incomingReferences = next.groups
-      incomingPage.state.next = next.next_cursor ?? ""
-      return true
+      return request.commit(() => {
+        incomingReferences = next.groups
+        incomingPage.state.next = next.next_cursor ?? ""
+      })
     } catch {
-      error = "More reverse references could not be loaded."
+      request.fail(new Error("Reverse references could not be loaded."))
       return false
     } finally {
-      if (isCurrent(value, route)) incomingReferencesLoading = false
+      request.finish()
     }
   }
 
   async function saveSchema(): Promise<void> {
+    if (saving) return
     const route = currentRoute
     const value = generation
     saving = true
@@ -865,6 +941,7 @@
   }
 
   async function saveAttribute(): Promise<void> {
+    if (saving || !schemaLoad.state.hasLoaded) return
     const route = currentRoute
     if (!isSchemaRoute(route)) return
     saving = true
@@ -959,6 +1036,7 @@
   }
 
   async function saveRecord(): Promise<void> {
+    if (saving || !schemaLoad.state.hasLoaded) return
     const route = currentRoute
     if (!isSchemaRoute(route)) return
     const value = generation
@@ -1137,6 +1215,26 @@
       </SidebarPage.Header>
       <SidebarPage.Body
         ><PageBody fluid>
+          {#if projectLoad.reloading || schemasLoad.reloading || schemaLoad.reloading || recordsLoad.reloading || recordLoad.reloading}<UI.Text
+              role="status">Refreshing records…</UI.Text
+            >{/if}
+          {#if projectLoad.state.error || schemasLoad.state.error || schemaLoad.state.error || recordsLoad.state.error || recordLoad.state.error}<UI.Notice
+              variant="destructive"
+              role="alert"
+              >{projectLoad.state.error ||
+                schemasLoad.state.error ||
+                schemaLoad.state.error ||
+                recordsLoad.state.error ||
+                recordLoad.state.error}<UI.Button
+                variant="outline"
+                onclick={() =>
+                  void loadRoute(
+                    currentRoute,
+                    generation,
+                    abortController!.signal,
+                  )}>Retry</UI.Button
+              ></UI.Notice
+            >{/if}
           {#if projectStatus === "checking"}<UI.Text as="p" tone="muted">
               Loading project...
             </UI.Text>
@@ -1156,6 +1254,10 @@
                   abortController!.signal,
                 )}>Try again</UI.Button
             >
+          {:else if isSchemaRoute(currentRoute) && schemaLoad.status !== "ready"}
+            {#if schemaLoad.loading}<UI.Text role="status"
+                >Loading record type…</UI.Text
+              >{/if}
           {:else if currentRoute.kind === "project-record-schema-overview"}
             {#if schema}
               <UI.AdminHeader
@@ -1191,7 +1293,9 @@
                   href={`${schemaPath(workspace.id, currentRoute.projectID, schema.id)}/fields`}
                 />
               </UI.NavigationGrid>
-            {:else}<UI.Text role="status">Loading record type…</UI.Text>{/if}
+            {:else if schemaLoad.loading}<UI.Text role="status"
+                >Loading record type…</UI.Text
+              >{/if}
           {:else if currentRoute.kind === "project-record-fields"}
             <UI.AdminHeader
               title={`${schema?.label ?? "Record type"} fields`}
@@ -1246,7 +1350,11 @@
                   >
                 </UI.RecordRow>{:else}<UI.TableEmpty
                   columns={6}
-                  message={schema ? "No fields yet." : "Loading fields…"}
+                  message={schemaLoad.state.error
+                    ? "Fields could not be loaded."
+                    : schema
+                      ? "No fields yet."
+                      : "Loading fields…"}
                 />{/each}
             </UI.RecordTable>
             <UI.PaginationFooter
@@ -1259,7 +1367,8 @@
               onnext={() => void fieldsPage.next(reloadFields)}
             />
           {:else if currentRoute.kind === "project-record-field-new" || currentRoute.kind === "project-record-field-edit"}
-            {#if !schema}<UI.Text role="status">Loading record type…</UI.Text
+            {#if !schema && schemaLoad.loading}<UI.Text role="status"
+                >Loading record type…</UI.Text
               >{/if}
           {:else if currentRoute.kind === "project-record-schema-new" || currentRoute.kind === "project-record-schema-edit"}{#snippet schemaActions()}{#if currentRoute.kind === "project-record-schema-edit"}<UI.Button
                   variant="outline"
@@ -1401,10 +1510,22 @@
                 count={activeValues.length}
                 previous={valuesPage.state.history.length > 0}
                 next={!!valuesPage.state.next}
-                loading={valuesPage.state.busy || recordsStatus === "checking"}
+                loading={valuesPage.state.busy || recordLoad.state.pending}
                 onprevious={() => void valuesPage.previous(reloadValues)}
                 onnext={() => void valuesPage.next(reloadValues)}
               />
+              {#if referencesLoad.state.error}<UI.Notice
+                  variant="destructive"
+                  role="alert"
+                  >{referencesLoad.state.error}<UI.Button
+                    variant="outline"
+                    onclick={() => void loadMoreIncomingReferences()}
+                    >Retry references</UI.Button
+                  ></UI.Notice
+                >{/if}
+              {#if incomingReferencesLoading}<UI.Text role="status"
+                  >Loading references…</UI.Text
+                >{/if}
               {#if incomingReferences.length !== 0 || incomingPage.state.history.length > 0}<UI.Stack
                   as="section"
                   aria-labelledby="referenced-by-heading"
@@ -1615,8 +1736,7 @@
                   count={activeValues.length}
                   previous={valuesPage.state.history.length > 0}
                   next={!!valuesPage.state.next}
-                  loading={valuesPage.state.busy ||
-                    recordsStatus === "checking"}
+                  loading={valuesPage.state.busy || recordLoad.state.pending}
                   onprevious={() => void valuesPage.previous(reloadValues)}
                   onnext={() => void valuesPage.next(reloadValues)}
                 />{/if}
@@ -1676,7 +1796,7 @@
               label="Search records"
               placeholder="Record display text"
               bind:value={recordsPage.state.search}
-              loading={recordsPage.state.busy || recordsStatus === "checking"}
+              loading={recordsPage.state.busy || recordsLoad.state.pending}
               onsearch={() => void recordsPage.search(reloadRecords)}
             />
             {#if recordsStatus === "checking"}<UI.Text as="p" tone="muted">
@@ -1731,16 +1851,18 @@
                     displayAttributes.filter(
                       (attribute) => attribute.display === "secondary",
                     ).length}
-                  message={recordsStatus === "checking"
-                    ? "Loading records…"
-                    : "No matching records."}
+                  message={recordsStatus === "unavailable"
+                    ? "Records could not be loaded."
+                    : recordsStatus === "checking"
+                      ? "Loading records…"
+                      : "No matching records."}
                 />{/each}
             </UI.RecordTable>
             <UI.PaginationFooter
               count={records.length}
               previous={recordsPage.state.history.length > 0}
               next={!!recordsPage.state.next}
-              loading={recordsPage.state.busy || recordsStatus === "checking"}
+              loading={recordsPage.state.busy || recordsLoad.state.pending}
               onprevious={() => void recordsPage.previous(reloadRecords)}
               onnext={() => void recordsPage.next(reloadRecords)}
             />
@@ -1761,7 +1883,7 @@
               label="Search record types"
               placeholder="Name, label, or description"
               bind:value={typesPage.state.search}
-              loading={typesPage.state.busy || schemasStatus === "checking"}
+              loading={typesPage.state.busy || schemasLoad.state.pending}
               onsearch={() => void typesPage.search(reloadTypes)}
             />
             {#if schemasStatus === "checking"}<UI.Text as="p" tone="muted">
@@ -1787,9 +1909,11 @@
                   >
                 </UI.RecordRow>{:else}<UI.TableEmpty
                   columns={3}
-                  message={schemasStatus === "checking"
-                    ? "Loading types…"
-                    : "No matching record types."}
+                  message={schemasStatus === "unavailable"
+                    ? "Record types could not be loaded."
+                    : schemasStatus === "checking"
+                      ? "Loading types…"
+                      : "No matching record types."}
                 />{/each}
             </UI.RecordTable>
             <UI.PaginationFooter
@@ -1797,7 +1921,7 @@
               count={schemas.length}
               previous={typesPage.state.history.length > 0}
               next={!!typesPage.state.next}
-              loading={typesPage.state.busy || schemasStatus === "checking"}
+              loading={typesPage.state.busy || schemasLoad.state.pending}
               onprevious={() => void typesPage.previous(reloadTypes)}
               onnext={() => void typesPage.next(reloadTypes)}
             />

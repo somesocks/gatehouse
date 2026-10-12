@@ -43,6 +43,11 @@
     {#snippet children()}<UI.Text as="p">Loading system access...</UI.Text
       >{/snippet}
   </StatusPage>
+{:else if access.state.systemAccess === "unavailable"}
+  <StatusPage title="System access could not be loaded"
+    ><UI.Button onclick={() => void runtime.refresh()}>Try again</UI.Button
+    ></StatusPage
+  >
 {:else if access.state.systemAccess !== "available"}
   <StatusPage
     eyebrow="System"
@@ -50,5 +55,13 @@
     description="You do not currently have an enabled system manager grant."
   />
 {:else}
+  {#if auth.state.reloadError || access.state.reloadError}<UI.Notice
+      variant="destructive"
+      role="alert"
+      >{auth.state.reloadError || access.state.reloadError}<UI.Button
+        variant="outline"
+        onclick={() => void runtime.refresh()}>Retry</UI.Button
+      ></UI.Notice
+    >{/if}
   {@render children()}
 {/if}

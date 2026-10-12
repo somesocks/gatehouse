@@ -30,9 +30,17 @@
     const workspace = workspaceID
     const binding = bindingID
     const editing = editingPage
-    void controller.load(workspace, binding).then(() => {
-      if (editing) controller.edit()
-    })
+    let active = true
+    untrack(
+      () =>
+        void controller.load(workspace, binding).then(() => {
+          if (active && editing) controller.edit()
+        }),
+    )
+    return () => {
+      active = false
+      controller.stop()
+    }
   })
   $effect(() => {
     const id = controller.state.binding?.model
@@ -86,6 +94,23 @@
   ]}
 >
   <UI.AdminContent mode={editingPage ? "form" : "detail"}>
+    {#if controller.state.conflict}<UI.Button
+        variant="outline"
+        onclick={controller.replaceDraft}
+        >Replace draft with latest settings</UI.Button
+      >{/if}
+    {#if controller.state.reloading}<UI.Text role="status"
+        >Refreshing binding…</UI.Text
+      >{/if}
+    {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
+        >{controller.state.error}<UI.Button
+          variant="outline"
+          onclick={() =>
+            void controller.load(workspaceID, bindingID).then(() => {
+              if (editingPage) controller.edit()
+            })}>Retry loading</UI.Button
+        ></UI.Notice
+      >{/if}
     {#if controller.state.loading}<UI.Text tone="muted"
         >Loading binding…</UI.Text
       >{:else if !controller.state.binding}<UI.Notice
