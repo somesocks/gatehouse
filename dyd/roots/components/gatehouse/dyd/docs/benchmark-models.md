@@ -60,3 +60,24 @@ JSON objects hold parameters and payloads/metrics; credential-source
 arrays contain descriptors. Optional generated fields map to SQL `NULL`, while
 empty strings and false booleans are stored as explicit values. The capture
 database identifies this schema with SQLite `user_version = 1`.
+
+## Record writer
+
+The benchmark package provides typed `InsertExecution`, `InsertProvider`,
+`InsertModel`, `InsertSystemPrompt`, `InsertQuestion`, `InsertLispEnvironment`,
+`InsertRun`, and `InsertSessionEvent` functions. Each accepts a context, the
+caller's `*sql.Tx`, and a generated `benchmarkmodel` record. IDs and references
+are supplied by the caller; inserts report duplicate IDs instead of replacing
+previous captures.
+
+The caller begins a transaction, inserts the input snapshots or run/event batch,
+and commits it once all references are present. On any writer error, the caller
+rolls back. Deferred constraints are checked at commit. JSON encoding errors and
+SQL errors include the record identity and preserve their underlying error.
+
+`UpdateExecution` changes status, finish time, and error. `UpdateRun` changes
+status, start/finish times, error, and native source references, addressing the
+run by both its ID and owning execution. Configuration/build identity and input
+selections remain those originally inserted. Missing updates return an error
+wrapping `sql.ErrNoRows`. These updates can share a transaction with newly
+captured events.

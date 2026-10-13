@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"testing"
 
@@ -109,62 +110,41 @@ func execResult(t *testing.T, tx *sql.Tx, query string, args ...any) {
 	}
 }
 
-// These test inserts exercise the storage contract directly with generated
-// records. The production record writer is a subsequent implementation slice.
 func insertResultInputs(t *testing.T, tx *sql.Tx, f resultsFixture) {
 	t.Helper()
-	e := f.execution
-	execResult(t, tx, `INSERT INTO executions
-		(id, config_path, config_api_version, gatehouse_version, gatehouse_fingerprint, started_at, finished_at, status, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.Id, e.ConfigPath, e.ConfigApiVersion, e.GatehouseVersion, e.GatehouseFingerprint, e.StartedAt, e.FinishedAt, e.Status, e.Error)
-	p := f.provider
-	var credentials any
-	if p.ApiKeySources != nil {
-		credentials = resultJSON(t, *p.ApiKeySources)
+	ctx := context.Background()
+	if err := InsertExecution(ctx, tx, f.execution); err != nil {
+		t.Fatal(err)
 	}
-	execResult(t, tx, `INSERT INTO providers
-		(id, execution_id, alias, protocol, base_url, api_key_sources, keychain, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Id, p.ExecutionId, p.Alias, p.Protocol, p.BaseUrl, credentials, p.Keychain, p.Enabled)
-	m := f.model
-	execResult(t, tx, `INSERT INTO models
-		(id, execution_id, alias, provider_id, model, parameters, max_turns, max_output_tokens, compaction_algorithm, history_bytes, buffer_bytes, enabled)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.Id, m.ExecutionId, m.Alias, m.ProviderId, m.Model, resultJSON(t, m.Parameters), m.MaxTurns, m.MaxOutputTokens,
-		m.CompactionAlgorithm, m.HistoryBytes, m.BufferBytes, m.Enabled)
-	s := f.prompt
-	execResult(t, tx, `INSERT INTO system_prompts (id, execution_id, alias, mode, text) VALUES (?, ?, ?, ?, ?)`,
-		s.Id, s.ExecutionId, s.Alias, s.Mode, s.Text)
-	q := f.question
-	execResult(t, tx, `INSERT INTO questions (id, execution_id, alias, text) VALUES (?, ?, ?, ?)`,
-		q.Id, q.ExecutionId, q.Alias, q.Text)
-	env := f.env
-	execResult(t, tx, `INSERT INTO lisp_environments (id, execution_id, alias, project_linked, prelude) VALUES (?, ?, ?, ?, ?)`,
-		env.Id, env.ExecutionId, env.Alias, env.ProjectLinked, env.Prelude)
+	if err := InsertProvider(ctx, tx, f.provider); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertModel(ctx, tx, f.model); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertSystemPrompt(ctx, tx, f.prompt); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertQuestion(ctx, tx, f.question); err != nil {
+		t.Fatal(err)
+	}
+	if err := InsertLispEnvironment(ctx, tx, f.env); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func insertResultRun(t *testing.T, tx *sql.Tx, r benchmarkmodel.Run) {
 	t.Helper()
-	execResult(t, tx, `INSERT INTO runs
-		(id, execution_id, test_alias, model_id, system_prompt_id, question_id, lisp_environment_id, repetition,
-		 workspace_id, workspace_agent_id, session_id, agent_request_id, terminal_event_id, started_at, finished_at, status, error)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.Id, r.ExecutionId, r.TestAlias, r.ModelId, r.SystemPromptId, r.QuestionId, r.LispEnvironmentId, r.Repetition,
-		r.WorkspaceId, r.WorkspaceAgentId, r.SessionId, r.AgentRequestId, r.TerminalEventId, r.StartedAt, r.FinishedAt, r.Status, r.Error)
+	if err := InsertRun(context.Background(), tx, r); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func insertResultEvent(t *testing.T, tx *sql.Tx, e benchmarkmodel.SessionEvent) {
 	t.Helper()
-	var metrics any
-	if e.Metrics != nil {
-		metrics = resultJSON(t, *e.Metrics)
+	if err := InsertSessionEvent(context.Background(), tx, e); err != nil {
+		t.Fatal(err)
 	}
-	execResult(t, tx, `INSERT INTO session_events
-		(id, run_id, workspace, session, parent, kind, author_principal, author_agent, author_gateway, payload, created_at, metrics)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.Id, e.RunId, e.Workspace, e.Session, e.Parent, e.Kind, e.AuthorPrincipal, e.AuthorAgent, e.AuthorGateway,
-		resultJSON(t, e.Payload), e.CreatedAt, metrics)
 }
 
 func insertResultFixture(t *testing.T, db *sql.DB, f resultsFixture) {
@@ -382,4 +362,242 @@ func TestResultsRejectCrossRunEventReferences(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResultsWriterUpdatesLifecycle(t *testing.T) {
+	db := openTestResults(t)
+	f := newResultsFixture(t, "lifecycle")
+	planned := f.run
+	planned.Status = "planned"
+	planned.WorkspaceId, planned.WorkspaceAgentId, planned.SessionId = nil, nil, nil
+	planned.AgentRequestId, planned.TerminalEventId, planned.StartedAt, planned.FinishedAt = nil, nil, nil, nil
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	insertResultInputs(t, tx, f)
+	insertResultRun(t, tx, planned)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	running := f.run
+	running.Status, running.TerminalEventId, running.FinishedAt = "running", nil, nil
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err := UpdateRun(ctx, tx, running); err != nil {
+		t.Fatal(err)
+	}
+	insertResultEvent(t, tx, f.events[1])
+	insertResultEvent(t, tx, f.events[0])
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var status, request string
+	var terminal, finished sql.NullString
+	if err := db.QueryRow(`SELECT status, agent_request_id, terminal_event_id, finished_at FROM runs WHERE id = ?`, f.run.Id).
+		Scan(&status, &request, &terminal, &finished); err != nil {
+		t.Fatal(err)
+	}
+	if status != "running" || request != *f.run.AgentRequestId || terminal.Valid || finished.Valid {
+		t.Fatal("running transition did not preserve partial source references")
+	}
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	completed := f.run
+	// Update APIs intentionally address lifecycle fields, not input identity.
+	completed.ModelId, completed.TestAlias, completed.Repetition = "ignored", "ignored", 99
+	if err := UpdateRun(ctx, tx, completed); err != nil {
+		t.Fatal(err)
+	}
+	for index := len(f.events) - 1; index >= 2; index-- {
+		insertResultEvent(t, tx, f.events[index])
+	}
+	execution := f.execution
+	execution.Status, execution.FinishedAt = "completed", f.run.FinishedAt
+	execution.ConfigPath, execution.GatehouseFingerprint, execution.StartedAt = "ignored", "ignored", "ignored"
+	if err := UpdateExecution(ctx, tx, execution); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var model, testAlias, workspace, agent, session, started string
+	var repetition int
+	if err := db.QueryRow(`SELECT status, model_id, test_alias, repetition, workspace_id, workspace_agent_id, session_id,
+		agent_request_id, terminal_event_id, started_at, finished_at FROM runs WHERE id = ?`, f.run.Id).
+		Scan(&status, &model, &testAlias, &repetition, &workspace, &agent, &session, &request, &terminal, &started, &finished); err != nil {
+		t.Fatal(err)
+	}
+	if status != "completed" || model != f.run.ModelId || testAlias != f.run.TestAlias || repetition != f.run.Repetition || workspace != *f.run.WorkspaceId || agent != *f.run.WorkspaceAgentId || session != *f.run.SessionId || request != *f.run.AgentRequestId || !terminal.Valid || terminal.String != *f.run.TerminalEventId || started != *f.run.StartedAt || !finished.Valid || finished.String != *f.run.FinishedAt {
+		t.Fatal("run lifecycle update changed inputs or lost source/lifecycle fields")
+	}
+	var path, fingerprint string
+	if err := db.QueryRow(`SELECT status, config_path, gatehouse_fingerprint, started_at, finished_at FROM executions WHERE id = ?`, f.execution.Id).
+		Scan(&status, &path, &fingerprint, &started, &finished); err != nil {
+		t.Fatal(err)
+	}
+	if status != "completed" || path != f.execution.ConfigPath || fingerprint != f.execution.GatehouseFingerprint || started != f.execution.StartedAt || !finished.Valid || finished.String != *f.run.FinishedAt {
+		t.Fatal("execution lifecycle update changed its configuration/build identity")
+	}
+	tx, err = db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	failure := "cancelled by caller"
+	completed.Status, completed.Error = "cancelled", &failure
+	execution.Status, execution.Error = "cancelled", &failure
+	if err := UpdateRun(ctx, tx, completed); err != nil {
+		t.Fatal(err)
+	}
+	if err := UpdateExecution(ctx, tx, execution); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	var errorText string
+	if err := db.QueryRow(`SELECT status, error FROM runs WHERE id = ?`, f.run.Id).Scan(&status, &errorText); err != nil {
+		t.Fatal(err)
+	}
+	if status != "cancelled" || errorText != failure {
+		t.Fatal("run error was not stored")
+	}
+}
+
+func TestResultsWriterReportsMissingUpdates(t *testing.T) {
+	db := openTestResults(t)
+	f := newResultsFixture(t, "missing")
+	insertResultFixture(t, db, f)
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	missingExecution := f.execution
+	missingExecution.Id = "missing-execution"
+	if err := UpdateExecution(ctx, tx, missingExecution); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing execution update = %v, want sql.ErrNoRows", err)
+	}
+	missingRun := f.run
+	missingRun.Id = "missing-run"
+	if err := UpdateRun(ctx, tx, missingRun); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("missing run update = %v, want sql.ErrNoRows", err)
+	}
+	wrongExecution := f.run
+	wrongExecution.ExecutionId = "different-execution"
+	if err := UpdateRun(ctx, tx, wrongExecution); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("wrong execution update = %v, want sql.ErrNoRows", err)
+	}
+}
+
+func TestResultsWriterPreservesExistingRecordsOnDuplicateInsert(t *testing.T) {
+	db := openTestResults(t)
+	f := newResultsFixture(t, "original")
+	insertResultFixture(t, db, f)
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	changed := f.question
+	changed.Text = "replacement"
+	if err := InsertQuestion(context.Background(), tx, changed); err == nil {
+		t.Fatal("duplicate ID replaced a captured input")
+	}
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	if err := db.QueryRow(`SELECT text FROM questions WHERE id = ?`, f.question.Id).Scan(&text); err != nil {
+		t.Fatal(err)
+	}
+	if text != f.question.Text {
+		t.Fatal("original input was modified by duplicate insertion")
+	}
+}
+
+func TestResultsWriterRollbackOnJSONError(t *testing.T) {
+	for _, field := range []string{"parameters", "payload", "metrics"} {
+		t.Run(field, func(t *testing.T) {
+			db := openTestResults(t)
+			f := newResultsFixture(t, "invalid JSON")
+			ctx := context.Background()
+			tx, err := db.BeginTx(ctx, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer tx.Rollback()
+			var writeErr error
+			if field == "parameters" {
+				if err := InsertExecution(ctx, tx, f.execution); err != nil {
+					t.Fatal(err)
+				}
+				if err := InsertProvider(ctx, tx, f.provider); err != nil {
+					t.Fatal(err)
+				}
+				f.model.Parameters["invalid"] = make(chan int)
+				writeErr = InsertModel(ctx, tx, f.model)
+			} else {
+				insertResultInputs(t, tx, f)
+				event := f.events[len(f.events)-1]
+				if field == "payload" {
+					event.Payload["invalid"] = make(chan int)
+				} else {
+					(*event.Metrics)["invalid"] = make(chan int)
+				}
+				writeErr = InsertSessionEvent(ctx, tx, event)
+			}
+			var unsupported *json.UnsupportedTypeError
+			if !errors.As(writeErr, &unsupported) {
+				t.Fatalf("%s writer error = %v, want wrapped JSON encoding error", field, writeErr)
+			}
+			if err := tx.Rollback(); err != nil {
+				t.Fatal(err)
+			}
+			for _, table := range []string{"executions", "providers", "models", "system_prompts", "questions", "lisp_environments", "runs", "session_events"} {
+				var count int
+				if err := db.QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				if count != 0 {
+					t.Fatalf("%s contains %d rows after rollback", table, count)
+				}
+			}
+		})
+	}
+}
+
+func TestResultsWriterRollbackOnDeferredConstraint(t *testing.T) {
+	db := openTestResults(t)
+	f := newResultsFixture(t, "deferred failure")
+	ctx := context.Background()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	insertResultInputs(t, tx, f)
+	insertResultRun(t, tx, f.run)
+	// The writer can insert forward references, but cannot commit a missing tree.
+	if err := tx.Commit(); err == nil {
+		t.Fatal("run committed without its referenced events")
+	}
+	var count int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM executions`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatal("failed deferred commit retained part of its capture")
+	}
+	insertResultFixture(t, db, f)
 }
