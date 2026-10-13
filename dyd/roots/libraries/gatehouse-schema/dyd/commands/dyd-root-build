@@ -14,6 +14,14 @@ chmod -R +w "$WORK_DIR"
 ln -s "$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets" "$WORK_DIR/dhall-codegen"
 
 case "$OUTPUT/$RENDERER" in
+    benchmark-models/go)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-golang/package.dhall
+
+in renderer.render renderer.options::{ package = Some "benchmarkmodel" } ./benchmark/models.dhall
+EOF
+        OUTPUT_FILE=models.go
+        ;;
     benchmark/go-json)
         cat > "$WORK_DIR/render.dhall" <<'EOF'
 let codec = ./dhall-codegen/codec-golang-json/package.dhall
