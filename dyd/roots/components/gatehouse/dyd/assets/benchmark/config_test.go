@@ -3,6 +3,7 @@ package benchmark
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -179,5 +180,98 @@ tests:
 	err, _ := ValidateFile(path)
 	if err == nil || !strings.Contains(err.Error(), "run count overflows") {
 		t.Fatalf("expected run-count overflow error, got %v", err)
+	}
+}
+
+func TestValidateFileProviderBaseURLEnvironmentReferences(t *testing.T) {
+	for _, mode := range []string{"inline", "file"} {
+		for _, test := range []struct {
+			name, baseURL, value, wantError string
+			unset                           bool
+		}{
+			{name: "resolved", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "https://provider.invalid/v1"},
+			{name: "literal", baseURL: "http://127.0.0.1:1/v1", value: "not-a-url"},
+			{name: "unset", baseURL: "env:BENCH_OPENAI_BASE_URL", unset: true, wantError: `environment variable "BENCH_OPENAI_BASE_URL" is unset or empty`},
+			{name: "empty", baseURL: "env:BENCH_OPENAI_BASE_URL", wantError: "unset or empty"},
+			{name: "empty name", baseURL: "env:", wantError: "expected env:VARIABLE_NAME"},
+			{name: "invalid name", baseURL: "env:BENCH-URL", wantError: "expected env:VARIABLE_NAME"},
+			{name: "relative URL", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "/v1", wantError: "absolute HTTP URL"},
+			{name: "unsupported scheme", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "ftp://provider.invalid/v1", wantError: "absolute HTTP URL"},
+			{name: "no host", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "https:///v1", wantError: "absolute HTTP URL"},
+			{name: "nonrecursive", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "env:OTHER_BASE_URL", wantError: "absolute HTTP URL"},
+		} {
+			t.Run(mode+"/"+test.name, func(t *testing.T) {
+				t.Setenv("BENCH_OPENAI_BASE_URL", test.value)
+				t.Setenv("BENCH_OPENAI_API_KEY", "")
+				if test.unset {
+					if err := os.Unsetenv("BENCH_OPENAI_BASE_URL"); err != nil {
+						t.Fatal(err)
+					}
+				}
+				directory := t.TempDir()
+				path := filepath.Join(directory, "tests.yaml")
+				provider := "alias: openai\nprotocol: openai-responses\nbase_url: " + strconv.Quote(test.baseURL) + "\napi_key:\n  sources: [env:BENCH_OPENAI_API_KEY]"
+				entry := "  - " + strings.ReplaceAll(provider, "\n", "\n    ")
+				origin := path
+				if mode == "file" {
+					origin = filepath.Join(directory, "provider.yaml")
+					if err := os.WriteFile(origin, []byte(provider), 0o600); err != nil {
+						t.Fatal(err)
+					}
+					entry = "  - file:provider.yaml"
+				}
+				contents := "api_version: v1\nagent_providers:\n" + entry + `
+agent_models:
+  - alias: assistant
+    provider: openai
+    model: remote-model
+    parameters: {}
+system_prompts:
+  - alias: baseline
+    mode: builtin
+questions:
+  - alias: question
+    text: env:BENCH_OPENAI_BASE_URL
+lisp_environments:
+  - alias: session
+tests:
+  - alias: basic
+    matrix:
+      models: [assistant]
+      system_prompts: [baseline]
+      questions: [question]
+      lisp_environments: [session]
+`
+				if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				err, configuration := ValidateFile(path)
+				if test.wantError != "" {
+					if err == nil || !strings.Contains(err.Error(), test.wantError) || !strings.Contains(err.Error(), origin) || !strings.Contains(err.Error(), "agent_providers[0]") {
+						t.Fatalf("expected %q at %s agent_providers[0], got %v", test.wantError, origin, err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := test.baseURL
+				if strings.HasPrefix(want, "env:") {
+					want = test.value
+				}
+				providerDefinition := configuration.Document.AgentProviders[0]
+				if providerDefinition.BaseUrl == nil || *providerDefinition.BaseUrl != want || providerDefinition.ApiKey.Sources[0] != "env:BENCH_OPENAI_API_KEY" || configuration.Document.Questions[0].Text != "env:BENCH_OPENAI_BASE_URL" {
+					t.Fatalf("unexpected resolution: %#v", configuration.Document)
+				}
+				t.Setenv("BENCH_OPENAI_BASE_URL", "https://changed.invalid/v1")
+				prepareErr, prepared := Prepare(configuration, path, "version", "fingerprint")
+				if prepareErr != nil {
+					t.Fatal(prepareErr)
+				}
+				if *prepared.Providers[0].BaseUrl != want {
+					t.Fatal("preparation must capture the loaded URL without resolving the environment again")
+				}
+			})
+		}
 	}
 }

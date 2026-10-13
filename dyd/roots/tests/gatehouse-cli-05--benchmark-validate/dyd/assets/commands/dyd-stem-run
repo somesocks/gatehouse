@@ -11,6 +11,7 @@ chmod -R u+w "$TEMP_DIR/spec"
 export HOME="$TEMP_DIR/home"
 export XDG_DATA_HOME="$TEMP_DIR/home/data"
 unset BENCH_API_KEY
+unset BENCH_OPENAI_API_KEY BENCH_OPENAI_BASE_URL
 
 assert_contains() {
     case "$1" in
@@ -153,6 +154,21 @@ case "$(cat "$TEMP_DIR/stdout" "$TEMP_DIR/stderr")" in
     *"$BENCH_API_KEY"*) printf '[ERROR] credential leaked into validation output\n' >&2; exit 1 ;;
 esac
 unset BENCH_API_KEY
+
+for mode in inline file; do
+    defaults
+    PROVIDER_MODE=$mode PROVIDER_FILE=definitions/provider-env.yaml
+    write_config
+    unset BENCH_OPENAI_BASE_URL
+    invalid 'unset provider base URL variable' 'BENCH_OPENAI_BASE_URL'
+    export BENCH_OPENAI_BASE_URL=''
+    invalid 'empty provider base URL variable' 'unset or empty'
+    export BENCH_OPENAI_BASE_URL=not-a-url
+    invalid 'invalid resolved provider base URL' 'absolute HTTP URL'
+    export BENCH_OPENAI_BASE_URL=http://127.0.0.1:1/v1
+    valid 'provider base URL environment reference with unset credentials'
+done
+unset BENCH_OPENAI_BASE_URL
 
 defaults
 MODEL_MODE=file MODEL_FILE=definitions/model-partial-compaction.yaml

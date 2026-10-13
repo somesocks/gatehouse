@@ -11,7 +11,7 @@ import (
 
 // These rules belong to the v1 benchmark format. They deliberately do not call
 // operational configuration resolvers or apply model-dependent runtime defaults.
-var credentialEnvironmentPattern = regexp.MustCompile(`^env:[A-Za-z_][A-Za-z0-9_]*$`)
+var environmentReferencePattern = regexp.MustCompile(`^env:[A-Za-z_][A-Za-z0-9_]*$`)
 
 func validateProvider(index int, provider benchmarkschema.BenchmarkProvider) error {
 	location := fmt.Sprintf("agent_providers[%d] %q", index, provider.Alias)
@@ -39,7 +39,7 @@ func validateProvider(index int, provider benchmarkschema.BenchmarkProvider) err
 			if seen[source] {
 				return fmt.Errorf("%s.api_key.sources[%d] %q is duplicated", location, sourceIndex, source)
 			}
-			if source != "stdin:" && !credentialEnvironmentPattern.MatchString(source) {
+			if source != "stdin:" && !environmentReferencePattern.MatchString(source) {
 				return fmt.Errorf("%s.api_key.sources[%d] must be env:VARIABLE_NAME or stdin:", location, sourceIndex)
 			}
 			seen[source] = true

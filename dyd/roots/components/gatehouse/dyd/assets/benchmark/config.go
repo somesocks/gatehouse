@@ -93,9 +93,10 @@ func (configuration Config) Runs() iter.Seq[Run] {
 	}
 }
 
-// ValidateFile loads individual definition files and text files, then validates
-// the resulting configuration. Credential sources remain deferred descriptors;
-// this path never looks up environment variables or initializes Gatehouse state.
+// ValidateFile loads individual definition files and text files and resolves
+// provider base URL environment references, then validates the configuration.
+// Credential sources remain deferred descriptors; this path never reads
+// credentials or initializes Gatehouse state.
 func ValidateFile(path string) (error, Config) {
 	path, err := filepath.Abs(path)
 	if err != nil {
@@ -141,6 +142,17 @@ func ValidateFile(path string) (error, Config) {
 				return fmt.Errorf("%s: %s: expected a valid %s record: %w", origin, location, definition.name, err), Config{}
 			}
 			record := entry.(map[string]any)
+			if baseURL, ok := record["base_url"].(string); collection.field == "agent_providers" && ok && strings.HasPrefix(baseURL, "env:") {
+				if !environmentReferencePattern.MatchString(baseURL) {
+					return fmt.Errorf("%s: %s.base_url: expected env:VARIABLE_NAME reference", origin, location), Config{}
+				}
+				name := strings.TrimPrefix(baseURL, "env:")
+				value := os.Getenv(name)
+				if value == "" {
+					return fmt.Errorf("%s: %s.base_url: environment variable %q is unset or empty", origin, location, name), Config{}
+				}
+				record["base_url"] = value
+			}
 			if text, ok := record[collection.textField].(string); collection.textField != "" && ok && strings.HasPrefix(text, "file:") {
 				textPath, err := referencePath(origin, text)
 				if err != nil {
