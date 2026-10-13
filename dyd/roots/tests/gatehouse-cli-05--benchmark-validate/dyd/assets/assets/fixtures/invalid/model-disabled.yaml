@@ -1,0 +1,5 @@
+alias: assistant
+provider: openai
+model: test-model
+parameters: {}
+enabled: false

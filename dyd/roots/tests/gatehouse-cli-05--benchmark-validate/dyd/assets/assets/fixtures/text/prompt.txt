@@ -1,0 +1,1 @@
+Inspect the current Lisp environment before explaining your capabilities.

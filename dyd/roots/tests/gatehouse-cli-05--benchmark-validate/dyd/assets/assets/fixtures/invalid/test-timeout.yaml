@@ -1,0 +1,7 @@
+alias: capability-discovery
+matrix:
+  models: [assistant]
+  system_prompts: [discovery]
+  questions: [capabilities]
+  lisp_environments: [session]
+timeout_seconds: 120

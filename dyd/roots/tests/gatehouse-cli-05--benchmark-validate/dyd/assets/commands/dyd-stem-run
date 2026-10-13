@@ -1,0 +1,299 @@
+#!/usr/bin/env bash
+
+set -euf -o pipefail
+
+SRC_DIR=$DYD_STEM
+TEMP_DIR=$(mktemp -d)
+trap 'chmod -R u+w "$TEMP_DIR"; rm -rf "$TEMP_DIR"' EXIT
+mkdir -p "$TEMP_DIR/spec" "$TEMP_DIR/work" "$TEMP_DIR/home"
+cp -R "$SRC_DIR/dyd/assets/fixtures/." "$TEMP_DIR/spec"
+chmod -R u+w "$TEMP_DIR/spec"
+export HOME="$TEMP_DIR/home"
+export XDG_DATA_HOME="$TEMP_DIR/home/data"
+unset BENCH_API_KEY
+
+assert_contains() {
+    case "$1" in
+        *"$2"*) ;;
+        *)
+            printf '[ERROR] %s: expected %s in %s\n' "$3" "$2" "$1" >&2
+            return 1
+            ;;
+    esac
+}
+
+defaults() {
+    PROVIDER_MODE=inline
+    PROVIDER_FILE=definitions/provider.yaml
+    MODEL_MODE=inline
+    MODEL_FILE=definitions/model.yaml
+    PROMPT_MODE=inline
+    PROMPT_FILE=definitions/prompt.yaml
+    QUESTION_MODE=inline
+    QUESTION_FILE=definitions/question.yaml
+    ENVIRONMENT_MODE=inline
+    ENVIRONMENT_FILE=definitions/environment.yaml
+    TEST_MODE=inline
+    TEST_FILE=definitions/test.yaml
+    EXTRA_MODEL_FILE=''
+    EXTRA_TEST_FILE=''
+}
+
+# Test construction deliberately uses records with explicit aliases. A file entry
+# supplies one record; text references within it are exercised separately below.
+entry() {
+    local section=$1 mode=$2 path=$3
+    if [ "$mode" = empty ]; then
+        printf '%s: []\n' "$section"
+        return
+    fi
+    printf '%s:\n' "$section"
+    case "$mode" in
+        inline)
+            printf '  -\n'
+            while IFS= read -r line || [ -n "$line" ]; do
+                printf '    %s\n' "$line"
+            done < "$TEMP_DIR/spec/$path"
+            ;;
+        file) printf '  - "file:%s"\n' "$path" ;;
+        reference) printf '  - "%s"\n' "$path" ;;
+        wrong-type) printf '  - true\n' ;;
+        *) printf 'unknown test construction mode %s\n' "$mode" >&2; return 1 ;;
+    esac
+}
+
+write_config() {
+    {
+        printf 'api_version: v1\n'
+        entry agent_providers "$PROVIDER_MODE" "$PROVIDER_FILE"
+        entry agent_models "$MODEL_MODE" "$MODEL_FILE"
+        if [ -n "$EXTRA_MODEL_FILE" ]; then
+            printf '  - "file:%s"\n' "$EXTRA_MODEL_FILE"
+        fi
+        entry system_prompts "$PROMPT_MODE" "$PROMPT_FILE"
+        entry questions "$QUESTION_MODE" "$QUESTION_FILE"
+        entry lisp_environments "$ENVIRONMENT_MODE" "$ENVIRONMENT_FILE"
+        entry tests "$TEST_MODE" "$TEST_FILE"
+        if [ -n "$EXTRA_TEST_FILE" ]; then
+            printf '  -\n'
+            while IFS= read -r line || [ -n "$line" ]; do
+                printf '    %s\n' "$line"
+            done < "$TEMP_DIR/spec/$EXTRA_TEST_FILE"
+        fi
+    } > "$TEMP_DIR/spec/tests.yaml"
+}
+
+validate() {
+    # The working directory is intentionally unrelated to every declaring file.
+    (
+        cd "$TEMP_DIR/work"
+        gatehouse benchmark validate "$1"
+    ) > "$TEMP_DIR/stdout" 2> "$TEMP_DIR/stderr"
+}
+
+valid() {
+    local label=$1 count=${2:-'(1 tests, 3 runs)'} path=${3:-"$TEMP_DIR/spec/tests.yaml"}
+    if ! validate "$path"; then
+        printf '[ERROR] %s unexpectedly failed\n' "$label" >&2
+        cat "$TEMP_DIR/stderr" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/stderr")" 'benchmark configuration is valid' "$label"
+    assert_contains "$(cat "$TEMP_DIR/stderr")" "$count" "$label run count"
+    if [ -s "$TEMP_DIR/stdout" ]; then
+        printf '[ERROR] %s wrote unexpected stdout\n' "$label" >&2
+        return 1
+    fi
+}
+
+invalid() {
+    local label=$1 message=$2
+    if validate "$TEMP_DIR/spec/tests.yaml"; then
+        printf '[ERROR] %s unexpectedly succeeded\n' "$label" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/stderr")" 'benchmark configuration is invalid' "$label"
+    assert_contains "$(cat "$TEMP_DIR/stderr")" "$message" "$label diagnostic"
+}
+
+defaults
+assert_contains "$(gatehouse --help)" 'gatehouse benchmark' 'command registration'
+assert_contains "$(gatehouse benchmark --help)" 'validate' 'benchmark help'
+if gatehouse benchmark validate > "$TEMP_DIR/stdout" 2> "$TEMP_DIR/stderr"; then
+    printf '[ERROR] validate without a path unexpectedly succeeded\n' >&2
+    exit 1
+fi
+
+# Cartesian source-format matrix: all 32 combinations are exercised through the
+# built CLI, including unset credential variables and an unreachable provider.
+for PROVIDER_MODE in inline file; do
+    for MODEL_MODE in inline file; do
+        for PROMPT_MODE in inline file; do
+            for QUESTION_MODE in inline file; do
+                for ENVIRONMENT_MODE in inline file; do
+                    write_config
+                    valid "$PROVIDER_MODE/$MODEL_MODE/$PROMPT_MODE/$QUESTION_MODE/$ENVIRONMENT_MODE"
+                done
+            done
+        done
+    done
+done
+
+defaults
+PROMPT_MODE=file PROMPT_FILE=nested/prompt.yaml
+QUESTION_MODE=file QUESTION_FILE=nested/question.yaml
+ENVIRONMENT_MODE=file ENVIRONMENT_FILE=nested/environment.yaml
+write_config
+valid 'nested relative text references and spaces'
+valid 'full expansion and default repetitions' '(2 tests, 49 runs)' "$TEMP_DIR/spec/expanded.yaml"
+
+export BENCH_API_KEY=credential-must-not-be-printed-or-required
+valid 'credential descriptors remain deferred'
+case "$(cat "$TEMP_DIR/stdout" "$TEMP_DIR/stderr")" in
+    *"$BENCH_API_KEY"*) printf '[ERROR] credential leaked into validation output\n' >&2; exit 1 ;;
+esac
+unset BENCH_API_KEY
+
+defaults
+MODEL_MODE=file MODEL_FILE=definitions/model-partial-compaction.yaml
+write_config
+valid 'benchmark validation leaves omitted runtime settings unspecified'
+
+defaults
+MODEL_MODE=reference MODEL_FILE=not-a-reference
+write_config
+invalid 'unrecognized reference scheme' 'expected file:'
+MODEL_FILE=file:
+write_config
+invalid 'empty reference path' 'nonempty path'
+MODEL_MODE=wrong-type
+write_config
+invalid 'wrong source type' 'agent_models'
+MODEL_MODE=file MODEL_FILE=missing.yaml
+write_config
+invalid 'missing definition' 'missing.yaml'
+
+for fixture in array redirect malformed revision provider parameters disabled limit compaction; do
+    defaults
+    MODEL_MODE=file MODEL_FILE="invalid/model-$fixture.yaml"
+    write_config
+    case "$fixture" in
+        array|redirect) expected='expected a valid BenchmarkModel record' ;;
+        malformed) expected='parse YAML' ;;
+        revision) expected='revision' ;;
+        provider) expected='missing-provider' ;;
+        parameters) expected='reasoning_effort' ;;
+        disabled) expected='disabled' ;;
+        limit) expected='max_turns' ;;
+        compaction) expected='buffer_bytes' ;;
+    esac
+    invalid "loaded model $fixture" "$expected"
+    if [ "$fixture" = disabled ]; then
+        assert_contains "$(cat "$TEMP_DIR/stderr")" 'matrix.models' 'disabled model selection origin'
+    else
+        assert_contains "$(cat "$TEMP_DIR/stderr")" "model-$fixture.yaml" 'referenced error origin'
+    fi
+done
+
+defaults
+MODEL_FILE=invalid/model-revision.yaml
+write_config
+invalid 'unknown field in inline model' 'revision'
+defaults
+EXTRA_MODEL_FILE=definitions/model.yaml
+write_config
+invalid 'duplicate alias across inline/file models' 'duplicated'
+defaults
+EXTRA_TEST_FILE=definitions/test.yaml
+write_config
+invalid 'duplicate test alias' 'duplicated'
+
+for fixture in protocol credential; do
+    defaults
+    PROVIDER_MODE=file PROVIDER_FILE="invalid/provider-$fixture.yaml"
+    write_config
+    invalid "provider $fixture" 'agent_providers'
+done
+for fixture in mode text builtin file; do
+    defaults
+    PROMPT_MODE=file PROMPT_FILE="invalid/prompt-$fixture.yaml"
+    write_config
+    invalid "prompt $fixture" 'system_prompts'
+done
+defaults
+QUESTION_MODE=file QUESTION_FILE=invalid/question-empty.yaml
+write_config
+invalid 'blank question' 'text must not be empty'
+
+for fixture in unknown duplicate empty repetitions timeout; do
+    defaults
+    TEST_FILE="invalid/test-$fixture.yaml"
+    write_config
+    case "$fixture" in
+        unknown) expected='unknown alias' ;;
+        duplicate) expected='duplicate alias' ;;
+        empty) expected='must not be empty' ;;
+        repetitions) expected='repetitions must be positive' ;;
+        timeout) expected='timeout_seconds' ;;
+    esac
+    invalid "matrix $fixture" "$expected"
+done
+
+# Exercise semantic checks on every dimension, not only model selections.
+for dimension in models system_prompts questions lisp_environments; do
+    for failure in unknown duplicate empty; do
+        defaults
+        TEST_FILE=definitions/generated-test.yaml
+        {
+            printf 'alias: selection-check\nmatrix:\n'
+            for field in models system_prompts questions lisp_environments; do
+                case "$field" in
+                    models) alias=assistant ;;
+                    system_prompts) alias=discovery ;;
+                    questions) alias=capabilities ;;
+                    lisp_environments) alias=session ;;
+                esac
+                selection=$alias
+                if [ "$field" = "$dimension" ]; then
+                    case "$failure" in
+                        unknown) selection=missing ;;
+                        duplicate) selection="$alias, $alias" ;;
+                        empty) selection='' ;;
+                    esac
+                fi
+                printf '  %s: [%s]\n' "$field" "$selection"
+            done
+        } > "$TEMP_DIR/spec/$TEST_FILE"
+        write_config
+        invalid "$dimension/$failure" "matrix.$dimension"
+    done
+done
+
+for collection in providers models prompts questions environments tests; do
+    defaults
+    case "$collection" in
+        providers) PROVIDER_MODE=empty ;;
+        models) MODEL_MODE=empty ;;
+        prompts) PROMPT_MODE=empty ;;
+        questions) QUESTION_MODE=empty ;;
+        environments) ENVIRONMENT_MODE=empty ;;
+        tests) TEST_MODE=empty ;;
+    esac
+    write_config
+    invalid "empty $collection collection" 'must not be empty'
+done
+
+defaults
+write_config
+printf 'unexpected: true\n' >> "$TEMP_DIR/spec/tests.yaml"
+invalid 'unknown top-level field' 'unexpected'
+defaults
+write_config
+printf 'api_version: v1\n' >> "$TEMP_DIR/spec/tests.yaml"
+invalid 'duplicate YAML key' 'parse YAML'
+
+if [ -e "$XDG_DATA_HOME" ]; then
+    printf '[ERROR] validation created runtime data\n' >&2
+    exit 1
+fi
+printf 'benchmark validate e2e matrix passed\n'

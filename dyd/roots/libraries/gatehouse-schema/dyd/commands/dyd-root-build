@@ -14,6 +14,28 @@ chmod -R +w "$WORK_DIR"
 ln -s "$SRC_DIR/dyd/dependencies/dhall-codegen/dyd/assets" "$WORK_DIR/dhall-codegen"
 
 case "$OUTPUT/$RENDERER" in
+    benchmark/go-json)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let codec = ./dhall-codegen/codec-golang-json/package.dhall
+
+in codec.render codec.options::{ package = Some "benchmarkschema" } ./benchmark/document.dhall
+EOF
+        OUTPUT_FILE=benchmark.go
+        ;;
+    benchmark/json-schema)
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-json-schema/package.dhall
+
+in renderer.render renderer.options::{ main = Some "GatehouseBenchmarkSourceConfig" } ./benchmark/source.dhall
+EOF
+        dhall text --file "$WORK_DIR/render.dhall" --output "$DEST_DIR/dyd/assets/source.json"
+        cat > "$WORK_DIR/render.dhall" <<'EOF'
+let renderer = ./dhall-codegen/renderer-json-schema/package.dhall
+
+in renderer.render renderer.options::{ main = Some "GatehouseBenchmarkConfig" } ./benchmark/document.dhall
+EOF
+        OUTPUT_FILE=loaded.json
+        ;;
     config/go-json)
         cat > "$WORK_DIR/render.dhall" <<'EOF'
 let codec = ./dhall-codegen/codec-golang-json/package.dhall

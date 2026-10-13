@@ -1,0 +1,43 @@
+api_version: v1
+agent_providers:
+  - alias: builtin
+    protocol: builtin
+agent_models:
+  - alias: model-a
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters: {text: a}
+  - alias: model-b
+    provider: builtin
+    model: dummy.fixed-reply
+    parameters: {text: b}
+system_prompts:
+  - alias: baseline
+    mode: builtin
+  - alias: discovery
+    mode: append
+    text: file:text/prompt.txt
+questions:
+  - alias: capabilities
+    text: "hey, what can you do?"
+  - alias: tools
+    text: file:text/question with spaces.txt
+lisp_environments:
+  - alias: session
+  - alias: project
+    project_linked: true
+    prelude: ""
+tests:
+  - alias: full-matrix
+    matrix:
+      models: [model-a, model-b]
+      system_prompts: [baseline, discovery]
+      questions: [capabilities, tools]
+      lisp_environments: [session, project]
+    repetitions: 3
+  - alias: default-repetition
+    matrix:
+      models: [model-a]
+      system_prompts: [baseline]
+      questions: [capabilities]
+      lisp_environments: [session]

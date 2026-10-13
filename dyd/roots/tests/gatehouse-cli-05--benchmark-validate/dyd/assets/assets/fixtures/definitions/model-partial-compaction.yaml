@@ -1,0 +1,7 @@
+alias: assistant
+provider: openai
+model: test-model
+parameters: {}
+compaction:
+  algorithm: mcmtr
+  history_bytes: 64

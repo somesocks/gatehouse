@@ -1,0 +1,2 @@
+alias: session
+prelude: file:../text/prelude.lisp

@@ -1,0 +1,6 @@
+alias: capability-discovery
+matrix:
+  models: [missing-model]
+  system_prompts: [discovery]
+  questions: [capabilities]
+  lisp_environments: [session]

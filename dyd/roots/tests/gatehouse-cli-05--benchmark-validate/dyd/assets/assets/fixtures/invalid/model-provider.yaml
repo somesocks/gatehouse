@@ -1,0 +1,4 @@
+alias: assistant
+provider: missing-provider
+model: test-model
+parameters: {}
