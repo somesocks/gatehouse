@@ -25,10 +25,8 @@ native-event capture belong at explicit boundaries.
 All record IDs and ID references are strings, assigned before persistence.
 Session-event IDs and source identifiers retain their original native values.
 Snapshot aliases are scoped by `execution_id`, so captures from successive
-invocations can coexist even when aliases are reused. Each snapshot retains a
-content hash and a `sources` map; the `Source` component records a file location
-and optional original reference for roles such as `definition`, `text`, or
-`prelude`.
+invocations can coexist even when aliases are reused. Each snapshot stores the
+loaded input values directly.
 
 Optional properties use pointer types in the generated Go models. Omitted
 limits, compaction fields, boolean settings, and text remain distinct from
@@ -38,3 +36,27 @@ defaults are applied to snapshot records.
 Model parameters and event payloads/metrics are open property maps. Native
 payloads and metrics are preserved as captured data rather than tied to a fixed
 statistics schema. Run status describes execution, not benchmark quality.
+
+## In-memory relational capture
+
+`benchmark.OpenResults(ctx)` explicitly creates a private in-memory SQLite
+database from `benchmark/results.sql`. Its connection pool retains one connection
+so all queries see the same database. The caller closes the database when done.
+This initializer is separate from operational migrations and package startup.
+
+The eight tables use caller-supplied text IDs. Every input snapshot references
+its execution, with alias uniqueness scoped to that execution. Models reference
+providers from the same execution; runs reference selected snapshots from their
+own execution. Different executions can therefore retain changed definitions
+under the same aliases.
+
+Native event identifiers, source identifiers, payloads, timestamps, authors, and
+metrics are stored as captured. Run request/terminal links and event parent links
+are constrained to the same run. Event/run links are deferred until transaction
+commit, allowing an event tree to be inserted before its run or in child-first
+order.
+
+JSON objects hold parameters and payloads/metrics; credential-source
+arrays contain descriptors. Optional generated fields map to SQL `NULL`, while
+empty strings and false booleans are stored as explicit values. The capture
+database identifies this schema with SQLite `user_version = 1`.

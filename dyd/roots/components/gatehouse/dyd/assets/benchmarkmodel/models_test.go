@@ -21,35 +21,27 @@ func TestCapturedRecordGraphRoundTrip(t *testing.T) {
 	}
 	// All export identities and links are assembled without database insertion.
 	execution := benchmarkmodel.Execution{
-		Id: newID("bex"), ConfigPath: "tests.yaml", ConfigHash: "config-hash",
+		Id: newID("bex"), ConfigPath: "tests.yaml",
 		ConfigApiVersion: "v1", GatehouseVersion: "test", GatehouseFingerprint: "build-hash",
 		StartedAt: "2026-10-13T12:00:00Z", Status: "running",
 	}
-	sourceReference := "file:./models/assistant.yaml"
-	sources := map[string]benchmarkmodel.Source{
-		"definition": {File: "/fixtures/models/assistant.yaml", Reference: &sourceReference},
-	}
 	credentialSources := []string{"env:BENCH_API_KEY"}
 	provider := benchmarkmodel.Provider{
-		Id: newID("bpr"), ExecutionId: execution.Id, Alias: "provider", ContentHash: "provider-hash",
-		Sources: map[string]benchmarkmodel.Source{}, Protocol: "openai-responses", ApiKeySources: &credentialSources,
+		Id: newID("bpr"), ExecutionId: execution.Id, Alias: "provider",
+		Protocol: "openai-responses", ApiKeySources: &credentialSources,
 	}
 	model := benchmarkmodel.Model{
 		Id: newID("bmd"), ExecutionId: execution.Id, Alias: "assistant", ProviderId: provider.Id,
 		Model: "test-model", Parameters: map[string]interface{}{"reasoning_effort": "low"},
-		ContentHash: "model-hash", Sources: sources,
 	}
 	prompt := benchmarkmodel.SystemPrompt{
 		Id: newID("bsp"), ExecutionId: execution.Id, Alias: "baseline", Mode: "builtin",
-		ContentHash: "prompt-hash", Sources: map[string]benchmarkmodel.Source{},
 	}
 	question := benchmarkmodel.Question{
 		Id: newID("bqu"), ExecutionId: execution.Id, Alias: "capabilities", Text: "What can you do?",
-		ContentHash: "question-hash", Sources: map[string]benchmarkmodel.Source{},
 	}
 	environment := benchmarkmodel.LispEnvironment{
 		Id: newID("ben"), ExecutionId: execution.Id, Alias: "session",
-		ContentHash: "environment-hash", Sources: map[string]benchmarkmodel.Source{},
 	}
 	workspaceID, sessionID, agentID := newID(typed_id.Workspace), newID(typed_id.Session), newID(typed_id.WorkspaceAgent)
 	requestID, terminalID := newID(typed_id.SessionEvent), newID(typed_id.SessionEvent)

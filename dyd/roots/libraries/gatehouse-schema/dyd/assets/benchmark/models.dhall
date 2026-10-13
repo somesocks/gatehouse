@@ -22,32 +22,10 @@ let object = s.map.from
       }
       s.map.meta::{=}
 
-let ref =
-      \(definition : s.root.type) ->
-        s.reference.from { to = definition.meta.name } s.reference.meta::{=}
-
-let Source = s.root.from
-      (s.record.from
-        s.record.props::{
-        , required = toMap { file = text "resolved source file location" }
-        , optional = toMap { reference = text "original file: reference, when supplied" }
-        }
-        s.record.meta::{=})
-      s.root.meta::{ name = "Source" }
-
-let sources = s.map.from
-      s.map.props::{
-      , keys = text "source role, such as definition, text, or prelude"
-      , values = ref Source
-      }
-      s.map.meta::{ description = Some "provenance of the loaded snapshot" }
-
 let snapshotFields =
       { id = text "snapshot identity generated before persistence"
       , execution_id = text "owning execution identity"
       , alias = text "input alias within this execution"
-      , content_hash = text "hash of the canonical loaded definition, excluding provenance"
-      , sources
       }
 
 let Execution = s.root.from
@@ -56,7 +34,6 @@ let Execution = s.root.from
         , required = toMap
             { id = text "execution identity generated before persistence"
             , config_path = text "benchmark configuration source location"
-            , config_hash = text "hash of the canonical loaded configuration"
             , config_api_version = text "benchmark configuration API version"
             , gatehouse_version = text "Gatehouse version used for this execution"
             , gatehouse_fingerprint = text "Gatehouse build fingerprint"
@@ -190,8 +167,7 @@ let SessionEvent = s.root.from
 in Grammar.Document::{
      , description = Some "Captured benchmark records, independent of configuration and operational models."
      , schemas =
-         [ Source
-         , Execution
+         [ Execution
          , Provider
          , Model
          , SystemPrompt
