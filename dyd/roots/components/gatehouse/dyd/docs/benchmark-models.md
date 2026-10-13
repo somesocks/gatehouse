@@ -81,3 +81,21 @@ run by both its ID and owning execution. Configuration/build identity and input
 selections remain those originally inserted. Missing updates return an error
 wrapping `sql.ErrNoRows`. These updates can share a transaction with newly
 captured events.
+
+## SQLite file output
+
+`benchmark.ExportResults(ctx, capture, path, appendOutput)` writes the complete
+captured dataset to a standalone SQLite file. The capture remains caller-owned.
+Without append, the destination must be new. With append, a missing destination
+is created, or records are inserted into an existing version-1 capture database.
+Existing output must provide the capture tables and columns.
+
+The export reads one source transaction and writes one destination transaction.
+All captured IDs, optional SQL values, and JSON text are copied directly. Appends
+use plain inserts; duplicate identities fail the complete append instead of
+replacing records. Existing data survives a failed append. A failed new export
+removes the file it created.
+
+The file uses only the analysis schema and can be opened by ordinary SQLite
+tools. File output is an explicit operation, separate from capture initialization
+and normal Gatehouse serving.
