@@ -99,3 +99,23 @@ removes the file it created.
 The file uses only the analysis schema and can be opened by ordinary SQLite
 tools. File output is an explicit operation, separate from capture initialization
 and normal Gatehouse serving.
+
+## Preparation
+
+`benchmark.Prepare(config, path, version, fingerprint)` consumes a validated,
+file-resolved configuration and creates one `Prepared` execution. It copies the
+configuration, assigns capture IDs, preserves declared settings and credential
+descriptors, and resolves provider aliases into snapshot IDs. Editing the caller's
+configuration afterward does not change the prepared execution.
+
+The execution and five snapshot collections are available as generated
+`benchmarkmodel` records. `Prepared.Insert(ctx, tx)` persists them in the caller's
+transaction through the record writer. Preparation itself does not open a capture
+database or contact a provider.
+
+`Prepared.Runs()` lazily yields `(benchmarkmodel.Run, error)` pairs in test and
+selection/repetition order. Each requested record gets a new ID and the selected
+snapshot references, starts as `planned`, and omits native identifiers and timing
+fields. Callers retain each yielded record for insertion and lifecycle updates;
+enumerating the iterator again creates new run IDs. Stopping iteration does not
+materialize remaining combinations. `RunCount` retains the validated matrix count.
