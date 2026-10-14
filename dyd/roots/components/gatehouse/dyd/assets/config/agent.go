@@ -22,7 +22,7 @@ type AgentProvider struct {
 	Alias    string
 	Revision int
 	Protocol string
-	BaseURL  *string
+	Endpoint *string
 	Keychain *string
 	Sources  []AgentProviderAPIKeySource
 	Enabled  bool
@@ -143,16 +143,16 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 		provider := AgentProvider{Alias: configured.Alias, Revision: configured.Revision, Protocol: configured.Protocol, Enabled: enabled}
 		switch configured.Protocol {
 		case agentProviderProtocolBuiltin:
-			if configured.BaseUrl != nil || configured.ApiKey != nil {
-				return fmt.Errorf("agent_providers[%d] builtin providers do not accept base_url or api_key", index), nil
+			if configured.Endpoint != nil || configured.ApiKey != nil {
+				return fmt.Errorf("agent_providers[%d] builtin providers do not accept endpoint or api_key", index), nil
 			}
 		case agentProviderProtocolOpenAIChatCompletions, agentProviderProtocolOpenAIResponses:
-			if configured.BaseUrl == nil || configured.ApiKey == nil {
-				return fmt.Errorf("agent_providers[%d] OpenAI providers require base_url and api_key", index), nil
+			if configured.Endpoint == nil || configured.ApiKey == nil {
+				return fmt.Errorf("agent_providers[%d] OpenAI providers require endpoint and api_key", index), nil
 			}
-			parsed, err := url.ParseRequestURI(*configured.BaseUrl)
+			parsed, err := url.ParseRequestURI(*configured.Endpoint)
 			if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-				return fmt.Errorf("agent_providers[%d].base_url must be an absolute HTTP URL", index), nil
+				return fmt.Errorf("agent_providers[%d].endpoint must be an absolute HTTP URL", index), nil
 			}
 			keychain := defaultKeychainID
 			if configured.ApiKey.Keychain != nil {
@@ -173,7 +173,7 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 				seen[source] = struct{}{}
 				sources = append(sources, AgentProviderAPIKeySource(source))
 			}
-			provider.BaseURL = configured.BaseUrl
+			provider.Endpoint = configured.Endpoint
 			provider.Keychain = &keychain
 			provider.Sources = sources
 		default:

@@ -1,5 +1,5 @@
 alias: openai
 protocol: openai-responses
-base_url: env:BENCH_OPENAI_BASE_URL
+endpoint: env:BENCH_OPENAI_ENDPOINT
 api_key:
   sources: [env:BENCH_OPENAI_API_KEY]

@@ -22,7 +22,7 @@ func postgresMigrationR009ReconcileAgentProviders(state config.State, keyring *k
 
 type postgresMigrationR009AgentProviderValue struct {
 	ID, Alias, Protocol string
-	BaseURL             any
+	Endpoint            any
 	APIKey              any
 	KeychainID          any
 	KeychainVersion     any
@@ -75,7 +75,7 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 					return fmt.Errorf("encrypt API key for provider %q: %w", provider.Alias, sealErr), ""
 				}
 				encrypted.AAD = keychain.AADAlias
-				value.BaseURL = *provider.BaseURL
+				value.Endpoint = *provider.Endpoint
 				value.KeychainID = reference.Id
 				value.KeychainVersion = reference.Version
 				value.APIKey = encrypted.String()
@@ -95,9 +95,9 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range .Values }}
-			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .BaseURL }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, base_url = excluded.base_url, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
+			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,13 +15,13 @@ import (
 )
 
 type openAICompatibleRequest struct {
-	Model             string                   `json:"model"`
+	Model             string                    `json:"model"`
 	Messages          []openAICompatibleMessage `json:"messages"`
 	Tools             []openAICompatibleTool    `json:"tools,omitempty"`
 	ResponseFormat    *openAIResponseFormat     `json:"response_format,omitempty"`
-	ParallelToolCalls bool                     `json:"parallel_tool_calls"`
-	ReasoningEffort   string                   `json:"reasoning_effort,omitempty"`
-	MaxTokens         int                      `json:"max_tokens,omitempty"`
+	ParallelToolCalls bool                      `json:"parallel_tool_calls"`
+	ReasoningEffort   string                    `json:"reasoning_effort,omitempty"`
+	MaxTokens         int                       `json:"max_tokens,omitempty"`
 }
 
 type openAIResponseFormat struct {
@@ -72,11 +71,15 @@ type openAICompatibleResponse struct {
 }
 
 type openAICompatibleUsage struct {
-	PromptTokens            *int `json:"prompt_tokens"`
-	CompletionTokens        *int `json:"completion_tokens"`
-	TotalTokens             *int `json:"total_tokens"`
-	PromptTokensDetails     struct{ CachedTokens *int `json:"cached_tokens"` } `json:"prompt_tokens_details"`
-	CompletionTokensDetails struct{ ReasoningTokens *int `json:"reasoning_tokens"` } `json:"completion_tokens_details"`
+	PromptTokens        *int `json:"prompt_tokens"`
+	CompletionTokens    *int `json:"completion_tokens"`
+	TotalTokens         *int `json:"total_tokens"`
+	PromptTokensDetails struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"prompt_tokens_details"`
+	CompletionTokensDetails struct {
+		ReasoningTokens *int `json:"reasoning_tokens"`
+	} `json:"completion_tokens_details"`
 }
 
 type openAICompatibleCompletion struct {
@@ -112,29 +115,33 @@ type openAIResponsesTool struct {
 }
 
 type openAIResponsesResponse struct {
-	Output []json.RawMessage `json:"output"`
+	Output  []json.RawMessage          `json:"output"`
 	Metrics *model.SessionEventMetrics `json:"-"`
 }
 
 type openAIResponsesAPIResponse struct {
-	Output []json.RawMessage `json:"output"`
-	Usage *openAIResponsesUsage `json:"usage"`
+	Output []json.RawMessage     `json:"output"`
+	Usage  *openAIResponsesUsage `json:"usage"`
 }
 
 type openAIResponsesUsage struct {
-	InputTokens         *int `json:"input_tokens"`
-	OutputTokens        *int `json:"output_tokens"`
-	TotalTokens         *int `json:"total_tokens"`
-	InputTokensDetails  struct{ CachedTokens *int `json:"cached_tokens"` } `json:"input_tokens_details"`
-	OutputTokensDetails struct{ ReasoningTokens *int `json:"reasoning_tokens"` } `json:"output_tokens_details"`
+	InputTokens        *int `json:"input_tokens"`
+	OutputTokens       *int `json:"output_tokens"`
+	TotalTokens        *int `json:"total_tokens"`
+	InputTokensDetails struct {
+		CachedTokens *int `json:"cached_tokens"`
+	} `json:"input_tokens_details"`
+	OutputTokensDetails struct {
+		ReasoningTokens *int `json:"reasoning_tokens"`
+	} `json:"output_tokens_details"`
 }
 
 type openAIResponsesOutput struct {
-	Type      string `json:"type"`
-	CallID    string `json:"call_id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-	Status    string `json:"status"`
+	Type      string                         `json:"type"`
+	CallID    string                         `json:"call_id"`
+	Name      string                         `json:"name"`
+	Arguments string                         `json:"arguments"`
+	Status    string                         `json:"status"`
 	Content   []openAIResponsesOutputContent `json:"content"`
 }
 
@@ -152,8 +159,8 @@ func (err *openAIRetryableError) Error() string { return err.message }
 
 func (err *openAIRetryableError) RetryAfter() time.Duration { return err.retryAfter }
 
-func OpenAICompatibleReply(ctx context.Context, client *http.Client, baseURL, apiKey, model string, messages []openAICompatibleMessage) (error, string) {
-	err, completion := OpenAICompatibleComplete(ctx, client, baseURL, apiKey, openAICompatibleRequest{Model: model, Messages: messages})
+func OpenAICompatibleReply(ctx context.Context, client *http.Client, endpoint, apiKey, model string, messages []openAICompatibleMessage) (error, string) {
+	err, completion := OpenAICompatibleComplete(ctx, client, endpoint, apiKey, openAICompatibleRequest{Model: model, Messages: messages})
 	if err != nil {
 		return err, ""
 	}
@@ -163,17 +170,12 @@ func OpenAICompatibleReply(ctx context.Context, client *http.Client, baseURL, ap
 	return nil, completion.Message.Content
 }
 
-func OpenAICompatibleComplete(ctx context.Context, client *http.Client, baseURL, apiKey string, completion openAICompatibleRequest) (error, openAICompatibleCompletion) {
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return fmt.Errorf("parse OpenAI-compatible base URL: %w", err), openAICompatibleCompletion{}
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/chat/completions"
+func OpenAICompatibleComplete(ctx context.Context, client *http.Client, endpoint, apiKey string, completion openAICompatibleRequest) (error, openAICompatibleCompletion) {
 	payload, err := json.Marshal(completion)
 	if err != nil {
 		return fmt.Errorf("encode OpenAI-compatible request: %w", err), openAICompatibleCompletion{}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create OpenAI-compatible request: %w", err), openAICompatibleCompletion{}
 	}
@@ -202,17 +204,12 @@ func OpenAICompatibleComplete(ctx context.Context, client *http.Client, baseURL,
 	return nil, openAICompatibleCompletion{Message: decoded.Choices[0].Message, Metrics: openAICompatibleMetrics(decoded.Usage, time.Since(started))}
 }
 
-func OpenAIResponsesComplete(ctx context.Context, client *http.Client, baseURL, apiKey string, completion openAIResponsesRequest) (error, openAIResponsesResponse) {
-	parsed, err := url.Parse(baseURL)
-	if err != nil {
-		return fmt.Errorf("parse OpenAI Responses base URL: %w", err), openAIResponsesResponse{}
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/responses"
+func OpenAIResponsesComplete(ctx context.Context, client *http.Client, endpoint, apiKey string, completion openAIResponsesRequest) (error, openAIResponsesResponse) {
 	payload, err := json.Marshal(completion)
 	if err != nil {
 		return fmt.Errorf("encode OpenAI Responses request: %w", err), openAIResponsesResponse{}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, parsed.String(), bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("create OpenAI Responses request: %w", err), openAIResponsesResponse{}
 	}

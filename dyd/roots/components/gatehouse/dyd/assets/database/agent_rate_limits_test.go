@@ -145,7 +145,26 @@ func TestAgentRateLimitClaimScopesAndMinimum(t *testing.T) {
 	if _, err := claim(40); !errors.Is(err, ErrAgentRateLimitExceeded) {
 		t.Fatalf("second claim error = %v, want minimum-balance rejection", err)
 	}
-	settle, err := dbos.RunWorkflow(dbosContext, runner.settle, agentRateLimitTestSettleInput{Claim: first, InputTokens: 20}, dbos.WithRunInstance(&runner))
+	var beforeUnknown float64
+	if err := store.QueryRowContext(ctx, `SELECT available_input_tokens FROM gatehouse_workspace_agent_rate_buckets WHERE principal_id IS NULL`).Scan(&beforeUnknown); err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := dbos.RunWorkflow(dbosContext, runner.settle, agentRateLimitTestSettleInput{Claim: first}, dbos.WithRunInstance(&runner))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unknown.GetResult(); err != nil {
+		t.Fatal(err)
+	}
+	var afterUnknown float64
+	if err := store.QueryRowContext(ctx, `SELECT available_input_tokens FROM gatehouse_workspace_agent_rate_buckets WHERE principal_id IS NULL`).Scan(&afterUnknown); err != nil {
+		t.Fatal(err)
+	}
+	if afterUnknown != beforeUnknown {
+		t.Fatal("unknown usage refunded the estimated reservation")
+	}
+	actual := 20
+	settle, err := dbos.RunWorkflow(dbosContext, runner.settle, agentRateLimitTestSettleInput{Claim: first, InputTokens: &actual}, dbos.WithRunInstance(&runner))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,12 +201,12 @@ func (workflow *agentRateLimitTestWorkflow) claim(ctx dbos.Context, tokens int) 
 
 type agentRateLimitTestSettleInput struct {
 	Claim       AgentRateLimitClaim
-	InputTokens int
+	InputTokens *int
 }
 
 func (workflow *agentRateLimitTestWorkflow) settle(ctx dbos.Context, input agentRateLimitTestSettleInput) (struct{}, error) {
 	_, err := dbos.RunAsTransaction(ctx, workflow.dataSource, func(step context.Context, transaction dbos.Tx) (struct{}, error) {
-		return struct{}{}, workflow.store.AgentRateLimitSettleInTransaction(step, transaction, input.Claim, &input.InputTokens, nil)
+		return struct{}{}, workflow.store.AgentRateLimitSettleInTransaction(step, transaction, input.Claim, input.InputTokens, nil)
 	})
 	return struct{}{}, err
 }

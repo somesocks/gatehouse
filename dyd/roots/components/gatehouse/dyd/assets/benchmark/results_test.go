@@ -54,7 +54,7 @@ func newResultsFixture(t *testing.T, question string) resultsFixture {
 	}
 	f.provider = benchmarkmodel.Provider{
 		Id: id("bpr"), ExecutionId: f.execution.Id, Alias: "provider", Protocol: "openai-responses",
-		BaseUrl: &endpoint, ApiKeySources: &credentials,
+		Endpoint: &endpoint, ApiKeySources: &credentials,
 	}
 	f.model = benchmarkmodel.Model{
 		Id: id("bmd"), ExecutionId: f.execution.Id, ProviderId: f.provider.Id, Alias: "assistant", Model: "test-model",
@@ -174,7 +174,7 @@ func TestOpenResultsCreatesIsolatedSchema(t *testing.T) {
 	if err := first.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if foreignKeys != 1 || version != 1 || first.Stats().MaxOpenConnections != 1 {
+	if foreignKeys != 1 || version != 2 || first.Stats().MaxOpenConnections != 1 {
 		t.Fatalf("unexpected database settings: foreign_keys=%d version=%d pool=%#v", foreignKeys, version, first.Stats())
 	}
 	rows, err := first.Query(`SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name`)
@@ -214,7 +214,7 @@ func TestResultsPreserveExecutionSnapshotsAndEventTrees(t *testing.T) {
 	second.prompt.Mode = "builtin"
 	second.model.CompactionAlgorithm, second.model.HistoryBytes = nil, nil
 	second.provider.ApiKeySources = nil
-	second.provider.BaseUrl = nil
+	second.provider.Endpoint = nil
 	second.provider.Protocol = "builtin"
 	second.model.Model = "dummy.fixed-reply"
 	second.model.Parameters = map[string]interface{}{"text": "reply"}

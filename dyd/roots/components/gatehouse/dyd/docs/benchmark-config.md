@@ -2,7 +2,7 @@
 
 `gatehouse benchmark validate tests.yaml` loads and validates benchmark inputs
 and reports the number of expanded runs. Validation makes no network requests:
-provider base URL environment references are resolved locally, while credential
+provider endpoint environment references are resolved locally, while credential
 sources are retained for runtime use.
 
 ```yaml
@@ -11,7 +11,7 @@ api_version: v1
 agent_providers:
   - alias: openai
     protocol: openai-responses
-    base_url: env:BENCH_OPENAI_BASE_URL
+    endpoint: env:BENCH_OPENAI_ENDPOINT
     api_key:
       sources: [env:BENCH_OPENAI_API_KEY]
 
@@ -57,7 +57,7 @@ Each matrix dimension is nonempty, has unique selections, and references known
 aliases. Repetitions default to one and must be positive. Expansion follows test
 order, then model/prompt/question/environment selection order, then repetitions.
 
-For this example, set `BENCH_OPENAI_BASE_URL=https://api.openai.com/v1` before
+For this example, set `BENCH_OPENAI_ENDPOINT=https://api.openai.com/v1/responses` before
 validation or execution. `BENCH_OPENAI_API_KEY` is needed only for execution.
 
 ## Individual definition files
@@ -96,15 +96,16 @@ fields are not file-reference locations.
 - **Providers and models:** are independently defined by the v1 benchmark format.
   Revisions are not part of this format. Supported protocols are `builtin`,
   `openai-chat-completions`, and `openai-responses`. OpenAI providers require an
-  absolute HTTP(S) `base_url` or an `env:VARIABLE_NAME` reference, and nonempty
-  credential sources using `env:`/`stdin:`. Base URL references are resolved once
+  absolute HTTP(S) `endpoint` or an `env:VARIABLE_NAME` reference, and nonempty
+  credential sources using `env:`/`stdin:`. Endpoint references are resolved once
   during loading, for inline and file-based providers. The variable name must
   match `[A-Za-z_][A-Za-z0-9_]*`; unset or empty variables are errors, and their
   values must be absolute HTTP(S) URLs. The loaded configuration and captured
   provider snapshot contain the resolved URL. Literal URLs are also accepted.
-  Gatehouse appends `/responses` or `/chat/completions` according to the protocol,
-  so the base URL should not include that route. Environment resolution applies
-  only to provider `base_url`; other fields are not recursively substituted.
+  Gatehouse POSTs to the complete endpoint URL without appending a route or
+  modifying its path or query. Protocol selects only the request/response format.
+  Environment resolution applies only to provider `endpoint`; other fields are
+  not recursively substituted.
   Validation retains credential descriptors without reading credentials. Builtin
   providers omit the URL and credentials. A selected model and its provider must
   be enabled; an omitted `enabled` is treated as true.

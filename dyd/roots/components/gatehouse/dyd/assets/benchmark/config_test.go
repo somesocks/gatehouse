@@ -16,7 +16,7 @@ func TestValidateFileLoadsInputsAndExpandsMatrix(t *testing.T) {
 	files := map[string]string{
 		"providers/openai.yaml": `alias: openai
 protocol: openai-responses
-base_url: http://127.0.0.1:1/v1
+endpoint: http://127.0.0.1:1/v1/responses
 api_key:
   sources: [env:BENCHMARK_TEST_KEY]
 `,
@@ -183,34 +183,34 @@ tests:
 	}
 }
 
-func TestValidateFileProviderBaseURLEnvironmentReferences(t *testing.T) {
+func TestValidateFileProviderEndpointEnvironmentReferences(t *testing.T) {
 	for _, mode := range []string{"inline", "file"} {
 		for _, test := range []struct {
-			name, baseURL, value, wantError string
-			unset                           bool
+			name, endpoint, value, wantError string
+			unset                            bool
 		}{
-			{name: "resolved", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "https://provider.invalid/v1"},
-			{name: "literal", baseURL: "http://127.0.0.1:1/v1", value: "not-a-url"},
-			{name: "unset", baseURL: "env:BENCH_OPENAI_BASE_URL", unset: true, wantError: `environment variable "BENCH_OPENAI_BASE_URL" is unset or empty`},
-			{name: "empty", baseURL: "env:BENCH_OPENAI_BASE_URL", wantError: "unset or empty"},
-			{name: "empty name", baseURL: "env:", wantError: "expected env:VARIABLE_NAME"},
-			{name: "invalid name", baseURL: "env:BENCH-URL", wantError: "expected env:VARIABLE_NAME"},
-			{name: "relative URL", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "/v1", wantError: "absolute HTTP URL"},
-			{name: "unsupported scheme", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "ftp://provider.invalid/v1", wantError: "absolute HTTP URL"},
-			{name: "no host", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "https:///v1", wantError: "absolute HTTP URL"},
-			{name: "nonrecursive", baseURL: "env:BENCH_OPENAI_BASE_URL", value: "env:OTHER_BASE_URL", wantError: "absolute HTTP URL"},
+			{name: "resolved", endpoint: "env:BENCH_OPENAI_ENDPOINT", value: "https://provider.invalid/custom/inference?version=1"},
+			{name: "literal", endpoint: "http://127.0.0.1:1/v1/responses", value: "not-a-url"},
+			{name: "unset", endpoint: "env:BENCH_OPENAI_ENDPOINT", unset: true, wantError: `environment variable "BENCH_OPENAI_ENDPOINT" is unset or empty`},
+			{name: "empty", endpoint: "env:BENCH_OPENAI_ENDPOINT", wantError: "unset or empty"},
+			{name: "empty name", endpoint: "env:", wantError: "expected env:VARIABLE_NAME"},
+			{name: "invalid name", endpoint: "env:BENCH-URL", wantError: "expected env:VARIABLE_NAME"},
+			{name: "relative URL", endpoint: "env:BENCH_OPENAI_ENDPOINT", value: "/v1", wantError: "absolute HTTP URL"},
+			{name: "unsupported scheme", endpoint: "env:BENCH_OPENAI_ENDPOINT", value: "ftp://provider.invalid/v1", wantError: "absolute HTTP URL"},
+			{name: "no host", endpoint: "env:BENCH_OPENAI_ENDPOINT", value: "https:///v1", wantError: "absolute HTTP URL"},
+			{name: "nonrecursive", endpoint: "env:BENCH_OPENAI_ENDPOINT", value: "env:OTHER_ENDPOINT", wantError: "absolute HTTP URL"},
 		} {
 			t.Run(mode+"/"+test.name, func(t *testing.T) {
-				t.Setenv("BENCH_OPENAI_BASE_URL", test.value)
+				t.Setenv("BENCH_OPENAI_ENDPOINT", test.value)
 				t.Setenv("BENCH_OPENAI_API_KEY", "")
 				if test.unset {
-					if err := os.Unsetenv("BENCH_OPENAI_BASE_URL"); err != nil {
+					if err := os.Unsetenv("BENCH_OPENAI_ENDPOINT"); err != nil {
 						t.Fatal(err)
 					}
 				}
 				directory := t.TempDir()
 				path := filepath.Join(directory, "tests.yaml")
-				provider := "alias: openai\nprotocol: openai-responses\nbase_url: " + strconv.Quote(test.baseURL) + "\napi_key:\n  sources: [env:BENCH_OPENAI_API_KEY]"
+				provider := "alias: openai\nprotocol: openai-responses\nendpoint: " + strconv.Quote(test.endpoint) + "\napi_key:\n  sources: [env:BENCH_OPENAI_API_KEY]"
 				entry := "  - " + strings.ReplaceAll(provider, "\n", "\n    ")
 				origin := path
 				if mode == "file" {
@@ -231,7 +231,7 @@ system_prompts:
     mode: builtin
 questions:
   - alias: question
-    text: env:BENCH_OPENAI_BASE_URL
+    text: env:BENCH_OPENAI_ENDPOINT
 lisp_environments:
   - alias: session
 tests:
@@ -255,20 +255,20 @@ tests:
 				if err != nil {
 					t.Fatal(err)
 				}
-				want := test.baseURL
+				want := test.endpoint
 				if strings.HasPrefix(want, "env:") {
 					want = test.value
 				}
 				providerDefinition := configuration.Document.AgentProviders[0]
-				if providerDefinition.BaseUrl == nil || *providerDefinition.BaseUrl != want || providerDefinition.ApiKey.Sources[0] != "env:BENCH_OPENAI_API_KEY" || configuration.Document.Questions[0].Text != "env:BENCH_OPENAI_BASE_URL" {
+				if providerDefinition.Endpoint == nil || *providerDefinition.Endpoint != want || providerDefinition.ApiKey.Sources[0] != "env:BENCH_OPENAI_API_KEY" || configuration.Document.Questions[0].Text != "env:BENCH_OPENAI_ENDPOINT" {
 					t.Fatalf("unexpected resolution: %#v", configuration.Document)
 				}
-				t.Setenv("BENCH_OPENAI_BASE_URL", "https://changed.invalid/v1")
+				t.Setenv("BENCH_OPENAI_ENDPOINT", "https://changed.invalid/v1/responses")
 				prepareErr, prepared := Prepare(configuration, path, "version", "fingerprint")
 				if prepareErr != nil {
 					t.Fatal(prepareErr)
 				}
-				if *prepared.Providers[0].BaseUrl != want {
+				if *prepared.Providers[0].Endpoint != want {
 					t.Fatal("preparation must capture the loaded URL without resolving the environment again")
 				}
 			})

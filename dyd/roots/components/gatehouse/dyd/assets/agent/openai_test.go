@@ -30,7 +30,7 @@ func TestOpenAICompatibleReply(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err, reply := OpenAICompatibleReply(context.Background(), server.Client(), server.URL+"/v1", "test-key", "test-model", []openAICompatibleMessage{{Role: "user", Content: "hello"}})
+	err, reply := OpenAICompatibleReply(context.Background(), server.Client(), server.URL+"/v1/chat/completions", "test-key", "test-model", []openAICompatibleMessage{{Role: "user", Content: "hello"}})
 	if err != nil || reply != "Hello." {
 		t.Fatalf("OpenAICompatibleReply() = (%v, %q)", err, reply)
 	}
@@ -86,7 +86,7 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err, response := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+"/v1", "test-key", openAIResponsesRequest{
+	err, response := OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+"/v1/responses", "test-key", openAIResponsesRequest{
 		Model: "test-model", Instructions: "test instructions", Input: []json.RawMessage{openAIResponsesMessage("user", "hello")}, Tools: []openAIResponsesTool{{Type: "function", Name: "lisp", Strict: true}}, ParallelToolCalls: true, Reasoning: &openAIResponsesReasoning{Effort: "low"}, MaxOutputTokens: 123,
 	})
 	if err != nil || len(response.Output) != 1 || response.Metrics == nil || response.Metrics.InputTokens == nil || *response.Metrics.InputTokens != 120 || response.Metrics.CachedInputTokens == nil || *response.Metrics.CachedInputTokens != 80 || response.Metrics.OutputTokens == nil || *response.Metrics.OutputTokens != 30 || response.Metrics.ReasoningTokens == nil || *response.Metrics.ReasoningTokens != 20 || response.Metrics.TotalTokens == nil || *response.Metrics.TotalTokens != 150 || response.Metrics.RequestMs == nil || *response.Metrics.RequestMs < 0 {
@@ -120,5 +120,31 @@ func TestOpenAIResponsesCompleteDoesNotRetryUnspecifiedRateLimit(t *testing.T) {
 	var retryable *openAIRetryableError
 	if err == nil || errors.As(err, &retryable) {
 		t.Fatalf("OpenAIResponsesComplete() error = %#v, want non-retryable error", err)
+	}
+}
+
+func TestOpenAIEndpointsAreUsedExactly(t *testing.T) {
+	for _, protocol := range []string{"openai-responses", "openai-chat-completions"} {
+		for _, path := range []string{"/custom/inference?api-version=1&route=%2F", "/proxy/a%2Fb/", "/", "/v1/responses"} {
+			t.Run(protocol+path, func(t *testing.T) {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.Method != http.MethodPost || r.RequestURI != path || r.Header.Get("Authorization") != "Bearer exact-key" {
+						t.Errorf("request = %s %s auth=%q", r.Method, r.RequestURI, r.Header.Get("Authorization"))
+					}
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"output":[],"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+				}))
+				defer server.Close()
+				var err error
+				if protocol == "openai-responses" {
+					err, _ = OpenAIResponsesComplete(context.Background(), server.Client(), server.URL+path, "exact-key", openAIResponsesRequest{Model: "test"})
+				} else {
+					err, _ = OpenAICompatibleComplete(context.Background(), server.Client(), server.URL+path, "exact-key", openAICompatibleRequest{Model: "test"})
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			})
+		}
 	}
 }

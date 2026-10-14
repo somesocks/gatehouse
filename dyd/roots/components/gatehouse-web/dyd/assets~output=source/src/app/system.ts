@@ -23,7 +23,7 @@ export type SystemAgentProvider = {
   alias: string
   revision: number
   protocol: string
-  base_url?: string
+  endpoint?: string
   keychain?: SystemKeychain
   credential_configured: boolean
   enabled: boolean

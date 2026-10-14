@@ -32,7 +32,7 @@ let Provider = s.root.from
         s.record.props::{
         , required = toMap { alias = text "provider alias", protocol = text "provider protocol" }
         , optional = toMap
-            { base_url = text "provider base URL or env:VARIABLE_NAME reference; resolved during loading"
+            { endpoint = text "complete provider request URL or env:VARIABLE_NAME reference; resolved during loading"
             , api_key = APIKey
             , enabled = boolean
             }

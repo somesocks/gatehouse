@@ -59,7 +59,9 @@ order.
 JSON objects hold parameters and payloads/metrics; credential-source
 arrays contain descriptors. Optional generated fields map to SQL `NULL`, while
 empty strings and false booleans are stored as explicit values. The capture
-database identifies this schema with SQLite `user_version = 1`.
+database identifies this schema with SQLite `user_version = 2`. Version 2 names
+the provider's complete request URL `endpoint`; version-1 files with `base_url`
+are not compatible append destinations and are left untouched.
 
 ## Record writer
 
@@ -87,7 +89,7 @@ captured events.
 `benchmark.ExportResults(ctx, capture, path, appendOutput)` writes the complete
 captured dataset to a standalone SQLite file. The capture remains caller-owned.
 Without append, the destination must be new. With append, a missing destination
-is created, or records are inserted into an existing version-1 capture database.
+is created, or records are inserted into an existing version-2 capture database.
 Existing output must provide the capture tables and columns.
 
 The export reads one source transaction and writes one destination transaction.

@@ -217,7 +217,7 @@ let AgentProvider =
             { ref = s.reference.from s.reference.props::{ to = "AgentProviderRef" } s.reference.meta::{ description = Some "provider identity" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "provider configuration revision" }
             , protocol = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider protocol" }
-            , base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
+            , endpoint = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete provider request URL" }
             , keychain = s.reference.from s.reference.props::{ to = "KeychainRef" } s.reference.meta::{ description = Some "API key encryption key" }
             , api_key = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted API key" }
             , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }

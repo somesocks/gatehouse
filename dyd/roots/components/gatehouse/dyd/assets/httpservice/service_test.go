@@ -1884,7 +1884,7 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(userWorkspaces.Body.Bytes(), &joinedWorkspaces); err != nil || userWorkspaces.Code != http.StatusOK || len(joinedWorkspaces) != 2 {
 		t.Fatalf("GET user workspaces after system create = (%d, %#v, %v)", userWorkspaces.Code, joinedWorkspaces, err)
 	}
-	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","api_key":"secret-value","enabled":true}`)
+	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","api_key":"secret-value","enabled":true}`)
 	var provider database.SystemAgentProvider
 	if err := json.Unmarshal(created.Body.Bytes(), &provider); err != nil || created.Code != http.StatusOK || provider.ID == "" || !provider.CredentialConfigured || strings.Contains(created.Body.String(), "secret-value") {
 		t.Fatalf("POST system agent provider = (%d, %#v, %v, %q)", created.Code, provider, err, created.Body.String())
@@ -1893,11 +1893,11 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), "secret-value") {
 		t.Fatalf("GET system agent providers = status %d body %q", listed.Code, listed.Body.String())
 	}
-	stale := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","enabled":false,"expected_revision":2}`)
+	stale := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","enabled":false,"expected_revision":2}`)
 	if stale.Code != http.StatusConflict {
 		t.Fatalf("PATCH stale system agent provider = %d", stale.Code)
 	}
-	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","base_url":"https://api.example.test/v1","keychain":"test","enabled":false,"expected_revision":1}`)
+	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","enabled":false,"expected_revision":1}`)
 	if err := json.Unmarshal(updated.Body.Bytes(), &provider); err != nil || updated.Code != http.StatusOK || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
 		t.Fatalf("PATCH system agent provider = (%d, %#v, %v)", updated.Code, provider, err)
 	}

@@ -73,21 +73,40 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 	if thinking == nil || thinking.AuthorAgent == nil {
 		return model.SessionEventRef{}, fmt.Errorf("round thinking request %q is unavailable", thinkingRef.Id)
 	}
-	err, request := agentProviderRequestFromThinking(*thinking)
+	if thinking.Kind != model.SessionEventKindThinkingRequest || thinking.Parent == nil || *thinking.Parent != input.AgentRequest {
+		return model.SessionEventRef{}, fmt.Errorf("round thinking request belongs to another agent request")
+	}
+	err, root := runtime.store.SessionEventGet(ctx, input.AgentRequest)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
-	selected := &database.WorkspaceAgentModel{Ref: *thinking.AuthorAgent, Protocol: request.Protocol,
-		RateLimits: request.RateLimits, MaxTurns: request.MaxTurns, MaxOutputTokens: request.MaxOutputTokens, Compaction: request.Compaction}
+	if root == nil || root.Kind != model.SessionEventKindAgentRequest || root.AuthorPrincipal == nil || root.Payload["agent"] != thinking.AuthorAgent.Id {
+		return model.SessionEventRef{}, fmt.Errorf("round agent request is unavailable")
+	}
+	var payload model.ThinkingRequestPayload
+	if err := decodeRoundPayload(thinking, &payload); err != nil {
+		return model.SessionEventRef{}, err
+	}
+	round, offset, err := agentRoundHistory(SessionAgentRoundInput{AgentRequest: root.Ref, Previous: payload.Previous}, *thinking.AuthorAgent,
+		func(ref model.SessionEventRef) (error, *model.SessionEvent) {
+			return runtime.store.SessionEventGet(ctx, ref)
+		})
+	if err != nil {
+		return model.SessionEventRef{}, err
+	}
+	if payload.Turn != round {
+		return model.SessionEventRef{}, fmt.Errorf("round thinking turn does not match committed history")
+	}
+	selected := &database.WorkspaceAgentModel{Ref: *thinking.AuthorAgent}
 	for {
-		err, turn, claim := runtime.agentProviderTurn(ctx, input.AgentRequest, *thinking, selected, request.Principal)
+		err, turn, claim := runtime.agentProviderTurn(ctx, input.AgentRequest, *thinking, selected, root.AuthorPrincipal.Ref)
 		if err != nil {
 			return model.SessionEventRef{}, runtime.thinkingFinishWithMetrics(ctx, *thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics)
 		}
 		if err := runtime.replyCancellationCheck(ctx, input.AgentRequest); err != nil {
 			return model.SessionEventRef{}, err
 		}
-		err, outcomeRef := runtime.agentProviderDecisionCommit(ctx, input.AgentRequest, *thinking, selected, request.Round, request.ToolOffset, turn)
+		err, outcomeRef := runtime.agentProviderDecisionCommit(ctx, input.AgentRequest, *thinking, selected, round, offset, turn)
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
@@ -126,8 +145,8 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 	}
 }
 
-// All request construction and compaction reads/writes use this supplied
-// transaction. Replay skips the callback and loads only the saved reference.
+// Preparation commits only the lifecycle marker and its checkpoint reference.
+// Request construction happens at each attempt, using bounded canonical history.
 func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, input SessionAgentRoundInput) (model.SessionEventRef, error) {
 	return dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
 		get := func(ref model.SessionEventRef) (error, *model.SessionEvent) {
@@ -155,28 +174,14 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 		if selected == nil {
 			return model.SessionEventRef{}, fmt.Errorf("agent round model is unavailable")
 		}
-		round, offset, err := agentRoundHistory(input, selected.Ref, get)
+		round, _, err := agentRoundHistory(input, selected.Ref, get)
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
-		var messages []openAICompatibleMessage
-		projectChat := false
-		if selected.Protocol != "builtin" {
-			err, projectChat, messages = runtime.agentRoundContextPrepare(step, tx, root.Ref, selected)
-			if err != nil {
-				return model.SessionEventRef{}, err
-			}
-		}
-		err, request := agentProviderRequestPrepare(selected, projectChat, messages)
-		if err != nil {
-			return model.SessionEventRef{}, err
-		}
-		request.Principal, request.Round, request.ToolOffset = root.AuthorPrincipal.Ref, round, offset
 		payload, err := database.SessionEventPayloadFrom(model.ThinkingRequestPayload{Turn: round, Previous: input.Previous})
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
-		payload["provider_request"] = request
 		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
 			return model.SessionEventRef{}, err
@@ -190,8 +195,12 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 	}, dbos.WithStepName("gatehouse.agent-round-prepare"))
 }
 
-func (runtime *SessionEventReplyRuntime) agentRoundContextPrepare(ctx context.Context, tx dbos.Tx, root model.SessionEventRef, selected *database.WorkspaceAgentModel) (error, bool, []openAICompatibleMessage) {
-	err, project := runtime.store.SessionProjectGetInTransaction(ctx, tx, root.Session)
+func (runtime *SessionEventReplyRuntime) agentRoundContext(ctx context.Context, thinking model.SessionEvent, selected *database.WorkspaceAgentModel) (error, bool, []openAICompatibleMessage) {
+	if thinking.Parent == nil {
+		return fmt.Errorf("round thinking request has no parent"), false, nil
+	}
+	root := *thinking.Parent
+	err, project := runtime.store.SessionProjectGet(ctx, root.Session)
 	if err != nil {
 		return err, false, nil
 	}
@@ -201,16 +210,42 @@ func (runtime *SessionEventReplyRuntime) agentRoundContextPrepare(ctx context.Co
 		return err, projectChat, nil
 	}
 	state := mcmtrContextState{}
-	err, stored := runtime.store.AgentContextGetInTransaction(ctx, tx, root)
+	fingerprint := mcmtrProfileFingerprint(selected, projectChat)
+	compatible := func(stored *database.AgentContext) bool {
+		return stored != nil && stored.Model == selected.Ref && stored.Profile == fingerprint && mcmtrContextStateBefore(stored.State, thinking.Ref.Id)
+	}
+	// Cache watermarks per thinking request. A later round cannot overwrite the
+	// cache used to rebuild this round, and prompt/profile changes invalidate it.
+	err, stored := runtime.store.AgentContextGet(ctx, thinking.Ref)
 	if err != nil {
 		return err, projectChat, nil
 	}
-	if stored == nil || stored.Model != selected.Ref {
-		err, stored = runtime.store.AgentContextPreviousGetInTransaction(ctx, tx, root.Session, selected.Ref, root.Id)
+	if !compatible(stored) {
+		stored = nil
+		var payload model.ThinkingRequestPayload
+		if err := decodeRoundPayload(&thinking, &payload); err != nil {
+			return err, projectChat, nil
+		}
+		if payload.Previous != nil {
+			err, previous := runtime.store.SessionEventGet(ctx, *payload.Previous)
+			if err != nil {
+				return err, projectChat, nil
+			}
+			if previous == nil || previous.Kind != model.SessionEventKindThinkingSuccess || previous.Parent == nil || previous.AuthorAgent == nil || *previous.AuthorAgent != selected.Ref || previous.Ref.Session != root.Session {
+				return fmt.Errorf("round context has an invalid predecessor"), projectChat, nil
+			}
+			err, stored = runtime.store.AgentContextGet(ctx, *previous.Parent)
+			if err != nil {
+				return err, projectChat, nil
+			}
+		}
+	}
+	if !compatible(stored) {
+		err, stored = runtime.store.AgentContextPreviousGet(ctx, root.Session, selected.Ref, root.Id)
 		if err != nil {
 			return err, projectChat, nil
 		}
-		if stored != nil && !mcmtrContextStateBefore(stored.State, root.Id) {
+		if !compatible(stored) || !mcmtrContextStateBefore(stored.State, root.Id) {
 			stored = nil
 		}
 	}
@@ -219,7 +254,7 @@ func (runtime *SessionEventReplyRuntime) agentRoundContextPrepare(ctx context.Co
 			return fmt.Errorf("decode round context: %w", err), projectChat, nil
 		}
 	}
-	err, events := runtime.store.SessionAgentRequestEventsGetInTransaction(ctx, tx, root, selected.Ref)
+	err, events := runtime.store.SessionAgentRoundEventsGet(ctx, root, selected.Ref, thinking.Ref)
 	if err != nil {
 		return err, projectChat, nil
 	}
@@ -240,8 +275,8 @@ func (runtime *SessionEventReplyRuntime) agentRoundContextPrepare(ctx context.Co
 	if err != nil {
 		return err, projectChat, nil
 	}
-	if err := runtime.store.AgentContextSetInTransaction(ctx, tx, database.AgentContext{
-		Root: root, Model: selected.Ref, Profile: mcmtrProfileFingerprint(selected, projectChat), State: encoded,
+	if err := runtime.store.AgentContextSet(ctx, database.AgentContext{
+		Root: thinking.Ref, Model: selected.Ref, Profile: fingerprint, State: encoded,
 	}); err != nil {
 		return err, projectChat, nil
 	}

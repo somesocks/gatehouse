@@ -33,9 +33,9 @@ func InsertProvider(ctx context.Context, tx *sql.Tx, p benchmarkmodel.Provider) 
 		credentials = string(encoded)
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO providers
-		(id, execution_id, alias, protocol, base_url, api_key_sources, keychain, enabled)
+		(id, execution_id, alias, protocol, endpoint, api_key_sources, keychain, enabled)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.Id, p.ExecutionId, p.Alias, p.Protocol, p.BaseUrl, credentials, p.Keychain, p.Enabled)
+		p.Id, p.ExecutionId, p.Alias, p.Protocol, p.Endpoint, credentials, p.Keychain, p.Enabled)
 	if err != nil {
 		return fmt.Errorf("insert benchmark provider %q: %w", p.Id, err)
 	}

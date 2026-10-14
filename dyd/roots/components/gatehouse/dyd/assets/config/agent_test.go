@@ -34,7 +34,7 @@ agent_models:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.AgentProviders) != 1 || state.AgentProviders[0].Protocol != agentProviderProtocolBuiltin || state.AgentProviders[0].BaseURL != nil || state.AgentProviders[0].Keychain != nil {
+	if len(state.AgentProviders) != 1 || state.AgentProviders[0].Protocol != agentProviderProtocolBuiltin || state.AgentProviders[0].Endpoint != nil || state.AgentProviders[0].Keychain != nil {
 		t.Fatalf("builtin provider = %#v", state.AgentProviders)
 	}
 }
@@ -47,7 +47,7 @@ agent_providers:
   - alias: builtin
     revision: 1
     protocol: builtin
-    base_url: https://example.test
+    endpoint: https://example.test/chat/completions
 agent_models: []
 `,
 		"model": `
@@ -99,7 +99,7 @@ agent_providers:
   - alias: openai
     revision: 1
     protocol: openai-chat-completions
-    base_url: https://example.test/v1
+    endpoint: https://example.test/v1/responses
     api_key:
       sources: [env:OPENAI_API_KEY]
 agent_models:

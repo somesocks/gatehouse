@@ -21,7 +21,7 @@ func sqliteMigrationR009ReconcileAgentProviders(state config.State, keyring *key
 
 type sqliteMigrationR009AgentProviderValue struct {
 	Alias, Protocol string
-	BaseURL         any
+	Endpoint        any
 	APIKey          any
 	KeychainID      any
 	KeychainVersion any
@@ -63,7 +63,7 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 				return fmt.Errorf("encrypt API key for provider %q: %w", provider.Alias, sealErr), ""
 			}
 			encrypted.AAD = keychain.AADAlias
-			value.BaseURL = *provider.BaseURL
+			value.Endpoint = *provider.Endpoint
 			value.KeychainID = reference.Id
 			value.KeychainVersion = reference.Version
 			value.APIKey = encrypted.String()
@@ -78,15 +78,15 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 				alias TEXT NOT NULL PRIMARY KEY,
 				revision INTEGER NOT NULL,
 				protocol TEXT NOT NULL,
-				base_url TEXT,
+				endpoint TEXT,
 				keychain_id TEXT,
 				keychain_version INTEGER,
 				api_key TEXT,
 				enabled INTEGER NOT NULL
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_agent_provider_desired (alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .BaseURL }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_agent_provider_desired (alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_agent_provider_state AS
@@ -103,11 +103,11 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 			SELECT id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'agent_provider.create' ELSE 'agent_provider.update' END
 			FROM gatehouse_migration_agent_provider_state;
 
-			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
-			SELECT id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled
+			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+			SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled
 			FROM gatehouse_migration_agent_provider_state
 			WHERE TRUE
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, base_url = excluded.base_url, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (

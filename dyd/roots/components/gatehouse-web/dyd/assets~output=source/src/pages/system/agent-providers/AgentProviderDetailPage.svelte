@@ -134,8 +134,8 @@
       <UI.DetailSection title="Connection"
         ><UI.Property label="Protocol"
           >{controller.state.provider.protocol}</UI.Property
-        ><UI.Property label="Base URL"
-          >{controller.state.provider.base_url ?? "Not configured"}</UI.Property
+        ><UI.Property label="Endpoint"
+          >{controller.state.provider.endpoint ?? "Not configured"}</UI.Property
         ></UI.DetailSection
       >
       <UI.DetailSection title="Credentials"

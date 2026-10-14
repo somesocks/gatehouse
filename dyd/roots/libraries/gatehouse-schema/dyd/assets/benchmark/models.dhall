@@ -53,7 +53,7 @@ let Provider = s.root.from
         s.record.props::{
         , required = toMap (snapshotFields // { protocol = text "declared provider protocol" })
         , optional = toMap
-            { base_url = text "declared provider endpoint"
+            { endpoint = text "resolved complete provider request URL"
             , api_key_sources = s.list.from
                 { values = text "deferred credential source descriptor" }
                 s.list.meta::{=}

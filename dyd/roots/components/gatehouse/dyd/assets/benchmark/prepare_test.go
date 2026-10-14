@@ -24,7 +24,7 @@ func preparationConfig(t *testing.T) (Config, string) {
 agent_providers:
   - alias: openai
     protocol: openai-responses
-    base_url: https://provider.invalid/v1
+    endpoint: https://provider.invalid/v1/responses
     api_key:
       sources: [env:BENCH_PREPARE_KEY]
   - alias: builtin
@@ -111,10 +111,10 @@ func TestPreparePreservesSnapshotsAndPersistsIDs(t *testing.T) {
 		t.Fatalf("unexpected prepared collection sizes or run count: %#v", prepared)
 	}
 	provider := prepared.Providers[0]
-	if provider.ApiKeySources == nil || !reflect.DeepEqual(*provider.ApiKeySources, []string{"env:BENCH_PREPARE_KEY"}) || provider.Keychain != nil || provider.Enabled != nil || *provider.BaseUrl != "https://provider.invalid/v1" {
+	if provider.ApiKeySources == nil || !reflect.DeepEqual(*provider.ApiKeySources, []string{"env:BENCH_PREPARE_KEY"}) || provider.Keychain != nil || provider.Enabled != nil || *provider.Endpoint != "https://provider.invalid/v1/responses" {
 		t.Fatalf("provider settings changed: %#v", provider)
 	}
-	if prepared.Providers[1].ApiKeySources != nil || prepared.Providers[1].BaseUrl != nil {
+	if prepared.Providers[1].ApiKeySources != nil || prepared.Providers[1].Endpoint != nil {
 		t.Fatal("omitted builtin credentials or endpoint were filled")
 	}
 	model := prepared.Models[0]

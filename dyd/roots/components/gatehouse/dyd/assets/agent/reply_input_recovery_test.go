@@ -70,7 +70,7 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE UPDATE ON workflow_status
 				WHEN NEW.name = 'gatehouse.session-agent-round' AND NEW.status = 'SUCCESS'
 				BEGIN SELECT gh_test_crash(); END`
-		} else if crashPoint == "retry-replay" {
+		} else if crashPoint == "retry-replay" || strings.HasSuffix(crashPoint, "switch") {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
 				WHEN NEW.function_name = 'DBOS.sleep' BEGIN SELECT gh_test_crash(); END`
 		} else if crashPoint == "decision-rollback" {
@@ -119,8 +119,18 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 		{"openai-responses", "final-rollback"},
 		{"openai-chat-completions", "success"},
 		{"openai-chat-completions", "cancelled"},
+		{"openai-responses", "provider-switch"},
+		{"openai-chat-completions", "provider-switch"},
+		{"openai-responses", "agent-switch"},
+		{"openai-responses", "limit-switch"},
+		{"openai-responses", "endpoint-switch"},
+		{"openai-responses", "policy-switch"},
+		{"openai-responses", "add-policy-switch"},
+		{"openai-responses", "prompt-switch"},
+		{"openai-chat-completions", "prompt-switch"},
 	} {
 		protocol, outcome := testCase.protocol, testCase.outcome
+		switching := strings.HasSuffix(outcome, "switch")
 		successfulInput := outcome == "success" || outcome == "batch-unstarted" || outcome == "rate-replay" || outcome == "input-request-rollback" || outcome == "multiple-inputs"
 		t.Run(protocol+"/"+outcome, func(t *testing.T) {
 			t.Setenv("DBOS__APPVERSION", "")
@@ -142,6 +152,51 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				requestMutex.Lock()
 				requestBodies = append(requestBodies, body)
 				requestMutex.Unlock()
+				if outcome == "prompt-switch" {
+					var request struct {
+						Instructions string                           `json:"instructions"`
+						Messages     []struct{ Role, Content string } `json:"messages"`
+					}
+					if err := json.Unmarshal(body, &request); err != nil {
+						t.Error(err)
+					}
+					prompt := request.Instructions
+					if len(request.Messages) > 0 && request.Messages[0].Role == "system" {
+						prompt = request.Messages[0].Content
+					}
+					want, absent := "OLD_CONFIGURED_PROMPT", "NEW_CONFIGURED_PROMPT"
+					if calls.Load() > 0 {
+						want, absent = absent, want
+					}
+					if !strings.Contains(prompt, want) || strings.Contains(prompt, absent) {
+						t.Errorf("attempt did not use current system prompt: %q", prompt)
+					}
+				}
+				callProtocol := protocol
+				if switching && r.URL.Path != "/custom/inference" {
+					if r.RequestURI != "/replacement/a%2Fb/?deployment=next" || r.Header.Get("Authorization") != "Bearer next-key" {
+						t.Errorf("replacement transport = %s auth=%q", r.RequestURI, r.Header.Get("Authorization"))
+					}
+					if outcome != "endpoint-switch" {
+						if protocol == "openai-responses" {
+							callProtocol = "openai-chat-completions"
+						} else {
+							callProtocol = "openai-responses"
+						}
+						var request map[string]any
+						if err := json.Unmarshal(body, &request); err != nil {
+							t.Error(err)
+						}
+						if request["model"] != "replacement-model" || callProtocol == "openai-chat-completions" && request["messages"] == nil || callProtocol == "openai-responses" && request["input"] == nil {
+							t.Errorf("replacement wire request = %s", body)
+						}
+						if outcome == "limit-switch" && request["max_tokens"] != float64(512) {
+							t.Errorf("replacement call ignored lowered output limit: %s", body)
+						}
+					}
+				} else if r.RequestURI != "/custom/inference?deployment=test" || r.Header.Get("Authorization") != "Bearer test-key" {
+					t.Errorf("original transport = %s auth=%q", r.RequestURI, r.Header.Get("Authorization"))
+				}
 				// A second connection must be able to write while the provider
 				// call is outstanding. This catches transactions around HTTP.
 				probeContext, stopProbe := context.WithTimeout(r.Context(), 2*time.Second)
@@ -168,14 +223,14 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					_, _ = w.Write([]byte(providerReplyMarker))
 					return
 				}
-				if (outcome == "retry" || outcome == "retry-replay") && callNumber == 1 {
+				if (outcome == "retry" || outcome == "retry-replay" || switching) && callNumber == 1 {
 					w.Header().Set("Retry-After-Ms", "1")
 					w.WriteHeader(http.StatusTooManyRequests)
 					_, _ = w.Write([]byte(`{"error":{"code":"rate_limit_exceeded"}}`))
 					return
 				}
 				var response any
-				if protocol == "openai-responses" {
+				if callProtocol == "openai-responses" {
 					if callNumber == 1 && outcome != "final-replay" && outcome != "final-rollback" && outcome != "round-final-replay" && outcome != "request-replay" {
 						outputs := make([]any, 0, len(callIDs))
 						for _, callID := range callIDs {
@@ -222,7 +277,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			defer func() { store.Close() }()
 			chains := []config.Keychain{{ID: "replay", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}
-			chainID, baseURL := "replay", server.URL+"/v1"
+			chainID, endpoint := "replay", server.URL+"/custom/inference?deployment=test"
 			err, ring := keychain.NewKeyring(store, chains, keychain.NewPassphraseSourceResolver())
 			if err != nil {
 				t.Fatal(err)
@@ -230,11 +285,15 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			defer func() { ring.Close() }()
 			state := config.State{
 				Keychains: chains, Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}, Principals: []config.Principal{{Alias: "alice", Enabled: true}},
-				AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: protocol, BaseURL: &baseURL, Keychain: &chainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_API_KEY"}, Enabled: true}},
+				AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: protocol, Endpoint: &endpoint, Keychain: &chainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_API_KEY"}, Enabled: true}},
 				AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "test", Model: "test-model", Parameters: `{}`, Compaction: defaultAgentModelCompaction, MaxTurns: 4, MaxOutputTokens: 1024, Enabled: true}},
 				WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 			}
-			if outcome == "rate-replay" {
+			if outcome == "prompt-switch" {
+				prompt := "OLD_CONFIGURED_PROMPT"
+				state.WorkspaceAgents[0].SystemPrompt = &prompt
+			}
+			if outcome == "rate-replay" || outcome == "policy-switch" || outcome == "limit-switch" {
 				state.WorkspaceAgents[0].RateLimits = &config.WorkspaceAgentRateLimits{
 					WorkspaceInput:  &config.TokenBucket{MinimumBalance: -1_000_000, MaximumBalance: 1_000_000, RefillPerMinute: 1_000_000},
 					WorkspaceOutput: &config.TokenBucket{MinimumBalance: -1_000_000, MaximumBalance: 1_000_000, RefillPerMinute: 1_000_000},
@@ -303,7 +362,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			process := exec.Command(executable, "-test.run=^TestReplyRecoveryProcess$")
 			process.Env = append(os.Environ(), "GATEHOUSE_TEST_REPLAY_PATH="+configuration.Path, "GATEHOUSE_TEST_REPLAY_PROTOCOL="+protocol)
-			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "request-replay" || outcome == "input-request-rollback"
+			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "request-replay" || outcome == "input-request-rollback" || switching
 			var recoveredContext dbos.Context
 			var recoveredRuntime *agent.SessionEventReplyRuntime
 			if boundaryCrash {
@@ -327,6 +386,86 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if _, err := store.ExecContext(ctx, `DROP TRIGGER crash_at_provider_boundary`); err != nil {
 					t.Fatal(err)
 				}
+				if outcome == "round-final-replay" {
+					err, root := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
+					if err != nil || root == nil {
+						t.Fatalf("round root = %#v (%v)", root, err)
+					}
+					id, err := typed_id.New(typed_id.SessionEvent)
+					if err != nil {
+						t.Fatal(err)
+					}
+					ref := model.WorkspaceAgentRef{Workspace: workspace, Id: agentID}
+					if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id},
+						Parent: &root.Ref, Kind: model.SessionEventKindMessageText, AuthorAgent: &ref,
+						Payload: map[string]any{"text": "LATER_ACTIVE_EVENT_MUST_NOT_ENTER_REQUEST"}}); err != nil {
+						t.Fatal(err)
+					}
+					id, err = typed_id.New(typed_id.SessionEvent)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: id},
+						Kind: model.SessionEventKindMessageText, AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true},
+						Payload: map[string]any{"text": "LATER_USER_MESSAGE_MUST_NOT_ENTER_REQUEST"}}); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if switching {
+					if outcome == "policy-switch" {
+						state.WorkspaceAgents[0].RateLimits = nil
+					} else {
+						state.WorkspaceAgents[0].RateLimits = &config.WorkspaceAgentRateLimits{
+							WorkspaceOutput: &config.TokenBucket{MinimumBalance: -1_000_000, MaximumBalance: 2_000_000, RefillPerMinute: 2_000_000},
+						}
+					}
+					state.WorkspaceAgents[0].Revision++
+					if outcome == "prompt-switch" {
+						prompt := "NEW_CONFIGURED_PROMPT"
+						state.WorkspaceAgents[0].SystemPrompt = &prompt
+					}
+					if outcome != "policy-switch" && outcome != "add-policy-switch" && outcome != "prompt-switch" {
+						t.Setenv("GATEHOUSE_TEST_REPLAY_NEXT_KEY", "next-key")
+						nextEndpoint := server.URL + "/replacement/a%2Fb/?deployment=next"
+						if outcome == "endpoint-switch" {
+							state.AgentProviders[0].Revision++
+							state.AgentProviders[0].Endpoint = &nextEndpoint
+							state.AgentProviders[0].Sources = []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_NEXT_KEY"}
+						} else {
+							nextProtocol := "openai-chat-completions"
+							if protocol == nextProtocol {
+								nextProtocol = "openai-responses"
+							}
+							state.AgentProviders[0].Revision++
+							state.AgentProviders[0].Enabled = false
+							state.AgentProviders = append(state.AgentProviders, config.AgentProvider{Alias: "next", Revision: 1, Protocol: nextProtocol,
+								Endpoint: &nextEndpoint, Keychain: &chainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_NEXT_KEY"}, Enabled: true})
+							if outcome == "agent-switch" {
+								replacement := state.AgentModels[0]
+								replacement.Alias, replacement.Revision = "replacement", 1
+								replacement.ProviderAlias, replacement.Model, replacement.MaxOutputTokens = "next", "replacement-model", 2048
+								state.AgentModels[0].Revision++
+								state.AgentModels[0].Enabled = false
+								state.AgentModels = append(state.AgentModels, replacement)
+								state.WorkspaceAgents[0].ModelAlias = "replacement"
+							} else {
+								state.AgentModels[0].Revision++
+								state.AgentModels[0].ProviderAlias, state.AgentModels[0].Model = "next", "replacement-model"
+								state.AgentModels[0].MaxOutputTokens = 2048
+								if outcome == "limit-switch" {
+									state.AgentModels[0].MaxOutputTokens = 512
+								}
+							}
+						}
+					}
+					err, upgrade := migrations.Build(configuration, state, ring)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if err := migrations.Run(ctx, store, upgrade); err != nil {
+						t.Fatal(err)
+					}
+				}
 				if outcome == "request-replay" {
 					if _, err := store.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET enabled = FALSE, "default" = FALSE;
 						UPDATE gatehouse_agent_contexts SET state = '{"user_high_from":17}'`); err != nil {
@@ -341,7 +480,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					t.Fatal(err)
 				}
 				wantSuccess := 1
-				if outcome == "retry-replay" || outcome == "decision-rollback" {
+				if outcome == "retry-replay" || outcome == "decision-rollback" || switching {
 					wantSuccess = 0
 				}
 				wantTools := 0
@@ -377,28 +516,70 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					if outcome == "final-replay" {
 						wantCalls = 1
 					}
-					if outcome == "retry-replay" {
+					if outcome == "request-replay" {
+						wantCalls = 1 // Disabled binding cannot make another HTTP call.
+					}
+					if outcome == "retry-replay" || switching {
 						wantCalls = 3
 					}
 					if err != nil || result.Id == "" || calls.Load() != wantCalls {
 						t.Fatalf("final reply replay = (%#v, %v), provider calls=%d", result, err, calls.Load())
 					}
-					if outcome == "round-final-replay" || outcome == "request-replay" {
+					if outcome == "round-final-replay" {
 						requestMutex.Lock()
 						identical := len(requestBodies) == 2 && bytes.Equal(requestBodies[0], requestBodies[1])
 						requestMutex.Unlock()
 						if !identical {
-							t.Fatal("unfinished round did not reuse its saved provider request")
+							t.Fatal("reconstructed round input changed after later session events")
 						}
 					}
 					if err, final := store.SessionEventGet(ctx, result); err != nil || final == nil || final.Payload["text"] != "Selected "+providerReplyMarker {
 						t.Fatalf("committed final reply = (%#v, %v)", final, err)
+					}
+					if switching {
+						rows, err := store.QueryContext(ctx, `SELECT output FROM operation_outputs WHERE function_name = 'gatehouse.agent-rate-limit-claim' ORDER BY function_id`)
+						if err != nil {
+							t.Fatal(err)
+						}
+						var claims []database.AgentRateLimitClaim
+						for rows.Next() {
+							var encoded string
+							var claim database.AgentRateLimitClaim
+							if err := rows.Scan(&encoded); err != nil {
+								t.Fatal(err)
+							}
+							decoded, err := base64.StdEncoding.DecodeString(encoded)
+							if err != nil {
+								t.Fatal(err)
+							}
+							if err := json.Unmarshal(decoded, &claim); err != nil {
+								t.Fatal(err)
+							}
+							claims = append(claims, claim)
+						}
+						rows.Close()
+						if len(claims) != 2 {
+							t.Fatalf("got %d claims, want 2", len(claims))
+						}
+						last := claims[1]
+						if outcome == "policy-switch" {
+							if last.Workspace.Id != "" {
+								t.Fatal("removed policy still reserved tokens")
+							}
+						} else if last.WorkspaceOutput == nil || last.WorkspaceOutput.MaximumBalance != 2_000_000 {
+							t.Fatal("new claim did not use current rate-limit policy")
+						}
+						var settlements int
+						if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM operation_outputs WHERE function_name = 'gatehouse.agent-rate-limit-settle'`).Scan(&settlements); err != nil || settlements != 2 {
+							t.Fatalf("settlements = %d (%v), want one per logical attempt", settlements, err)
+						}
 					}
 					var count int
 					if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_session_events WHERE kind = 'agent.success'`).Scan(&count); err != nil || count != 1 {
 						t.Fatalf("final reply count = %d, err=%v", count, err)
 					}
 					assertDBOSDoesNotContain(t, store, providerReplyMarker)
+					assertMinimalThinkingRequests(t, ctx, store, session)
 					return
 				}
 			}
@@ -642,6 +823,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						assertDBOSDoesNotContain(t, store, answerMarker)
 						assertDBOSDoesNotContain(t, store, secondAnswerMarker)
 						assertDBOSDoesNotContain(t, store, providerReplyMarker)
+						assertMinimalThinkingRequests(t, ctx, store, session)
 						return
 					}
 				}
@@ -649,6 +831,32 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			t.Fatalf("reply did not resume after submitted input; provider calls = %d", calls.Load())
 		})
+	}
+}
+
+func assertMinimalThinkingRequests(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef) {
+	t.Helper()
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, event := range events {
+		if event.Kind != model.SessionEventKindThinkingRequest {
+			continue
+		}
+		count++
+		if event.Parent == nil || event.AuthorAgent == nil || event.Payload["turn"] == nil {
+			t.Fatalf("thinking request lost lifecycle metadata: %#v", event)
+		}
+		for field := range event.Payload {
+			if field != "turn" && field != "previous" {
+				t.Fatalf("thinking request contains non-lifecycle field %q", field)
+			}
+		}
+	}
+	if count == 0 {
+		t.Fatal("no thinking requests were captured")
 	}
 }
 

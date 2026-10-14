@@ -26,15 +26,25 @@ func estimateAgentRequestTokens(request any) (int, error) {
 }
 
 func (runtime *SessionEventReplyRuntime) agentRateLimitClaim(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, request any) (error, database.AgentRateLimitClaim) {
-	if selected.RateLimits == nil || selected.RateLimits.Empty() {
-		return nil, database.AgentRateLimitClaim{}
-	}
-	input, err := estimateAgentRequestTokens(request)
-	if err != nil {
-		return err, database.AgentRateLimitClaim{}
+	input := 0
+	if request != nil {
+		var err error
+		input, err = estimateAgentRequestTokens(request)
+		if err != nil {
+			return err, database.AgentRateLimitClaim{}
+		}
 	}
 	claim, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (database.AgentRateLimitClaim, error) {
-		claimErr, claim := runtime.store.AgentRateLimitClaimInTransaction(step, transaction, *selected, principal, input, selected.MaxOutputTokens)
+		// Resolve policy inside the always-present checkpoint. A completed claim
+		// replays its reservation; a new claim observes current binding policy.
+		err, current := runtime.store.WorkspaceAgentModelGetInTransaction(step, transaction, selected.Ref.Workspace, selected.Ref.Id)
+		if err != nil {
+			return database.AgentRateLimitClaim{}, err
+		}
+		if request == nil || current == nil || current.Protocol == "builtin" || current.RateLimits.Empty() {
+			return database.AgentRateLimitClaim{}, nil
+		}
+		claimErr, claim := runtime.store.AgentRateLimitClaimInTransaction(step, transaction, *current, principal, input, current.MaxOutputTokens)
 		return claim, claimErr
 	}, dbos.WithStepName("gatehouse.agent-rate-limit-claim"))
 	if err != nil {
@@ -64,9 +74,6 @@ func agentRateLimitWaitUntil(claim database.AgentRateLimitClaim) time.Time {
 }
 
 func (runtime *SessionEventReplyRuntime) agentRateLimitSettle(ctx dbos.Context, claim database.AgentRateLimitClaim, input, output *int) error {
-	if claim.Workspace.Id == "" {
-		return nil
-	}
 	_, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (struct{}, error) {
 		return struct{}{}, runtime.store.AgentRateLimitSettleInTransaction(step, transaction, claim, input, output)
 	}, dbos.WithStepName("gatehouse.agent-rate-limit-settle"))

@@ -71,7 +71,7 @@ func Prepare(configuration Config, path, version, fingerprint string) (error, *P
 		}
 		record := benchmarkmodel.Provider{
 			Id: id, ExecutionId: executionID, Alias: definition.Alias, Protocol: definition.Protocol,
-			BaseUrl: definition.BaseUrl, Enabled: definition.Enabled,
+			Endpoint: definition.Endpoint, Enabled: definition.Enabled,
 		}
 		if definition.ApiKey != nil {
 			record.ApiKeySources, record.Keychain = &definition.ApiKey.Sources, definition.ApiKey.Keychain

@@ -885,12 +885,23 @@ func (store *Store) SessionEventsGet(ctx context.Context, session model.SessionR
 // SessionAgentRequestEventsGet returns one agent request's immutable historical
 // snapshot plus its live subtree. The request ULID is the snapshot boundary.
 func (store *Store) SessionAgentRequestEventsGet(ctx context.Context, request model.SessionEventRef, agent model.WorkspaceAgentRef) (error, []model.SessionEvent) {
-	return store.sessionAgentRequestEventsGet(request, agent, func(query string, args ...any) (sessionEventRows, error) {
+	return store.sessionAgentRequestEventsGet(request, agent, "", func(query string, args ...any) (sessionEventRows, error) {
 		return store.QueryContext(ctx, query, args...)
 	})
 }
 
-func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, agent model.WorkspaceAgentRef, queryRows sessionRowsQuery) (error, []model.SessionEvent) {
+// SessionAgentRoundEventsGet bounds the active request subtree to events before
+// this thinking request, in addition to the owning request's history boundary.
+func (store *Store) SessionAgentRoundEventsGet(ctx context.Context, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef) (error, []model.SessionEvent) {
+	if thinking.Session != request.Session || !typed_id.Valid(typed_id.SessionEvent, thinking.Id) || thinking.Id <= request.Id {
+		return fmt.Errorf("get agent round events: invalid thinking boundary"), nil
+	}
+	return store.sessionAgentRequestEventsGet(request, agent, thinking.Id, func(query string, args ...any) (sessionEventRows, error) {
+		return store.QueryContext(ctx, query, args...)
+	})
+}
+
+func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, agent model.WorkspaceAgentRef, before string, queryRows sessionRowsQuery) (error, []model.SessionEvent) {
 	if request.Session.Workspace != agent.Workspace || !typed_id.Valid(typed_id.SessionEvent, request.Id) || agent.Id == "" {
 		return fmt.Errorf("get agent request events: invalid request scope"), nil
 	}
@@ -926,6 +937,7 @@ func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, 
 			JOIN active ON child.parent = active.id
 			WHERE child.workspace = `+placeholder(11)+` AND child.session = `+placeholder(12)+`
 				AND (child.author_agent IS NULL OR child.author_agent = `+placeholder(13)+`)
+				AND (`+placeholder(14)+` = '' OR child.id < `+placeholder(15)+`)
 		),
 		visible (id) AS (
 			SELECT id FROM history
@@ -936,9 +948,9 @@ func (store *Store) sessionAgentRequestEventsGet(request model.SessionEventRef, 
 		FROM visible
 		JOIN gatehouse_session_events AS events ON events.id = visible.id
 		LEFT JOIN gatehouse_principals AS principals ON principals.id = events.author_principal
-		WHERE events.workspace = `+placeholder(14)+` AND events.session = `+placeholder(15)+`
+		WHERE events.workspace = `+placeholder(16)+` AND events.session = `+placeholder(17)+`
 		ORDER BY events.id
-	`, request.Session.Workspace.Id, request.Session.Id, agent.Id, request.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, request.Id, agent.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, agent.Id, request.Session.Workspace.Id, request.Session.Id)
+	`, request.Session.Workspace.Id, request.Session.Id, agent.Id, request.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, request.Id, agent.Id, request.Id, request.Session.Workspace.Id, request.Session.Id, agent.Id, before, before, request.Session.Workspace.Id, request.Session.Id)
 	if err != nil {
 		return fmt.Errorf("get agent request events: %w", err), nil
 	}
@@ -1660,7 +1672,7 @@ type WorkspaceAgentModel struct {
 	ProviderID      string
 	ProviderAlias   *string
 	Protocol        string
-	BaseURL         *string
+	Endpoint        *string
 	Keychain        *model.KeychainRef
 	APIKey          *string
 	Model           string
@@ -1728,7 +1740,7 @@ func (store *Store) workspaceAgentModelGet(workspace model.WorkspaceRef, binding
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := queryRow(`
-		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.base_url, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude, bindings.rate_limits
+		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.endpoint, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude, bindings.rate_limits
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1744,19 +1756,19 @@ func (store *Store) workspaceAgentModelGet(workspace model.WorkspaceRef, binding
 func scanWorkspaceAgentModel(row sessionEventRow, workspace model.WorkspaceRef) (error, *WorkspaceAgentModel) {
 	var selected WorkspaceAgentModel
 	selected.Ref.Workspace = workspace
-	var providerAlias, baseURL, keychainID, apiKey, systemPrompt, prelude, rateLimits sql.NullString
+	var providerAlias, endpoint, keychainID, apiKey, systemPrompt, prelude, rateLimits sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Id, &selected.Alias, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &baseURL, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude, &rateLimits); err != nil {
+	if err := row.Scan(&selected.Ref.Id, &selected.Alias, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &endpoint, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude, &rateLimits); err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}
 		return fmt.Errorf("select workspace agent model: %w", err), nil
 	}
-	if baseURL.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
-		if !baseURL.Valid || !keychainID.Valid || !keychainVersion.Valid || keychainVersion.Int64 <= 0 || !apiKey.Valid {
+	if endpoint.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
+		if !endpoint.Valid || !keychainID.Valid || !keychainVersion.Valid || keychainVersion.Int64 <= 0 || !apiKey.Valid {
 			return fmt.Errorf("select workspace agent model: invalid provider credentials"), nil
 		}
-		selected.BaseURL = &baseURL.String
+		selected.Endpoint = &endpoint.String
 		selected.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
 		selected.APIKey = &apiKey.String
 	}

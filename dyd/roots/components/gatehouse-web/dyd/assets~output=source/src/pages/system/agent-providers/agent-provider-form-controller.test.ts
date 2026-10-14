@@ -10,7 +10,7 @@ it("omits hidden connection/credential fields when switching to built-in", async
     id: "apr_test",
     alias: "test",
     protocol: "openai-responses",
-    base_url: "https://example.test/v1",
+    endpoint: "https://example.test/v1/responses",
     keychain: { id: "default", version: 1 },
     enabled: true,
     revision: 1,
@@ -50,5 +50,5 @@ it("omits hidden connection/credential fields when switching to built-in", async
   })
   expect(body).not.toHaveProperty("api_key")
   expect(body).not.toHaveProperty("keychain")
-  expect(body).not.toHaveProperty("base_url")
+  expect(body).not.toHaveProperty("endpoint")
 })

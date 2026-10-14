@@ -31,7 +31,7 @@ type SystemAgentProvider struct {
 	Alias                string             `json:"alias"`
 	Revision             int                `json:"revision"`
 	Protocol             string             `json:"protocol"`
-	BaseURL              *string            `json:"base_url,omitempty"`
+	Endpoint             *string            `json:"endpoint,omitempty"`
 	Keychain             *model.KeychainRef `json:"keychain,omitempty"`
 	CredentialConfigured bool               `json:"credential_configured"`
 	Enabled              bool               `json:"enabled"`
@@ -40,7 +40,7 @@ type SystemAgentProvider struct {
 type SystemAgentProviderInput struct {
 	Alias           string
 	Protocol        string
-	BaseURL         *string
+	Endpoint        *string
 	Keychain        *model.KeychainRef
 	EncryptedAPIKey *string
 	Enabled         bool
@@ -161,7 +161,7 @@ func (store *Store) SystemWorkspaceAgentsSearch(ctx context.Context, search Syst
 
 func (store *Store) SystemAgentProvidersGet(ctx context.Context) (error, []SystemAgentProvider) {
 	rows, err := store.QueryContext(ctx, `
-		SELECT id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key IS NOT NULL, enabled
+		SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key IS NOT NULL, enabled
 		FROM gatehouse_agent_providers
 		ORDER BY id`)
 	if err != nil {
@@ -187,7 +187,7 @@ func (store *Store) SystemAgentProviderGet(ctx context.Context, id string) (erro
 		return nil, nil
 	}
 	provider, err := scanSystemAgentProvider(store.QueryRowContext(ctx, `
-		SELECT id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key IS NOT NULL, enabled
+		SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key IS NOT NULL, enabled
 		FROM gatehouse_agent_providers WHERE id = `+keychainPlaceholder(store.kind)(1), id))
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -217,9 +217,9 @@ func (store *Store) SystemAgentProviderCreate(ctx context.Context, input SystemA
 	placeholder := keychainPlaceholder(store.kind)
 	var inserted string
 	err = transaction.QueryRowContext(ctx, `
-		INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
+		INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, 1, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
-		ON CONFLICT (alias) DO NOTHING RETURNING id`, id, input.Alias, input.Protocol, optionalStringValue(input.BaseURL), keychainID(input.Keychain), keychainVersion(input.Keychain), optionalStringValue(input.EncryptedAPIKey), input.Enabled).Scan(&inserted)
+		ON CONFLICT (alias) DO NOTHING RETURNING id`, id, input.Alias, input.Protocol, optionalStringValue(input.Endpoint), keychainID(input.Keychain), keychainVersion(input.Keychain), optionalStringValue(input.EncryptedAPIKey), input.Enabled).Scan(&inserted)
 	if err == sql.ErrNoRows {
 		return ErrAgentProviderExists, nil
 	}
@@ -246,11 +246,11 @@ func (store *Store) SystemAgentProviderUpdate(ctx context.Context, id string, ex
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
 	var alias, protocol string
-	var baseURL, keychainIDValue sql.NullString
+	var endpoint, keychainIDValue sql.NullString
 	var keychainVersionValue sql.NullInt64
 	var encrypted sql.NullString
 	var revision int
-	err = transaction.QueryRowContext(ctx, `SELECT alias, revision, protocol, base_url, keychain_id, keychain_version, api_key FROM gatehouse_agent_providers WHERE id = `+placeholder(1), id).Scan(&alias, &revision, &protocol, &baseURL, &keychainIDValue, &keychainVersionValue, &encrypted)
+	err = transaction.QueryRowContext(ctx, `SELECT alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key FROM gatehouse_agent_providers WHERE id = `+placeholder(1), id).Scan(&alias, &revision, &protocol, &endpoint, &keychainIDValue, &keychainVersionValue, &encrypted)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -285,8 +285,8 @@ func (store *Store) SystemAgentProviderUpdate(ctx context.Context, id string, ex
 	nextRevision := revision + 1
 	result, err := transaction.ExecContext(ctx, `
 		UPDATE gatehouse_agent_providers
-		SET revision = `+placeholder(1)+`, protocol = `+placeholder(2)+`, base_url = `+placeholder(3)+`, keychain_id = `+placeholder(4)+`, keychain_version = `+placeholder(5)+`, api_key = `+placeholder(6)+`, enabled = `+placeholder(7)+`
-		WHERE id = `+placeholder(8)+` AND revision = `+placeholder(9), nextRevision, input.Protocol, optionalStringValue(input.BaseURL), keychainID(input.Keychain), keychainVersion(input.Keychain), credential, input.Enabled, id, revision)
+		SET revision = `+placeholder(1)+`, protocol = `+placeholder(2)+`, endpoint = `+placeholder(3)+`, keychain_id = `+placeholder(4)+`, keychain_version = `+placeholder(5)+`, api_key = `+placeholder(6)+`, enabled = `+placeholder(7)+`
+		WHERE id = `+placeholder(8)+` AND revision = `+placeholder(9), nextRevision, input.Protocol, optionalStringValue(input.Endpoint), keychainID(input.Keychain), keychainVersion(input.Keychain), credential, input.Enabled, id, revision)
 	if err != nil {
 		return fmt.Errorf("update system agent provider: %w", err), nil
 	}
@@ -553,13 +553,13 @@ func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID,
 
 func scanSystemAgentProvider(row interface{ Scan(...any) error }) (SystemAgentProvider, error) {
 	var value SystemAgentProvider
-	var baseURL, keychainIDValue sql.NullString
+	var endpoint, keychainIDValue sql.NullString
 	var keychainVersionValue sql.NullInt64
-	if err := row.Scan(&value.ID, &value.Alias, &value.Revision, &value.Protocol, &baseURL, &keychainIDValue, &keychainVersionValue, &value.CredentialConfigured, &value.Enabled); err != nil {
+	if err := row.Scan(&value.ID, &value.Alias, &value.Revision, &value.Protocol, &endpoint, &keychainIDValue, &keychainVersionValue, &value.CredentialConfigured, &value.Enabled); err != nil {
 		return SystemAgentProvider{}, err
 	}
-	if baseURL.Valid {
-		value.BaseURL = &baseURL.String
+	if endpoint.Valid {
+		value.Endpoint = &endpoint.String
 	}
 	if keychainIDValue.Valid && keychainVersionValue.Valid {
 		value.Keychain = &model.KeychainRef{Id: keychainIDValue.String, Version: int(keychainVersionValue.Int64)}
@@ -610,16 +610,16 @@ func validateSystemAgentProviderInput(input SystemAgentProviderInput, credential
 	}
 	switch input.Protocol {
 	case "builtin":
-		if input.BaseURL != nil || input.Keychain != nil || input.EncryptedAPIKey != nil {
+		if input.Endpoint != nil || input.Keychain != nil || input.EncryptedAPIKey != nil {
 			return fmt.Errorf("builtin system agent provider credentials are invalid")
 		}
 	case "openai-chat-completions", "openai-responses":
-		if input.BaseURL == nil || input.Keychain == nil || (!credentialOptional && input.EncryptedAPIKey == nil) {
+		if input.Endpoint == nil || input.Keychain == nil || (!credentialOptional && input.EncryptedAPIKey == nil) {
 			return fmt.Errorf("system agent provider credentials are required")
 		}
-		parsed, err := url.ParseRequestURI(*input.BaseURL)
+		parsed, err := url.ParseRequestURI(*input.Endpoint)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Host == "" {
-			return fmt.Errorf("system agent provider base URL is invalid")
+			return fmt.Errorf("system agent provider endpoint is invalid")
 		}
 		if !administrationAlias.MatchString(input.Keychain.Id) || input.Keychain.Version < 1 {
 			return fmt.Errorf("system agent provider keychain is invalid")

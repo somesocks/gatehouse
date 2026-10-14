@@ -385,7 +385,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
-		INSERT INTO gatehouse_agent_providers (id, revision, protocol, base_url, keychain_id, keychain_version, api_key, enabled)
+		INSERT INTO gatehouse_agent_providers (id, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
 		VALUES ('apr_01arz3ndektsv4rrffq69g5fav', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('amd_01arz3ndektsv4rrffq69g5fav', 1, 'apr_01arz3ndektsv4rrffq69g5fav', 'example', '{}', TRUE);
@@ -1079,6 +1079,40 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 	}
 	if firstVisible == nil || firstVisible.AuthorPrincipal == nil || firstVisible.AuthorPrincipal.Ref != alice || firstVisible.Payload["text"] != "first" {
 		t.Fatalf("hydrated snapshot event = %#v", firstVisible)
+	}
+	appendEvent := func(parent model.SessionEventRef, kind string, payload map[string]any) model.SessionEventRef {
+		t.Helper()
+		id, err := typed_id.New(typed_id.SessionEvent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ref := model.SessionEventRef{Session: session, Id: id}
+		if err, _ := store.SessionEventsCreate(ctx, model.SessionEvent{Ref: ref, Parent: &parent, Kind: kind, AuthorAgent: &agent, Payload: payload}); err != nil {
+			t.Fatal(err)
+		}
+		return ref
+	}
+	tool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "prior-call", "code": "(+ 1 2)", "reason": "test"})
+	result := appendEvent(tool, model.SessionEventKindToolSuccess, map[string]any{"output": "3"})
+	thinking := appendEvent(secondRequest.Ref, model.SessionEventKindThinkingRequest, map[string]any{"turn": 1})
+	future := appendEvent(secondRequest.Ref, model.SessionEventKindMessageText, map[string]any{"text": "future active content"})
+	laterTool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "later-call", "code": "(+ 3 4)", "reason": "test"})
+	laterResult := appendEvent(laterTool, model.SessionEventKindToolSuccess, map[string]any{"output": "7"})
+	err, bounded := store.SessionAgentRoundEventsGet(ctx, secondRequest.Ref, agent, thinking)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids = map[string]bool{}
+	for _, event := range bounded {
+		ids[event.Ref.Id] = true
+	}
+	if !ids[first.Ref.Id] || !ids[secondRequest.Ref.Id] || !ids[tool.Id] || !ids[result.Id] || ids[lateID] || ids[thinking.Id] || ids[future.Id] || ids[laterTool.Id] || ids[laterResult.Id] {
+		t.Fatalf("round boundary leaked future events or lost prior tool history: %#v", ids)
+	}
+	otherSession := thinking
+	otherSession.Session.Id = "ses_00000000000000000000000001"
+	if err, _ := store.SessionAgentRoundEventsGet(ctx, secondRequest.Ref, agent, otherSession); err == nil {
+		t.Fatal("accepted a thinking boundary from a different session")
 	}
 }
 

@@ -94,7 +94,7 @@ func (configuration Config) Runs() iter.Seq[Run] {
 }
 
 // ValidateFile loads individual definition files and text files and resolves
-// provider base URL environment references, then validates the configuration.
+// provider endpoint environment references, then validates the configuration.
 // Credential sources remain deferred descriptors; this path never reads
 // credentials or initializes Gatehouse state.
 func ValidateFile(path string) (error, Config) {
@@ -142,16 +142,16 @@ func ValidateFile(path string) (error, Config) {
 				return fmt.Errorf("%s: %s: expected a valid %s record: %w", origin, location, definition.name, err), Config{}
 			}
 			record := entry.(map[string]any)
-			if baseURL, ok := record["base_url"].(string); collection.field == "agent_providers" && ok && strings.HasPrefix(baseURL, "env:") {
-				if !environmentReferencePattern.MatchString(baseURL) {
-					return fmt.Errorf("%s: %s.base_url: expected env:VARIABLE_NAME reference", origin, location), Config{}
+			if endpoint, ok := record["endpoint"].(string); collection.field == "agent_providers" && ok && strings.HasPrefix(endpoint, "env:") {
+				if !environmentReferencePattern.MatchString(endpoint) {
+					return fmt.Errorf("%s: %s.endpoint: expected env:VARIABLE_NAME reference", origin, location), Config{}
 				}
-				name := strings.TrimPrefix(baseURL, "env:")
+				name := strings.TrimPrefix(endpoint, "env:")
 				value := os.Getenv(name)
 				if value == "" {
-					return fmt.Errorf("%s: %s.base_url: environment variable %q is unset or empty", origin, location, name), Config{}
+					return fmt.Errorf("%s: %s.endpoint: environment variable %q is unset or empty", origin, location, name), Config{}
 				}
-				record["base_url"] = value
+				record["endpoint"] = value
 			}
 			if text, ok := record[collection.textField].(string); collection.textField != "" && ok && strings.HasPrefix(text, "file:") {
 				textPath, err := referencePath(origin, text)

@@ -17,16 +17,16 @@ func validateProvider(index int, provider benchmarkschema.BenchmarkProvider) err
 	location := fmt.Sprintf("agent_providers[%d] %q", index, provider.Alias)
 	switch provider.Protocol {
 	case "builtin":
-		if provider.BaseUrl != nil || provider.ApiKey != nil {
-			return fmt.Errorf("%s: builtin providers do not accept base_url or api_key", location)
+		if provider.Endpoint != nil || provider.ApiKey != nil {
+			return fmt.Errorf("%s: builtin providers do not accept endpoint or api_key", location)
 		}
 	case "openai-chat-completions", "openai-responses":
-		if provider.BaseUrl == nil || provider.ApiKey == nil {
-			return fmt.Errorf("%s: OpenAI providers require base_url and api_key", location)
+		if provider.Endpoint == nil || provider.ApiKey == nil {
+			return fmt.Errorf("%s: OpenAI providers require endpoint and api_key", location)
 		}
-		parsed, err := url.ParseRequestURI(*provider.BaseUrl)
+		parsed, err := url.ParseRequestURI(*provider.Endpoint)
 		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-			return fmt.Errorf("%s.base_url must be an absolute HTTP URL", location)
+			return fmt.Errorf("%s.endpoint must be an absolute HTTP URL", location)
 		}
 		if provider.ApiKey.Keychain != nil && !aliasPattern.MatchString(*provider.ApiKey.Keychain) {
 			return fmt.Errorf("%s.api_key.keychain must match %s", location, aliasPattern)

@@ -29,7 +29,7 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	keychain := &model.KeychainRef{Id: "default", Version: 1}
 	baseURL := "https://api.example.test/v1"
-	agentInput := database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", BaseURL: &baseURL, Keychain: keychain, EncryptedAPIKey: stringPointer("gh-enc:agent-key"), Enabled: true}
+	agentInput := database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, EncryptedAPIKey: stringPointer("gh-enc:agent-key"), Enabled: true}
 	err, provider := store.SystemAgentProviderCreate(ctx, agentInput)
 	if err != nil || provider == nil || provider.Revision != 1 || !provider.CredentialConfigured {
 		t.Fatalf("SystemAgentProviderCreate() = (%#v, %v)", provider, err)
@@ -37,11 +37,11 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	if providersErr, providers := store.SystemAgentProvidersGet(ctx); providersErr != nil || len(providers) != 1 || providers[0].CredentialConfigured != true || providers[0].Keychain == nil || providers[0].Keychain.Id != keychain.Id || providers[0].Keychain.Version != keychain.Version {
 		t.Fatalf("SystemAgentProvidersGet() = (%#v, %v)", providers, providersErr)
 	}
-	err, provider = store.SystemAgentProviderUpdate(ctx, provider.ID, 1, database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", BaseURL: &baseURL, Keychain: keychain, Enabled: false})
+	err, provider = store.SystemAgentProviderUpdate(ctx, provider.ID, 1, database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, Enabled: false})
 	if err != nil || provider == nil || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
 		t.Fatalf("SystemAgentProviderUpdate() = (%#v, %v)", provider, err)
 	}
-	if err, _ := store.SystemAgentProviderUpdate(ctx, provider.ID, 1, database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", BaseURL: &baseURL, Keychain: keychain, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
+	if err, _ := store.SystemAgentProviderUpdate(ctx, provider.ID, 1, database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, Enabled: true}); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale SystemAgentProviderUpdate() error = %v", err)
 	}
 

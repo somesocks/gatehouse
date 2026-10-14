@@ -6,7 +6,7 @@ agent_providers:
   - alias: openai
     revision: 1
     protocol: openai-responses
-    base_url: https://api.openai.com/v1
+    endpoint: https://api.openai.com/v1/responses
     api_key:
       sources:
         - env:OPENAI_API_KEY

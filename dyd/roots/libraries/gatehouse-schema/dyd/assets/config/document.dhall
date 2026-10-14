@@ -448,7 +448,7 @@ let AgentProvider =
             }
         , optional =
             toMap
-              { base_url = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider base URL" }
+              { endpoint = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete provider request URL; used without path modification" }
               , api_key = AgentProviderAPIKey
               , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }
               }

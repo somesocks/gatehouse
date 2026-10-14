@@ -545,7 +545,7 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 	case "builtin":
 		return BuiltinReply(selected.Model, selected.Parameters)
 	case "openai-chat-completions":
-		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+		if selected.Endpoint == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
 		}
 		completion, err := runtime.openAICompatibleComplete(ctx, selected, openAICompatibleRequest{
@@ -561,7 +561,7 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 		}
 		return nil, reply.Content
 	case "openai-responses":
-		if selected.BaseURL == nil || selected.Keychain == nil || selected.APIKey == nil {
+		if selected.Endpoint == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
 		}
 		reply, err := runtime.openAIResponsesComplete(ctx, selected, openAIResponsesRequest{
@@ -678,31 +678,43 @@ func (runtime *SessionEventReplyRuntime) replyAttempt(ctx dbos.Context, input Se
 }
 
 func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn, database.AgentRateLimitClaim) {
-	err, request := agentProviderRequestFromThinking(thinking)
-	if err != nil {
-		return err, agentProviderTurn{}, database.AgentRateLimitClaim{}
+	preparationErr, current, request := runtime.agentProviderRequestForThinking(ctx, thinking)
+	if current != nil {
+		*selected = *current
 	}
-	switch request.Protocol {
+	// Estimate the complete transient request, including the current prompt and
+	// tool schemas. A failed preparation still encounters the no-op checkpoint.
+	err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.body())
+	if err != nil {
+		return err, agentProviderTurn{}, claim
+	}
+	if preparationErr != nil {
+		return nil, agentProviderTurn{Failure: preparationErr}, claim
+	}
+	// Re-read the full enabled binding after any rate-limit wait. Endpoint and
+	// credentials come from the same current provider; no saved ID controls routing.
+	err, current, request = runtime.agentProviderRequestForThinking(ctx, thinking)
+	if err != nil {
+		return nil, agentProviderTurn{Failure: err}, claim
+	}
+	*selected = *current
+	if claim.WorkspaceOutput != nil || claim.UserOutput != nil {
+		// An existing reservation bounds output even if the model's token limit
+		// changed while waiting or recovering. Settlement uses that same claim.
+		selected.MaxOutputTokens = min(selected.MaxOutputTokens, int(claim.OutputTokens))
+		if request.Chat != nil {
+			request.Chat.MaxTokens = selected.MaxOutputTokens
+		}
+		if request.Responses != nil {
+			request.Responses.MaxOutputTokens = selected.MaxOutputTokens
+		}
+	}
+	switch selected.Protocol {
 	case "builtin":
-		err, text := BuiltinReply(request.BuiltinModel, request.BuiltinParameters)
-		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}, Failure: err}, database.AgentRateLimitClaim{}
+		err, text := BuiltinReply(selected.Model, selected.Parameters)
+		return nil, agentProviderTurn{Final: &agentFinalReply{Text: text}, Failure: err}, claim
 	case "openai-chat-completions":
-		if request.Chat == nil {
-			return fmt.Errorf("thinking request has no chat completion request"), agentProviderTurn{}, database.AgentRateLimitClaim{}
-		}
-		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.Chat)
-		if err != nil {
-			return err, agentProviderTurn{}, claim
-		}
-		err, callModel := runtime.store.AgentProviderCredentialsGet(ctx, request.ProviderID)
-		if err != nil || callModel == nil {
-			if err == nil {
-				err = fmt.Errorf("provider credentials are unavailable")
-			}
-			return nil, agentProviderTurn{Failure: err}, claim
-		}
-		callModel.BaseURL = &request.BaseURL
-		completion, err := runtime.openAICompatibleComplete(ctx, callModel, *request.Chat)
+		completion, err := runtime.openAICompatibleComplete(ctx, selected, *request.Chat)
 		if err != nil {
 			return nil, agentProviderTurn{Metrics: completion.Metrics, Failure: err}, claim
 		}
@@ -711,27 +723,12 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		}
 		final, err := openAIFinalReply(completion.Message.Content)
 		if err != nil {
-			logInvalidOpenAIFinalReply(request.ProviderID, parent, completion.Message.Content)
+			logInvalidOpenAIFinalReply(selected.ProviderID, parent, completion.Message.Content)
 			return nil, agentProviderTurn{Metrics: completion.Metrics, Failure: err}, claim
 		}
 		return nil, agentProviderTurn{Final: &final, Metrics: completion.Metrics}, claim
 	case "openai-responses":
-		if request.Responses == nil {
-			return fmt.Errorf("thinking request has no Responses request"), agentProviderTurn{}, database.AgentRateLimitClaim{}
-		}
-		err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.Responses)
-		if err != nil {
-			return err, agentProviderTurn{}, claim
-		}
-		err, callModel := runtime.store.AgentProviderCredentialsGet(ctx, request.ProviderID)
-		if err != nil || callModel == nil {
-			if err == nil {
-				err = fmt.Errorf("provider credentials are unavailable")
-			}
-			return nil, agentProviderTurn{Failure: err}, claim
-		}
-		callModel.BaseURL = &request.BaseURL
-		response, err := runtime.openAIResponsesComplete(ctx, callModel, *request.Responses)
+		response, err := runtime.openAIResponsesComplete(ctx, selected, *request.Responses)
 		if err != nil {
 			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
@@ -741,7 +738,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
-				logInvalidOpenAIResponsesFinalReply(request.ProviderID, parent, request.Responses.Input, response.Output)
+				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
 				return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 			}
 			outputs[index] = output
@@ -757,12 +754,12 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		}
 		final, err := openAIResponsesFinalReply(outputs)
 		if err != nil {
-			logInvalidOpenAIResponsesFinalReply(request.ProviderID, parent, request.Responses.Input, response.Output)
+			logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
 			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
 		return nil, agentProviderTurn{Final: &final, Metrics: response.Metrics}, claim
 	default:
-		return fmt.Errorf("unsupported provider protocol %q", request.Protocol), agentProviderTurn{}, database.AgentRateLimitClaim{}
+		return fmt.Errorf("unsupported provider protocol %q", selected.Protocol), agentProviderTurn{}, claim
 	}
 }
 
@@ -771,7 +768,7 @@ func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Conte
 	if err != nil {
 		return openAICompatibleCompletion{}, err
 	}
-	replyErr, reply := OpenAICompatibleComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+	replyErr, reply := OpenAICompatibleComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.Endpoint, string(apiKey), request)
 	clear(apiKey)
 	return reply, replyErr
 }
@@ -781,7 +778,7 @@ func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx dbos.Contex
 	if err != nil {
 		return openAIResponsesResponse{}, err
 	}
-	replyErr, reply := OpenAIResponsesComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.BaseURL, string(apiKey), request)
+	replyErr, reply := OpenAIResponsesComplete(ctx, &http.Client{Timeout: time.Minute}, *selected.Endpoint, string(apiKey), request)
 	clear(apiKey)
 	return reply, replyErr
 }

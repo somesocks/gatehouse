@@ -45,11 +45,11 @@
     ></UI.Field
   >
   {#if form.protocol !== "builtin"}<UI.Field
-      ><UI.Label for="provider-url">Base URL</UI.Label><UI.Input
+      ><UI.Label for="provider-url">Endpoint</UI.Label><UI.Input
         id="provider-url"
         type="url"
-        bind:value={form.baseURL}
-        placeholder="https://api.example.com/v1"
+        bind:value={form.endpoint}
+        placeholder="https://api.example.com/v1/responses"
       /></UI.Field
     >{/if}
 </UI.FormSection>

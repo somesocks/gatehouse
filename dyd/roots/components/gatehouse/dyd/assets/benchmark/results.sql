@@ -1,4 +1,4 @@
-PRAGMA user_version = 1;
+PRAGMA user_version = 2;
 
 CREATE TABLE executions (
     id TEXT PRIMARY KEY NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE providers (
     execution_id TEXT NOT NULL REFERENCES executions(id),
     alias TEXT NOT NULL,
     protocol TEXT NOT NULL,
-    base_url TEXT,
+    endpoint TEXT,
     api_key_sources TEXT CHECK (api_key_sources IS NULL OR (json_valid(api_key_sources) AND json_type(api_key_sources) = 'array')),
     keychain TEXT,
     enabled INTEGER CHECK (enabled IS NULL OR enabled IN (0, 1)),

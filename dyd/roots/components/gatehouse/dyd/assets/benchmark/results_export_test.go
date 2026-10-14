@@ -68,8 +68,8 @@ func assertResultsFileEqual(t *testing.T, source, destination *sql.DB) {
 	if err := destination.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Fatalf("file schema version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("file schema version = %d, want 2", version)
 	}
 	rows, err := destination.Query("PRAGMA foreign_key_check")
 	if err != nil {
@@ -95,7 +95,7 @@ func TestExportResultsRoundTrip(t *testing.T) {
 			first, second := newResultsFixture(t, "first"), newResultsFixture(t, "second")
 			second.env.Prelude, second.env.ProjectLinked, second.prompt.Text = nil, nil, nil
 			second.prompt.Mode = "builtin"
-			second.provider.ApiKeySources, second.provider.BaseUrl = nil, nil
+			second.provider.ApiKeySources, second.provider.Endpoint = nil, nil
 			second.provider.Protocol = "builtin"
 			second.model.Model = "dummy.fixed-reply"
 			second.model.Parameters = map[string]interface{}{"text": "reply"}

@@ -8,7 +8,7 @@ import { createLoadState } from "../../../utils/load-state.svelte"
 type Form = {
   alias: string
   protocol: string
-  baseURL: string
+  endpoint: string
   keychain: string
   apiKey: string
   enabled: boolean
@@ -16,7 +16,7 @@ type Form = {
 const blank = (): Form => ({
   alias: "",
   protocol: "openai-responses",
-  baseURL: "",
+  endpoint: "",
   keychain: "",
   apiKey: "",
   enabled: true,
@@ -147,7 +147,7 @@ export function createAgentProviderFormController({
     state.form = {
       alias: state.provider.alias,
       protocol: state.provider.protocol,
-      baseURL: state.provider.base_url ?? "",
+      endpoint: state.provider.endpoint ?? "",
       keychain: state.provider.keychain?.id ?? "",
       apiKey: "",
       enabled: state.provider.enabled,
@@ -211,8 +211,8 @@ export function createAgentProviderFormController({
         {
           alias: form.alias,
           protocol: form.protocol,
-          base_url:
-            form.protocol === "builtin" ? undefined : optional(form.baseURL),
+          endpoint:
+            form.protocol === "builtin" ? undefined : optional(form.endpoint),
           keychain:
             form.protocol === "builtin" ? undefined : optional(form.keychain),
           api_key:

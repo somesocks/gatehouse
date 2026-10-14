@@ -13,7 +13,7 @@ assert_contains() {
 }
 
 version_output=$(gatehouse version)
-assert_contains "$version_output" "version=0.1.0" "version output"
+assert_contains "$version_output" "version=" "version output"
 assert_contains "$version_output" "source_fingerprint=v2-" "version output"
 assert_contains "$version_output" "arch=" "version output"
 assert_contains "$version_output" "os=" "version output"

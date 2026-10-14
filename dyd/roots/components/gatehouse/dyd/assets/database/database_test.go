@@ -125,7 +125,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 				Alias:     "alice-gatehouse",
 				Key:       "gatehouse:alice",
 				Revision:  1,
-				Enabled:  true,
+				Enabled:   true,
 				Verifiers: []configschema.Verifier{testPasswordVerifierRecord("gh-ver:activity-test")},
 			}},
 		}},
@@ -399,14 +399,14 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	var baseURL, keychainID, apiKey sql.NullString
 	var keychainVersion sql.NullInt64
 	if err := store.QueryRowContext(ctx, `
-		SELECT protocol, base_url, keychain_id, keychain_version, api_key
+		SELECT protocol, endpoint, keychain_id, keychain_version, api_key
 		FROM gatehouse_agent_providers
 		WHERE alias = 'builtin'
 	`).Scan(&protocol, &baseURL, &keychainID, &keychainVersion, &apiKey); err != nil {
 		t.Fatal(err)
 	}
 	if protocol != "builtin" || baseURL.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
-		t.Fatalf("builtin provider credentials = protocol %q base_url %#v keychain_id %#v keychain_version %#v api_key %#v", protocol, baseURL, keychainID, keychainVersion, apiKey)
+		t.Fatalf("builtin provider credentials = protocol %q endpoint %#v keychain_id %#v keychain_version %#v api_key %#v", protocol, baseURL, keychainID, keychainVersion, apiKey)
 	}
 	var model, parameters string
 	if err := store.QueryRowContext(ctx, `
@@ -457,7 +457,7 @@ func TestMigrateEncryptsAgentProviderAPIKeyWithAliasAAD(t *testing.T) {
 	state := config.State{
 		Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:AGENT_KEYCHAIN"}}},
 		AgentProviders: []config.AgentProvider{{
-			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", BaseURL: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:AGENT_API_KEY"}, Enabled: true,
+			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", Endpoint: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:AGENT_API_KEY"}, Enabled: true,
 		}},
 	}
 	t.Setenv("AGENT_KEYCHAIN", "agent passphrase")
