@@ -14,11 +14,11 @@ func TestOpenAICompatibleMessagesReplaysToolHistory(t *testing.T) {
 	agent := model.WorkspaceAgentRef{Workspace: session.Workspace, Id: "wag_01arz3ndektsv4rrffq69g5fav"}
 	user := event(session, "user", "message.text", &principal, nil, map[string]interface{}{"text": "Find the report."})
 	call := event(session, "call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "code": "(report/find)", "reason": "Find the requested report."})
-	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-1", "output": "report-42"})
+	result := event(session, "result", "tool.success", nil, &agent, map[string]interface{}{"output": "report-42"})
 	result.Parent = &call.Ref
 	reply := event(session, "reply", "message.text", nil, &agent, map[string]interface{}{"text": "I found it."})
 	failedCall := event(session, "failed-call", "tool.request", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "code": "(report/delete \"report-42\")", "reason": "Try to remove a duplicate."})
-	failed := event(session, "failed", "tool.failure", nil, &agent, map[string]interface{}{"name": "lisp", "call_id": "call-2", "output": "permission denied"})
+	failed := event(session, "failed", "tool.failure", nil, &agent, map[string]interface{}{"code": "execution_failed", "output": "permission denied"})
 	failed.Parent = &failedCall.Ref
 	nextUser := event(session, "next-user", "message.text", &principal, nil, map[string]interface{}{"text": "What happened next?"})
 

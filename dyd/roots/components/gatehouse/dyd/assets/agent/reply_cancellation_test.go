@@ -219,6 +219,7 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 	if len(toolRequests) != 2 {
 		t.Fatalf("parallel tool requests = %d, want 2", len(toolRequests))
 	}
+	assertToolResultsResolveParent(t, ctx, store, session)
 	for _, tool := range toolRequests {
 		if err, terminal := store.SessionEventChildGet(ctx, tool.Ref, model.SessionEventKindToolSuccess); err != nil {
 			t.Fatal(err)

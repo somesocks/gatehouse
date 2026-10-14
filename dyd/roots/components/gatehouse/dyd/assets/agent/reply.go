@@ -386,7 +386,7 @@ func (runtime *SessionEventReplyRuntime) cancelledReplyFinalize(ctx dbos.Context
 			if name == "" || callID == "" || event.AuthorAgent == nil {
 				return fmt.Errorf("cancel unfinished tool %q: request payload is invalid", event.Ref.Id)
 			}
-			payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{Name: name, CallId: callID, Code: "cancelled", Output: "execution cancelled"})
+			payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{Code: "cancelled", Output: "execution cancelled"})
 			if err != nil {
 				return err
 			}
@@ -843,12 +843,8 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 			return reference, errors.Join(callErr, err)
 		}
 	}
-	callID, _ := request.Payload["call_id"].(string)
-	if callID == "" {
-		callID = "unknown"
-	}
 	payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{
-		Name: "lisp", CallId: callID, Code: failureEventCode(callErr), Output: callErr.Error(),
+		Code: failureEventCode(callErr), Output: callErr.Error(),
 	})
 	if err != nil {
 		return reference, errors.Join(callErr, err)
@@ -879,7 +875,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	if parent == nil || parent.AuthorPrincipal == nil {
 		return model.SessionEventRef{}, fmt.Errorf("session tool call principal is unavailable")
 	}
-	callID, callIDOK := request.Payload["call_id"].(string)
+	_, callIDOK := request.Payload["call_id"].(string)
 	code, codeOK := request.Payload["code"].(string)
 	name, nameOK := request.Payload["name"].(string)
 	if !callIDOK || !codeOK || !nameOK || name != "lisp" {
@@ -900,7 +896,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	}
 	call, err := diagnostics.Begin("agent.tool_call.evaluate", "")
 	if err != nil {
-		return runtime.toolCallFinish(ctx, *request, agent, callID, sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "execution_failed", Output: err.Error()})
+		return runtime.toolCallFinish(ctx, *request, agent, sessionToolCallExecution{Kind: model.SessionEventKindToolFailure, Code: "execution_failed", Output: err.Error()})
 	}
 	modules := []lisp.HostModule{}
 	if project != nil {
@@ -937,7 +933,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	} else {
 		execution = sessionToolCallExecution{Kind: model.SessionEventKindToolSuccess, Output: result.String()}
 	}
-	return runtime.toolCallFinish(ctx, *request, agent, callID, execution)
+	return runtime.toolCallFinish(ctx, *request, agent, execution)
 }
 
 func (runtime *SessionEventReplyRuntime) watchToolCallCancellation(parent *model.SessionEventRef, cancel context.CancelFunc) func() {
@@ -991,13 +987,13 @@ func sessionEventReadRange(event model.SessionEvent, offset, length int64) (erro
 	return nil, append([]byte(nil), contents[offset:end]...)
 }
 
-func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, request model.SessionEvent, agent model.WorkspaceAgentRef, callID string, execution sessionToolCallExecution) (model.SessionEventRef, error) {
+func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, request model.SessionEvent, agent model.WorkspaceAgentRef, execution sessionToolCallExecution) (model.SessionEventRef, error) {
 	var payload map[string]interface{}
 	var err error
 	if execution.Kind == model.SessionEventKindToolSuccess {
-		payload, err = database.SessionEventPayloadFrom(model.ToolSuccessPayload{Name: "lisp", CallId: callID, Output: execution.Output})
+		payload, err = database.SessionEventPayloadFrom(model.ToolSuccessPayload{Output: execution.Output})
 	} else {
-		payload, err = database.SessionEventPayloadFrom(model.ToolFailurePayload{Name: "lisp", CallId: callID, Code: execution.Code, Output: execution.Output})
+		payload, err = database.SessionEventPayloadFrom(model.ToolFailurePayload{Code: execution.Code, Output: execution.Output})
 	}
 	if err != nil {
 		return model.SessionEventRef{}, fmt.Errorf("encode tool terminal payload: %w", err)

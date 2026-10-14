@@ -65,3 +65,17 @@ SQLite and PostgreSQL migration 53 remove `provider_request` and `round_input`
 from existing thinking-request payloads. Event identities, parents, authors,
 timestamps, metrics, turn numbers, and predecessor references are preserved.
 There is no runtime snapshot decoder or legacy-control flag in the event format.
+
+## Tool results
+
+`tool.request` owns the tool's `name` and provider `call_id`, together with its
+program and reason. `tool.success` stores only `output`; `tool.failure` stores
+`code`, `output`, and optional `message`. Each result's parent reference identifies
+its tool request. Conversation reconstruction resolves the provider call ID from
+that request for both Chat Completions and Responses.
+
+Independent SQLite and PostgreSQL migration 54 implementations remove copied
+`name` and `call_id` fields from existing tool results. Request identifiers,
+result text, failure details, parent references, authors, timestamps, and metrics
+are preserved. Transcript failure payloads also omit these copied identifiers;
+legacy failures without a code continue to be representable.

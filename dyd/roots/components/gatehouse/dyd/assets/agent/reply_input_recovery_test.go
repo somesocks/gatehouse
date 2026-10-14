@@ -580,6 +580,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					}
 					assertDBOSDoesNotContain(t, store, providerReplyMarker)
 					assertMinimalThinkingRequests(t, ctx, store, session)
+					assertToolResultsResolveParent(t, ctx, store, session)
 					return
 				}
 			}
@@ -824,6 +825,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						assertDBOSDoesNotContain(t, store, secondAnswerMarker)
 						assertDBOSDoesNotContain(t, store, providerReplyMarker)
 						assertMinimalThinkingRequests(t, ctx, store, session)
+						assertToolResultsResolveParent(t, ctx, store, session)
 						return
 					}
 				}
@@ -857,6 +859,31 @@ func assertMinimalThinkingRequests(t *testing.T, ctx context.Context, store *dat
 	}
 	if count == 0 {
 		t.Fatal("no thinking requests were captured")
+	}
+}
+
+func assertToolResultsResolveParent(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef) {
+	t.Helper()
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Kind != model.SessionEventKindToolSuccess && event.Kind != model.SessionEventKindToolFailure {
+			continue
+		}
+		if event.Parent == nil || event.Payload["output"] == nil {
+			t.Fatalf("tool result lost output or parent: %#v", event)
+		}
+		for _, field := range []string{"name", "call_id"} {
+			if _, exists := event.Payload[field]; exists {
+				t.Fatalf("tool result copied %s from its parent", field)
+			}
+		}
+		err, parent := store.SessionEventGet(ctx, *event.Parent)
+		if err != nil || parent == nil || parent.Kind != model.SessionEventKindToolRequest || parent.Payload["name"] != "lisp" || parent.Payload["call_id"] == nil {
+			t.Fatalf("tool result cannot resolve its request identity: %#v (%v)", parent, err)
+		}
 	}
 }
 

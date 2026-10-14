@@ -46,8 +46,8 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingSuccess, Payload: map[string]interface{}{}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingFailure, Payload: map[string]interface{}{"code": "cancelled"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolRequest, Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect", "call_id": "call", "code": "(+ 1 2)"}}},
-		{Event: model.SessionEvent{Kind: model.SessionEventKindToolSuccess, Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "output": "3"}}},
-		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"name": "lisp", "call_id": "call", "output": "failure", "code": "execution_failed"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindToolSuccess, Payload: map[string]interface{}{"output": "3"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"output": "failure", "code": "execution_failed"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"name": "lisp", "call_id": "old-call", "output": "failure without code"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindApprovalRequest, Payload: map[string]interface{}{"description": "Approve"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindApprovalSuccess, Payload: map[string]interface{}{}}},
@@ -91,6 +91,13 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 	}
 	if entries[15].Event.Payload["form"] != nil || entries[16].Event.Payload["result"] != nil || entries[9].Event.Payload["output"] != nil {
 		t.Fatal("transcript exposed private input or tool data")
+	}
+	for _, index := range []int{10, 11} {
+		for _, field := range []string{"name", "call_id"} {
+			if _, exists := entries[index].Event.Payload[field]; exists {
+				t.Fatalf("projected tool result retained redundant %s", field)
+			}
+		}
 	}
 	if entries[21].Event.Kind != "other" || entries[21].Event.Payload["original_kind"] != "gateway.notice" {
 		t.Fatalf("unrecognized event = %#v", entries[21].Event)
@@ -149,6 +156,12 @@ func TestTranscriptServesToolFailureWithoutCode(t *testing.T) {
 	}
 	if _, hasCode := projected.Payload["code"]; hasCode {
 		t.Fatalf("transcript invented a failure code: %#v", projected.Payload)
+	}
+	if _, exists := projected.Payload["name"]; exists {
+		t.Fatal("transcript retained the copied tool name")
+	}
+	if _, exists := projected.Payload["call_id"]; exists {
+		t.Fatal("transcript retained the copied call ID")
 	}
 }
 

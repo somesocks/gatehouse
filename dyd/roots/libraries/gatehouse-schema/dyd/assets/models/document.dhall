@@ -1179,9 +1179,7 @@ let ToolSuccessPayload =
         s.record.props::{
         , required =
             toMap
-              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool name" }
-              , call_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider tool call identity" }
-              , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool result returned to the agent" }
+              { output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool result returned to the agent" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -1192,9 +1190,7 @@ let ToolFailurePayload =
         s.record.props::{
         , required =
             toMap
-              { name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool name" }
-              , call_id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "provider tool call identity" }
-              , code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable tool failure code" }
+              { code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable tool failure code" }
               , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool failure result returned to the agent" }
               }
         , optional =

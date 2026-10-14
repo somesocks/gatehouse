@@ -33,7 +33,7 @@ describe("chat event response decoding", () => {
   const failure = {
     created_at: "2026-01-01T00:00:01.000Z",
     kind: "tool.failure",
-    payload: { name: "lisp", call_id: "call-1", output: "execution failed" },
+    payload: { output: "execution failed" },
     ref: { ...ref, id: "sev_failure" },
     parent: ref,
   }
@@ -56,7 +56,7 @@ describe("chat event response decoding", () => {
         {
           event: message,
           children: [
-            { event: { ...failure, payload: { name: "lisp" } }, children: [] },
+            { event: { ...failure, payload: {} }, children: [] },
           ],
         },
       ]),

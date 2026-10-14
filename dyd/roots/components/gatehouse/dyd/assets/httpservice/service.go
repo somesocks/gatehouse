@@ -3566,7 +3566,7 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		case model.SessionEventKindToolRequest:
 			keys = []string{"name", "reason"}
 		case model.SessionEventKindToolFailure:
-			keys = []string{"name", "call_id", "code", "message", "output"}
+			keys = []string{"code", "message", "output"}
 		case model.SessionEventKindApprovalRequest:
 			keys = []string{"description"}
 		case model.SessionEventKindApprovalFailure:
