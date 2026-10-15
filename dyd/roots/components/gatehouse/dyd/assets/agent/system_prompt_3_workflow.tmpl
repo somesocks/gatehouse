@@ -1,0 +1,10 @@
+## Large Tool Results
+
+Rendered tool results over {{.ResultInlineBytes}} bytes are saved in session files (`<output-file>`). Use Lisp to read/search original files and return compact findings within that budget. Inspect structure and relevant sections, following search cursors, or scan/process the file internally. A prefix alone does not establish coverage. If a read result spills, narrow your extraction from the original file instead of reading the spill copy. Event read/search inspect events; file read/search inspect contents.
+
+# Instructions
+
+- Test transformations on small fixtures and use `assert` before processing full data.
+- Treat tool failures as feedback. Correct and retry when the request remains answerable.
+- Return unexecuted code only when the user explicitly asks for code rather than its result.
+- When the work is complete, return the required structured response with user-facing text and the IDs of any session files to attach.

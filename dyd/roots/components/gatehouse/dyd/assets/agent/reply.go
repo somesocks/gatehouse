@@ -2073,19 +2073,24 @@ var systemPromptProject string
 //go:embed system_prompt_2_inputs.txt
 var systemPromptInputs string
 
-//go:embed system_prompt_3_workflow.txt
-var systemPromptWorkflow string
+//go:embed system_prompt_3_workflow.tmpl
+var systemPromptWorkflowSource string
+
+var systemPromptWorkflow = template.Must(template.New("system_prompt_3_workflow").Parse(systemPromptWorkflowSource))
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat bool) string {
-	var role strings.Builder
+	var role, workflow strings.Builder
 	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
 		panic(fmt.Sprintf("render system prompt role: %v", err))
+	}
+	if err := systemPromptWorkflow.Execute(&workflow, struct{ ResultInlineBytes int }{ResultInlineBytes: resultInlineLimit(selected)}); err != nil {
+		panic(fmt.Sprintf("render system prompt workflow: %v", err))
 	}
 	prompt := role.String() + "\n" + systemPromptTools + "\n" + systemPromptSession
 	if projectChat {
 		prompt += "\n" + systemPromptProject
 	}
-	prompt += "\n" + systemPromptInputs + "\n" + systemPromptWorkflow
+	prompt += "\n" + systemPromptInputs + "\n" + workflow.String()
 	if selected.SystemPrompt == nil || *selected.SystemPrompt == "" {
 		return prompt
 	}

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -142,6 +143,39 @@ func TestOpenAISystemPromptFor(t *testing.T) {
 	}
 	if mcmtrProfileFingerprint(selected, true) == mcmtrProfileFingerprint(selected, false) {
 		t.Fatal("context fingerprints for project and ordinary chats match")
+	}
+}
+
+func TestOpenAISystemPromptResultInlineLimit(t *testing.T) {
+	for _, test := range []struct {
+		name                  string
+		configured, effective int
+	}{
+		{"default", 0, 4096},
+		{"configured", 8192, 8192},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			for _, projectChat := range []bool{false, true} {
+				selected := &database.WorkspaceAgentModel{Alias: "luna-high", ResultInlineBytes: test.configured}
+				prompt := openAISystemPromptFor(selected, projectChat)
+				limit := fmt.Sprintf("Rendered tool results over %d bytes", test.effective)
+				if strings.Count(prompt, limit) != 1 || strings.Contains(prompt, "{{.ResultInlineBytes}}") {
+					t.Fatalf("prompt does not render the effective inline limit exactly once: %q", prompt)
+				}
+				if !strings.Contains(prompt, "return compact findings within that budget") ||
+					!strings.Contains(prompt, "from the original file instead of reading the spill copy") ||
+					!strings.Contains(prompt, "following search cursors") ||
+					!strings.Contains(prompt, "A prefix alone does not establish coverage.") ||
+					!strings.Contains(prompt, "Event read/search inspect events; file read/search inspect contents.") {
+					t.Fatal("prompt lost spill-file retrieval guidance")
+				}
+				before := mcmtrProfileFingerprint(selected, projectChat)
+				selected.ResultInlineBytes = test.effective + 1024
+				if mcmtrProfileFingerprint(selected, projectChat) == before {
+					t.Fatal("changing the prompt's inline limit did not invalidate the context profile")
+				}
+			}
+		})
 	}
 }
 
