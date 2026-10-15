@@ -26,13 +26,9 @@
     ><UI.AdminHeader
       title="Agent providers"
       description="Services that supply agent models."
-      >{#snippet actions()}<UI.Link
-          variant="outline"
-          href="/app/login/openai-codex"
-          target="_blank"
-          rel="noopener noreferrer">Codex login</UI.Link
-        ><UI.RouterLink variant="default" href="/app/system/agent-providers/new"
-          >Create provider</UI.RouterLink
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href="/app/system/agent-providers/new">Create provider</UI.RouterLink
         >{/snippet}</UI.AdminHeader
     >
     <UI.SearchToolbar
@@ -64,11 +60,15 @@
             >
             <UI.RecordCell label="Protocol">{provider.protocol}</UI.RecordCell>
             <UI.RecordCell label="Credentials"
-              >{provider.credential_configured
-                ? "Configured"
-                : provider.protocol === "builtin"
-                  ? "Not required"
-                  : "Not configured"}</UI.RecordCell
+              >{provider.protocol === "openai-codex"
+                ? provider.credential_configured
+                  ? "Connected"
+                  : "Not connected"
+                : provider.credential_configured
+                  ? "Configured"
+                  : provider.protocol === "builtin"
+                    ? "Not required"
+                    : "Not configured"}</UI.RecordCell
             >
             <UI.RecordCell label="Status"
               ><UI.StatusBadge enabled={provider.enabled} /></UI.RecordCell

@@ -31,7 +31,7 @@
     idle: "",
     starting: "Preparing your sign-in.",
     pending: "Waiting for approval.",
-    succeeded: "Login verified.",
+    succeeded: "Account connected.",
     failed: "",
     expired: "This code has expired.",
     cancelled: "Sign-in cancelled.",
@@ -90,7 +90,7 @@
         <UI.Row justify="center"
           ><UI.CircleCheck size={32} aria-hidden="true" /></UI.Row
         >
-        <UI.Heading level={3}>Login verified</UI.Heading>
+        <UI.Heading level={3}>Account connected</UI.Heading>
         {#if state.result?.account.email}<UI.Text as="p"
             >{state.result.account.email}</UI.Text
           >{/if}
@@ -107,6 +107,11 @@
           >{state.error || "Please try again."}</UI.Text
         >
         <UI.Button onclick={onstart}>Try again</UI.Button>
+        {#if state.provider}<UI.Link
+            variant="outline"
+            href={`/app/system/agent-providers/${encodeURIComponent(state.provider.id)}`}
+            >View provider</UI.Link
+          >{/if}
         <UI.Button variant="link" onclick={onclose}>Close tab</UI.Button>
       {:else if state.phase === "expired"}
         <UI.Heading level={3}>This code has expired.</UI.Heading>

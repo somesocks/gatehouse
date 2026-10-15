@@ -1749,7 +1749,7 @@ func (store *Store) workspaceAgentModelGet(workspace model.WorkspaceRef, binding
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := queryRow(`
-		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.endpoint, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, models.result_inline_bytes, bindings.system_prompt, bindings.prelude, bindings.rate_limits
+		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.endpoint, providers.keychain_id, providers.keychain_version, providers.credential, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, models.result_inline_bytes, bindings.system_prompt, bindings.prelude, bindings.rate_limits
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1774,12 +1774,14 @@ func scanWorkspaceAgentModel(row sessionEventRow, workspace model.WorkspaceRef) 
 		return fmt.Errorf("select workspace agent model: %w", err), nil
 	}
 	if endpoint.Valid || keychainID.Valid || keychainVersion.Valid || apiKey.Valid {
-		if !endpoint.Valid || !keychainID.Valid || !keychainVersion.Valid || keychainVersion.Int64 <= 0 || !apiKey.Valid {
+		if !endpoint.Valid || !keychainID.Valid || !keychainVersion.Valid || keychainVersion.Int64 <= 0 || (!apiKey.Valid && selected.Protocol != config.AgentProviderProtocolOpenAICodex) {
 			return fmt.Errorf("select workspace agent model: invalid provider credentials"), nil
 		}
 		selected.Endpoint = &endpoint.String
 		selected.Keychain = &model.KeychainRef{Id: keychainID.String, Version: int(keychainVersion.Int64)}
-		selected.APIKey = &apiKey.String
+		if apiKey.Valid {
+			selected.APIKey = &apiKey.String
+		}
 	}
 	if providerAlias.Valid {
 		selected.ProviderAlias = &providerAlias.String

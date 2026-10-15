@@ -438,6 +438,18 @@ let AgentProviderAPIKey =
         }
         s.record.meta::{ name = Some "AgentProviderAPIKey" }
 
+let AgentProviderCredential =
+      s.record.from
+        s.record.props::{
+        , optional = toMap
+            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to encrypt provider credentials" }
+            , sources = s.list.from
+                s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "API key source" } }
+                s.list.meta::{ description = Some "ordered API key sources; omit for OAuth providers" }
+            }
+        }
+        s.record.meta::{ name = Some "AgentProviderCredential" }
+
 let AgentProvider =
       s.record.from
         s.record.props::{
@@ -449,7 +461,8 @@ let AgentProvider =
         , optional =
             toMap
               { endpoint = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "complete provider request URL; used without path modification" }
-              , api_key = AgentProviderAPIKey
+               , api_key = AgentProviderAPIKey
+               , credential = AgentProviderCredential
               , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the provider is enabled" }
               }
         }

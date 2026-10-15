@@ -46,6 +46,12 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 				values = append(values, value)
 				continue
 			}
+			if provider.Protocol == config.AgentProviderProtocolOpenAICodex {
+				value.Endpoint = config.OpenAICodexEndpoint
+				value.KeychainID, value.KeychainVersion = *provider.Keychain, 1
+				values = append(values, value)
+				continue
+			}
 			apiKeyErr, apiKey := resolver.Resolve(provider.Alias, provider.Sources)
 			if apiKeyErr != nil {
 				return apiKeyErr, ""
@@ -81,18 +87,19 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 				endpoint TEXT,
 				keychain_id TEXT,
 				keychain_version INTEGER,
-				api_key TEXT,
+				credential TEXT,
 				enabled INTEGER NOT NULL
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_agent_provider_desired (alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+			INSERT INTO gatehouse_migration_agent_provider_desired (alias, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled)
 			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_agent_provider_state AS
 			SELECT desired.*, COALESCE(providers.id, gh_id_new('apr')) AS id, providers.id AS existing_id
 			FROM gatehouse_migration_agent_provider_desired AS desired
-			LEFT JOIN gatehouse_agent_providers AS providers ON providers.alias = desired.alias;
+			LEFT JOIN gatehouse_agent_providers AS providers ON providers.alias = desired.alias
+			WHERE providers.id IS NULL OR providers.revision < desired.revision;
 
 			CREATE TEMP TABLE gatehouse_migration_agent_provider_activities (
 				provider TEXT NOT NULL,
@@ -103,11 +110,16 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 			SELECT id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'agent_provider.create' ELSE 'agent_provider.update' END
 			FROM gatehouse_migration_agent_provider_state;
 
-			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
-			SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled
+			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled)
+			SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled
 			FROM gatehouse_migration_agent_provider_state
 			WHERE TRUE
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint,
+			keychain_id = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL AND gatehouse_agent_providers.keychain_id <> excluded.keychain_id THEN NULL ELSE excluded.keychain_id END,
+			keychain_version = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL THEN gatehouse_agent_providers.keychain_version ELSE excluded.keychain_version END,
+			credential = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential ELSE excluded.credential END,
+			credential_metadata = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential_metadata ELSE NULL END,
+			enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (

@@ -113,7 +113,11 @@
   {:else if owner === "agent-provider-new"}
     <AgentProviderNewRoute />
   {:else if owner === "codex-login"}
-    <CodexLoginRoute />
+    <CodexLoginRoute
+      providerID={runtime.state.route.kind === "system-codex-login"
+        ? (runtime.state.route.providerID ?? "")
+        : ""}
+    />
   {:else if owner === "agent-provider-detail"}
     <AgentProviderDetailRoute
       editingPage={runtime.state.route.kind === "system-agent-provider-edit"}

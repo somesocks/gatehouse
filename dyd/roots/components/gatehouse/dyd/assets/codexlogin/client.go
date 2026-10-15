@@ -1,6 +1,6 @@
 // Package codexlogin implements the stateless ChatGPT device-code login flow.
-// Credentials are exchanged and validated in memory; only account metadata leaves
-// this package. Installing a provider credential is a separate operation.
+// Credentials are exchanged and validated in memory. HTTP handlers install the
+// bundle server-side and return only the public PollResult to the browser.
 package codexlogin
 
 import (
@@ -61,6 +61,27 @@ type PollResult struct {
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
 }
 
+type Credential struct {
+	Version      int       `json:"version"`
+	AccessToken  string    `json:"access_token"`
+	RefreshToken string    `json:"refresh_token"`
+	ExpiresAt    time.Time `json:"expires_at"`
+	AccountID    string    `json:"account_id"`
+	Email        string    `json:"email,omitempty"`
+}
+
+func (credential Credential) Validate() error {
+	if credential.Version != 1 || strings.TrimSpace(credential.AccessToken) == "" || strings.TrimSpace(credential.RefreshToken) == "" || strings.TrimSpace(credential.AccountID) == "" || credential.ExpiresAt.IsZero() {
+		return invalidResponse()
+	}
+	return nil
+}
+
+type PollOutcome struct {
+	PollResult
+	Credential *Credential `json:"-"`
+}
+
 // Error contains only an allowlisted diagnostic, never an upstream body or token.
 type Error struct {
 	Status  int
@@ -101,9 +122,9 @@ func (client *Client) Start(ctx context.Context) (StartResult, error) {
 	}, nil
 }
 
-func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (PollResult, error) {
+func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (PollOutcome, error) {
 	if !validValue(deviceAuthID, 4096) || !validValue(userCode, 128) {
-		return PollResult{}, &Error{http.StatusBadRequest, "A device authorization ID and user code are required."}
+		return PollOutcome{}, &Error{http.StatusBadRequest, "A device authorization ID and user code are required."}
 	}
 	payload, _ := json.Marshal(struct {
 		DeviceAuthID string `json:"device_auth_id"`
@@ -115,13 +136,13 @@ func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (
 	}
 	pending, err := client.post(ctx, "/api/accounts/deviceauth/token", "application/json", payload, &approved, true)
 	if err != nil {
-		return PollResult{}, err
+		return PollOutcome{}, err
 	}
 	if pending {
-		return PollResult{Status: "pending", PollAfterMS: defaultPollMS}, nil
+		return PollOutcome{PollResult: PollResult{Status: "pending", PollAfterMS: defaultPollMS}}, nil
 	}
 	if !validValue(approved.Code, 16384) || !validValue(approved.Verifier, 4096) {
-		return PollResult{}, invalidResponse()
+		return PollOutcome{}, invalidResponse()
 	}
 	form := url.Values{
 		"grant_type": {"authorization_code"}, "client_id": {clientID},
@@ -136,10 +157,10 @@ func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (
 	}
 	_, err = client.post(ctx, "/oauth/token", "application/x-www-form-urlencoded", []byte(form.Encode()), &tokens, false)
 	if err != nil {
-		return PollResult{}, err
+		return PollOutcome{}, err
 	}
 	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.RefreshToken) == "" {
-		return PollResult{}, invalidResponse()
+		return PollOutcome{}, invalidResponse()
 	}
 
 	// These claims come only from the fixed HTTPS token endpoint. They describe
@@ -156,14 +177,14 @@ func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (
 		}
 	}
 	if account.ID == "" {
-		return PollResult{}, invalidResponse()
+		return PollOutcome{}, invalidResponse()
 	}
 	now := client.now().UTC()
 	expires := now.Add(time.Hour)
 	if tokens.ExpiresIn != "" {
 		seconds, err := tokens.ExpiresIn.Int64()
 		if err != nil || seconds <= 0 || seconds > int64((365*24*time.Hour)/time.Second) {
-			return PollResult{}, invalidResponse()
+			return PollOutcome{}, invalidResponse()
 		}
 		expires = now.Add(time.Duration(seconds) * time.Second)
 	}
@@ -174,10 +195,12 @@ func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (
 		}
 	}
 	if !expires.After(now) {
-		return PollResult{}, invalidResponse()
+		return PollOutcome{}, invalidResponse()
 	}
-	// Deliberately return an allowlisted result, not the transient token bundle.
-	return PollResult{Status: "succeeded", Account: &account, ExpiresAt: &expires}, nil
+	return PollOutcome{
+		PollResult: PollResult{Status: "succeeded", Account: &account, ExpiresAt: &expires},
+		Credential: &Credential{Version: 1, AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, ExpiresAt: expires, AccountID: account.ID, Email: account.Email},
+	}, nil
 }
 
 func validValue(value string, maximum int) bool {

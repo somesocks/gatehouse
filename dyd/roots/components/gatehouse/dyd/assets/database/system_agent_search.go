@@ -13,7 +13,7 @@ func (store *Store) SystemAgentProvidersSearch(ctx context.Context, name, cursor
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(name)) + "%"
 	p := keychainPlaceholder(store.kind)
-	query := `SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key IS NOT NULL, enabled FROM gatehouse_agent_providers WHERE (LOWER(alias) LIKE LOWER(` + p(1) + `) ESCAPE '\' OR LOWER(id) LIKE LOWER(` + p(2) + `) ESCAPE '\' OR LOWER(protocol) LIKE LOWER(` + p(3) + `) ESCAPE '\') AND (` + p(4) + ` = '' OR id < ` + p(5) + `)`
+	query := `SELECT id, alias, revision, protocol, endpoint, keychain_id, keychain_version, credential IS NOT NULL, enabled, credential_metadata FROM gatehouse_agent_providers WHERE (LOWER(alias) LIKE LOWER(` + p(1) + `) ESCAPE '\' OR LOWER(id) LIKE LOWER(` + p(2) + `) ESCAPE '\' OR LOWER(protocol) LIKE LOWER(` + p(3) + `) ESCAPE '\') AND (` + p(4) + ` = '' OR id < ` + p(5) + `)`
 	args := []any{pattern, pattern, pattern, cursor, cursor}
 	if status != "" {
 		query += ` AND enabled = ` + p(6)

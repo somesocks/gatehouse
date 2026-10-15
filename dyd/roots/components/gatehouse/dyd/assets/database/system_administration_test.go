@@ -34,7 +34,7 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	}
 	keychain := &model.KeychainRef{Id: "default", Version: 1}
 	baseURL := "https://api.example.test/v1"
-	agentInput := database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, EncryptedAPIKey: stringPointer("gh-enc:agent-key"), Enabled: true}
+	agentInput := database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, EncryptedCredential: stringPointer("gh-enc:agent-key"), Enabled: true}
 	err, provider := store.SystemAgentProviderCreate(ctx, agentInput)
 	if err != nil || provider == nil || provider.Revision != 1 || !provider.CredentialConfigured {
 		t.Fatalf("SystemAgentProviderCreate() = (%#v, %v)", provider, err)

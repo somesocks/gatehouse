@@ -29,28 +29,38 @@ export type CodexLoginSuccess = {
   status: "succeeded"
   account: { id: string; email?: string }
   expires_at: string
+  provider: SystemAgentProvider
 }
+export type CodexLoginBinding = { provider: string; expected_revision: number }
 export type CodexLoginPoll =
   | { status: "pending"; poll_after_ms: number }
   | CodexLoginSuccess
 
-export function startCodexLogin(signal?: AbortSignal): Promise<Response> {
+export function startCodexLogin(
+  binding: CodexLoginBinding,
+  signal?: AbortSignal,
+): Promise<Response> {
   return systemAdministration(
     "agent-providers/openai-codex/login/start",
     "POST",
-    {},
+    binding,
     signal,
   )
 }
 
 export function pollCodexLogin(
   attempt: Pick<CodexLoginAttempt, "device_auth_id" | "user_code">,
+  binding: CodexLoginBinding,
   signal?: AbortSignal,
 ): Promise<Response> {
   return systemAdministration(
     "agent-providers/openai-codex/login/poll",
     "POST",
-    { device_auth_id: attempt.device_auth_id, user_code: attempt.user_code },
+    {
+      ...binding,
+      device_auth_id: attempt.device_auth_id,
+      user_code: attempt.user_code,
+    },
     signal,
   )
 }
@@ -64,6 +74,32 @@ export type SystemAgentProvider = {
   keychain?: SystemKeychain
   credential_configured: boolean
   enabled: boolean
+  account?: { id: string; email?: string; expires_at: string }
+}
+
+export function fetchAgentProvider(
+  providerID: string,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return systemAdministration(
+    `agent-providers/${encodeURIComponent(providerID)}`,
+    "GET",
+    undefined,
+    signal,
+  )
+}
+
+export function disconnectAgentProvider(
+  providerID: string,
+  revision: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return systemAdministration(
+    `agent-providers/${encodeURIComponent(providerID)}/disconnect`,
+    "POST",
+    { expected_revision: revision },
+    signal,
+  )
 }
 export type SystemAgentModel = {
   id: string

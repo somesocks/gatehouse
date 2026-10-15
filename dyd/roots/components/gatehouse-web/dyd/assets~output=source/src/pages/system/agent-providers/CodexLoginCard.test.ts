@@ -17,6 +17,7 @@ function card(phase: State["phase"], options: Partial<State> = {}) {
     phase,
     attempt: phase === "pending" ? attempt : null,
     result: null,
+    provider: null,
     error: "",
     busy: false,
     remainingMinutes: 12,
@@ -67,9 +68,17 @@ it("shows success without internal identifiers or token-expiry details", () => {
       status: "succeeded",
       account: { id: "private-account-id", email: "user@example.com" },
       expires_at: "2026-10-15T13:00:00Z",
+      provider: {
+        id: "apr_test",
+        alias: "chatgpt",
+        revision: 2,
+        protocol: "openai-codex",
+        credential_configured: true,
+        enabled: true,
+      },
     },
   })
-  expect(body).toContain("Login verified")
+  expect(body).toContain("Account connected")
   expect(body).toContain("user@example.com")
   expect(body).toContain("Close tab")
   expect(body).not.toContain("private-account-id")

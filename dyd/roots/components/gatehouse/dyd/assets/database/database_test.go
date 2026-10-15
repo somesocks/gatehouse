@@ -399,7 +399,7 @@ func TestMigrateConfiguresBuiltinAgentProviderWithoutCredentials(t *testing.T) {
 	var baseURL, keychainID, apiKey sql.NullString
 	var keychainVersion sql.NullInt64
 	if err := store.QueryRowContext(ctx, `
-		SELECT protocol, endpoint, keychain_id, keychain_version, api_key
+		SELECT protocol, endpoint, keychain_id, keychain_version, credential
 		FROM gatehouse_agent_providers
 		WHERE alias = 'builtin'
 	`).Scan(&protocol, &baseURL, &keychainID, &keychainVersion, &apiKey); err != nil {
@@ -467,7 +467,7 @@ func TestMigrateEncryptsAgentProviderAPIKeyWithAliasAAD(t *testing.T) {
 	}
 
 	var apiKey string
-	if err := store.QueryRowContext(ctx, `SELECT api_key FROM gatehouse_agent_providers WHERE alias = 'openai'`).Scan(&apiKey); err != nil {
+	if err := store.QueryRowContext(ctx, `SELECT credential FROM gatehouse_agent_providers WHERE alias = 'openai'`).Scan(&apiKey); err != nil {
 		t.Fatal(err)
 	}
 	err, encrypted := keychain.ParseKey(apiKey)

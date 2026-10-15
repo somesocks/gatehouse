@@ -3,6 +3,15 @@ import { clearAccessToken } from "../../../app/api"
 import { createCodexLoginController } from "./codex-login-controller.svelte"
 
 const now = new Date("2026-10-15T12:00:00Z")
+const provider = {
+  id: "apr_test",
+  alias: "chatgpt",
+  revision: 1,
+  protocol: "openai-codex",
+  keychain: { id: "default", version: 1 },
+  credential_configured: false,
+  enabled: true,
+}
 const attempt = {
   device_auth_id: "device",
   user_code: "ABCD-EFGH",
@@ -14,8 +23,16 @@ const success = {
   status: "succeeded",
   account: { id: "account", email: "user@example.com" },
   expires_at: "2026-10-15T13:00:00Z",
+  provider: { ...provider, revision: 2, credential_configured: true },
 }
 const json = (value: unknown) => new Response(JSON.stringify(value))
+function stubFetch(fetch: ReturnType<typeof vi.fn>, snapshot = provider) {
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, options?: RequestInit) =>
+    String(input) === "/api/v1/system/agent-providers/apr_test"
+      ? Promise.resolve(json(snapshot))
+      : fetch(input, options),
+  )
+}
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>((accept) => {
@@ -28,6 +45,7 @@ function controller() {
   const onSystemAccessChange = vi.fn()
   return {
     ...createCodexLoginController({
+      providerID: provider.id,
       onAuthenticationLost,
       onSystemAccessChange,
     }),
@@ -51,7 +69,7 @@ it("starts and polls through Gatehouse, respecting the original interval until s
     .mockResolvedValueOnce(json(attempt))
     .mockResolvedValueOnce(json({ status: "pending", poll_after_ms: 5000 }))
     .mockResolvedValueOnce(json(success))
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   expect(login.state.phase).toBe("pending")
@@ -59,7 +77,10 @@ it("starts and polls through Gatehouse, respecting the original interval until s
   expect(fetch.mock.calls[0][0]).toBe(
     "/api/v1/system/agent-providers/openai-codex/login/start",
   )
-  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({})
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({
+    provider: provider.id,
+    expected_revision: 1,
+  })
   await vi.advanceTimersByTimeAsync(6999)
   expect(fetch).toHaveBeenCalledTimes(1)
   await vi.advanceTimersByTimeAsync(1)
@@ -67,6 +88,8 @@ it("starts and polls through Gatehouse, respecting the original interval until s
     "/api/v1/system/agent-providers/openai-codex/login/poll",
   )
   expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+    provider: provider.id,
+    expected_revision: 1,
     device_auth_id: "device",
     user_code: "ABCD-EFGH",
   })
@@ -88,7 +111,7 @@ it("does not overlap polling requests and aborts the current request on cancella
     .fn()
     .mockResolvedValueOnce(json(attempt))
     .mockReturnValueOnce(pending.promise)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   await vi.advanceTimersByTimeAsync(7000)
@@ -113,7 +136,7 @@ it("ignores a success whose body finishes decoding after cancellation", async ()
     .fn()
     .mockResolvedValueOnce(json(attempt))
     .mockResolvedValueOnce(response)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   await vi.advanceTimersByTimeAsync(7000)
@@ -132,7 +155,7 @@ it("expires and aborts an in-flight poll without publishing a late access failur
       json({ ...attempt, expires_at: "2026-10-15T12:00:10Z" }),
     )
     .mockReturnValueOnce(pending.promise)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   await vi.advanceTimersByTimeAsync(10_000)
@@ -148,9 +171,10 @@ it("expires and aborts an in-flight poll without publishing a late access failur
 it("disposal aborts start and prevents late authentication callbacks or restarting", async () => {
   const pending = deferred<Response>()
   const fetch = vi.fn().mockReturnValue(pending.promise)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   const starting = login.start()
+  await vi.advanceTimersByTimeAsync(0)
   login.stop()
   expect((fetch.mock.calls[0][1].signal as AbortSignal).aborted).toBe(true)
   pending.resolve(new Response("unauthorized", { status: 401 }))
@@ -172,7 +196,7 @@ it("reports a token-exchange failure, clears temporary state, and supports a fre
       }),
     )
     .mockResolvedValueOnce(json(attempt))
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   await vi.advanceTimersByTimeAsync(7000)
@@ -193,7 +217,7 @@ it.each([401, 403])(
       .fn()
       .mockResolvedValueOnce(json(attempt))
       .mockResolvedValueOnce(new Response("denied", { status }))
-    vi.stubGlobal("fetch", fetch)
+    stubFetch(fetch)
     const login = controller()
     await login.start()
     await vi.advanceTimersByTimeAsync(7000)
@@ -211,7 +235,7 @@ it("rejects an unexpected verification origin before displaying or polling it", 
     .mockResolvedValue(
       json({ ...attempt, verification_uri: "https://other.test/codex/device" }),
     )
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   expect(login.state.phase).toBe("failed")
@@ -225,7 +249,7 @@ it("updates relative expiry without changing the waiting phase or overlapping a 
     .fn()
     .mockResolvedValueOnce(json(attempt))
     .mockReturnValueOnce(pending.promise)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   await vi.advanceTimersByTimeAsync(60_000)
@@ -247,10 +271,11 @@ it("updates relative expiry without changing the waiting phase or overlapping a 
 it("prevents duplicate submissions while starting and cancels that request", async () => {
   const pending = deferred<Response>()
   const fetch = vi.fn().mockReturnValue(pending.promise)
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   const starting = login.start()
   await login.start()
+  await vi.advanceTimersByTimeAsync(0)
   expect(login.state.phase).toBe("starting")
   expect(login.state.busy).toBe(true)
   expect(fetch).toHaveBeenCalledOnce()
@@ -266,7 +291,7 @@ it("shows an expired state when a code is already expired on receipt", async () 
   const fetch = vi
     .fn()
     .mockResolvedValueOnce(json({ ...attempt, expires_at: now.toISOString() }))
-  vi.stubGlobal("fetch", fetch)
+  stubFetch(fetch)
   const login = controller()
   await login.start()
   expect(login.state.phase).toBe("expired")
@@ -295,7 +320,7 @@ it.each([
 ])(
   "gives an actionable failure without displaying raw response details ($message)",
   async ({ response, message }) => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response()))
+    stubFetch(vi.fn().mockResolvedValueOnce(response()))
     const login = controller()
     await login.start()
     expect(login.state.phase).toBe("failed")
@@ -306,12 +331,61 @@ it.each([
 )
 
 it("describes a network failure without exposing the transport exception", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")),
-  )
+  stubFetch(vi.fn().mockRejectedValueOnce(new TypeError("Failed to fetch")))
   const login = controller()
   await login.start()
   expect(login.state.phase).toBe("failed")
   expect(login.state.error).toBe("Check your connection and try again.")
+})
+
+it("recovers provider status after losing the final response without retrying the exchange", async () => {
+  let reads = 0
+  const post = vi
+    .fn()
+    .mockResolvedValueOnce(json(attempt))
+    .mockRejectedValueOnce(new TypeError("lost response"))
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input) === "/api/v1/system/agent-providers/apr_test") {
+      reads++
+      return Promise.resolve(json(reads === 1 ? provider : success.provider))
+    }
+    return post(input, options)
+  })
+  const login = controller()
+  await login.start()
+  await vi.advanceTimersByTimeAsync(7000)
+  expect(reads).toBe(2)
+  expect(post).toHaveBeenCalledTimes(2)
+  expect(login.state.provider?.credential_configured).toBe(true)
+  expect(login.state.result).toBeNull()
+  expect(login.state.error).toContain("Review its connection")
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it("uses the latest provider revision on a new attempt after a conflict", async () => {
+  let reads = 0
+  const post = vi
+    .fn()
+    .mockResolvedValueOnce(json(attempt))
+    .mockResolvedValueOnce(new Response("revision conflict", { status: 409 }))
+    .mockResolvedValueOnce(json(attempt))
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, options?: RequestInit) => {
+    if (String(input) === "/api/v1/system/agent-providers/apr_test") {
+      reads++
+      return Promise.resolve(
+        json({ ...provider, revision: reads === 1 ? 1 : 3 }),
+      )
+    }
+    return post(input, options)
+  })
+  const login = controller()
+  await login.start()
+  await vi.advanceTimersByTimeAsync(7000)
+  expect(login.state.phase).toBe("failed")
+  await login.start()
+  expect(JSON.parse(post.mock.calls[2][1].body)).toEqual({
+    provider: provider.id,
+    expected_revision: 3,
+  })
+  login.stop()
 })

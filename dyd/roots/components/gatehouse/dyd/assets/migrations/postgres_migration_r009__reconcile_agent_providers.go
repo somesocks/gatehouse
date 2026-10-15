@@ -57,7 +57,10 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 				}
 			}
 			value := postgresMigrationR009AgentProviderValue{ID: id, Alias: provider.Alias, Revision: provider.Revision, Protocol: provider.Protocol, Enabled: provider.Enabled}
-			if provider.Protocol != "builtin" {
+			if provider.Protocol == config.AgentProviderProtocolOpenAICodex {
+				value.Endpoint = config.OpenAICodexEndpoint
+				value.KeychainID, value.KeychainVersion = *provider.Keychain, 1
+			} else if provider.Protocol != "builtin" {
 				apiKeyErr, apiKey := resolver.Resolve(provider.Alias, provider.Sources)
 				if apiKeyErr != nil {
 					return apiKeyErr, ""
@@ -95,9 +98,14 @@ func postgresMigrationR009ReconcileAgentProvidersBuilder(providers []config.Agen
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range .Values }}
-			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+			INSERT INTO gatehouse_agent_providers (id, alias, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled)
 			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .Protocol }}, {{ sqlLiteral .Endpoint }}, {{ sqlLiteral .KeychainID }}, {{ sqlLiteral .KeychainVersion }}, {{ sqlLiteral .APIKey }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint, keychain_id = excluded.keychain_id, keychain_version = excluded.keychain_version, api_key = excluded.api_key, enabled = excluded.enabled
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint,
+			keychain_id = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL AND gatehouse_agent_providers.keychain_id <> excluded.keychain_id THEN NULL ELSE excluded.keychain_id END,
+			keychain_version = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL THEN gatehouse_agent_providers.keychain_version ELSE excluded.keychain_version END,
+			credential = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential ELSE excluded.credential END,
+			credential_metadata = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential_metadata ELSE NULL END,
+			enabled = excluded.enabled
 			WHERE gatehouse_agent_providers.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}

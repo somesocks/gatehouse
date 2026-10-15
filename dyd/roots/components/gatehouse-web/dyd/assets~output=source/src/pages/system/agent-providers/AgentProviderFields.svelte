@@ -38,13 +38,14 @@
       id="provider-protocol"
       bind:value={form.protocol}
       ><UI.Option value="builtin">Built-in</UI.Option><UI.Option
-        value="openai-responses">OpenAI Responses</UI.Option
+        value="openai-codex">OpenAI Codex / ChatGPT</UI.Option
+      ><UI.Option value="openai-responses">OpenAI Responses</UI.Option
       ><UI.Option value="openai-chat-completions"
         >OpenAI Chat Completions</UI.Option
       ></UI.Select
     ></UI.Field
   >
-  {#if form.protocol !== "builtin"}<UI.Field
+  {#if form.protocol !== "builtin" && form.protocol !== "openai-codex"}<UI.Field
       ><UI.Label for="provider-url">Endpoint</UI.Label><UI.Input
         id="provider-url"
         type="url"
@@ -64,20 +65,25 @@
       error={keychainsError}
       onreload={onKeychainsReload}
     />
-    <UI.Field
-      ><UI.Label for="provider-key"
-        >{editing ? "Replacement API key" : "API key"}</UI.Label
-      ><UI.Input
-        id="provider-key"
-        type="password"
-        autocomplete="new-password"
-        required={!editing}
-        bind:value={form.apiKey}
-      />{#if editing}<UI.Text as="small" size="small" tone="muted"
-          >Leave blank to keep the current key. Replace it when changing
-          protocol or keychain.</UI.Text
-        >{/if}</UI.Field
-    >
+    {#if form.protocol === "openai-codex"}
+      <UI.Text as="p" size="small" tone="muted"
+        >Connect your ChatGPT account from the provider’s detail page after
+        saving.</UI.Text
+      >
+    {:else}<UI.Field
+        ><UI.Label for="provider-key"
+          >{editing ? "Replacement API key" : "API key"}</UI.Label
+        ><UI.Input
+          id="provider-key"
+          type="password"
+          autocomplete="new-password"
+          required={!editing}
+          bind:value={form.apiKey}
+        />{#if editing}<UI.Text as="small" size="small" tone="muted"
+            >Leave blank to keep the current key. Replace it when changing
+            protocol or keychain.</UI.Text
+          >{/if}</UI.Field
+      >{/if}
   </UI.FormSection>{/if}
 <UI.FormSection title="Availability"
   ><UI.Label layout="choice"

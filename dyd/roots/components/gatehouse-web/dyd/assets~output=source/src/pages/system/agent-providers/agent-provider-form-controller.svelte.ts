@@ -1,5 +1,6 @@
 import {
   systemAdministration,
+  disconnectAgentProvider,
   type SystemAgentProvider,
   type SystemKeychain,
 } from "../../../app/system"
@@ -163,9 +164,19 @@ export function createAgentProviderFormController({
     if (
       replacementRequired &&
       state.form.protocol !== "builtin" &&
+      state.form.protocol !== "openai-codex" &&
       state.form.apiKey.trim() === ""
     ) {
       state.error = "An API key is required when changing protocol or keychain."
+      return false
+    }
+    if (
+      state.provider?.protocol === "openai-codex" &&
+      state.provider.credential_configured &&
+      state.form.protocol === "openai-codex" &&
+      state.form.keychain !== state.provider.keychain?.id
+    ) {
+      state.error = "Disconnect the provider before changing its keychain."
       return false
     }
     return true
@@ -212,11 +223,15 @@ export function createAgentProviderFormController({
           alias: form.alias,
           protocol: form.protocol,
           endpoint:
-            form.protocol === "builtin" ? undefined : optional(form.endpoint),
+            form.protocol === "builtin" || form.protocol === "openai-codex"
+              ? undefined
+              : optional(form.endpoint),
           keychain:
             form.protocol === "builtin" ? undefined : optional(form.keychain),
           api_key:
-            form.protocol === "builtin" ? undefined : optional(form.apiKey),
+            form.protocol === "builtin" || form.protocol === "openai-codex"
+              ? undefined
+              : optional(form.apiKey),
           enabled: form.enabled,
           ...(revision === undefined ? {} : { expected_revision: revision }),
         },
@@ -262,6 +277,56 @@ export function createAgentProviderFormController({
     state.form.apiKey = ""
     state.editing = false
   }
+  async function disconnect(): Promise<void> {
+    const provider = state.provider
+    if (
+      disposed ||
+      state.saving ||
+      !provider ||
+      provider.protocol !== "openai-codex"
+    )
+      return
+    state.error = ""
+    const request = mutation.begin()
+    try {
+      const response = await disconnectAgentProvider(
+        provider.id,
+        provider.revision,
+        request.signal,
+      )
+      if (!request.current()) return
+      if (response.status === 401) {
+        onAuthenticationLost()
+        return
+      }
+      if (response.status === 403) {
+        onSystemAccessChange("denied")
+        return
+      }
+      if (response.status === 409) {
+        await load(provider.id)
+        if (request.current())
+          state.error =
+            "This provider changed elsewhere. Review its status before disconnecting."
+        return
+      }
+      if (!response.ok)
+        throw new Error("The provider could not be disconnected.")
+      const updated = (await response.json()) as SystemAgentProvider
+      request.commit(() => {
+        resource.stop()
+        state.provider = updated
+      })
+    } catch (error) {
+      if (request.current())
+        state.error =
+          error instanceof Error
+            ? error.message
+            : "The provider could not be disconnected."
+    } finally {
+      request.finish()
+    }
+  }
   function replaceDraft() {
     if (!disposed) {
       state.editing = false
@@ -276,6 +341,7 @@ export function createAgentProviderFormController({
     beginEdit,
     create,
     update,
+    disconnect,
     stop,
     replaceDraft,
   }

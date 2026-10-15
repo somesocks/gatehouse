@@ -385,7 +385,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
-		INSERT INTO gatehouse_agent_providers (id, revision, protocol, endpoint, keychain_id, keychain_version, api_key, enabled)
+		INSERT INTO gatehouse_agent_providers (id, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled)
 		VALUES ('apr_01arz3ndektsv4rrffq69g5fav', 1, 'openai-chat-completions', 'https://example.test/v1', 'events', 1, 'key', TRUE);
 		INSERT INTO gatehouse_agent_models (id, revision, provider_id, model, parameters, enabled)
 		VALUES ('amd_01arz3ndektsv4rrffq69g5fav', 1, 'apr_01arz3ndektsv4rrffq69g5fav', 'example', '{}', TRUE);

@@ -65,7 +65,7 @@ func TestPostgresMigrationV052AgentProviderEndpoints(t *testing.T) {
 		if err := migratePostgres(ctx, db, registry); err != nil {
 			t.Fatal(err)
 		}
-		rows, err := db.Query(`SELECT endpoint, revision, api_key, enabled FROM gatehouse_agent_providers WHERE protocol <> 'builtin' ORDER BY id`)
+		rows, err := db.Query(`SELECT endpoint, revision, credential, enabled FROM gatehouse_agent_providers WHERE protocol <> 'builtin' ORDER BY id`)
 		if err != nil {
 			t.Fatal(err)
 		}

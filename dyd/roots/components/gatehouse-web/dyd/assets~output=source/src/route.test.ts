@@ -44,6 +44,10 @@ describe("routes", () => {
       route: { kind: "system-codex-login" },
     },
     {
+      path: "/app/login/openai-codex?provider=apr_1",
+      route: { kind: "system-codex-login", providerID: "apr_1" },
+    },
+    {
       path: "/app/system/agent-providers/apr_1",
       route: { kind: "system-agent-provider", providerID: "apr_1" },
     },

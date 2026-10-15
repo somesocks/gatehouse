@@ -20,6 +20,23 @@
     const id = providerID
     const edit = editingPage
     let active = true
+    const unsubscribe = edit
+      ? () => {}
+      : runtime.activity.subscribe(
+          [
+            {
+              name: "agent-provider",
+              topic: `sys/${id}`,
+              events: ["agent_provider.*"],
+            },
+          ],
+          async () => {
+            if (!active) return
+            await controller.load(id)
+            if (active && controller.state.error)
+              throw new Error("Provider refresh failed")
+          },
+        )
     untrack(
       () =>
         void controller.load(id).then(() => {
@@ -28,6 +45,7 @@
     )
     return () => {
       active = false
+      unsubscribe()
       controller.stop()
     }
   })
@@ -144,11 +162,49 @@
             "Not configured"}{#if controller.state.provider.keychain}
             · version {controller.state.provider.keychain
               .version}{/if}</UI.Property
-        ><UI.Property label="API key"
-          >{controller.state.provider.credential_configured
-            ? "Configured"
-            : "Not configured"}</UI.Property
-        ></UI.DetailSection
+        >{#if controller.state.provider.protocol === "openai-codex"}
+          <UI.Property label="Status">
+            <UI.Row gap="normal">
+              <UI.Text
+                >{controller.state.provider.credential_configured
+                  ? "Connected"
+                  : "Not connected"}</UI.Text
+              >
+              <UI.Link
+                variant="default"
+                size="sm"
+                href={`/app/login/openai-codex?provider=${encodeURIComponent(providerID)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {controller.state.provider.credential_configured
+                  ? "Reconnect ChatGPT"
+                  : "Connect ChatGPT"}
+              </UI.Link>
+              {#if controller.state.provider.credential_configured}
+                <UI.Button
+                  variant="outline"
+                  size="sm"
+                  disabled={controller.state.saving}
+                  onclick={() => void controller.disconnect()}
+                  >{controller.state.saving
+                    ? "Disconnecting…"
+                    : "Disconnect"}</UI.Button
+                >
+              {/if}
+            </UI.Row>
+          </UI.Property>
+          {#if controller.state.provider.account}
+            <UI.Property label="Account"
+              >{controller.state.provider.account.email ??
+                controller.state.provider.account.id}</UI.Property
+            >
+          {/if}
+        {:else}<UI.Property label="API key"
+            >{controller.state.provider.credential_configured
+              ? "Configured"
+              : "Not configured"}</UI.Property
+          >{/if}</UI.DetailSection
       >
       <UI.DetailSection title="Record information"
         ><UI.Property label="Alias"

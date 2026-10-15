@@ -15,6 +15,8 @@ const (
 	agentProviderProtocolBuiltin               = "builtin"
 	agentProviderProtocolOpenAIChatCompletions = "openai-chat-completions"
 	agentProviderProtocolOpenAIResponses       = "openai-responses"
+	AgentProviderProtocolOpenAICodex           = "openai-codex"
+	OpenAICodexEndpoint                        = "https://chatgpt.com/backend-api/codex/responses"
 	agentModelBuiltinDummyFixedReply           = "dummy.fixed-reply"
 )
 
@@ -143,13 +145,32 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 		}
 		enabled := configured.Enabled == nil || *configured.Enabled
 		provider := AgentProvider{Alias: configured.Alias, Revision: configured.Revision, Protocol: configured.Protocol, Enabled: enabled}
+		if configured.ApiKey != nil && configured.Credential != nil {
+			return fmt.Errorf("agent_providers[%d] must not specify both api_key and credential", index), nil
+		}
 		switch configured.Protocol {
 		case agentProviderProtocolBuiltin:
-			if configured.Endpoint != nil || configured.ApiKey != nil {
+			if configured.Endpoint != nil || configured.ApiKey != nil || configured.Credential != nil {
 				return fmt.Errorf("agent_providers[%d] builtin providers do not accept endpoint or api_key", index), nil
 			}
+		case AgentProviderProtocolOpenAICodex:
+			if configured.ApiKey != nil || (configured.Credential != nil && configured.Credential.Sources != nil) {
+				return fmt.Errorf("agent_providers[%d] openai-codex credentials are installed through login", index), nil
+			}
+			endpoint := OpenAICodexEndpoint
+			if configured.Endpoint != nil && *configured.Endpoint != endpoint {
+				return fmt.Errorf("agent_providers[%d] openai-codex endpoint is fixed", index), nil
+			}
+			keychain := defaultKeychainID
+			if configured.Credential != nil && configured.Credential.Keychain != nil {
+				keychain = *configured.Credential.Keychain
+			}
+			if !keychainID.MatchString(keychain) {
+				return fmt.Errorf("agent_providers[%d].credential.keychain is invalid", index), nil
+			}
+			provider.Endpoint, provider.Keychain = &endpoint, &keychain
 		case agentProviderProtocolOpenAIChatCompletions, agentProviderProtocolOpenAIResponses:
-			if configured.Endpoint == nil || configured.ApiKey == nil {
+			if configured.Endpoint == nil || (configured.ApiKey == nil && configured.Credential == nil) {
 				return fmt.Errorf("agent_providers[%d] OpenAI providers require endpoint and api_key", index), nil
 			}
 			parsed, err := url.ParseRequestURI(*configured.Endpoint)
@@ -157,15 +178,26 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 				return fmt.Errorf("agent_providers[%d].endpoint must be an absolute HTTP URL", index), nil
 			}
 			keychain := defaultKeychainID
-			if configured.ApiKey.Keychain != nil {
-				keychain = *configured.ApiKey.Keychain
+			var configuredSources []string
+			if configured.ApiKey != nil {
+				if configured.ApiKey.Keychain != nil {
+					keychain = *configured.ApiKey.Keychain
+				}
+				configuredSources = configured.ApiKey.Sources
+			} else {
+				if configured.Credential.Keychain != nil {
+					keychain = *configured.Credential.Keychain
+				}
+				if configured.Credential.Sources != nil {
+					configuredSources = *configured.Credential.Sources
+				}
 			}
-			if !keychainID.MatchString(keychain) || len(configured.ApiKey.Sources) == 0 {
+			if !keychainID.MatchString(keychain) || len(configuredSources) == 0 {
 				return fmt.Errorf("agent_providers[%d].api_key is invalid", index), nil
 			}
-			sources := make([]AgentProviderAPIKeySource, 0, len(configured.ApiKey.Sources))
-			seen := make(map[string]struct{}, len(configured.ApiKey.Sources))
-			for sourceIndex, source := range configured.ApiKey.Sources {
+			sources := make([]AgentProviderAPIKeySource, 0, len(configuredSources))
+			seen := make(map[string]struct{}, len(configuredSources))
+			for sourceIndex, source := range configuredSources {
 				if _, exists := seen[source]; exists {
 					return fmt.Errorf("agent_providers[%d].api_key.sources[%d] %q is duplicated", index, sourceIndex, source), nil
 				}

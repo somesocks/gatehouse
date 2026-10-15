@@ -15,7 +15,7 @@ export type Route =
   | { kind: "system-principal-edit"; principalID: string }
   | { kind: "system-agent-providers" }
   | { kind: "system-agent-provider-new" }
-  | { kind: "system-codex-login" }
+  | { kind: "system-codex-login"; providerID?: string }
   | { kind: "system-agent-provider"; providerID: string }
   | { kind: "system-agent-provider-edit"; providerID: string }
   | { kind: "system-agent-models" }
@@ -188,7 +188,12 @@ export function parseRoute(url: URL): Route {
     segments[1] === "login" &&
     segments[2] === "openai-codex"
   )
-    return { kind: "system-codex-login" }
+    return {
+      kind: "system-codex-login",
+      ...(url.searchParams.get("provider")
+        ? { providerID: url.searchParams.get("provider")! }
+        : {}),
+    }
   if (
     segments[1] === "system" &&
     segments.length === 5 &&
@@ -840,7 +845,12 @@ export function routePath(route: NavigableRoute): string {
     case "system-agent-provider-new":
       return "/app/system/agent-providers/new"
     case "system-codex-login":
-      return "/app/login/openai-codex"
+      return (
+        "/app/login/openai-codex" +
+        (route.providerID
+          ? `?${new URLSearchParams({ provider: route.providerID })}`
+          : "")
+      )
     case "system-agent-provider":
       return `/app/system/agent-providers/${segment(route.providerID)}`
     case "system-agent-provider-edit":
