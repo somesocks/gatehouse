@@ -685,9 +685,6 @@
             aria-live="polite"
             onscroll={() => controller.trackScroll()}
           >
-            {#if sessionLoad.reloading || controller.state.reloading}<UI.Text
-                role="status">Refreshing conversation…</UI.Text
-              >{/if}
             {#if sessionLoad.state.error || controller.state.reloadError || controller.state.agentsError}<UI.Notice
                 variant="destructive"
                 role="alert"
