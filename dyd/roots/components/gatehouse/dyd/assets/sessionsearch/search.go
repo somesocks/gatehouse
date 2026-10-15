@@ -153,6 +153,10 @@ func EventReadableBody(event model.SessionEvent) (string, bool) {
 		return code + "\n" + reason, true
 	case model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
 		output, ok := event.Payload["output"].(string)
+		if !ok && event.Payload["output_file"] != nil {
+			encoded, err := json.Marshal(EventPublicPayload(event))
+			return string(encoded), err == nil
+		}
 		return output, ok
 	case model.SessionEventKindApprovalRequest:
 		description, ok := event.Payload["description"].(string)

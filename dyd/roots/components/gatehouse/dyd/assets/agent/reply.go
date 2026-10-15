@@ -386,7 +386,8 @@ func (runtime *SessionEventReplyRuntime) cancelledReplyFinalize(ctx dbos.Context
 			if name == "" || callID == "" || event.AuthorAgent == nil {
 				return fmt.Errorf("cancel unfinished tool %q: request payload is invalid", event.Ref.Id)
 			}
-			payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{Code: "cancelled", Output: "execution cancelled"})
+			output := "execution cancelled"
+			payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{Code: "cancelled", Output: &output})
 			if err != nil {
 				return err
 			}
@@ -843,8 +844,9 @@ func (runtime *SessionEventReplyRuntime) toolCall(ctx dbos.Context, input Sessio
 			return reference, errors.Join(callErr, err)
 		}
 	}
+	output := mcmtrLimitText(callErr.Error(), 256).value
 	payload, err := database.SessionEventPayloadFrom(model.ToolFailurePayload{
-		Code: failureEventCode(callErr), Output: callErr.Error(),
+		Code: failureEventCode(callErr), Output: &output,
 	})
 	if err != nil {
 		return reference, errors.Join(callErr, err)
@@ -910,7 +912,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 		)
 	}
 	modules = append(modules,
-		runtime.sessionFilesModule(ctx, request.Ref.Session, principal),
+		runtime.sessionFilesModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionNotesModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionTasksModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionSecretsModule(ctx, request.Ref.Session, principal),
@@ -988,21 +990,28 @@ func sessionEventReadRange(event model.SessionEvent, offset, length int64) (erro
 }
 
 func (runtime *SessionEventReplyRuntime) toolCallFinish(ctx dbos.Context, request model.SessionEvent, agent model.WorkspaceAgentRef, execution sessionToolCallExecution) (model.SessionEventRef, error) {
-	var payload map[string]interface{}
-	var err error
-	if execution.Kind == model.SessionEventKindToolSuccess {
-		payload, err = database.SessionEventPayloadFrom(model.ToolSuccessPayload{Output: execution.Output})
-	} else {
-		payload, err = database.SessionEventPayloadFrom(model.ToolFailurePayload{Code: execution.Code, Output: execution.Output})
+	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, agent.Workspace, agent.Id)
+	var body agentResultBody
+	if err == nil {
+		body, err = runtime.agentResultStore(ctx, request, execution.Output, resultInlineLimit(selected))
 	}
-	if err != nil {
-		return model.SessionEventRef{}, fmt.Errorf("encode tool terminal payload: %w", err)
+	var payload map[string]interface{}
+	if err == nil {
+		if execution.Kind == model.SessionEventKindToolSuccess {
+			payload, err = database.SessionEventPayloadFrom(model.ToolSuccessPayload{Output: body.Output, OutputFile: body.OutputFile})
+		} else {
+			failure := model.ToolFailurePayload{Code: execution.Code, Output: body.Output, OutputFile: body.OutputFile}
+			if body.OutputFile != nil {
+				failure.Message = body.Message
+			}
+			payload, err = database.SessionEventPayloadFrom(failure)
+		}
 	}
 	resultEvent := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: request.Ref.Session}, Parent: &request.Ref, Kind: execution.Kind, AuthorAgent: &agent,
 		Payload: payload, CreatedAt: toolOutputCreatedAt(request.CreatedAt),
 	}
-	err, reference := runtime.persistAgentEvent(ctx, resultEvent)
+	err, reference := runtime.persistPreparedAgentEvent(ctx, resultEvent, err)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
@@ -2120,7 +2129,17 @@ func openAICompatibleReasoningEffort(parameters string) (error, string) {
 }
 
 func (runtime *SessionEventReplyRuntime) persistAgentEvent(ctx dbos.Context, event model.SessionEvent) (error, model.SessionEventRef) {
+	return runtime.persistPreparedAgentEvent(ctx, event, nil)
+}
+
+// Preparation can upload content before this transaction. Its error is checked
+// only on fresh execution; replay returns the event reference already committed
+// with the DBOS transaction record. Only that reference enters the checkpoint.
+func (runtime *SessionEventReplyRuntime) persistPreparedAgentEvent(ctx dbos.Context, event model.SessionEvent, preparationErr error) (error, model.SessionEventRef) {
 	reference, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEventRef, error) {
+		if preparationErr != nil {
+			return model.SessionEventRef{}, preparationErr
+		}
 		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
 			return model.SessionEventRef{}, fmt.Errorf("generate session event ID: %w", err)
@@ -2184,16 +2203,29 @@ func (runtime *SessionEventReplyRuntime) thinkingFinishWithMetrics(ctx dbos.Cont
 		if completionErr != nil {
 			message = completionErr.Error()
 		}
-		payload, err = database.SessionEventPayloadFrom(model.ThinkingFailurePayload{Code: failureEventCode(completionErr), Message: optionalString(message)})
-	}
-	if err != nil {
-		return fmt.Errorf("encode thinking terminal payload: %w", err)
+		agentID := ""
+		if started.AuthorAgent != nil {
+			agentID = started.AuthorAgent.Id
+		}
+		var selected *database.WorkspaceAgentModel
+		err, selected = runtime.store.WorkspaceAgentModelGet(ctx, started.Ref.Session.Workspace, agentID)
+		var body agentResultBody
+		if err == nil {
+			body, err = runtime.agentResultStore(ctx, started, message, resultInlineLimit(selected))
+		}
+		if err == nil {
+			failure := model.ThinkingFailurePayload{Code: failureEventCode(completionErr), Message: body.Output, OutputFile: body.OutputFile}
+			if body.OutputFile != nil {
+				failure.Message = body.Message
+			}
+			payload, err = database.SessionEventPayloadFrom(failure)
+		}
 	}
 	event := model.SessionEvent{
 		Ref: model.SessionEventRef{Session: started.Ref.Session}, Parent: &started.Ref, Kind: kind, AuthorAgent: started.AuthorAgent,
 		Payload: payload, Metrics: metrics, CreatedAt: eventTerminalCreatedAt(started.CreatedAt),
 	}
-	err, _ = runtime.persistAgentEvent(ctx, event)
+	err, _ = runtime.persistPreparedAgentEvent(ctx, event, err)
 	if completionErr != nil && err != nil {
 		return errors.Join(completionErr, err)
 	}
@@ -2369,7 +2401,7 @@ func openAICompatibleMessages(events []model.SessionEvent) (error, []openAICompa
 				return fmt.Errorf("session tool output %q has no preceding tool call", event.Ref.Id), nil
 			}
 			output, ok := event.Payload["output"].(string)
-			if !ok {
+			if !ok && event.Payload["output_file"] == nil {
 				return fmt.Errorf("session tool output %q has no text output", event.Ref.Id), nil
 			}
 			status := "success"

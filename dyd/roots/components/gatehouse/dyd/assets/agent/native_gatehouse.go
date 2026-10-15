@@ -5,17 +5,20 @@ import (
 	"strings"
 
 	"gatehouse/lisp"
+	"gatehouse/model"
 	"gatehouse/sessionsearch"
 	"gatehouse/typed_id"
 )
 
 // File describes a file that an agent is authorized to inspect.
 type File struct {
-	ID          string
-	Name        string
-	MediaType   *string
-	Size        int64
-	Fingerprint string
+	ID              string
+	Name            string
+	MediaType       *string
+	Size            int64
+	Fingerprint     string
+	AuthorPrincipal *model.PrincipalRef
+	AuthorAgent     *model.WorkspaceAgentRef
 }
 
 // FileRead reads an authorized byte range from a file or note.
@@ -214,13 +217,20 @@ func fileValue(file File, name string) (error, lisp.Expr) {
 	if file.MediaType != nil {
 		mediaType = lisp.String(*file.MediaType)
 	}
-	return nil, lisp.List(
+	values := []lisp.Expr{
 		lisp.Pair("id", lisp.String(file.ID)),
 		lisp.Pair("name", lisp.String(file.Name)),
 		lisp.Pair("media_type", mediaType),
 		lisp.Pair("size", lisp.Integer(file.Size)),
 		lisp.Pair("fingerprint", lisp.String(file.Fingerprint)),
-	)
+	}
+	if file.AuthorPrincipal != nil {
+		values = append(values, lisp.Pair("author_principal", lisp.String(file.AuthorPrincipal.Id)))
+	}
+	if file.AuthorAgent != nil {
+		values = append(values, lisp.Pair("author_agent", lisp.String(file.AuthorAgent.Id)))
+	}
+	return nil, lisp.List(values...)
 }
 
 func fileUpdateFunction(update FileUpdate, name, kind, label string) func([]lisp.Expr) (error, lisp.Expr) {

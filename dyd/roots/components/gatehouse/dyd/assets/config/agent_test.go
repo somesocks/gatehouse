@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +37,35 @@ agent_models:
 	}
 	if len(state.AgentProviders) != 1 || state.AgentProviders[0].Protocol != agentProviderProtocolBuiltin || state.AgentProviders[0].Endpoint != nil || state.AgentProviders[0].Keychain != nil {
 		t.Fatalf("builtin provider = %#v", state.AgentProviders)
+	}
+	if len(state.AgentModels) != 1 || state.AgentModels[0].ResultInlineBytes != 4096 {
+		t.Fatalf("default result cutoff = %#v", state.AgentModels)
+	}
+}
+
+func TestAgentModelResultInlineBytes(t *testing.T) {
+	for _, cutoff := range []int{1, 8192, 0, -1} {
+		t.Run(fmt.Sprint(cutoff), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			contents := fmt.Sprintf("api_version: v1\nagent_providers:\n  - alias: builtin\n    revision: 1\n    protocol: builtin\nagent_models:\n  - alias: test\n    revision: 1\n    provider: builtin\n    model: dummy.fixed-reply\n    parameters: {text: done}\n    result_inline_bytes: %d\n", cutoff)
+			if err := os.WriteFile(path, []byte(contents), 0600); err != nil {
+				t.Fatal(err)
+			}
+			err, document := ValidateFile(path)
+			if cutoff <= 0 {
+				if err == nil {
+					t.Fatal("accepted a nonpositive cutoff")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, state := ResolveState(document)
+			if err != nil || state.AgentModels[0].ResultInlineBytes != cutoff {
+				t.Fatalf("cutoff resolution: %#v %v", state.AgentModels, err)
+			}
+		})
 	}
 }
 

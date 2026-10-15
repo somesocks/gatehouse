@@ -16,13 +16,15 @@ describe("conversation request ownership", () => {
     )
     const request = vi.fn(async () => Response.json([]))
     vi.stubGlobal("fetch", request)
+    const followLatest = vi.fn(async () => {})
     const controller = createChatController({
       isNearBottom: () => false,
-      followLatest: vi.fn(async () => {}),
+      followLatest,
       focusComposer: vi.fn(),
     })
     controller.start("workspace", "session", new AbortController().signal)
     await vi.waitFor(() => expect(controller.state.status).toBe("ready"))
+    expect(followLatest).toHaveBeenCalledWith("instant")
     controller.state.messageText = "Unsaved message"
     let decode!: (value: object[]) => void
     request.mockImplementationOnce(async () => ({

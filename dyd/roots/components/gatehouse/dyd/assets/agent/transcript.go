@@ -162,6 +162,29 @@ func transcriptToolResultEvent(content transcriptToolOutput, output string) stri
 		return transcriptOmittedEvent(content.Event, "tool-result", content.Status, "", content.SizeBytes)
 	}
 	var body strings.Builder
+	if file, ok := content.Event.Payload["output_file"].(map[string]interface{}); ok {
+		body.WriteString("<output-file")
+		id, _ := file["id"].(string)
+		transcriptAttribute(&body, "id", id)
+		if mediaType, ok := file["media_type"].(string); ok {
+			transcriptAttribute(&body, "media-type", mediaType)
+		}
+		if size, ok := file["size"].(float64); ok {
+			transcriptAttribute(&body, "size-bytes", strconv.FormatInt(int64(size), 10))
+		}
+		body.WriteString(" />")
+		if content.Status == "failure" {
+			if code, ok := content.Event.Payload["code"].(string); ok {
+				body.WriteString("<error")
+				transcriptAttribute(&body, "code", code)
+				body.WriteString(">")
+				message, _ := content.Event.Payload["message"].(string)
+				body.WriteString(transcriptEscape(message))
+				body.WriteString("</error>")
+			}
+		}
+		return transcriptEvent(content.Event, "tool-result", content.Status, "", body.String())
+	}
 	body.WriteString("<output")
 	transcriptTruncationAttributes(&body, content.Truncated, content.SizeBytes, content.ShownBytes)
 	body.WriteString(">")
@@ -630,7 +653,7 @@ func mcmtrRecordFor(event model.SessionEvent) (mcmtrRecord, bool, error) {
 		record.kind, record.callID, record.contents.value, record.channel = "tool-call", call.ID, call.Function.Arguments, toolResultSchedule
 	case model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
 		output, ok := event.Payload["output"].(string)
-		if !ok {
+		if !ok && event.Payload["output_file"] == nil {
 			return mcmtrRecord{}, false, fmt.Errorf("session tool output %q has no text output", event.Ref.Id)
 		}
 		record.kind, record.contents, record.channel = "tool-result", mcmtrLimitText(output, mcmtrToolResultContentMaximumBytes), toolResultSchedule

@@ -27,6 +27,11 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
+	const activityCountQuery = `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`
+	var initialActivities int
+	if err := store.QueryRowContext(ctx, activityCountQuery).Scan(&initialActivities); err != nil {
+		t.Fatal(err)
+	}
 	keychain := &model.KeychainRef{Id: "default", Version: 1}
 	baseURL := "https://api.example.test/v1"
 	agentInput := database.SystemAgentProviderInput{Alias: "openai", Protocol: "openai-responses", Endpoint: &baseURL, Keychain: keychain, EncryptedAPIKey: stringPointer("gh-enc:agent-key"), Enabled: true}
@@ -47,12 +52,14 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 
 	modelInput := database.SystemAgentModelInput{Alias: "assistant", ProviderID: provider.ID, Model: "gpt-test", Parameters: `{}`, Compaction: `{"algorithm":"mcmtr","history_bytes":96,"buffer_bytes":16}`, MaxTurns: 3, MaxOutputTokens: 1000, Enabled: true}
 	err, agentModel := store.SystemAgentModelCreate(ctx, modelInput)
-	if err != nil || agentModel == nil || agentModel.Revision != 1 {
+	if err != nil || agentModel == nil || agentModel.Revision != 1 || agentModel.ResultInlineBytes != 4096 {
 		t.Fatalf("SystemAgentModelCreate() = (%#v, %v)", agentModel, err)
 	}
 	modelInput.Enabled = false
+	cutoff := 8192
+	modelInput.ResultInlineBytes = &cutoff
 	err, agentModel = store.SystemAgentModelUpdate(ctx, agentModel.ID, 1, modelInput)
-	if err != nil || agentModel == nil || agentModel.Revision != 2 || agentModel.Enabled {
+	if err != nil || agentModel == nil || agentModel.Revision != 2 || agentModel.Enabled || agentModel.ResultInlineBytes != cutoff {
 		t.Fatalf("SystemAgentModelUpdate() = (%#v, %v)", agentModel, err)
 	}
 	if err, _ := store.SystemAgentModelUpdate(ctx, agentModel.ID, 1, modelInput); !errors.Is(err, database.ErrRevisionConflict) {
@@ -155,7 +162,7 @@ func TestSystemAdministrationResourcesAreRevisionedAndRedacted(t *testing.T) {
 	}
 
 	var activities int
-	if err := store.QueryRowContext(ctx, `SELECT COUNT(*) FROM gatehouse_activity_events WHERE event IN ('agent_provider.create', 'agent_provider.update', 'agent_model.create', 'agent_model.update', 'workspace_agent.create', 'workspace_agent.update', 'storage_provider.create', 'storage_provider.update', 'workspace_storage_provider.create', 'workspace_storage_provider.update')`).Scan(&activities); err != nil || activities != 13 {
-		t.Fatalf("administration activity count = (%d, %v), want 13", activities, err)
+	if err := store.QueryRowContext(ctx, activityCountQuery).Scan(&activities); err != nil || activities-initialActivities != 13 {
+		t.Fatalf("administration activity count = (%d, %v), want 13", activities-initialActivities, err)
 	}
 }

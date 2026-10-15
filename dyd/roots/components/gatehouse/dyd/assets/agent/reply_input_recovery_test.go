@@ -792,11 +792,11 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 							if inputToolOutcome.Kind != model.SessionEventKindToolSuccess {
 								t.Fatalf("tool outcome after submitted input = %q, want success", inputToolOutcome.Kind)
 							}
-							if output, _ := inputToolOutcome.Payload["output"].(string); !strings.Contains(output, answerMarker) {
+							output := testToolResultOutput(t, ctx, store, ring, *inputToolOutcome, principal)
+							if !strings.Contains(output, answerMarker) {
 								t.Fatalf("Gatehouse tool output did not retain the submitted answer: %q", output)
 							}
 							if outcome == "multiple-inputs" {
-								output, _ := inputToolOutcome.Payload["output"].(string)
 								if secondInput.Id == "" || !strings.Contains(output, secondAnswerMarker) {
 									t.Fatal("tool call did not retain both form responses")
 								}
@@ -872,7 +872,7 @@ func assertToolResultsResolveParent(t *testing.T, ctx context.Context, store *da
 		if event.Kind != model.SessionEventKindToolSuccess && event.Kind != model.SessionEventKindToolFailure {
 			continue
 		}
-		if event.Parent == nil || event.Payload["output"] == nil {
+		if event.Parent == nil || (event.Payload["output"] == nil) == (event.Payload["output_file"] == nil) {
 			t.Fatalf("tool result lost output or parent: %#v", event)
 		}
 		for _, field := range []string{"name", "call_id"} {

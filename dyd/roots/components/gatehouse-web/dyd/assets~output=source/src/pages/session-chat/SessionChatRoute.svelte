@@ -137,11 +137,9 @@
     behavior: ScrollBehavior = "smooth",
   ): Promise<void> {
     const value = generation
-    const element = feedElement
     await tick()
     if (
       value !== generation ||
-      element !== feedElement ||
       abortController?.signal.aborted
     )
       return
@@ -150,6 +148,8 @@
       document.activeElement.closest("[data-input-form]") !== null
     )
       return
+    // Initial event loading replaces the placeholder feed with the real one.
+    // Resolve the element after the render tick so the first scroll targets it.
     const scrollingElement = feedElement
     scrollingElement?.scrollTo({
       top: scrollingElement.scrollHeight,
@@ -958,7 +958,8 @@
                                       "thinking.failure",
                                     )}</UI.Text
                                   >{/if}
-                              </UI.Row>{/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<UI.Row
+                              </UI.Row>
+                              {/if}{/each}{#if renderedActivityEvents(request).length > 5 && controller.state.expandedActivity.has(request.event.ref.id)}<UI.Row
                               as="p"
                             >
                               <UI.Text

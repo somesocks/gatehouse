@@ -49,7 +49,7 @@ func (store *Store) SystemAgentModelsSearch(ctx context.Context, name, cursor, s
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(name)) + "%"
 	p := keychainPlaceholder(store.kind)
-	query := `SELECT models.id, models.alias, models.revision, models.provider_id, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, models.enabled, providers.alias FROM gatehouse_agent_models AS models JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id WHERE (LOWER(models.alias) LIKE LOWER(` + p(1) + `) ESCAPE '\' OR LOWER(models.id) LIKE LOWER(` + p(2) + `) ESCAPE '\' OR LOWER(models.model) LIKE LOWER(` + p(3) + `) ESCAPE '\' OR LOWER(providers.alias) LIKE LOWER(` + p(4) + `) ESCAPE '\') AND (` + p(5) + ` = '' OR models.id < ` + p(6) + `)`
+	query := `SELECT models.id, models.alias, models.revision, models.provider_id, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, models.result_inline_bytes, models.enabled, providers.alias FROM gatehouse_agent_models AS models JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id WHERE (LOWER(models.alias) LIKE LOWER(` + p(1) + `) ESCAPE '\' OR LOWER(models.id) LIKE LOWER(` + p(2) + `) ESCAPE '\' OR LOWER(models.model) LIKE LOWER(` + p(3) + `) ESCAPE '\' OR LOWER(providers.alias) LIKE LOWER(` + p(4) + `) ESCAPE '\') AND (` + p(5) + ` = '' OR models.id < ` + p(6) + `)`
 	args := []any{pattern, pattern, pattern, pattern, cursor, cursor}
 	if status != "" {
 		query += ` AND models.enabled = ` + p(7)
@@ -66,7 +66,7 @@ func (store *Store) SystemAgentModelsSearch(ctx context.Context, name, cursor, s
 	for rows.Next() {
 		var model SystemAgentModel
 		var alias string
-		if err := rows.Scan(&model.ID, &model.Alias, &model.Revision, &model.ProviderID, &model.Model, &model.Parameters, &model.Compaction, &model.MaxTurns, &model.MaxOutputTokens, &model.Enabled, &alias); err != nil {
+		if err := rows.Scan(&model.ID, &model.Alias, &model.Revision, &model.ProviderID, &model.Model, &model.Parameters, &model.Compaction, &model.MaxTurns, &model.MaxOutputTokens, &model.ResultInlineBytes, &model.Enabled, &alias); err != nil {
 			return err, nil, ""
 		}
 		model.ProviderAlias = &alias

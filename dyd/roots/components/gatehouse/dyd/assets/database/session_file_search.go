@@ -16,6 +16,7 @@ import (
 var ErrSessionFileSearch = errors.New("invalid session file search")
 
 type SessionFileSearch struct {
+	Author    string
 	Name      string
 	MediaType string
 	Accept    []string
@@ -31,6 +32,9 @@ type SessionFilePage struct {
 }
 
 func (search SessionFileSearch) Validate() error {
+	if _, err := sessionFileAuthorFilter(search.Author); err != nil {
+		return ErrSessionFileSearch
+	}
 	if search.Limit < 1 || search.Limit > 100 || len(search.Name) > 1024 || len(search.Accept) > 32 || search.Cursor != "" && !typed_id.Valid(typed_id.SessionFile, search.Cursor) || search.Direction != "next" && search.Direction != "previous" || search.Direction == "previous" && search.Cursor == "" {
 		return ErrSessionFileSearch
 	}
@@ -56,6 +60,10 @@ func (store *Store) SessionFilesSearch(ctx context.Context, session model.Sessio
 	args := []any{session.Workspace.Id, session.Id}
 	bind := func(value any) string { args = append(args, value); return p(len(args)) }
 	conditions := []string{"files.workspace = " + p(1), "files.session = " + p(2), "files.enabled = TRUE", "objects.state = 'success'"}
+	authorFilter, _ := sessionFileAuthorFilter(search.Author)
+	if authorFilter != "" {
+		conditions = append(conditions, strings.TrimPrefix(authorFilter, " AND "))
+	}
 	if strings.TrimSpace(search.Name) != "" {
 		name := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(search.Name)) + "%"
 		conditions = append(conditions, "LOWER(files.name) LIKE LOWER("+bind(name)+") ESCAPE '\\'")
@@ -88,7 +96,7 @@ func (store *Store) SessionFilesSearch(ctx context.Context, session model.Sessio
 		}
 		conditions = append(conditions, "files.id "+comparison+" "+bind(search.Cursor))
 	}
-	query := `SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
+	query := `SELECT files.id, files.name, files.media_type, objects.size, objects.sha256, files.author_principal, files.author_agent
 		FROM gatehouse_session_files AS files JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 		WHERE ` + strings.Join(conditions, " AND ") + ` ORDER BY files.id ` + order + ` LIMIT ` + bind(search.Limit)
 	rows, err := store.QueryContext(ctx, query, args...)
@@ -96,7 +104,7 @@ func (store *Store) SessionFilesSearch(ctx context.Context, session model.Sessio
 		return fmt.Errorf("search session files: %w", err), page
 	}
 	for rows.Next() {
-		file, err := scanSessionFileSummary(rows)
+		file, err := scanSessionFileSummary(rows, session)
 		if err != nil {
 			rows.Close()
 			return err, page
@@ -155,14 +163,14 @@ func (store *Store) SessionFilesByIDs(ctx context.Context, session model.Session
 		args = append(args, id)
 		parameters = append(parameters, p(len(args)))
 	}
-	rows, err := store.QueryContext(ctx, `SELECT files.id,files.name,files.media_type,objects.size,objects.sha256 FROM gatehouse_session_files AS files JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object WHERE files.workspace = `+p(1)+` AND files.session = `+p(2)+` AND files.enabled = TRUE AND objects.state = 'success' AND files.id IN (`+strings.Join(parameters, ",")+`)`, args...)
+	rows, err := store.QueryContext(ctx, `SELECT files.id,files.name,files.media_type,objects.size,objects.sha256,files.author_principal,files.author_agent FROM gatehouse_session_files AS files JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object WHERE files.workspace = `+p(1)+` AND files.session = `+p(2)+` AND files.enabled = TRUE AND objects.state = 'success' AND files.id IN (`+strings.Join(parameters, ",")+`)`, args...)
 	if err != nil {
 		return err, nil
 	}
 	defer rows.Close()
 	byID := map[string]SessionFileSummary{}
 	for rows.Next() {
-		file, err := scanSessionFileSummary(rows)
+		file, err := scanSessionFileSummary(rows, session)
 		if err != nil {
 			return err, nil
 		}
@@ -180,11 +188,13 @@ func (store *Store) SessionFilesByIDs(ctx context.Context, session model.Session
 	return nil, files
 }
 
-func scanSessionFileSummary(row interface{ Scan(...any) error }) (SessionFileSummary, error) {
+func scanSessionFileSummary(row interface{ Scan(...any) error }, session model.SessionRef) (SessionFileSummary, error) {
 	var file SessionFileSummary
 	var mediaType sql.NullString
 	var digest []byte
-	err := row.Scan(&file.ID, &file.Name, &mediaType, &file.Size, &digest)
+	var principal, agent sql.NullString
+	err := row.Scan(&file.ID, &file.Name, &mediaType, &file.Size, &digest, &principal, &agent)
+	sessionFileSummaryAuthors(&file, session, principal, agent)
 	if mediaType.Valid {
 		file.MediaType = &mediaType.String
 	}

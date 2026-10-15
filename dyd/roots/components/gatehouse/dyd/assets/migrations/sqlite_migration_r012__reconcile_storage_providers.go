@@ -27,6 +27,16 @@ type sqliteMigrationR012StorageProviderValue struct {
 }
 
 func sqliteMigrationR012ReconcileStorageProvidersBuilder(providers []config.StorageProvider, keyring *keychain.Keyring) MigrationBuilder {
+	desired := append([]config.StorageProvider{}, providers...)
+	hasEmbedded := false
+	for _, provider := range providers {
+		if provider.Alias == "embedded" {
+			hasEmbedded = true
+		}
+	}
+	if !hasEmbedded {
+		desired = append(desired, config.StorageProvider{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true})
+	}
 	resolver := storage.NewSecretKeySourceResolver()
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
 		revisions, err := sqliteMigrationR012StorageProviderRevisionsByAlias(ctx, session)
@@ -34,7 +44,7 @@ func sqliteMigrationR012ReconcileStorageProvidersBuilder(providers []config.Stor
 			return err, ""
 		}
 		values := make([]sqliteMigrationR012StorageProviderValue, 0, len(providers))
-		for _, provider := range providers {
+		for _, provider := range desired {
 			if revisions[provider.Alias] >= provider.Revision {
 				continue
 			}

@@ -18,9 +18,9 @@ func postgresMigrationR010ReconcileAgentModels(state config.State) RepeatableMig
 }
 
 type postgresMigrationR010AgentModelValue struct {
-	ID, Alias, ProviderID, Model, Parameters, Compaction string
-	Revision, MaxTurns, MaxOutputTokens                  int
-	Enabled                                              bool
+	ID, Alias, ProviderID, Model, Parameters, Compaction   string
+	Revision, MaxTurns, MaxOutputTokens, ResultInlineBytes int
+	Enabled                                                bool
 }
 
 func postgresMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) MigrationBuilder {
@@ -56,11 +56,14 @@ func postgresMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel
 			if model.MaxOutputTokens == 0 {
 				model.MaxOutputTokens = config.DefaultAgentModelMaxOutputTokens
 			}
+			if model.ResultInlineBytes == 0 {
+				model.ResultInlineBytes = config.DefaultAgentModelResultInlineBytes
+			}
 			compaction, err := json.Marshal(model.Compaction)
 			if err != nil {
 				return fmt.Errorf("encode agent model compaction %q: %w", model.Alias, err), ""
 			}
-			values = append(values, postgresMigrationR010AgentModelValue{ID: id, Alias: model.Alias, Revision: model.Revision, ProviderID: providers[model.ProviderAlias], Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, Enabled: model.Enabled})
+			values = append(values, postgresMigrationR010AgentModelValue{ID: id, Alias: model.Alias, Revision: model.Revision, ProviderID: providers[model.ProviderAlias], Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, ResultInlineBytes: model.ResultInlineBytes, Enabled: model.Enabled})
 			eventName := "agent_model.create"
 			if previous.ID != "" {
 				eventName = "agent_model.update"
@@ -75,9 +78,9 @@ func postgresMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel
 		return session.RenderTemplate(`
 			SELECT 1;
 			{{ range .Values }}
-			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled)
-			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, enabled = excluded.enabled
+			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled)
+			VALUES ({{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderID }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlLiteral .ResultInlineBytes }}, {{ sqlBool .Enabled }})
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, result_inline_bytes = excluded.result_inline_bytes, enabled = excluded.enabled
 			WHERE gatehouse_agent_models.revision < excluded.revision;
 			{{ end }}
 			{{ range .Events }}

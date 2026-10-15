@@ -45,6 +45,7 @@
   let session = $state<Session | null>(null)
   const sessionStatus = $derived(sessionLoad.status)
   let files = $state<ChatFile[]>([])
+  let includeAgentFiles = $state(false)
   const filesStatus = $derived(filesLoad.status)
   let generation = 0
   let abortController: AbortController | null = null
@@ -93,6 +94,7 @@
   })
 
   function activate(route: FilesRoute): () => void {
+    includeAgentFiles = false
     page.reset()
     sessionLoad.reset()
     filesLoad.reset()
@@ -212,12 +214,13 @@
     )
     signal = request.signal
     try {
-      const requested = page.key()
+      const requested = `${page.key()}:${includeAgentFiles}`
       const response = await fetchChatFiles(
         workspaceID,
         sessionID,
         signal,
         page.params(),
+        { author: includeAgentFiles ? "all" : "principal" },
       )
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
       if (response.status === 401) {
@@ -228,7 +231,7 @@
       const loaded = (await response.json()) as ChatFile[]
       if (
         !isCurrent(value, workspaceID, sessionID, signal) ||
-        requested !== page.key()
+        requested !== `${page.key()}:${includeAgentFiles}`
       )
         return false
       return request.commit(() => {
@@ -374,6 +377,10 @@
               title="Files"
               description="Inspect and download chat attachments."
             />
+            <UI.Label layout="choice">
+              <UI.Checkbox checked={includeAgentFiles} onCheckedChange={(checked) => { includeAgentFiles = checked; page.reset(); void reloadFiles() }} />
+              Include agent-authored files
+            </UI.Label>
             <UI.SearchToolbar
               label="Search files"
               placeholder="File name or media type"

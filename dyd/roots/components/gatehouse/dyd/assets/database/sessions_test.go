@@ -847,7 +847,7 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 	if checkpoints := check(carol, []database.ActivityTopicCheckpoint{{Topic: database.ActivityTopicSession(shared), Events: []string{"session.*"}}}); checkpoints[0].ID != "" {
 		t.Fatalf("ActivityTopicCheckpointsGet() for ungranted principal = %#v, want no cursors", checkpoints)
 	}
-	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}}
+	newSharedEvent := model.SessionEvent{Ref: model.SessionEventRef{Session: shared, Id: "sev_00000000000000000000000002"}, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"output": ""}}
 	if err, _ := store.SessionEventsCreate(ctx, newSharedEvent); err != nil {
 		t.Fatal(err)
 	}
@@ -1294,12 +1294,16 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	create := func(id, kind string, parent *model.SessionEventRef) model.SessionEvent {
+		payload := map[string]interface{}{}
+		if kind == "tool.success" {
+			payload["output"] = ""
+		}
 		err, event := store.SessionEventsCreate(ctx, model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: session, Id: id},
 			Parent:          parent,
 			Kind:            kind,
 			AuthorPrincipal: &alicePrincipal,
-			Payload:         map[string]interface{}{},
+			Payload:         payload,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -1425,7 +1429,7 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 	events := []model.SessionEvent{
 		{Ref: root, Kind: "message.text", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"text": "hello"}},
 		{Ref: call, Parent: &root, Kind: "tool.request", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
-		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &call, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{}},
+		{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000002"}, Parent: &call, Kind: "tool.success", AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"output": ""}},
 	}
 	err, stored := store.SessionEventsCreateBatch(ctx, events)
 	if err != nil || len(stored) != len(events) {

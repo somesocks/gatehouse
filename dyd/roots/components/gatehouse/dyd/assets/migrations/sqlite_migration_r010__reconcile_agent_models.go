@@ -17,9 +17,9 @@ func sqliteMigrationR010ReconcileAgentModels(state config.State) RepeatableMigra
 }
 
 type sqliteMigrationR010AgentModelValue struct {
-	Alias, ProviderAlias, Model, Parameters, Compaction string
-	Revision, MaxTurns, MaxOutputTokens                 int
-	Enabled                                             bool
+	Alias, ProviderAlias, Model, Parameters, Compaction    string
+	Revision, MaxTurns, MaxOutputTokens, ResultInlineBytes int
+	Enabled                                                bool
 }
 
 func sqliteMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) MigrationBuilder {
@@ -35,11 +35,14 @@ func sqliteMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) 
 			if model.MaxOutputTokens == 0 {
 				model.MaxOutputTokens = config.DefaultAgentModelMaxOutputTokens
 			}
+			if model.ResultInlineBytes == 0 {
+				model.ResultInlineBytes = config.DefaultAgentModelResultInlineBytes
+			}
 			compaction, err := json.Marshal(model.Compaction)
 			if err != nil {
 				return fmt.Errorf("encode agent model compaction %q: %w", model.Alias, err), ""
 			}
-			values = append(values, sqliteMigrationR010AgentModelValue{Alias: model.Alias, Revision: model.Revision, ProviderAlias: model.ProviderAlias, Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, Enabled: model.Enabled})
+			values = append(values, sqliteMigrationR010AgentModelValue{Alias: model.Alias, Revision: model.Revision, ProviderAlias: model.ProviderAlias, Model: model.Model, Parameters: model.Parameters, Compaction: string(compaction), MaxTurns: model.MaxTurns, MaxOutputTokens: model.MaxOutputTokens, ResultInlineBytes: model.ResultInlineBytes, Enabled: model.Enabled})
 		}
 		return session.RenderTemplate(`
 			DROP TABLE IF EXISTS gatehouse_migration_agent_model_desired;
@@ -55,11 +58,12 @@ func sqliteMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) 
 				compaction TEXT NOT NULL,
 				max_turns INTEGER NOT NULL,
 				max_output_tokens INTEGER NOT NULL,
+				result_inline_bytes INTEGER NOT NULL,
 				enabled INTEGER NOT NULL
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_agent_model_desired (alias, revision, provider_alias, model, parameters, compaction, max_turns, max_output_tokens, enabled)
-			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderAlias }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_agent_model_desired (alias, revision, provider_alias, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled)
+			VALUES ({{ sqlLiteral .Alias }}, {{ sqlLiteral .Revision }}, {{ sqlLiteral .ProviderAlias }}, {{ sqlLiteral .Model }}, {{ sqlLiteral .Parameters }}, {{ sqlLiteral .Compaction }}, {{ sqlLiteral .MaxTurns }}, {{ sqlLiteral .MaxOutputTokens }}, {{ sqlLiteral .ResultInlineBytes }}, {{ sqlBool .Enabled }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_agent_model_state AS
@@ -78,11 +82,11 @@ func sqliteMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) 
 			SELECT id, gh_id_new('act'), CASE WHEN existing_id IS NULL THEN 'agent_model.create' ELSE 'agent_model.update' END
 			FROM gatehouse_migration_agent_model_state;
 
-			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled)
-			SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled
+			INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled)
+			SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled
 			FROM gatehouse_migration_agent_model_state
 			WHERE TRUE
-			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, enabled = excluded.enabled
+			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, provider_id = excluded.provider_id, model = excluded.model, parameters = excluded.parameters, compaction = excluded.compaction, max_turns = excluded.max_turns, max_output_tokens = excluded.max_output_tokens, result_inline_bytes = excluded.result_inline_bytes, enabled = excluded.enabled
 			WHERE gatehouse_agent_models.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (

@@ -187,7 +187,9 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 // this only for a deliberate runtime-wide transition. DBOS otherwise uses a
 // binary hash that changes on every rebuild.
 // v5 checkpoints input waits directly in tool workflows instead of input children.
-const serveDBOSApplicationVersion = "gatehouse-workflows-v5"
+// v7 removes result-placement steps; terminal events and their DBOS transaction
+// outputs are now the recovery boundary, with orphan uploads left for collection.
+const serveDBOSApplicationVersion = "gatehouse-workflows-v7"
 
 func newServeDBOSContext(ctx context.Context, databaseConfig config.DatabaseConfig, store *database.Store) (dbos.Context, error) {
 	dbosConfig := dbos.Config{AppName: "gatehouse", ApplicationVersion: serveDBOSApplicationVersion}

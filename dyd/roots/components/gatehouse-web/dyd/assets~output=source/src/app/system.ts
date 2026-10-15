@@ -39,6 +39,7 @@ export type SystemAgentModel = {
   compaction: string
   max_turns: number
   max_output_tokens: number
+  result_inline_bytes: number
   enabled: boolean
 }
 export type SystemStorageProvider = {

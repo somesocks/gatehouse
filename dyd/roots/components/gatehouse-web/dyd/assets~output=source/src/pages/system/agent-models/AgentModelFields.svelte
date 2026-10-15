@@ -51,6 +51,11 @@
         bind:value={form.maxOutputTokens}
       /></UI.Field
     >
+    <UI.Field>
+      <UI.Label for="model-result-bytes">Inline result bytes</UI.Label>
+      <UI.Input id="model-result-bytes" type="number" min="1" required bind:value={form.resultInlineBytes} />
+      <UI.Text as="small" size="small" tone="muted">Larger tool results and provider diagnostics are stored as result files.</UI.Text>
+    </UI.Field>
   </UI.Grid></UI.FormSection
 >
 <UI.FormSection

@@ -35,7 +35,7 @@ func (runtime *SessionEventReplyRuntime) sessionActionAllowed(ctx context.Contex
 	return nil
 }
 
-func (runtime *SessionEventReplyRuntime) sessionFilesModule(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) lisp.HostModule {
+func (runtime *SessionEventReplyRuntime) sessionFilesModule(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef, agent model.WorkspaceAgentRef) lisp.HostModule {
 	list := func(arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 0 {
 			return lisp.Errorf("session/files/list requires no arguments"), nil
@@ -53,7 +53,7 @@ func (runtime *SessionEventReplyRuntime) sessionFilesModule(ctx dbos.Context, se
 		}
 		values := make([]lisp.Expr, 0, len(summaries))
 		for _, summary := range summaries {
-			err, value := fileValue(File{ID: summary.ID, Name: summary.Name, MediaType: summary.MediaType, Size: summary.Size, Fingerprint: summary.Fingerprint}, "session/files/list")
+			err, value := fileValue(File{ID: summary.ID, Name: summary.Name, MediaType: summary.MediaType, Size: summary.Size, Fingerprint: summary.Fingerprint, AuthorPrincipal: summary.AuthorPrincipal, AuthorAgent: summary.AuthorAgent}, "session/files/list")
 			if err != nil {
 				return err, nil
 			}
@@ -82,7 +82,7 @@ func (runtime *SessionEventReplyRuntime) sessionFilesModule(ctx dbos.Context, se
 		if file == nil || object == nil {
 			return nil, lisp.Null()
 		}
-		return fileValue(File{ID: file.Ref.Id, Name: file.Name, MediaType: file.MediaType, Size: object.Size, Fingerprint: fmt.Sprintf("sha256:%x", object.SHA256)}, "session/files/info")
+		return fileValue(File{ID: file.Ref.Id, Name: file.Name, MediaType: file.MediaType, Size: object.Size, Fingerprint: fmt.Sprintf("sha256:%x", object.SHA256), AuthorPrincipal: file.AuthorPrincipal, AuthorAgent: file.AuthorAgent}, "session/files/info")
 	}
 	read := fileReadFunction(func(id string, offset, length int64) (error, []byte) {
 		err, file, _ := runtime.store.SessionFileGet(ctx, model.SessionFileRef{Session: session, Id: id}, principal)
@@ -108,7 +108,7 @@ func (runtime *SessionEventReplyRuntime) sessionFilesModule(ctx dbos.Context, se
 				return "", fmt.Errorf("generate storage object ID: %w", err)
 			}
 			mediaTypeValue := mediaType
-			err, file, storageObjectID := runtime.store.SessionFileCreate(step, model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: name, MediaType: &mediaTypeValue, Enabled: true}, objectID, principal)
+			err, file, storageObjectID := runtime.store.SessionFileCreate(step, model.SessionFile{Ref: model.SessionFileRef{Session: session, Id: fileID}, Name: name, MediaType: &mediaTypeValue, Enabled: true, AuthorAgent: &agent}, objectID, principal)
 			if err != nil {
 				return "", err
 			}

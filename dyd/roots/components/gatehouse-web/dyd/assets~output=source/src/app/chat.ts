@@ -25,7 +25,13 @@ export interface ChatEventTree<
   children: ChatEventTree[]
 }
 
-export { decodeTranscriptEvent as decodeChatEvent }
+export function decodeChatEvent(input: unknown): ChatEvent {
+  const event = decodeTranscriptEvent(input)
+  if (event.kind === "tool.failure" && (event.payload.output === undefined) === (event.payload.output_file === undefined)) {
+    throw new Error("tool failure requires exactly one of output and output_file")
+  }
+  return event
+}
 
 function decodeChatEventTree(input: unknown): ChatEventTree {
   if (input === null || typeof input !== "object" || Array.isArray(input))
@@ -34,7 +40,7 @@ function decodeChatEventTree(input: unknown): ChatEventTree {
   if (!Array.isArray(tree.children))
     throw new Error("invalid chat event children")
   return {
-    event: decodeTranscriptEvent(tree.event),
+    event: decodeChatEvent(tree.event),
     children: tree.children.map(decodeChatEventTree),
   }
 }
@@ -105,9 +111,11 @@ export async function fetchChatFiles(
   sessionID: string,
   signal?: AbortSignal,
   query?: CollectionQuery,
+  options?: { author?: "principal" | "agent" | "all" },
 ): Promise<Response> {
+  const path = collectionQueryPath(`${chatAPIPath(workspaceID, sessionID)}/files`, query)
   return await fetch(
-    collectionQueryPath(`${chatAPIPath(workspaceID, sessionID)}/files`, query),
+    options?.author ? `${path}${path.includes("?") ? "&" : "?"}author=${options.author}` : path,
     {
       credentials: "same-origin",
       ...(signal === undefined ? {} : { signal }),

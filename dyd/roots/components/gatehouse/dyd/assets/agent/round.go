@@ -258,6 +258,10 @@ func (runtime *SessionEventReplyRuntime) agentRoundContext(ctx context.Context, 
 	if err != nil {
 		return err, projectChat, nil
 	}
+	err, events = runtime.store.SessionEventOutputFilesHydrate(ctx, events)
+	if err != nil {
+		return err, projectChat, nil
+	}
 	for index := range events {
 		if events[index].Kind == model.SessionEventKindMessageText {
 			delete(events[index].Payload, "agents")

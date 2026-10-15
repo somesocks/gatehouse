@@ -230,7 +230,7 @@ func TestSessionPreludeDoesNotExposeProjectBindings(t *testing.T) {
 	principal := model.PrincipalRef{}
 	agent := model.WorkspaceAgentRef{}
 	modules := []lisp.HostModule{
-		runtime.sessionFilesModule(nil, session, principal),
+		runtime.sessionFilesModule(nil, session, principal, agent),
 		runtime.sessionNotesModule(nil, session, principal, agent),
 		runtime.sessionTasksModule(nil, session, principal, agent),
 		runtime.sessionSecretsModule(nil, session, principal),
@@ -268,7 +268,7 @@ func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
 		runtime.projectTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.projectSecretsModule(nil, session, principal),
 		runtime.projectRecordsModule(nil, session, principal, model.WorkspaceAgentRef{}),
-		runtime.sessionFilesModule(nil, session, principal),
+		runtime.sessionFilesModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionSecretsModule(nil, session, principal),

@@ -495,7 +495,8 @@ let AgentModel =
              { compaction = AgentModelCompaction
              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
              , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum model output tokens per request" }
-             , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+              , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
+              , result_inline_bytes = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum inline tool result or provider diagnostic bytes; defaults to 4096" }
              }
         }
         s.record.meta::{ name = Some "AgentModel" }

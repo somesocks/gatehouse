@@ -69,8 +69,10 @@ There is no runtime snapshot decoder or legacy-control flag in the event format.
 ## Tool results
 
 `tool.request` owns the tool's `name` and provider `call_id`, together with its
-program and reason. `tool.success` stores only `output`; `tool.failure` stores
-`code`, `output`, and optional `message`. Each result's parent reference identifies
+program and reason. Tool results store exactly one of inline `output` and a
+session-file `output_file` reference. `tool.failure` also stores `code` and an
+optional `message`. The model-owned cutoff defaults to 4096 bytes; see
+[file-backed results](result-files.md). Each result's parent reference identifies
 its tool request. Conversation reconstruction resolves the provider call ID from
 that request for both Chat Completions and Responses.
 

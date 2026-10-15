@@ -11,6 +11,7 @@ type Form = {
   compaction: string
   maxTurns: number
   maxOutputTokens: number
+  resultInlineBytes: number
   enabled: boolean
 }
 const blank = (): Form => ({
@@ -22,6 +23,7 @@ const blank = (): Form => ({
     '{"algorithm":"mcmtr","history_bytes":98304,"buffer_bytes":49152}',
   maxTurns: 127,
   maxOutputTokens: 16000,
+  resultInlineBytes: 4096,
   enabled: true,
 })
 export function createAgentModelFormController({
@@ -114,6 +116,7 @@ export function createAgentModelFormController({
       compaction: state.model.compaction,
       maxTurns: state.model.max_turns,
       maxOutputTokens: state.model.max_output_tokens,
+      resultInlineBytes: state.model.result_inline_bytes,
       enabled: state.model.enabled,
     }
     state.editing = true
@@ -168,6 +171,7 @@ export function createAgentModelFormController({
           compaction: form.compaction,
           max_turns: form.maxTurns,
           max_output_tokens: form.maxOutputTokens,
+          result_inline_bytes: form.resultInlineBytes,
           enabled: form.enabled,
           ...(revision === undefined ? {} : { expected_revision: revision }),
         },

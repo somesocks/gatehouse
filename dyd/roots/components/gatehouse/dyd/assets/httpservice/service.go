@@ -1883,7 +1883,12 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 		if request.Method == http.MethodGet {
 			pages, ok := collectionPageParameters(response, request, typed_id.SessionFile)
 			if !ok { return }
-			err, files := store.SessionFilesGet(request.Context(), session, pages...)
+			author := request.URL.Query().Get("author")
+			if author != "" && author != "principal" && author != "agent" && author != "all" {
+				http.Error(response, "invalid file author filter", http.StatusBadRequest)
+				return
+			}
+			err, files := store.SessionFilesByAuthorGet(request.Context(), session, author, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return
@@ -3525,6 +3530,11 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
+		err, hydrated = store.SessionEventOutputFilesHydrate(request.Context(), hydrated)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
 		for index := range entries {
 			entries[index].Event = hydrated[index]
 			if view != "transcript" {
@@ -3566,17 +3576,21 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		case model.SessionEventKindToolRequest:
 			keys = []string{"name", "reason"}
 		case model.SessionEventKindToolFailure:
-			keys = []string{"code", "message", "output"}
+			keys = []string{"code", "message", "output", "output_file"}
+		case model.SessionEventKindToolSuccess:
+			keys = []string{"output_file"}
 		case model.SessionEventKindApprovalRequest:
 			keys = []string{"description"}
 		case model.SessionEventKindApprovalFailure:
 			keys = []string{"code", "message"}
 		case model.SessionEventKindThinkingUpdate:
 			keys = []string{"reason", "until"}
-		case model.SessionEventKindThinkingFailure, model.SessionEventKindCancelFailure:
+		case model.SessionEventKindThinkingFailure:
+			keys = []string{"code", "message", "output_file"}
+		case model.SessionEventKindCancelFailure:
 			keys = []string{"code", "message"}
 		case model.SessionEventKindThinkingRequest, model.SessionEventKindThinkingSuccess,
-			model.SessionEventKindToolSuccess, model.SessionEventKindApprovalSuccess,
+			model.SessionEventKindApprovalSuccess,
 			model.SessionEventKindInputSuccess, model.SessionEventKindCancelRequest,
 			model.SessionEventKindCancelSuccess:
 		default:

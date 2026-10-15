@@ -14,7 +14,7 @@ const (
 	contextMaximumBytes   = 96 * 1024
 	contextBufferBytes    = 48 * 1024
 	contextEventPageSize  = 128
-	mcmtrAlgorithmVersion = "mcmtr-v3"
+	mcmtrAlgorithmVersion = "mcmtr-v4"
 )
 
 type mcmtrProfile struct {
@@ -116,6 +116,10 @@ func mcmtrContextStateBefore(state json.RawMessage, before string) bool {
 
 func (runtime *SessionEventReplyRuntime) mcmtrContextEvents(ctx context.Context, parent model.SessionEventRef, agent model.WorkspaceAgentRef) (error, []model.SessionEvent) {
 	err, events := runtime.store.SessionAgentRequestEventsGet(ctx, parent, agent)
+	if err != nil {
+		return err, nil
+	}
+	err, events = runtime.store.SessionEventOutputFilesHydrate(ctx, events)
 	if err != nil {
 		return err, nil
 	}

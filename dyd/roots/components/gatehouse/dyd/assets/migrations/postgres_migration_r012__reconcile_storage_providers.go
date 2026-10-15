@@ -33,6 +33,16 @@ type postgresMigrationR012StorageProviderRevision struct {
 }
 
 func postgresMigrationR012ReconcileStorageProvidersBuilder(providers []config.StorageProvider, keyring *keychain.Keyring) MigrationBuilder {
+	desired := append([]config.StorageProvider{}, providers...)
+	hasEmbedded := false
+	for _, provider := range providers {
+		if provider.Alias == "embedded" {
+			hasEmbedded = true
+		}
+	}
+	if !hasEmbedded {
+		desired = append(desired, config.StorageProvider{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true})
+	}
 	resolver := storage.NewSecretKeySourceResolver()
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
 		existing, err := postgresMigrationR012StorageProvidersByAlias(ctx, session)
@@ -41,7 +51,7 @@ func postgresMigrationR012ReconcileStorageProvidersBuilder(providers []config.St
 		}
 		values := make([]postgresMigrationR012StorageProviderValue, 0, len(providers))
 		events := make([]activityMigrationEvent, 0, len(providers))
-		for _, provider := range providers {
+		for _, provider := range desired {
 			previous := existing[provider.Alias]
 			if previous.Revision >= provider.Revision {
 				continue

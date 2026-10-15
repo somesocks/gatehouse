@@ -41,11 +41,13 @@ type StorageObjectProvider struct {
 }
 
 type SessionFileSummary struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	MediaType   *string `json:"media_type,omitempty"`
-	Size        int64   `json:"size"`
-	Fingerprint string  `json:"fingerprint"`
+	ID              string                   `json:"id"`
+	Name            string                   `json:"name"`
+	MediaType       *string                  `json:"media_type,omitempty"`
+	Size            int64                    `json:"size"`
+	Fingerprint     string                   `json:"fingerprint"`
+	AuthorPrincipal *model.PrincipalRef      `json:"author_principal,omitempty"`
+	AuthorAgent     *model.WorkspaceAgentRef `json:"author_agent,omitempty"`
 }
 
 type ProjectFileSummary struct {
@@ -114,7 +116,7 @@ func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *s
 		}
 		seen[id] = struct{}{}
 		row := transaction.QueryRowContext(ctx, `
-			SELECT files.name, files.media_type, objects.size, objects.sha256
+			SELECT files.name, files.media_type, objects.size, objects.sha256, files.author_principal, files.author_agent
 			FROM gatehouse_session_files AS files
 			JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 			WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+`
@@ -124,7 +126,8 @@ func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *s
 		reference.ID = id
 		var digest []byte
 		var mediaType sql.NullString
-		if err := row.Scan(&reference.Name, &mediaType, &reference.Size, &digest); err != nil {
+		var authorPrincipal, authorAgent sql.NullString
+		if err := row.Scan(&reference.Name, &mediaType, &reference.Size, &digest, &authorPrincipal, &authorAgent); err != nil {
 			if err == sql.ErrNoRows {
 				return fmt.Errorf("session file %q is unavailable", id), nil
 			}
@@ -134,22 +137,34 @@ func (store *Store) sessionFileReferencesGet(ctx context.Context, transaction *s
 			reference.MediaType = &mediaType.String
 		}
 		reference.Fingerprint = "sha256:" + hex.EncodeToString(digest)
+		sessionFileSummaryAuthors(&reference, session, authorPrincipal, authorAgent)
 		references = append(references, reference)
 	}
 	return nil, references
 }
 
 func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRef, pages ...CollectionPage) (error, []SessionFileSummary) {
+	return store.SessionFilesByAuthorGet(ctx, session, "all", pages...)
+}
+
+// SessionFilesByAuthorGet filters file authors without restricting explicit file references.
+func (store *Store) SessionFilesByAuthorGet(ctx context.Context, session model.SessionRef, author string, pages ...CollectionPage) (error, []SessionFileSummary) {
+	authorFilter, err := sessionFileAuthorFilter(author)
+	if err != nil {
+		return err, nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	suffix, args, err := store.collectionPageSQL(pages, "files.id", []string{"files.name", "files.media_type"}, []any{session.Workspace.Id, session.Id}, "files.created_at, files.id")
-	if err != nil { return err, nil }
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
-		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
+		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256, files.author_principal, files.author_agent
 		FROM gatehouse_session_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+`
 			AND files.enabled = TRUE AND objects.state = 'success'
-	`+suffix, args...)
+	`+authorFilter+suffix, args...)
 	if err != nil {
 		return fmt.Errorf("get session files: %w", err), nil
 	}
@@ -159,13 +174,15 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 		var file SessionFileSummary
 		var mediaType sql.NullString
 		var digest []byte
-		if err := rows.Scan(&file.ID, &file.Name, &mediaType, &file.Size, &digest); err != nil {
+		var authorPrincipal, authorAgent sql.NullString
+		if err := rows.Scan(&file.ID, &file.Name, &mediaType, &file.Size, &digest, &authorPrincipal, &authorAgent); err != nil {
 			return fmt.Errorf("scan session file: %w", err), nil
 		}
 		if mediaType.Valid {
 			file.MediaType = &mediaType.String
 		}
 		file.Fingerprint = "sha256:" + hex.EncodeToString(digest)
+		sessionFileSummaryAuthors(&file, session, authorPrincipal, authorAgent)
 		files = append(files, file)
 	}
 	if err := rows.Err(); err != nil {
@@ -175,6 +192,21 @@ func (store *Store) SessionFilesGet(ctx context.Context, session model.SessionRe
 }
 
 func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string, principal model.PrincipalRef) (error, model.SessionFile, string) {
+	return store.sessionFileCreate(ctx, file, storageObjectID, principal, store.sessionFileProvider)
+}
+
+type sessionFileProviderSelector func(context.Context, *sql.Tx, string) (string, string, error)
+
+func (store *Store) sessionFileCreate(ctx context.Context, file model.SessionFile, storageObjectID string, principal model.PrincipalRef, selectProvider sessionFileProviderSelector) (error, model.SessionFile, string) {
+	if file.AuthorPrincipal == nil && file.AuthorAgent == nil {
+		file.AuthorPrincipal = &principal
+	}
+	if file.AuthorPrincipal != nil && file.AuthorAgent != nil {
+		return fmt.Errorf("create session file: exactly one author is required"), model.SessionFile{}, ""
+	}
+	if file.AuthorAgent != nil && file.AuthorAgent.Workspace != file.Ref.Session.Workspace {
+		return fmt.Errorf("create session file: agent author belongs to another workspace"), model.SessionFile{}, ""
+	}
 	if !typed_id.Valid(typed_id.SessionFile, file.Ref.Id) || !typed_id.Valid(typed_id.StorageObject, storageObjectID) || strings.TrimSpace(file.Name) == "" {
 		return fmt.Errorf("create session file: IDs or name are invalid"), model.SessionFile{}, ""
 	}
@@ -191,22 +223,13 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	}
 	defer transaction.Rollback()
 	placeholder := keychainPlaceholder(store.kind)
-	row := transaction.QueryRowContext(ctx, `
-		SELECT bindings.provider, providers.protocol
-		FROM gatehouse_workspace_storage_providers AS bindings
-		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
-		WHERE bindings.workspace = `+placeholder(1)+`
-			AND bindings.enabled = TRUE
-			AND providers.enabled = TRUE
-		ORDER BY bindings.priority DESC, bindings.provider
-		LIMIT 1
-	`, file.Ref.Session.Workspace.Id)
-	var provider, protocol string
-	if err := row.Scan(&provider, &protocol); err != nil {
+	provider, protocol, err := selectProvider(ctx, transaction, file.Ref.Session.Workspace.Id)
+	if err != nil {
 		if err == sql.ErrNoRows {
 			return fmt.Errorf("create session file: no available storage provider"), model.SessionFile{}, ""
+		} else {
+			return fmt.Errorf("select storage provider: %w", err), model.SessionFile{}, ""
 		}
-		return fmt.Errorf("select storage provider: %w", err), model.SessionFile{}, ""
 	}
 	fileCreatedAt, err := typed_id.Timestamp(typed_id.SessionFile, file.Ref.Id)
 	if err != nil {
@@ -235,10 +258,17 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	if file.MediaType != nil {
 		mediaType = *file.MediaType
 	}
+	var authorPrincipal, authorAgent any
+	if file.AuthorPrincipal != nil {
+		authorPrincipal = file.AuthorPrincipal.Id
+	}
+	if file.AuthorAgent != nil {
+		authorAgent = file.AuthorAgent.Id
+	}
 	if _, err := transaction.ExecContext(ctx, `
-		INSERT INTO gatehouse_session_files (workspace, session, id, storage_object, name, media_type, enabled, created_at)
-		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`)
-	`, file.Ref.Session.Workspace.Id, file.Ref.Session.Id, file.Ref.Id, storageObjectID, file.Name, mediaType, file.Enabled, file.CreatedAt); err != nil {
+		INSERT INTO gatehouse_session_files (workspace, session, id, storage_object, name, media_type, enabled, created_at, author_principal, author_agent)
+		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`)
+	`, file.Ref.Session.Workspace.Id, file.Ref.Session.Id, file.Ref.Id, storageObjectID, file.Name, mediaType, file.Enabled, file.CreatedAt, authorPrincipal, authorAgent); err != nil {
 		return fmt.Errorf("insert session file: %w", err), model.SessionFile{}, ""
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
@@ -254,6 +284,47 @@ func (store *Store) SessionFileCreate(ctx context.Context, file model.SessionFil
 	}
 	file.StorageObject = model.StorageObjectRef{Id: storageObjectID}
 	return nil, file, storageObjectID
+}
+
+func (store *Store) sessionFileProvider(ctx context.Context, transaction *sql.Tx, workspace string) (string, string, error) {
+	var provider, protocol string
+	err := transaction.QueryRowContext(ctx, `SELECT bindings.provider, providers.protocol
+		FROM gatehouse_workspace_storage_providers AS bindings
+		JOIN gatehouse_storage_providers AS providers ON providers.id = bindings.provider
+		WHERE bindings.workspace = `+keychainPlaceholder(store.kind)(1)+` AND bindings.enabled = TRUE AND providers.enabled = TRUE
+		ORDER BY bindings.priority DESC, bindings.provider LIMIT 1`, workspace).Scan(&provider, &protocol)
+	return provider, protocol, err
+}
+
+func (store *Store) sessionFileProviderOrEmbedded(ctx context.Context, transaction *sql.Tx, workspace string) (string, string, error) {
+	provider, protocol, err := store.sessionFileProvider(ctx, transaction, workspace)
+	if err != sql.ErrNoRows {
+		return provider, protocol, err
+	}
+	err = transaction.QueryRowContext(ctx, `SELECT id, protocol FROM gatehouse_storage_providers WHERE alias = 'embedded' AND protocol = 'embedded' AND enabled = TRUE`).Scan(&provider, &protocol)
+	return provider, protocol, err
+}
+
+func sessionFileAuthorFilter(author string) (string, error) {
+	switch author {
+	case "", "principal":
+		return " AND files.author_agent IS NULL", nil
+	case "agent":
+		return " AND files.author_agent IS NOT NULL", nil
+	case "all":
+		return "", nil
+	default:
+		return "", fmt.Errorf("invalid file author filter")
+	}
+}
+
+func sessionFileSummaryAuthors(file *SessionFileSummary, session model.SessionRef, principal, agent sql.NullString) {
+	if principal.Valid {
+		file.AuthorPrincipal = &model.PrincipalRef{Id: principal.String}
+	}
+	if agent.Valid {
+		file.AuthorAgent = &model.WorkspaceAgentRef{Workspace: session.Workspace, Id: agent.String}
+	}
 }
 
 func (store *Store) ProjectFileCreate(ctx context.Context, file model.ProjectFile, storageObjectID string, principal model.PrincipalRef) (error, model.ProjectFile, string) {
@@ -391,7 +462,9 @@ func (store *Store) ProjectFilesGet(ctx context.Context, project model.ProjectRe
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	suffix, args, err := store.collectionPageSQL(pages, "files.id", []string{"files.name", "files.media_type"}, []any{project.Workspace.Id, project.Id}, "files.created_at DESC, files.id DESC")
-	if err != nil { return err, nil }
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT files.id, files.name, files.media_type, objects.size, objects.sha256
 		FROM gatehouse_project_files AS files
@@ -527,7 +600,7 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := store.QueryRowContext(ctx, `
-		SELECT files.storage_object, files.name, files.media_type, files.enabled, files.created_at, objects.provider, objects.object, objects.state, objects.sha256, objects.size
+		SELECT files.storage_object, files.name, files.media_type, files.enabled, files.created_at, files.author_principal, files.author_agent, objects.provider, objects.object, objects.state, objects.sha256, objects.size
 		FROM gatehouse_session_files AS files
 		JOIN gatehouse_storage_objects AS objects ON objects.id = files.storage_object
 		WHERE files.workspace = `+placeholder(1)+` AND files.session = `+placeholder(2)+` AND files.id = `+placeholder(3)+` AND files.enabled = TRUE
@@ -537,13 +610,20 @@ func (store *Store) SessionFileGet(ctx context.Context, file model.SessionFileRe
 	var mediaType sql.NullString
 	var digest []byte
 	var size sql.NullInt64
-	if err := row.Scan(&stored.StorageObject.Id, &stored.Name, &mediaType, &stored.Enabled, &stored.CreatedAt, &object.Provider, &object.Object, &object.State, &digest, &size); err != nil {
+	var authorPrincipal, authorAgent sql.NullString
+	if err := row.Scan(&stored.StorageObject.Id, &stored.Name, &mediaType, &stored.Enabled, &stored.CreatedAt, &authorPrincipal, &authorAgent, &object.Provider, &object.Object, &object.State, &digest, &size); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil, nil
 		}
 		return fmt.Errorf("get session file: %w", err), nil, nil
 	}
 	object.ID = stored.StorageObject.Id
+	if authorPrincipal.Valid {
+		stored.AuthorPrincipal = &model.PrincipalRef{Id: authorPrincipal.String}
+	}
+	if authorAgent.Valid {
+		stored.AuthorAgent = &model.WorkspaceAgentRef{Workspace: file.Session.Workspace, Id: authorAgent.String}
+	}
 	if mediaType.Valid {
 		stored.MediaType = &mediaType.String
 	}

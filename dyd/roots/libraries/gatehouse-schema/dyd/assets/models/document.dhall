@@ -541,12 +541,15 @@ let SessionFile =
         , required = toMap
              { ref = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "session file identity" }
              , storage_object = s.reference.from s.reference.props::{ to = "StorageObjectRef" } s.reference.meta::{ description = Some "backing immutable storage object" }
-             , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
+              , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "client file name" }
              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the session file is available" }
              , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file creation timestamp" }
              }
         , optional = toMap
-            { media_type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "declared media type" } }
+            { media_type = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "declared media type" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "principal who created the file" }
+            , author_agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "agent who created the file" }
+            }
         }
         s.record.meta::{ name = Some "SessionFile", description = Some "A private file attached to a session." }
 
@@ -1152,6 +1155,7 @@ let ThinkingFailurePayload =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "human-readable failure summary" }
+              , output_file = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "full provider failure diagnostic" }
               }
         }
         s.record.meta::{ name = Some "ThinkingFailurePayload", description = Some "Payload for a thinking.failure event." }
@@ -1177,11 +1181,11 @@ let ToolRequestPayload =
 let ToolSuccessPayload =
       s.record.from
         s.record.props::{
-        , required =
-            toMap
-              { output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool result returned to the agent" }
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = toMap
+              { output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "inline tool result; exactly one of output and output_file is present" }
+              , output_file = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "file-backed tool result" }
               }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "ToolSuccessPayload", description = Some "Payload for a tool.success event." }
 
@@ -1191,11 +1195,12 @@ let ToolFailurePayload =
         , required =
             toMap
               { code = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "machine-readable tool failure code" }
-              , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "tool failure result returned to the agent" }
               }
         , optional =
             toMap
               { message = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "human-readable failure summary" }
+              , output = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "inline tool failure; exactly one of output and output_file is present" }
+              , output_file = s.reference.from s.reference.props::{ to = "SessionFileRef" } s.reference.meta::{ description = Some "file-backed tool failure" }
               }
         }
         s.record.meta::{ name = Some "ToolFailurePayload", description = Some "Payload for a tool.failure event." }

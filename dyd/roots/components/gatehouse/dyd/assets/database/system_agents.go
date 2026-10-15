@@ -47,28 +47,30 @@ type SystemAgentProviderInput struct {
 }
 
 type SystemAgentModel struct {
-	ID              string  `json:"id"`
-	Alias           string  `json:"alias"`
-	Revision        int     `json:"revision"`
-	ProviderID      string  `json:"provider"`
-	ProviderAlias   *string `json:"provider_alias,omitempty"`
-	Model           string  `json:"model"`
-	Parameters      string  `json:"parameters"`
-	Compaction      string  `json:"compaction"`
-	MaxTurns        int     `json:"max_turns"`
-	MaxOutputTokens int     `json:"max_output_tokens"`
-	Enabled         bool    `json:"enabled"`
+	ID                string  `json:"id"`
+	Alias             string  `json:"alias"`
+	Revision          int     `json:"revision"`
+	ProviderID        string  `json:"provider"`
+	ProviderAlias     *string `json:"provider_alias,omitempty"`
+	Model             string  `json:"model"`
+	Parameters        string  `json:"parameters"`
+	Compaction        string  `json:"compaction"`
+	MaxTurns          int     `json:"max_turns"`
+	MaxOutputTokens   int     `json:"max_output_tokens"`
+	ResultInlineBytes int     `json:"result_inline_bytes"`
+	Enabled           bool    `json:"enabled"`
 }
 
 type SystemAgentModelInput struct {
-	Alias           string
-	ProviderID      string
-	Model           string
-	Parameters      string
-	Compaction      string
-	MaxTurns        int
-	MaxOutputTokens int
-	Enabled         bool
+	Alias             string
+	ProviderID        string
+	Model             string
+	Parameters        string
+	Compaction        string
+	MaxTurns          int
+	MaxOutputTokens   int
+	ResultInlineBytes *int
+	Enabled           bool
 }
 
 type SystemWorkspaceAgent struct {
@@ -307,7 +309,7 @@ func (store *Store) SystemAgentProviderUpdate(ctx context.Context, id string, ex
 }
 
 func (store *Store) SystemAgentModelsGet(ctx context.Context) (error, []SystemAgentModel) {
-	rows, err := store.QueryContext(ctx, `SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled FROM gatehouse_agent_models ORDER BY id`)
+	rows, err := store.QueryContext(ctx, `SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled FROM gatehouse_agent_models ORDER BY id`)
 	if err != nil {
 		return fmt.Errorf("list system agent models: %w", err), nil
 	}
@@ -330,7 +332,7 @@ func (store *Store) SystemAgentModelGet(ctx context.Context, id string) (error, 
 	if !typed_id.Valid(typed_id.AgentModel, id) {
 		return nil, nil
 	}
-	value, err := scanSystemAgentModel(store.QueryRowContext(ctx, `SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled FROM gatehouse_agent_models WHERE id = `+keychainPlaceholder(store.kind)(1), id))
+	value, err := scanSystemAgentModel(store.QueryRowContext(ctx, `SELECT id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled FROM gatehouse_agent_models WHERE id = `+keychainPlaceholder(store.kind)(1), id))
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -362,7 +364,7 @@ func (store *Store) SystemAgentModelCreate(ctx context.Context, input SystemAgen
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	var inserted string
-	err = transaction.QueryRowContext(ctx, `INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, 1, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`) ON CONFLICT (alias) DO NOTHING RETURNING id`, id, input.Alias, input.ProviderID, input.Model, input.Parameters, input.Compaction, input.MaxTurns, input.MaxOutputTokens, input.Enabled).Scan(&inserted)
+	err = transaction.QueryRowContext(ctx, `INSERT INTO gatehouse_agent_models (id, alias, revision, provider_id, model, parameters, compaction, max_turns, max_output_tokens, result_inline_bytes, enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, 1, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`) ON CONFLICT (alias) DO NOTHING RETURNING id`, id, input.Alias, input.ProviderID, input.Model, input.Parameters, input.Compaction, input.MaxTurns, input.MaxOutputTokens, agentModelResultInlineBytes(input), input.Enabled).Scan(&inserted)
 	if err == sql.ErrNoRows {
 		return ErrAgentModelExists, nil
 	}
@@ -413,7 +415,7 @@ func (store *Store) SystemAgentModelUpdate(ctx context.Context, id string, expec
 	if err := validateSystemAgentModelProtocol(input, providerProtocol); err != nil {
 		return err, nil
 	}
-	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_agent_models SET revision = `+placeholder(1)+`, provider_id = `+placeholder(2)+`, model = `+placeholder(3)+`, parameters = `+placeholder(4)+`, compaction = `+placeholder(5)+`, max_turns = `+placeholder(6)+`, max_output_tokens = `+placeholder(7)+`, enabled = `+placeholder(8)+` WHERE id = `+placeholder(9)+` AND revision = `+placeholder(10), revision+1, input.ProviderID, input.Model, input.Parameters, input.Compaction, input.MaxTurns, input.MaxOutputTokens, input.Enabled, id, revision)
+	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_agent_models SET revision = `+placeholder(1)+`, provider_id = `+placeholder(2)+`, model = `+placeholder(3)+`, parameters = `+placeholder(4)+`, compaction = `+placeholder(5)+`, max_turns = `+placeholder(6)+`, max_output_tokens = `+placeholder(7)+`, result_inline_bytes = `+placeholder(8)+`, enabled = `+placeholder(9)+` WHERE id = `+placeholder(10)+` AND revision = `+placeholder(11), revision+1, input.ProviderID, input.Model, input.Parameters, input.Compaction, input.MaxTurns, input.MaxOutputTokens, agentModelResultInlineBytes(input), input.Enabled, id, revision)
 	if err != nil {
 		return fmt.Errorf("update system agent model: %w", err), nil
 	}
@@ -569,7 +571,7 @@ func scanSystemAgentProvider(row interface{ Scan(...any) error }) (SystemAgentPr
 
 func scanSystemAgentModel(row interface{ Scan(...any) error }) (SystemAgentModel, error) {
 	var value SystemAgentModel
-	if err := row.Scan(&value.ID, &value.Alias, &value.Revision, &value.ProviderID, &value.Model, &value.Parameters, &value.Compaction, &value.MaxTurns, &value.MaxOutputTokens, &value.Enabled); err != nil {
+	if err := row.Scan(&value.ID, &value.Alias, &value.Revision, &value.ProviderID, &value.Model, &value.Parameters, &value.Compaction, &value.MaxTurns, &value.MaxOutputTokens, &value.ResultInlineBytes, &value.Enabled); err != nil {
 		return SystemAgentModel{}, err
 	}
 	return value, nil
@@ -634,6 +636,9 @@ func validateSystemAgentProviderInput(input SystemAgentProviderInput, credential
 }
 
 func validateSystemAgentModelInput(input SystemAgentModelInput) error {
+	if agentModelResultInlineBytes(input) <= 0 {
+		return fmt.Errorf("agent model result_inline_bytes must be positive")
+	}
 	if !administrationAlias.MatchString(input.Alias) || !typed_id.Valid(typed_id.AgentProvider, input.ProviderID) || strings.TrimSpace(input.Model) == "" || input.MaxTurns < 1 || input.MaxOutputTokens < 1 {
 		return fmt.Errorf("system agent model is invalid")
 	}
@@ -650,6 +655,13 @@ func validateSystemAgentModelInput(input SystemAgentModelInput) error {
 		return fmt.Errorf("system agent model compaction is invalid")
 	}
 	return nil
+}
+
+func agentModelResultInlineBytes(input SystemAgentModelInput) int {
+	if input.ResultInlineBytes == nil {
+		return config.DefaultAgentModelResultInlineBytes
+	}
+	return *input.ResultInlineBytes
 }
 
 func workspaceAgentRateLimitsValue(limits *config.WorkspaceAgentRateLimits) (any, error) {

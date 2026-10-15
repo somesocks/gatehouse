@@ -15,6 +15,13 @@ type transcriptEventTreeResponse struct {
 }
 
 func transcriptEventWire(event model.SessionEvent) (error, any) {
+	if event.Kind == model.SessionEventKindToolFailure {
+		_, output := event.Payload["output"]
+		_, file := event.Payload["output_file"]
+		if output == file {
+			return fmt.Errorf("tool failure requires exactly one of output and output_file"), nil
+		}
+	}
 	encoded, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal transcript event %q: %w", event.Ref.Id, err), nil

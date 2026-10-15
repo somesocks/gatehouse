@@ -160,6 +160,7 @@
           >{controller.state.model.max_turns}</UI.Property
         ><UI.Property label="Output tokens"
           >{controller.state.model.max_output_tokens}</UI.Property
+        ><UI.Property label="Inline result bytes">{controller.state.model.result_inline_bytes}</UI.Property
         ></UI.DetailSection
       >
       <UI.DetailSection title="Advanced configuration"

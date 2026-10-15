@@ -38,9 +38,20 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCommit(
 	turn agentProviderTurn,
 ) (error, model.SessionEventRef) {
 	candidate := runtime.agentProviderDecisionCandidate(ctx, parent, selected, round, turn)
+	diagnostic := ""
+	if candidate.Failure != nil {
+		diagnostic = candidate.Failure.Error()
+	}
+	failureBody, publicationErr := runtime.agentResultStore(ctx, thinking, diagnostic, resultInlineLimit(selected))
 
 	decision, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEventRef, error) {
 		result := model.SessionEventRef{}
+		// Check publication errors inside the transaction callback: DBOS skips
+		// this callback for an already-committed decision and returns its original
+		// reference, even if publication failed during the replayed attempt.
+		if publicationErr != nil {
+			return result, publicationErr
+		}
 		persist := func(event model.SessionEvent) (model.SessionEventRef, error) {
 			id, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {
@@ -69,10 +80,11 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCommit(
 		}
 
 		if candidate.Failure != nil {
-			message := candidate.Failure.Error()
-			payload, err := database.SessionEventPayloadFrom(model.ThinkingFailurePayload{
-				Code: failureEventCode(candidate.Failure), Message: optionalString(message),
-			})
+			failure := model.ThinkingFailurePayload{Code: failureEventCode(candidate.Failure), Message: failureBody.Output, OutputFile: failureBody.OutputFile}
+			if failureBody.OutputFile != nil {
+				failure.Message = failureBody.Message
+			}
+			payload, err := database.SessionEventPayloadFrom(failure)
 			if err != nil {
 				return result, fmt.Errorf("encode provider failure event: %w", err)
 			}

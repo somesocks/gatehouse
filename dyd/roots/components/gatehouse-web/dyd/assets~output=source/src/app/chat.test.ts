@@ -65,6 +65,20 @@ describe("chat event response decoding", () => {
       decodeChatEvent({ ...message, kind: "agent.success", payload: {} }),
     ).toThrow()
   })
+
+  it("decodes file-backed outcomes and requires one failure body representation", () => {
+    const file = {
+      id: "sfi_result", name: "result.txt", size: 8192, fingerprint: "sha256:test",
+      media_type: "text/plain", author_agent: { id: "wag_test", workspace: { id: "wsp_test" } },
+    }
+    for (const event of [
+      { ...message, kind: "tool.success", payload: { output_file: file } },
+      { ...failure, payload: { code: "execution_failed", output_file: file } },
+      { ...failure, kind: "thinking.failure", payload: { code: "failed", output_file: file } },
+    ]) expect(decodeChatEvent(event)).toEqual(event)
+    expect(() => decodeChatEvent({ ...failure, payload: { output: "duplicated", output_file: file } })).toThrow()
+    expect(() => decodeChatEvent({ ...failure, payload: { output_file: { id: "sfi_incomplete" } } })).toThrow()
+  })
 })
 
 describe("chat transport", () => {

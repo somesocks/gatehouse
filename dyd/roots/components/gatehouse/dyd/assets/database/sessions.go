@@ -402,6 +402,9 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 		return err, model.SessionEvent{}
 	}
 	placeholder := keychainPlaceholder(store.kind)
+	if err := store.sessionEventOutputValidate(event, func(query string, args ...any) sessionEventRow { return transaction.QueryRow(ctx, query, args...) }); err != nil {
+		return err, model.SessionEvent{}
+	}
 	if event.Parent != nil {
 		var parentExists bool
 		if err := transaction.QueryRow(ctx, `
@@ -691,6 +694,11 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 	for index, event := range events {
 		if strings.TrimSpace(event.Ref.Id) == "" || strings.TrimSpace(event.Kind) == "" {
 			return fmt.Errorf("create session events: event %d ID and kind must not be blank", index), nil
+		}
+		if err := store.sessionEventOutputValidate(event, func(query string, args ...any) sessionEventRow {
+			return transaction.QueryRowContext(ctx, query, args...)
+		}); err != nil {
+			return err, nil
 		}
 		if _, exists := seen[event.Ref]; exists {
 			return fmt.Errorf("create session events: event %d has a duplicate ID", index), nil
@@ -1665,24 +1673,25 @@ func (store *Store) SessionNameUpdate(ctx context.Context, session model.Session
 }
 
 type WorkspaceAgentModel struct {
-	Ref             model.WorkspaceAgentRef
-	Alias           string
-	Revision        int
-	AgentModel      model.AgentModelRef
-	ProviderID      string
-	ProviderAlias   *string
-	Protocol        string
-	Endpoint        *string
-	Keychain        *model.KeychainRef
-	APIKey          *string
-	Model           string
-	Parameters      string
-	Compaction      string
-	MaxTurns        int
-	MaxOutputTokens int
-	SystemPrompt    *string
-	Prelude         *string
-	RateLimits      *config.WorkspaceAgentRateLimits
+	Ref               model.WorkspaceAgentRef
+	Alias             string
+	Revision          int
+	AgentModel        model.AgentModelRef
+	ProviderID        string
+	ProviderAlias     *string
+	Protocol          string
+	Endpoint          *string
+	Keychain          *model.KeychainRef
+	APIKey            *string
+	Model             string
+	Parameters        string
+	Compaction        string
+	MaxTurns          int
+	MaxOutputTokens   int
+	ResultInlineBytes int
+	SystemPrompt      *string
+	Prelude           *string
+	RateLimits        *config.WorkspaceAgentRateLimits
 }
 
 type WorkspaceAgent struct {
@@ -1740,7 +1749,7 @@ func (store *Store) workspaceAgentModelGet(workspace model.WorkspaceRef, binding
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	row := queryRow(`
-		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.endpoint, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, bindings.system_prompt, bindings.prelude, bindings.rate_limits
+		SELECT bindings.id, bindings.alias, bindings.revision, models.id, providers.id, providers.alias, providers.protocol, providers.endpoint, providers.keychain_id, providers.keychain_version, providers.api_key, models.model, models.parameters, models.compaction, models.max_turns, models.max_output_tokens, models.result_inline_bytes, bindings.system_prompt, bindings.prelude, bindings.rate_limits
 		FROM gatehouse_workspace_agents AS bindings
 		JOIN gatehouse_agent_models AS models ON models.id = bindings.model_id
 		JOIN gatehouse_agent_providers AS providers ON providers.id = models.provider_id
@@ -1758,7 +1767,7 @@ func scanWorkspaceAgentModel(row sessionEventRow, workspace model.WorkspaceRef) 
 	selected.Ref.Workspace = workspace
 	var providerAlias, endpoint, keychainID, apiKey, systemPrompt, prelude, rateLimits sql.NullString
 	var keychainVersion sql.NullInt64
-	if err := row.Scan(&selected.Ref.Id, &selected.Alias, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &endpoint, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &systemPrompt, &prelude, &rateLimits); err != nil {
+	if err := row.Scan(&selected.Ref.Id, &selected.Alias, &selected.Revision, &selected.AgentModel.Id, &selected.ProviderID, &providerAlias, &selected.Protocol, &endpoint, &keychainID, &keychainVersion, &apiKey, &selected.Model, &selected.Parameters, &selected.Compaction, &selected.MaxTurns, &selected.MaxOutputTokens, &selected.ResultInlineBytes, &systemPrompt, &prelude, &rateLimits); err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, dbos.ErrNoRows) {
 			return nil, nil
 		}

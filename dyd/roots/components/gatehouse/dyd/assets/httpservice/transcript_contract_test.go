@@ -59,6 +59,9 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		{Event: model.SessionEvent{Kind: model.SessionEventKindCancelSuccess, Payload: map[string]interface{}{}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindCancelFailure, Payload: map[string]interface{}{"code": "already_completed"}}},
 		{Event: model.SessionEvent{Kind: "gateway.notice", Payload: map[string]interface{}{"text": "unpublished"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindToolSuccess, Payload: map[string]interface{}{"output_file": file}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"code": "execution_failed", "message": "See full result", "output_file": file}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingFailure, Payload: map[string]interface{}{"code": "failed", "message": "See diagnostics", "output_file": file}}},
 	}
 	for index := range entries {
 		entries[index].Event.Ref = model.SessionEventRef{Id: "sev_test", Session: model.SessionRef{Id: "ses_test", Workspace: model.WorkspaceRef{Id: "wsp_test"}}}
@@ -110,6 +113,11 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 	invalid.Payload = map[string]interface{}{}
 	if err, _ := transcriptEventWire(invalid); err == nil {
 		t.Fatal("transcript codec accepted an agent failure without a code")
+	}
+	for _, payload := range []map[string]interface{}{{}, {"output": "duplicated", "output_file": file}} {
+		invalid.Kind = model.SessionEventKindToolFailure
+		invalid.Payload = payload
+		if err, _ := transcriptEventWire(invalid); err == nil { t.Fatal("transcript accepted an ambiguous tool failure body") }
 	}
 }
 

@@ -83,7 +83,7 @@ let File =
       s.record.from
         s.record.props::{
         , required = toMap { id = text, name = text, size = integer, fingerprint = text }
-        , optional = toMap { media_type = text }
+        , optional = toMap { media_type = text, author_principal = s.reference.from s.reference.props::{ to = "TranscriptPrincipalRef" } s.reference.meta::{=}, author_agent = s.reference.from s.reference.props::{ to = "TranscriptAgentRef" } s.reference.meta::{=} }
         }
         s.record.meta::{ name = Some "TranscriptFile" }
 
@@ -111,9 +111,25 @@ let toolRequest =
         s.record.meta::{=}
 
 let toolFailure =
-      s.record.from
-        s.record.props::{ required = toMap { output = text }, optional = toMap { code = text, message = text } }
-        s.record.meta::{=}
+      s.oneOf.from
+        { options =
+            [ s.record.from
+                s.record.props::{ required = toMap { output = text }, optional = toMap { output_file = s.reference.from s.reference.props::{ to = "TranscriptFile" } s.reference.meta::{=}, code = text, message = text } }
+                s.record.meta::{=}
+            , s.record.from
+                s.record.props::{ required = toMap { output_file = s.reference.from s.reference.props::{ to = "TranscriptFile" } s.reference.meta::{=} }, optional = toMap { output = text, code = text, message = text } }
+                s.record.meta::{=}
+            ]
+        }
+        s.oneOf.meta::{=}
+
+let resultFile = s.record.from
+      s.record.props::{ required = [] : List { mapKey : Text, mapValue : s.type }, optional = toMap { output_file = s.reference.from s.reference.props::{ to = "TranscriptFile" } s.reference.meta::{=} } }
+      s.record.meta::{=}
+
+let thinkingFailure = s.record.from
+      s.record.props::{ required = toMap { code = text }, optional = toMap { message = text, output_file = s.reference.from s.reference.props::{ to = "TranscriptFile" } s.reference.meta::{=} } }
+      s.record.meta::{=}
 
 let description =
       s.record.from
@@ -163,9 +179,9 @@ let TranscriptEvent =
             , event "thinking.request" empty
             , event "thinking.update" thinkingUpdate
             , event "thinking.success" empty
-            , event "thinking.failure" failure
+            , event "thinking.failure" thinkingFailure
             , event "tool.request" toolRequest
-            , event "tool.success" empty
+            , event "tool.success" resultFile
             , event "tool.failure" toolFailure
             , event "approval.request" description
             , event "approval.success" empty

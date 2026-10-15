@@ -31,15 +31,16 @@ type AgentProvider struct {
 type AgentProviderAPIKeySource string
 
 type AgentModel struct {
-	Alias           string
-	Revision        int
-	ProviderAlias   string
-	Model           string
-	Parameters      string
-	Compaction      AgentModelCompaction
-	MaxTurns        int
-	MaxOutputTokens int
-	Enabled         bool
+	Alias             string
+	Revision          int
+	ProviderAlias     string
+	Model             string
+	Parameters        string
+	Compaction        AgentModelCompaction
+	MaxTurns          int
+	MaxOutputTokens   int
+	ResultInlineBytes int
+	Enabled           bool
 }
 
 type AgentModelCompaction struct {
@@ -103,10 +104,11 @@ func ValidateWorkspaceAgentRateLimits(limits *WorkspaceAgentRateLimits) error {
 var workspaceAgentAlias = regexp.MustCompile(`^[a-z0-9_-]+(/[a-z0-9_-]+)*$`)
 
 const (
-	DefaultAgentModelMaxTurns        = 127
-	DefaultAgentModelMaxOutputTokens = 16000
-	DefaultAgentModelHistoryBytes    = 96 * 1024
-	DefaultAgentModelBufferBytes     = 48 * 1024
+	DefaultAgentModelMaxTurns          = 127
+	DefaultAgentModelMaxOutputTokens   = 16000
+	DefaultAgentModelHistoryBytes      = 96 * 1024
+	DefaultAgentModelBufferBytes       = 48 * 1024
+	DefaultAgentModelResultInlineBytes = 4 * 1024
 )
 
 func defaultAgentModelCompaction(model string) AgentModelCompaction {
@@ -242,9 +244,16 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 		if maxOutputTokens <= 0 {
 			return fmt.Errorf("agent_models[%d].max_output_tokens must be positive", index), nil
 		}
+		resultInlineBytes := DefaultAgentModelResultInlineBytes
+		if configured.ResultInlineBytes != nil {
+			resultInlineBytes = *configured.ResultInlineBytes
+		}
+		if resultInlineBytes <= 0 {
+			return fmt.Errorf("agent_models[%d].result_inline_bytes must be positive", index), nil
+		}
 		enabled := configured.Enabled == nil || *configured.Enabled
 		aliases[configured.Alias] = struct{}{}
-		models = append(models, AgentModel{Alias: configured.Alias, Revision: configured.Revision, ProviderAlias: configured.Provider, Model: configured.Model, Parameters: string(encoded), Compaction: compaction, MaxTurns: maxTurns, MaxOutputTokens: maxOutputTokens, Enabled: enabled})
+		models = append(models, AgentModel{Alias: configured.Alias, Revision: configured.Revision, ProviderAlias: configured.Provider, Model: configured.Model, Parameters: string(encoded), Compaction: compaction, MaxTurns: maxTurns, MaxOutputTokens: maxOutputTokens, ResultInlineBytes: resultInlineBytes, Enabled: enabled})
 	}
 	sort.Slice(models, func(left, right int) bool { return models[left].Alias < models[right].Alias })
 	return nil, models
