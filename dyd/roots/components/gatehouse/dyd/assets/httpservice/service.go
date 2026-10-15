@@ -19,6 +19,7 @@ import (
 
 	"gatehouse/auth"
 	"gatehouse/authz"
+	"gatehouse/codexlogin"
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/keychain"
@@ -141,6 +142,9 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/keychains", systemKeychains(keyring, store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers", systemAgentProviders(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers/{provider}", systemAgentProvider(store, keyring, tokens[0]))
+		codexLogin := codexlogin.NewClient(nil)
+		mux.HandleFunc("/api/v1/system/agent-providers/openai-codex/login/start", codexLoginStart(store, tokens[0], codexLogin))
+		mux.HandleFunc("/api/v1/system/agent-providers/openai-codex/login/poll", codexLoginPoll(store, tokens[0], codexLogin))
 		mux.HandleFunc("/api/v1/system/agent-models", systemAgentModels(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-models/{model}", systemAgentModel(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/storage-providers", systemStorageProviders(store, keyring, tokens[0]))

@@ -4,6 +4,7 @@
   import * as Card from "../lib/vendor/shadcn/card"
   import Text from "./Text.svelte"
   import Spinner from "./Spinner.svelte"
+  import { cn } from "../lib/utils"
   let {
     eyebrow,
     brand,
@@ -13,6 +14,7 @@
     live,
     width = "md",
     centered = false,
+    centerContent = false,
     children,
   }: {
     eyebrow?: string
@@ -23,6 +25,7 @@
     live?: "polite" | "assertive" | "off"
     width?: "sm" | "md"
     centered?: boolean
+    centerContent?: boolean
     children?: Snippet
   } = $props()
 </script>
@@ -60,7 +63,12 @@
             >{/if}
         </Card.Header>{/if}
       <Card.Content>
-        <div class="flex min-w-0 flex-col gap-4">
+        <div
+          class={cn(
+            "flex min-w-0 flex-col gap-4",
+            centerContent && "text-center",
+          )}
+        >
           {#if busy}<Spinner role="status" aria-label="Loading" />{/if}
           {@render children?.()}
         </div>

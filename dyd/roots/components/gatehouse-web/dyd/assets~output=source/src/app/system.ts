@@ -18,6 +18,43 @@ export type SystemPrincipal = {
 }
 
 export type SystemKeychain = { id: string; version: number }
+export type CodexLoginAttempt = {
+  device_auth_id: string
+  user_code: string
+  verification_uri: string
+  expires_at: string
+  poll_after_ms: number
+}
+export type CodexLoginSuccess = {
+  status: "succeeded"
+  account: { id: string; email?: string }
+  expires_at: string
+}
+export type CodexLoginPoll =
+  | { status: "pending"; poll_after_ms: number }
+  | CodexLoginSuccess
+
+export function startCodexLogin(signal?: AbortSignal): Promise<Response> {
+  return systemAdministration(
+    "agent-providers/openai-codex/login/start",
+    "POST",
+    {},
+    signal,
+  )
+}
+
+export function pollCodexLogin(
+  attempt: Pick<CodexLoginAttempt, "device_auth_id" | "user_code">,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return systemAdministration(
+    "agent-providers/openai-codex/login/poll",
+    "POST",
+    { device_auth_id: attempt.device_auth_id, user_code: attempt.user_code },
+    signal,
+  )
+}
+
 export type SystemAgentProvider = {
   id: string
   alias: string

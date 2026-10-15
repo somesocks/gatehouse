@@ -25,7 +25,7 @@
       | "ol"
       | "li"
     gap?: Gap
-    justify?: "start" | "end" | "between"
+    justify?: "start" | "center" | "end" | "between"
     align?: "center" | "end" | "start"
     wrap?: boolean
     push?: boolean
@@ -40,9 +40,12 @@
     gaps[gap],
     wrap && "flex-wrap",
     push && "ms-auto",
-    { start: "justify-start", end: "justify-end", between: "justify-between" }[
-      justify
-    ],
+    {
+      start: "justify-start",
+      center: "justify-center",
+      end: "justify-end",
+      between: "justify-between",
+    }[justify],
     { center: "items-center", start: "items-start", end: "items-end" }[align],
     tone === "muted" && "text-muted-foreground text-sm",
   )}

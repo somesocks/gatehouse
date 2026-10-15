@@ -26,9 +26,13 @@
     ><UI.AdminHeader
       title="Agent providers"
       description="Services that supply agent models."
-      >{#snippet actions()}<UI.RouterLink
-          variant="default"
-          href="/app/system/agent-providers/new">Create provider</UI.RouterLink
+      >{#snippet actions()}<UI.Link
+          variant="outline"
+          href="/app/login/openai-codex"
+          target="_blank"
+          rel="noopener noreferrer">Codex login</UI.Link
+        ><UI.RouterLink variant="default" href="/app/system/agent-providers/new"
+          >Create provider</UI.RouterLink
         >{/snippet}</UI.AdminHeader
     >
     <UI.SearchToolbar

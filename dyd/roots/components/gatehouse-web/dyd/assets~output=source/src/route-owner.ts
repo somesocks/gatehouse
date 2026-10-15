@@ -23,6 +23,7 @@ export type RouteOwner =
   | "system-grant-new"
   | "agent-provider-list"
   | "agent-provider-new"
+  | "codex-login"
   | "agent-provider-detail"
   | "agent-model-list"
   | "agent-model-new"
@@ -130,6 +131,8 @@ export function routeOwner(route: Route): RouteOwner {
       return "agent-provider-list"
     case "system-agent-provider-new":
       return "agent-provider-new"
+    case "system-codex-login":
+      return "codex-login"
     case "system-agent-provider":
     case "system-agent-provider-edit":
       return "agent-provider-detail"

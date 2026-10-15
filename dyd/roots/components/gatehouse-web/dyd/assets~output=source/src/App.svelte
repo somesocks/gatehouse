@@ -10,6 +10,7 @@
   import AgentProviderDetailRoute from "./pages/system/agent-providers/AgentProviderDetailRoute.svelte"
   import AgentProviderListRoute from "./pages/system/agent-providers/AgentProviderListRoute.svelte"
   import AgentProviderNewRoute from "./pages/system/agent-providers/AgentProviderNewRoute.svelte"
+  import CodexLoginRoute from "./pages/system/agent-providers/CodexLoginRoute.svelte"
   import AgentModelDetailRoute from "./pages/system/agent-models/AgentModelDetailRoute.svelte"
   import AgentModelListRoute from "./pages/system/agent-models/AgentModelListRoute.svelte"
   import AgentModelNewRoute from "./pages/system/agent-models/AgentModelNewRoute.svelte"
@@ -111,6 +112,8 @@
     <AgentProviderListRoute />
   {:else if owner === "agent-provider-new"}
     <AgentProviderNewRoute />
+  {:else if owner === "codex-login"}
+    <CodexLoginRoute />
   {:else if owner === "agent-provider-detail"}
     <AgentProviderDetailRoute
       editingPage={runtime.state.route.kind === "system-agent-provider-edit"}
