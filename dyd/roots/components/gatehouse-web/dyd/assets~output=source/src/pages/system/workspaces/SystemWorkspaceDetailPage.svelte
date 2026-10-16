@@ -82,6 +82,11 @@
           href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/principals`}
         />
         <UI.NavigationCard
+          title="Groups"
+          description="Manage groups, memberships, and group workspace grants."
+          href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/groups`}
+        />
+        <UI.NavigationCard
           title="Agent bindings"
           description="Choose the agent models available in this workspace."
           href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings`}

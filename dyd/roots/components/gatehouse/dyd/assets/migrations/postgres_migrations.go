@@ -66,6 +66,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationV055AddResultFiles(),
 			postgresMigrationV056CodexProviderCredentials(),
 			postgresMigrationV057PrincipalIdentityActivity(),
+			postgresMigrationV058GroupAdministrationRevisions(),
 		},
 		Repeatable: []RepeatableMigration{
 			postgresMigrationR001PrepareKeychains(keyring),

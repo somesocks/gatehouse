@@ -23,6 +23,11 @@ The response is the updated grant, including its recipient (`principal` or
 `group`), role, enabled status, and revision. This endpoint supports both direct
 principal grants and group grants. The principal roster exposes direct grants.
 
+The endpoint also accepts `enabled` to revoke or restore a single grant, with or
+without a role change. Omitted fields are preserved. Workspace groups expose
+these controls under **System → Workspaces → [workspace] → Groups**; see
+[Group administration](group-administration.md).
+
 Actual role changes atomically increment the revision and append a
 `workspace_grant.update` activity event. Saving the same role with the current
 revision leaves the grant and activity unchanged.

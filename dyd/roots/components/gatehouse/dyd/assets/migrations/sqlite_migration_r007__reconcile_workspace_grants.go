@@ -136,7 +136,11 @@ func sqliteMigrationR007ReconcileWorkspaceGrantsBuilder(grants []config.Workspac
 		UNION ALL
 		SELECT id, workspace || '/' || "group" || '/' || grant_id
 		FROM gatehouse_migration_workspace_grant_activities
-		WHERE "group" IS NOT NULL;
+		WHERE "group" IS NOT NULL
+		UNION ALL
+		SELECT activities.id, members.principal_id || '/' || activities.grant_id
+		FROM gatehouse_migration_workspace_grant_activities AS activities
+		JOIN gatehouse_group_members AS members ON members.workspace_id = activities.workspace AND members.group_id = activities."group";
 
 		DROP TABLE gatehouse_migration_workspace_grant_activities;
 		DROP TABLE gatehouse_migration_workspace_grant_groups_state;

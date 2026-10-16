@@ -29,6 +29,7 @@
   import SystemWorkspaceEditRoute from "./pages/system/workspaces/SystemWorkspaceEditRoute.svelte"
   import SystemWorkspacePrincipalsRoute from "./pages/system/workspaces/SystemWorkspacePrincipalsRoute.svelte"
   import SystemWorkspacePrincipalNewRoute from "./pages/system/workspaces/SystemWorkspacePrincipalNewRoute.svelte"
+  import SystemWorkspaceGroupsRoute from "./pages/system/workspaces/SystemWorkspaceGroupsRoute.svelte"
   import WorkspaceAgentBindingDetailRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingDetailRoute.svelte"
   import WorkspaceAgentBindingListRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingListRoute.svelte"
   import WorkspaceAgentBindingNewRoute from "./pages/system/workspace-agent-bindings/WorkspaceAgentBindingNewRoute.svelte"
@@ -184,6 +185,15 @@
       workspaceID={runtime.state.route.kind === "system-workspace-principals"
         ? runtime.state.route.workspaceID
         : ""}
+    />
+  {:else if owner === "system-workspace-groups"}<SystemWorkspaceGroupsRoute
+      workspaceID={runtime.state.route.kind === "system-workspace-groups" ||
+      runtime.state.route.kind === "system-workspace-group"
+        ? runtime.state.route.workspaceID
+        : ""}
+      groupID={runtime.state.route.kind === "system-workspace-group"
+        ? runtime.state.route.groupID
+        : undefined}
     />
   {:else if owner === "system-workspace-principal-new"}<SystemWorkspacePrincipalNewRoute
       workspaceID={runtime.state.route.kind === "system-workspace-principal-new"

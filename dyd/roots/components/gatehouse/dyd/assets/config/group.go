@@ -9,16 +9,18 @@ import (
 )
 
 type Group struct {
-	WorkspaceID      string
-	Alias            string
-	Name             *string
-	Enabled          bool
-	Members          []GroupMember
+	WorkspaceID string
+	Alias       string
+	Name        *string
+	Enabled     bool
+	Revision    int
+	Members     []GroupMember
 }
 
 type GroupMember struct {
 	PrincipalID string
 	Enabled     bool
+	Revision    int
 }
 
 func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
@@ -28,7 +30,8 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 				WorkspaceID: defaultWorkspaceAlias,
 				Alias:       "root",
 				Enabled:     true,
-				Members:     []GroupMember{{PrincipalID: defaultPrincipalAlias, Enabled: true}},
+				Revision:    1,
+				Members:     []GroupMember{{PrincipalID: defaultPrincipalAlias, Enabled: true, Revision: 1}},
 			}}
 		}
 		return nil, nil
@@ -55,6 +58,13 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 			}
 
 			enabled := true
+			revision := 1
+			if configured.Revision != nil {
+				revision = *configured.Revision
+			}
+			if revision < 1 {
+				return fmt.Errorf("workspaces[%d].groups[%d].revision must be positive", workspaceIndex, groupIndex), nil
+			}
 			if configured.Enabled != nil {
 				enabled = *configured.Enabled
 			}
@@ -70,11 +80,18 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].principal %q is duplicated", workspaceIndex, groupIndex, memberIndex, configuredMember.Principal), nil
 					}
 					memberEnabled := true
+					memberRevision := 1
+					if configuredMember.Revision != nil {
+						memberRevision = *configuredMember.Revision
+					}
+					if memberRevision < 1 {
+						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].revision must be positive", workspaceIndex, groupIndex, memberIndex), nil
+					}
 					if configuredMember.Enabled != nil {
 						memberEnabled = *configuredMember.Enabled
 					}
 					memberIDs[configuredMember.Principal] = struct{}{}
-					members = append(members, GroupMember{PrincipalID: configuredMember.Principal, Enabled: memberEnabled})
+					members = append(members, GroupMember{PrincipalID: configuredMember.Principal, Enabled: memberEnabled, Revision: memberRevision})
 				}
 			}
 			sort.Slice(members, func(left, right int) bool {
@@ -82,10 +99,11 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 			})
 			groupAliases[configured.Alias] = struct{}{}
 			groups = append(groups, Group{
-				WorkspaceID:    workspace.Alias,
-				Alias:          configured.Alias,
-				Name:           configured.Name,
-				Enabled:        enabled,
+				WorkspaceID: workspace.Alias,
+				Alias:       configured.Alias,
+				Name:        configured.Name,
+				Enabled:     enabled,
+				Revision:    revision,
 				Members:     members,
 			})
 		}

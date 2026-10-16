@@ -38,6 +38,7 @@ export type RouteOwner =
   | "system-workspace-edit"
   | "system-workspace-principals"
   | "system-workspace-principal-new"
+  | "system-workspace-groups"
   | "workspace-agent-binding-list"
   | "workspace-agent-binding-new"
   | "workspace-agent-binding-detail"
@@ -165,6 +166,9 @@ export function routeOwner(route: Route): RouteOwner {
       return "system-workspace-principals"
     case "system-workspace-principal-new":
       return "system-workspace-principal-new"
+    case "system-workspace-groups":
+    case "system-workspace-group":
+      return "system-workspace-groups"
     case "system-workspace-agent-bindings":
       return "workspace-agent-binding-list"
     case "system-workspace-agent-binding-new":

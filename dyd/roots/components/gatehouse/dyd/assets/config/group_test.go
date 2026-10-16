@@ -10,6 +10,7 @@ import (
 
 func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 	disabled := false
+	groupRevision, memberRevision := 7, 4
 	document := configschema.GatehouseConfig{
 		ApiVersion: "v1",
 		Workspaces: &[]configschema.GatehouseConfigWorkspacesValues{
@@ -18,12 +19,13 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{
 					{Alias: "guests"},
 					{
-						Alias:   "admins",
-						Name:    stringPointer("Administrators"),
-						Enabled: &disabled,
+						Alias:    "admins",
+						Name:     stringPointer("Administrators"),
+						Enabled:  &disabled,
+						Revision: &groupRevision,
 						Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
 							{Principal: "zebra"},
-							{Principal: "alpha", Enabled: &disabled},
+							{Principal: "alpha", Enabled: &disabled, Revision: &memberRevision},
 						},
 					},
 				},
@@ -41,17 +43,19 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 			Alias:       "admins",
 			Name:        stringPointer("Administrators"),
 			Enabled:     false,
+			Revision:    7,
 			Members: []GroupMember{
-				{PrincipalID: "alpha", Enabled: false},
-				{PrincipalID: "zebra", Enabled: true},
+				{PrincipalID: "alpha", Enabled: false, Revision: 4},
+				{PrincipalID: "zebra", Enabled: true, Revision: 1},
 			},
 		},
-	{
-		WorkspaceID: "zebra",
-		Alias:       "guests",
-		Enabled:     true,
-		Members:     []GroupMember{},
-	},
+		{
+			WorkspaceID: "zebra",
+			Alias:       "guests",
+			Enabled:     true,
+			Revision:    1,
+			Members:     []GroupMember{},
+		},
 	}
 	if !reflect.DeepEqual(groups, want) {
 		t.Fatalf("ResolveGroups() = %#v, want %#v", groups, want)
@@ -59,11 +63,22 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 }
 
 func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
+	zero, negative := 0, -1
 	tests := []struct {
 		name       string
 		workspaces []configschema.GatehouseConfigWorkspacesValues
 		contains   string
 	}{
+		{
+			name:       "nonpositive group revision",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{Alias: "admins", Revision: &zero}}}},
+			contains:   "revision must be positive",
+		},
+		{
+			name:       "nonpositive membership revision",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{Alias: "admins", Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{{Principal: "alice", Revision: &negative}}}}}},
+			contains:   "revision must be positive",
+		},
 		{
 			name: "invalid group alias",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{
@@ -91,7 +106,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 				Alias: "engineering",
 				Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{
 					Alias: "admins",
-					Name: stringPointer(" "),
+					Name:  stringPointer(" "),
 				}},
 			}},
 			contains: "must not be blank",

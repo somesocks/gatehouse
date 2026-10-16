@@ -33,6 +33,8 @@ export type Route =
   | ({ kind: "system-workspace-edit" } & WorkspaceRoute)
   | ({ kind: "system-workspace-principals" } & WorkspaceRoute)
   | ({ kind: "system-workspace-principal-new" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-groups" } & WorkspaceRoute)
+  | ({ kind: "system-workspace-group"; groupID: string } & WorkspaceRoute)
   | ({ kind: "system-workspace-agent-bindings" } & WorkspaceRoute)
   | ({ kind: "system-workspace-agent-binding-new" } & WorkspaceRoute)
   | ({
@@ -230,6 +232,19 @@ export function parseRoute(url: URL): Route {
     segments[2] === "workspaces"
   )
     return { kind: "system-workspace", workspaceID: segments[3] }
+  if (
+    (segments.length === 5 || segments.length === 6) &&
+    segments[1] === "system" &&
+    segments[2] === "workspaces" &&
+    segments[4] === "groups"
+  )
+    return segments.length === 5
+      ? { kind: "system-workspace-groups", workspaceID: segments[3] }
+      : {
+          kind: "system-workspace-group",
+          workspaceID: segments[3],
+          groupID: segments[5],
+        }
   if (
     segments.length === 5 &&
     segments[1] === "system" &&
@@ -888,6 +903,10 @@ export function routePath(route: NavigableRoute): string {
       return `/app/system/workspaces/${segment(route.workspaceID)}/principals`
     case "system-workspace-principal-new":
       return `/app/system/workspaces/${segment(route.workspaceID)}/principals/new`
+    case "system-workspace-groups":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/groups`
+    case "system-workspace-group":
+      return `/app/system/workspaces/${segment(route.workspaceID)}/groups/${segment(route.groupID)}`
     case "system-workspace-agent-bindings":
       return `/app/system/workspaces/${segment(route.workspaceID)}/agent-bindings`
     case "system-workspace-agent-binding-new":

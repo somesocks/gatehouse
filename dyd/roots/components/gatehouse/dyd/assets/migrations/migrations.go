@@ -49,20 +49,6 @@ func Run(ctx context.Context, store *database.Store, migrations Set) error {
 	}
 }
 
-type groupMigrationValue struct {
-	WorkspaceID string
-	ID          string
-	Alias       string
-	Name        any
-	Enabled     bool
-	Members     []groupMemberMigrationValue
-}
-
-type groupMemberMigrationValue struct {
-	PrincipalID string
-	Enabled     bool
-}
-
 type activityMigrationEvent struct {
 	WorkspaceAlias                    string
 	ID                                string
@@ -155,130 +141,21 @@ func workspaceIDsByAlias(ctx context.Context, session *MigrationSession) (map[st
 	return ids, nil
 }
 
-func groupMigrationBuilder(groups []config.Group) MigrationBuilder {
-	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		existing, err := groupsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		workspaces, err := workspaceIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		principals, err := principalIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		membersByGroup, err := groupMembersByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		values := make([]groupMigrationValue, 0, len(groups))
-		events := []activityMigrationEvent{}
-		for _, group := range groups {
-			key := groupAliasKey{Workspace: group.WorkspaceID, Alias: group.Alias}
-			workspaceID := workspaces[group.WorkspaceID]
-			if workspaceID == "" {
-				return fmt.Errorf("workspace %q is unavailable", group.WorkspaceID), ""
-			}
-			stored, exists := existing[key]
-			id := stored.ID
-			if id == "" {
-				id, err = typed_id.New(typed_id.Group)
-				if err != nil {
-					return err, ""
-				}
-			}
-			if !exists {
-				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.create", "group", id, "", "", workspaceID+"/"+id)
-				if err != nil {
-					return err, ""
-				}
-				events = append(events, event)
-			} else if stored.Enabled != group.Enabled || !sameOptionalString(stored.Name, group.Name) {
-				event, err := newActivityMigrationEvent(group.WorkspaceID, "group.update", "group", id, "", "", workspaceID+"/"+id)
-				if err != nil {
-					return err, ""
-				}
-				events = append(events, event)
-			}
-			var name any
-			if group.Name != nil {
-				name = *group.Name
-			}
-			memberValues := make([]groupMemberMigrationValue, 0, len(group.Members))
-			for _, member := range group.Members {
-				memberValues = append(memberValues, groupMemberMigrationValue{PrincipalID: member.PrincipalID, Enabled: member.Enabled})
-				principalID := principals[member.PrincipalID]
-				storedMember, memberExists := membersByGroup[key][member.PrincipalID]
-				if !memberExists || storedMember != member.Enabled {
-					eventName := "group_member.create"
-					if memberExists {
-						eventName = "group_member.update"
-					}
-					event, err := newActivityMigrationEvent(group.WorkspaceID, eventName, "group_member", id, principalID, "", workspaceID+"/"+id, principalID+"/"+id)
-					if err != nil {
-						return err, ""
-					}
-					events = append(events, event)
-				}
-			}
-			values = append(values, groupMigrationValue{WorkspaceID: group.WorkspaceID, ID: id, Alias: group.Alias, Name: name, Enabled: group.Enabled, Members: memberValues})
-		}
-		return session.RenderTemplate(`
-			SELECT 1;
-			{{ range .Groups }}
-			{{ $group := . }}
-			INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .ID }}, {{ sqlLiteral .Alias }}, {{ sqlLiteral .Name }}, {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET
-				name = excluded.name,
-				enabled = excluded.enabled;
-			{{ range .Members }}
-			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-			VALUES ((SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral $group.WorkspaceID }}), {{ sqlLiteral $group.ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), {{ sqlBool .Enabled }})
-			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET
-				enabled = excluded.enabled;
-			{{ end }}
-			{{ end }}
-			{{ range .Events }}
-			{{ $event := . }}
-			INSERT INTO gatehouse_activity_events (
-				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, resource_workspace_agent_workspace, resource_workspace_agent_id, created_at
-			) VALUES (
-				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }},
-				{{ if eq .ResourceKind "group" }}{{ sqlLiteral .GroupID }}{{ else }}NULL{{ end }},
-				{{ if eq .ResourceKind "group_member" }}{{ sqlLiteral .GroupID }}{{ else }}NULL{{ end }},
-				{{ if eq .ResourceKind "group_member" }}{{ sqlLiteral .PrincipalID }}{{ else }}NULL{{ end }},
-				{{ if eq .ResourceKind "workspace_agent" }}(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceAlias }}){{ else }}NULL{{ end }},
-				{{ if eq .ResourceKind "workspace_agent" }}{{ sqlLiteral .WorkspaceAgent }}{{ else }}NULL{{ end }}, {{ sqlLiteral .CreatedAt }}
-			);
-			{{ range .Topics }}
-			INSERT INTO gatehouse_activity_event_topics (activity, topic)
-			VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
-			{{ end }}
-			{{ end }}
-		`, struct {
-			Groups []groupMigrationValue
-			Events []activityMigrationEvent
-		}{Groups: values, Events: events})
-	}
-}
-
 type groupAliasKey struct {
 	Workspace string
 	Alias     string
 }
 
 type storedGroup struct {
-	ID      string
-	Name    sql.NullString
-	Enabled bool
+	ID       string
+	Name     sql.NullString
+	Enabled  bool
+	Revision int
 }
 
 func groupsByAlias(ctx context.Context, session *MigrationSession) (map[groupAliasKey]storedGroup, error) {
 	rows, err := session.QueryContext(ctx, `
-		SELECT workspaces.alias, groups.alias, groups.id, groups.name, groups.enabled
+		SELECT workspaces.alias, groups.alias, groups.id, groups.name, groups.enabled, groups.revision
 		FROM gatehouse_groups AS groups
 		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id
 		WHERE workspaces.alias IS NOT NULL AND groups.alias IS NOT NULL
@@ -292,7 +169,7 @@ func groupsByAlias(ctx context.Context, session *MigrationSession) (map[groupAli
 	for rows.Next() {
 		var key groupAliasKey
 		var group storedGroup
-		if err := rows.Scan(&key.Workspace, &key.Alias, &group.ID, &group.Name, &group.Enabled); err != nil {
+		if err := rows.Scan(&key.Workspace, &key.Alias, &group.ID, &group.Name, &group.Enabled, &group.Revision); err != nil {
 			return nil, fmt.Errorf("scan group: %w", err)
 		}
 		groups[key] = group
@@ -301,37 +178,4 @@ func groupsByAlias(ctx context.Context, session *MigrationSession) (map[groupAli
 		return nil, fmt.Errorf("iterate groups: %w", err)
 	}
 	return groups, nil
-}
-
-func groupMembersByAlias(ctx context.Context, session *MigrationSession) (map[groupAliasKey]map[string]bool, error) {
-	rows, err := session.QueryContext(ctx, `
-		SELECT workspaces.alias, groups.alias, principals.alias, members.enabled
-		FROM gatehouse_group_members AS members
-		JOIN gatehouse_groups AS groups ON groups.workspace_id = members.workspace_id AND groups.id = members.group_id
-		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = groups.workspace_id
-		JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-		WHERE workspaces.alias IS NOT NULL AND groups.alias IS NOT NULL AND principals.alias IS NOT NULL
-	`)
-	if err != nil {
-		return nil, fmt.Errorf("get group members by alias: %w", err)
-	}
-	defer rows.Close()
-
-	members := map[groupAliasKey]map[string]bool{}
-	for rows.Next() {
-		var key groupAliasKey
-		var principal string
-		var enabled bool
-		if err := rows.Scan(&key.Workspace, &key.Alias, &principal, &enabled); err != nil {
-			return nil, fmt.Errorf("scan group member: %w", err)
-		}
-		if members[key] == nil {
-			members[key] = map[string]bool{}
-		}
-		members[key][principal] = enabled
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate group members: %w", err)
-	}
-	return members, nil
 }

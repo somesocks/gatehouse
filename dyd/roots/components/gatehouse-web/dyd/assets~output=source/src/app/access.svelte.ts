@@ -138,7 +138,12 @@ export function createAccess({
         {
           name: "access",
           topic: principalID,
-          events: ["workspace_grant.*", "group_member.*", "system_grant.*"],
+          events: [
+            "workspace_grant.*",
+            "group.*",
+            "group_member.*",
+            "system_grant.*",
+          ],
         },
       ],
       async () => {

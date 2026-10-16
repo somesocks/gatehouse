@@ -13,9 +13,11 @@ config: |-
       groups:
         - alias: operators
           name: Operators
+          revision: 1
           enabled: true
           members:
             - principal: alice
+              revision: 1
               enabled: true
       grants:
         - role: manager

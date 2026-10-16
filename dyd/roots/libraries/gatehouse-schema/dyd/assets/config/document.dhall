@@ -75,6 +75,10 @@ let GroupMember =
                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the group assignment is enabled" }
+              , revision =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "monotonic membership configuration revision, defaults to 1" }
               }
         }
         s.record.meta::{ name = Some "GroupMember" }
@@ -100,12 +104,16 @@ let Group =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "group display name" }
-               , enabled =
-                   s.boolean.from
-                     s.boolean.props::{=}
-                     s.boolean.meta::{ description = Some "whether the group is enabled" }
-                , members = GroupMembers
-               }
+              , enabled =
+                  s.boolean.from
+                    s.boolean.props::{=}
+                    s.boolean.meta::{ description = Some "whether the group is enabled" }
+              , members = GroupMembers
+              , revision =
+                  s.number.from
+                    s.number.props::{ variant = s.number.variants.integer }
+                    s.number.meta::{ description = Some "monotonic group configuration revision, defaults to 1" }
+              }
         }
         s.record.meta::{ name = Some "Group" }
 

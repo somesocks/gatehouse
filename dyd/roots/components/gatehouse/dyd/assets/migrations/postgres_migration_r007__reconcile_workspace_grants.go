@@ -89,6 +89,11 @@ func postgresMigrationR007ReconcileWorkspaceGrantsBuilder(grants []config.Worksp
 						return fmt.Errorf("group %q is unavailable in workspace %q", value.SubjectID, value.WorkspaceID), ""
 					}
 					topics[0] = workspaceID + "/" + group.ID + "/" + value.ID
+					memberTopics, err := postgresGroupMemberActivityTopics(ctx, session, workspaceID, group.ID, value.ID)
+					if err != nil {
+						return err, ""
+					}
+					topics = append(topics, memberTopics...)
 				}
 				eventName := "workspace_grant.create"
 				if exists {
@@ -156,6 +161,24 @@ type postgresMigrationR007WorkspaceGrantKey struct {
 	Role        string
 	SubjectKind string
 	SubjectID   string
+}
+
+// Principal-rooted topics remain readable after the change revokes workspace access.
+func postgresGroupMemberActivityTopics(ctx context.Context, session *MigrationSession, workspace, group, suffix string) ([]string, error) {
+	rows, err := session.QueryContext(ctx, `SELECT principal_id FROM gatehouse_group_members WHERE workspace_id = $1 AND group_id = $2`, workspace, group)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	topics := []string{}
+	for rows.Next() {
+		var principal string
+		if err := rows.Scan(&principal); err != nil {
+			return nil, err
+		}
+		topics = append(topics, principal+"/"+suffix)
+	}
+	return topics, rows.Err()
 }
 
 type postgresMigrationR007WorkspaceGrant struct {

@@ -19,13 +19,14 @@ func systemWorkspaceGrant(store *database.Store, tokens *auth.BearerTokens) http
 			return
 		}
 		var input struct {
-			Role             string `json:"role"`
-			ExpectedRevision *int   `json:"expected_revision"`
+			Role             *string `json:"role"`
+			Enabled          *bool   `json:"enabled"`
+			ExpectedRevision *int    `json:"expected_revision"`
 		}
 		if !principalDecode(w, r, &input) {
 			return
 		}
-		if !authz.ValidRole(input.Role) {
+		if (input.Role != nil && !authz.ValidRole(*input.Role)) || (input.Role == nil && input.Enabled == nil) {
 			http.Error(w, "invalid workspace role", http.StatusBadRequest)
 			return
 		}
@@ -33,7 +34,12 @@ func systemWorkspaceGrant(store *database.Store, tokens *auth.BearerTokens) http
 			http.Error(w, "a positive expected revision is required", http.StatusBadRequest)
 			return
 		}
-		err, grant := store.SystemWorkspaceGrantRoleUpdate(r.Context(), r.PathValue("workspace"), r.PathValue("grant"), authz.Role(input.Role), *input.ExpectedRevision)
+		var role *authz.Role
+		if input.Role != nil {
+			value := authz.Role(*input.Role)
+			role = &value
+		}
+		err, grant := store.SystemWorkspaceGrantUpdate(r.Context(), r.PathValue("workspace"), r.PathValue("grant"), role, input.Enabled, *input.ExpectedRevision)
 		switch {
 		case errors.Is(err, database.ErrWorkspaceGrantAlreadyExists):
 			http.Error(w, "Another grant for this recipient already has that role, including disabled grants.", http.StatusConflict)

@@ -7,7 +7,9 @@ workspaces:
     groups:
       - alias: deployers
         name: Deployers
+        revision: 3
         members:
           - principal: alice
+            revision: 2
           - principal: bob
             enabled: false

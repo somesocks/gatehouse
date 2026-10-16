@@ -23,14 +23,21 @@ type SystemWorkspaceGrant struct {
 // SystemWorkspaceGrantRoleUpdate edits a single grant, preserving its identity,
 // recipient and enabled state. Role collisions include disabled grants.
 func (store *Store) SystemWorkspaceGrantRoleUpdate(ctx context.Context, workspaceID, id string, role authz.Role, expectedRevision int) (error, *SystemWorkspaceGrant) {
+	return store.SystemWorkspaceGrantUpdate(ctx, workspaceID, id, &role, nil, expectedRevision)
+}
+
+func (store *Store) SystemWorkspaceGrantUpdate(ctx context.Context, workspaceID, id string, role *authz.Role, enabled *bool, expectedRevision int) (error, *SystemWorkspaceGrant) {
 	if !typed_id.Valid(typed_id.Workspace, workspaceID) || !typed_id.Valid(typed_id.WorkspaceGrant, id) {
 		return nil, nil
 	}
-	if !authz.ValidRole(string(role)) {
+	if role != nil && !authz.ValidRole(string(*role)) {
 		return ErrWorkspaceGrantRoleInvalid, nil
 	}
 	if expectedRevision < 1 {
 		return ErrRevisionConflict, nil
+	}
+	if role == nil && enabled == nil {
+		return fmt.Errorf("%w: an update is required", ErrGroupInput), nil
 	}
 	tx, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -57,14 +64,21 @@ func (store *Store) SystemWorkspaceGrantRoleUpdate(ctx context.Context, workspac
 	if grant.Revision != expectedRevision {
 		return ErrRevisionConflict, nil
 	}
-	if grant.Role == role {
+	nextRole, nextEnabled := grant.Role, grant.Enabled
+	if role != nil {
+		nextRole = *role
+	}
+	if enabled != nil {
+		nextEnabled = *enabled
+	}
+	if grant.Role == nextRole && grant.Enabled == nextEnabled {
 		if err := tx.Commit(); err != nil {
 			return err, nil
 		}
 		return nil, &grant
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_workspace_grants SET role = `+p(1)+`, revision = revision + 1
-		WHERE workspace = `+p(2)+` AND id = `+p(3)+` AND revision = `+p(4), role, workspaceID, id, expectedRevision)
+	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_workspace_grants SET role = `+p(1)+`, enabled = `+p(2)+`, revision = revision + 1
+		WHERE workspace = `+p(3)+` AND id = `+p(4)+` AND revision = `+p(5), nextRole, nextEnabled, workspaceID, id, expectedRevision)
 	if uniquePrincipalConstraint(err) {
 		return ErrWorkspaceGrantAlreadyExists, nil
 	}
@@ -76,22 +90,31 @@ func (store *Store) SystemWorkspaceGrantRoleUpdate(ctx context.Context, workspac
 	} else if count != 1 {
 		return ErrRevisionConflict, nil
 	}
-	workspace := model.WorkspaceRef{Id: workspaceID}
-	topics := []string{ActivityTopicWorkspaceGrant(workspace, id)}
-	if grant.Principal != nil {
-		topics = append(topics, ActivityTopicPrincipalGrant(model.PrincipalRef{Id: *grant.Principal}, id))
-	} else {
-		topics = append(topics, ActivityTopicGroupGrant(workspace, model.GroupRef{Id: *grant.Group}, id))
-	}
-	if err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{
-		Event: "workspace_grant.update", ResourceKind: ActivityResourceKindWorkspaceGrant, ResourceWorkspaceGrant: &id,
-	}, topics); err != nil {
+	if err := store.workspaceGrantActivity(ctx, tx, grant, "workspace_grant.update"); err != nil {
 		return err, nil
 	}
 	if err := tx.Commit(); err != nil {
 		return err, nil
 	}
-	grant.Role = role
+	grant.Role = nextRole
+	grant.Enabled = nextEnabled
 	grant.Revision++
 	return nil, &grant
+}
+
+func (store *Store) workspaceGrantActivity(ctx context.Context, tx *sql.Tx, grant SystemWorkspaceGrant, event string) error {
+	workspace := model.WorkspaceRef{Id: grant.Workspace}
+	topics := []string{ActivityTopicWorkspaceGrant(workspace, grant.ID)}
+	if grant.Principal != nil {
+		topics = append(topics, ActivityTopicPrincipalGrant(model.PrincipalRef{Id: *grant.Principal}, grant.ID))
+	} else {
+		topics = append(topics, ActivityTopicGroupGrant(workspace, model.GroupRef{Id: *grant.Group}, grant.ID))
+		members, err := groupPrincipalTopics(ctx, tx, keychainPlaceholder(store.kind), grant.Workspace, *grant.Group, grant.ID)
+		if err != nil {
+			return err
+		}
+		topics = append(topics, members...)
+	}
+	err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindWorkspaceGrant, ResourceWorkspaceGrant: &grant.ID}, topics)
+	return err
 }

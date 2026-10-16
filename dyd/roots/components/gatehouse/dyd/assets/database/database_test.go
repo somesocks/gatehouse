@@ -932,7 +932,9 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 	}
 
 	state.Groups[0].Name = stringPointer("Platform administrators")
+	state.Groups[0].Revision = 2
 	state.Groups[0].Members[0].Enabled = false
+	state.Groups[0].Members[0].Revision = 2
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}

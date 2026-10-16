@@ -27,11 +27,12 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				alias TEXT NOT NULL,
 				name TEXT,
 				enabled INTEGER NOT NULL,
+				revision INTEGER NOT NULL,
 				PRIMARY KEY (workspace_alias, alias)
 			) STRICT;
 			{{ range . }}
-			INSERT INTO gatehouse_migration_group_desired (workspace_alias, alias, name, enabled)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlOptionalString .Name }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_group_desired (workspace_alias, alias, name, enabled, revision)
+			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlOptionalString .Name }}, {{ sqlBool .Enabled }}, {{ if .Revision }}{{ .Revision }}{{ else }}1{{ end }});
 			{{ end }}
 
 			CREATE TEMP TABLE gatehouse_migration_group_members_desired (
@@ -39,13 +40,14 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				group_alias TEXT NOT NULL,
 				principal_alias TEXT NOT NULL,
 				enabled INTEGER NOT NULL,
+				revision INTEGER NOT NULL,
 				PRIMARY KEY (workspace_alias, group_alias, principal_alias)
 			) STRICT;
 			{{ range . }}
 			{{ $group := . }}
 			{{ range .Members }}
-			INSERT INTO gatehouse_migration_group_members_desired (workspace_alias, group_alias, principal_alias, enabled)
-			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.Alias }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }});
+			INSERT INTO gatehouse_migration_group_members_desired (workspace_alias, group_alias, principal_alias, enabled, revision)
+			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.Alias }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }}, {{ if .Revision }}{{ .Revision }}{{ else }}1{{ end }});
 			{{ end }}
 			{{ end }}
 
@@ -57,9 +59,9 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				COALESCE(groups.id, gh_id_new('grp')) AS group_id,
 				groups.id AS existing_group_id,
 				desired.name,
-				groups.name AS existing_name,
 				desired.enabled,
-				groups.enabled AS existing_enabled
+				desired.revision,
+				groups.revision AS existing_revision
 			FROM gatehouse_migration_group_desired AS desired
 			LEFT JOIN gatehouse_workspaces AS workspaces ON workspaces.alias = desired.workspace_alias
 			LEFT JOIN gatehouse_groups AS groups ON groups.workspace_id = workspaces.id AND groups.alias = desired.alias;
@@ -74,7 +76,8 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				principals.id AS principal_id,
 				members.principal_id AS existing_principal_id,
 				desired.enabled,
-				members.enabled AS existing_enabled
+				desired.revision,
+				members.revision AS existing_revision
 			FROM gatehouse_migration_group_members_desired AS desired
 			JOIN gatehouse_migration_group_state AS groups ON groups.workspace_alias = desired.workspace_alias AND groups.alias = desired.group_alias
 			LEFT JOIN gatehouse_principals AS principals ON principals.alias = desired.principal_alias
@@ -97,7 +100,7 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				group_id,
 				NULL
 			FROM gatehouse_migration_group_state
-			WHERE existing_group_id IS NULL OR existing_name IS NOT name OR existing_enabled IS NOT enabled;
+			WHERE existing_group_id IS NULL OR existing_revision < revision;
 			INSERT INTO gatehouse_migration_group_activities (workspace_id, id, event, resource_kind, group_id, principal_id)
 			SELECT
 				workspace_id,
@@ -107,18 +110,20 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 				group_id,
 				principal_id
 			FROM gatehouse_migration_group_member_state
-			WHERE existing_principal_id IS NULL OR existing_enabled IS NOT enabled;
+			WHERE existing_principal_id IS NULL OR existing_revision < revision;
 
-			INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled)
-			SELECT workspace_id, group_id, alias, name, enabled
+			INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled, revision)
+			SELECT workspace_id, group_id, alias, name, enabled, revision
 			FROM gatehouse_migration_group_state
 			WHERE TRUE
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET name = excluded.name, enabled = excluded.enabled;
-			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled)
-			SELECT workspace_id, group_id, principal_id, enabled
+			ON CONFLICT (workspace_id, alias) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, revision = excluded.revision
+			WHERE gatehouse_groups.revision < excluded.revision;
+			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision)
+			SELECT workspace_id, group_id, principal_id, enabled, revision
 			FROM gatehouse_migration_group_member_state
 			WHERE TRUE
-			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET enabled = excluded.enabled;
+			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
+			WHERE gatehouse_group_members.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (
 				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, created_at
@@ -133,6 +138,11 @@ func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Gro
 			SELECT id, workspace_id || '/' || group_id
 			FROM gatehouse_migration_group_activities
 			WHERE resource_kind = 'group'
+			UNION ALL
+			SELECT activities.id, members.principal_id || '/' || activities.group_id
+			FROM gatehouse_migration_group_activities AS activities
+			JOIN gatehouse_group_members AS members ON members.workspace_id = activities.workspace_id AND members.group_id = activities.group_id
+			WHERE activities.resource_kind = 'group'
 			UNION ALL
 			SELECT id, principal_id || '/' || group_id
 			FROM gatehouse_migration_group_activities
