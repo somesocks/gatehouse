@@ -36,11 +36,12 @@ type SystemWorkspaceSearch struct {
 }
 
 type SystemWorkspacePrincipal struct {
-	ID      string       `json:"id"`
-	Alias   *string      `json:"alias,omitempty"`
-	Name    *string      `json:"name,omitempty"`
-	Enabled bool         `json:"enabled"`
-	Roles   []authz.Role `json:"roles"`
+	ID      string                          `json:"id"`
+	Alias   *string                         `json:"alias,omitempty"`
+	Name    *string                         `json:"name,omitempty"`
+	Enabled bool                            `json:"enabled"`
+	Roles   []authz.Role                    `json:"roles"`
+	Grants  []SystemWorkspacePrincipalGrant `json:"grants"`
 }
 
 type SystemWorkspacePrincipalOption struct {
@@ -101,7 +102,7 @@ func (store *Store) SystemWorkspacePrincipalsSearch(ctx context.Context, search 
 			ORDER BY principals.id DESC
 			LIMIT `+placeholder(7)+`
 		)
-		SELECT principals.id, principals.alias, principals.name, principals.enabled, grants.role
+		SELECT principals.id, principals.alias, principals.name, principals.enabled, grants.id, grants.role, grants.enabled, grants.revision
 		FROM page
 		JOIN gatehouse_principals AS principals ON principals.id = page.id
 		JOIN gatehouse_workspace_grants AS grants
@@ -120,12 +121,14 @@ func (store *Store) SystemWorkspacePrincipalsSearch(ctx context.Context, search 
 	for rows.Next() {
 		var principal SystemWorkspacePrincipal
 		var alias, name sql.NullString
-		var role authz.Role
-		if err := rows.Scan(&principal.ID, &alias, &name, &principal.Enabled, &role); err != nil {
+		grant := SystemWorkspacePrincipalGrant{Workspace: search.WorkspaceID}
+		if err := rows.Scan(&principal.ID, &alias, &name, &principal.Enabled, &grant.ID, &grant.Role, &grant.Enabled, &grant.Revision); err != nil {
 			return fmt.Errorf("scan system workspace principal: %w", err), nil, ""
 		}
+		grant.Principal = principal.ID
 		if len(principals) > 0 && principals[len(principals)-1].ID == principal.ID {
-			principals[len(principals)-1].Roles = append(principals[len(principals)-1].Roles, role)
+			principals[len(principals)-1].Roles = append(principals[len(principals)-1].Roles, grant.Role)
+			principals[len(principals)-1].Grants = append(principals[len(principals)-1].Grants, grant)
 			continue
 		}
 		if len(principals) == search.Limit {
@@ -138,7 +141,8 @@ func (store *Store) SystemWorkspacePrincipalsSearch(ctx context.Context, search 
 		if name.Valid {
 			principal.Name = &name.String
 		}
-		principal.Roles = []authz.Role{role}
+		principal.Roles = []authz.Role{grant.Role}
+		principal.Grants = []SystemWorkspacePrincipalGrant{grant}
 		principals = append(principals, principal)
 	}
 	if err := rows.Err(); err != nil {
@@ -298,25 +302,20 @@ func (store *Store) SystemWorkspacePrincipalGrantsRemove(ctx context.Context, wo
 		return nil, false
 	}
 	rows, err := transaction.QueryContext(ctx, `
-		SELECT id, role, revision FROM gatehouse_workspace_grants
+		SELECT id FROM gatehouse_workspace_grants
 		WHERE workspace = `+placeholder(1)+` AND principal = `+placeholder(2)+` AND enabled = TRUE
 	`, workspaceID, principalID)
 	if err != nil {
 		return fmt.Errorf("get workspace grants for removal: %w", err), false
 	}
-	type grantRevision struct {
-		id       string
-		role     authz.Role
-		revision int
-	}
-	grants := []grantRevision{}
+	grants := []string{}
 	for rows.Next() {
-		var grant grantRevision
-		if err := rows.Scan(&grant.id, &grant.role, &grant.revision); err != nil {
+		var grantID string
+		if err := rows.Scan(&grantID); err != nil {
 			rows.Close()
 			return fmt.Errorf("scan workspace grant for removal: %w", err), false
 		}
-		grants = append(grants, grant)
+		grants = append(grants, grantID)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
@@ -327,16 +326,16 @@ func (store *Store) SystemWorkspacePrincipalGrantsRemove(ctx context.Context, wo
 	}
 	workspaceRef := model.WorkspaceRef{Id: workspaceID}
 	principalRef := model.PrincipalRef{Id: principalID}
-	for _, grant := range grants {
-		revision := grant.revision + 1
-		if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_grants SET enabled = FALSE, revision = `+placeholder(1)+` WHERE id = `+placeholder(2), revision, grant.id); err != nil {
+	for _, grantID := range grants {
+		// A concurrent role edit may have advanced the revision since the read.
+		if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_grants SET enabled = FALSE, revision = revision + 1 WHERE id = `+placeholder(1), grantID); err != nil {
 			return fmt.Errorf("disable workspace grant: %w", err), false
 		}
 		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 			Event:                  "workspace_grant.update",
 			ResourceKind:           ActivityResourceKindWorkspaceGrant,
-			ResourceWorkspaceGrant: &grant.id,
-		}, []string{ActivityTopicWorkspaceGrant(workspaceRef, grant.id), ActivityTopicPrincipalGrant(principalRef, grant.id)}); err != nil {
+			ResourceWorkspaceGrant: &grantID,
+		}, []string{ActivityTopicWorkspaceGrant(workspaceRef, grantID), ActivityTopicPrincipalGrant(principalRef, grantID)}); err != nil {
 			return fmt.Errorf("append workspace grant removal activity: %w", err), false
 		}
 	}

@@ -151,6 +151,7 @@ export type SystemWorkspacePrincipal = {
   name?: string
   enabled: boolean
   roles: WorkspaceRole[]
+  grants: SystemWorkspacePrincipalGrant[]
 }
 export type SystemWorkspacePrincipalOption = {
   id: string
@@ -340,6 +341,21 @@ export async function removeSystemWorkspacePrincipalGrants(
     `workspaces/${encodeURIComponent(workspaceID)}/principals/${encodeURIComponent(principalID)}`,
     "DELETE",
     undefined,
+    signal,
+  )
+}
+
+export async function updateSystemWorkspaceGrantRole(
+  workspaceID: string,
+  grantID: string,
+  role: WorkspaceRole,
+  expectedRevision: number,
+  signal?: AbortSignal,
+): Promise<Response> {
+  return await systemAdministration(
+    `workspaces/${encodeURIComponent(workspaceID)}/grants/${encodeURIComponent(grantID)}`,
+    "PATCH",
+    { role, expected_revision: expectedRevision },
     signal,
   )
 }

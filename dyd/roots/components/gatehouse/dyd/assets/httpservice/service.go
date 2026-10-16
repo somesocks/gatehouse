@@ -159,6 +159,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/principals", systemWorkspacePrincipals(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/principal-options", systemWorkspacePrincipalOptions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/principals/{principal}", systemWorkspacePrincipalRemove(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/grants/{grant}", systemWorkspaceGrant(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{binding}", systemWorkspaceAgent(store, tokens[0]))

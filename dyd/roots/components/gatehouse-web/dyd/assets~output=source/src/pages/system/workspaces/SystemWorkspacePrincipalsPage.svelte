@@ -8,6 +8,7 @@
   } from "../../../app/system"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
+  import { createWorkspaceGrantRoleController } from "./workspace-grant-role-controller.svelte"
   import { onMount } from "svelte"
   let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
@@ -33,21 +34,30 @@
       return { response, items: result?.principals, next: result?.next_cursor }
     },
   })
+  const roleEditor = createWorkspaceGrantRoleController({
+    workspaceID: () => workspaceID,
+    onAuthenticationLost: runtime.requireLogin,
+    onSystemAccessChange: runtime.access.setSystemAccess,
+    onReload: () => controller.reload(),
+  })
   onMount(() => {
     void controller.search()
     return () => {
       lifetime.abort()
       controller.stop()
+      roleEditor.stop()
     }
   })
   async function remove(principal: SystemWorkspacePrincipal) {
     if (
       removing.has(principal.id) ||
+      roleEditor.state.saving ||
       !window.confirm(
         `Remove direct workspace access for ${principal.name ?? principal.alias ?? principal.id}? Group-derived access may remain.`,
       )
     )
       return
+    if (roleEditor.state.grant?.principal === principal.id) roleEditor.cancel()
     removing = new Set(removing).add(principal.id)
     error = ""
     try {
@@ -94,6 +104,57 @@
         variant="destructive"
         role="alert">{error || controller.state.error}</UI.Notice
       >{/if}
+    {#if roleEditor.state.notice}<UI.Text role="status"
+        >{roleEditor.state.notice}</UI.Text
+      >{/if}
+    {#if roleEditor.state.grant}
+      <UI.Form
+        surface
+        onsubmit={(event) => {
+          event.preventDefault()
+          void roleEditor.save()
+        }}
+      >
+        <UI.FormSection
+          title={`Edit grant role for ${roleEditor.state.recipient}`}
+        >
+          <UI.Identifier value={roleEditor.state.grant.id} />
+          <UI.Field>
+            <UI.Label for="workspace-grant-role">Role</UI.Label>
+            <UI.Select
+              id="workspace-grant-role"
+              bind:value={roleEditor.state.role}
+              disabled={roleEditor.state.saving}
+            >
+              <UI.Option value="member">Member</UI.Option>
+              <UI.Option value="contributor">Contributor</UI.Option>
+              <UI.Option value="manager">Manager</UI.Option>
+            </UI.Select>
+          </UI.Field>
+          <UI.Text size="small" tone="muted"
+            >Changes this direct grant only. Other direct and group-derived
+            grants still apply.</UI.Text
+          >
+        </UI.FormSection>
+        {#if roleEditor.state.error}<UI.Notice
+            variant="destructive"
+            role="alert">{roleEditor.state.error}</UI.Notice
+          >{/if}
+        <UI.FormActions>
+          <UI.Button
+            type="button"
+            variant="outline"
+            disabled={roleEditor.state.saving}
+            onclick={roleEditor.cancel}>Cancel</UI.Button
+          >
+          <UI.Button
+            type="submit"
+            disabled={roleEditor.state.saving || roleEditor.state.conflict}
+            >{roleEditor.state.saving ? "Saving…" : "Save role"}</UI.Button
+          >
+        </UI.FormActions>
+      </UI.Form>
+    {/if}
     <UI.RecordTable
       headers={["Principal", "Direct roles", "Account status", "Actions"]}
       >{#if !controller.state.hasLoaded}<UI.TableEmpty
@@ -115,8 +176,21 @@
               /></UI.RecordCell
             ><UI.RecordCell label="Direct roles"
               ><UI.Row
-                >{#each principal.roles as role}<UI.Badge>{role}</UI.Badge
-                  >{/each}</UI.Row
+                >{#each principal.grants as grant (grant.id)}<UI.Row>
+                    <UI.Badge>{grant.role}</UI.Badge>
+                    <UI.Button
+                      size="sm"
+                      variant="outline"
+                      aria-label={`Edit ${grant.role} grant for ${principal.name ?? principal.alias ?? principal.id}`}
+                      disabled={roleEditor.state.saving ||
+                        removing.has(principal.id)}
+                      onclick={() =>
+                        roleEditor.begin(
+                          grant,
+                          principal.name ?? principal.alias ?? principal.id,
+                        )}>Edit role</UI.Button
+                    >
+                  </UI.Row>{/each}</UI.Row
               ></UI.RecordCell
             ><UI.RecordCell label="Account status"
               ><UI.StatusBadge enabled={principal.enabled} /></UI.RecordCell
@@ -124,7 +198,7 @@
               ><UI.Button
                 size="sm"
                 variant="outline"
-                disabled={removing.has(principal.id)}
+                disabled={removing.has(principal.id) || roleEditor.state.saving}
                 onclick={() => void remove(principal)}
                 >{removing.has(principal.id)
                   ? "Removing…"
