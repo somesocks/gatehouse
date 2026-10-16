@@ -135,12 +135,14 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/auth/login", login(tokens[0]))
 		mux.HandleFunc("/api/v1/auth/me", me(tokens[0]))
 		mux.HandleFunc("/api/v1/auth/logout", logout)
+		mux.HandleFunc("/api/v1/auth/set-password", passwordSet(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/grants", systemGrants(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/grants/{grant}", systemGrant(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals", systemPrincipals(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals/{principal}", systemPrincipal(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals/{principal}/identities", systemPrincipalIdentities(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals/{principal}/identities/{identity}", systemPrincipalIdentity(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/principals/{principal}/identities/{identity}/password-link", systemIdentityPasswordLink(store, tokens[0], configuration.PublicBaseURL))
 		mux.HandleFunc("/api/v1/system/keychains", systemKeychains(keyring, store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers", systemAgentProviders(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers/{provider}", systemAgentProvider(store, keyring, tokens[0]))
@@ -4505,6 +4507,15 @@ func web(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	name := strings.TrimPrefix(request.URL.Path, "/app/")
+	if name == "set-password" {
+		inputResponseHeaders(response)
+		http.Redirect(response, request, "/app/set-password/", http.StatusTemporaryRedirect)
+		return
+	}
+	if name == "set-password/" || name == "set-password.html" {
+		inputResponseHeaders(response)
+		name = "set-password.html"
+	}
 	const picker = "tools/session-file-picker"
 	if name == picker {
 		http.Redirect(response, request, request.URL.Path+"/", http.StatusTemporaryRedirect)
@@ -4518,7 +4529,7 @@ func web(response http.ResponseWriter, request *http.Request) {
 	}
 	info, err := fs.Stat(webFiles, name)
 	if err != nil || info.IsDir() {
-		if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, picker+"/") {
+		if strings.HasPrefix(name, "assets/") || strings.HasPrefix(name, picker+"/") || strings.HasPrefix(name, "set-password/") || name == "set-password.html" {
 			http.NotFound(response, request)
 			return
 		}

@@ -104,6 +104,19 @@ func TestHandlerEnablesConfiguredRouteGroups(t *testing.T) {
 	if missingPickerAsset.Code != http.StatusNotFound {
 		t.Fatalf("missing picker asset = %d", missingPickerAsset.Code)
 	}
+	passwordPage := httptest.NewRecorder()
+	handler.ServeHTTP(passwordPage, httptest.NewRequest(http.MethodGet, "/app/set-password/", nil))
+	if passwordPage.Code != http.StatusOK || !strings.Contains(passwordPage.Body.String(), `id="set-password"`) || passwordPage.Body.String() == app.Body.String() {
+		t.Fatalf("standalone set-password page = %d %s", passwordPage.Code, passwordPage.Body.String())
+	}
+	if passwordPage.Header().Get("Cache-Control") != "no-store" || passwordPage.Header().Get("Referrer-Policy") != "no-referrer" {
+		t.Fatal("missing set-password page response headers")
+	}
+	missingPasswordAsset := httptest.NewRecorder()
+	handler.ServeHTTP(missingPasswordAsset, httptest.NewRequest(http.MethodGet, "/app/set-password/missing.js", nil))
+	if missingPasswordAsset.Code != http.StatusNotFound {
+		t.Fatalf("missing set-password asset = %d", missingPasswordAsset.Code)
+	}
 	if err != nil || len(entries) == 0 {
 		t.Fatalf("embedded web assets = (%#v, %v)", entries, err)
 	}

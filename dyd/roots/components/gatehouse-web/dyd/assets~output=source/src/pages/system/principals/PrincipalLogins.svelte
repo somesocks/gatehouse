@@ -44,6 +44,36 @@
   {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
       >{controller.state.error}</UI.Notice
     >{/if}
+  {#if controller.state.passwordLink}
+    <UI.FormSection
+      title={`Set-password link for ${controller.state.passwordLink.username}`}
+    >
+      <UI.Field>
+        <UI.Label for="set-password-link">Share this link</UI.Label>
+        <UI.Input
+          id="set-password-link"
+          readonly
+          value={controller.state.passwordLink.url}
+        />
+      </UI.Field>
+      <UI.Text as="small" tone="muted"
+        >Expires {new Date(
+          controller.state.passwordLink.expires_at,
+        ).toLocaleString()}. It can be used once, and login changes invalidate
+        it.</UI.Text
+      >
+      <UI.Row>
+        <UI.Button
+          variant="outline"
+          onclick={() => void controller.copyPasswordLink()}
+          >Copy link</UI.Button
+        >
+        <UI.Button variant="outline" onclick={controller.cancel}
+          >Dismiss</UI.Button
+        >
+      </UI.Row>
+    </UI.FormSection>
+  {/if}
   {#if controller.state.mode}
     <UI.Form
       surface
@@ -145,6 +175,14 @@
                 disabled={controller.state.saving}
                 onclick={() => controller.begin("password", identity)}
                 >Set password</UI.Button
+              >
+              <UI.Button
+                variant="outline"
+                disabled={controller.state.saving ||
+                  !principal.enabled ||
+                  !identity.enabled}
+                onclick={() => void controller.createPasswordLink(identity)}
+                >Create set-password link</UI.Button
               >
               <UI.Button
                 variant="outline"

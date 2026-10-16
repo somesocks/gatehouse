@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/database"
@@ -64,6 +65,33 @@ func TestBearerTokensRoundTripWithSystemKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Run("PasswordSetExpirationBoundary", func(t *testing.T) {
+		err, encoded, capability := tokens.MintPasswordSet(ctx, principalID, identityID, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expires := time.Unix(capability.ExpiresAt, 0)
+		if err, _ := tokens.authenticatePasswordSetAt(ctx, "Bearer "+encoded, expires.Add(-time.Nanosecond)); err != nil {
+			t.Fatalf("rejected before expiration: %v", err)
+		}
+		for _, now := range []time.Time{expires, expires.Add(time.Second)} {
+			if err, _ := tokens.authenticatePasswordSetAt(ctx, "Bearer "+encoded, now); !errors.Is(err, ErrPasswordLinkExpired) {
+				t.Fatalf("accepted expired capability: %v", err)
+			}
+		}
+		for _, capability := range []PasswordSetCapability{
+			{Purpose: "identity.set-password", Principal: principalID, Identity: identityID, IdentityRevision: 1},
+			{Purpose: "identity.set-password", Principal: principalID, Identity: identityID, IdentityRevision: -1, ExpiresAt: expires.Unix()},
+		} {
+			err, encoded := tokens.seal(ctx, passwordSetAssociatedData, capability)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err, _ := tokens.authenticatePasswordSetAt(ctx, "Bearer "+encoded, expires.Add(-time.Second)); !errors.Is(err, ErrUnauthenticated) {
+				t.Fatalf("accepted malformed capability: %v", err)
+			}
+		}
+	})
 	if loginErr, _ := tokens.Login(ctx, "gatehouse:alice", []byte("gatehouse dummy password verifier")); loginErr != nil {
 		t.Fatalf("Login() with typed password verifier error = %v", loginErr)
 	}

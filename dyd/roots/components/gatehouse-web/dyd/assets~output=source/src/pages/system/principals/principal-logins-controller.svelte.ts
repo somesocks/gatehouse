@@ -32,6 +32,11 @@ export function createPrincipalLoginsController({
     error: "",
     notice: "",
     conflict: false,
+    passwordLink: null as {
+      url: string
+      expires_at: string
+      username: string
+    } | null,
     get saving() {
       return mutation.state.pending
     },
@@ -43,6 +48,7 @@ export function createPrincipalLoginsController({
     state.username = state.password = state.confirmation = ""
     state.error = ""
     state.conflict = false
+    state.passwordLink = null
   }
   function reset(principalID: string) {
     generation++
@@ -190,11 +196,79 @@ export function createPrincipalLoginsController({
       state.notice = "Login deleted."
     }
   }
+  async function createPasswordLink(
+    identity: SystemPrincipalIdentity,
+  ): Promise<void> {
+    if (disposed || state.saving) return
+    cancel()
+    state.notice = ""
+    const request = mutation.begin()
+    try {
+      const response = await systemAdministration(
+        `principals/${encodeURIComponent(owner)}/identities/${encodeURIComponent(identity.id)}/password-link`,
+        "POST",
+        { expected_revision: identity.revision },
+        request.signal,
+      )
+      if (!request.current()) return
+      if (response.status === 401) onAuthenticationLost()
+      else if (response.status === 403) onSystemAccessChange("denied")
+      else if (response.status === 409 || response.status === 404) {
+        state.error =
+          "This principal or login changed. Reload and create a new link."
+        await onReload()
+      } else if (response.status === 503) {
+        state.error =
+          "Password links require services.http.public_base_url to be configured."
+      } else if (!response.ok)
+        state.error = "Password link could not be created."
+      else {
+        const link = (await response.json()) as {
+          url: string
+          expires_at: string
+        }
+        if (request.current())
+          state.passwordLink = {
+            ...link,
+            username: identity.key.slice("gatehouse:".length),
+          }
+      }
+    } catch {
+      if (request.current()) state.error = "Password link could not be created."
+    } finally {
+      request.finish()
+    }
+  }
+  async function copyPasswordLink(): Promise<void> {
+    const link = state.passwordLink
+    if (!link) return
+    state.error = state.notice = ""
+    try {
+      await navigator.clipboard.writeText(link.url)
+      if (!disposed && state.passwordLink === link)
+        state.notice = "Password link copied."
+    } catch {
+      if (!disposed && state.passwordLink === link)
+        state.error = "Copy failed. Select and copy the link below."
+    }
+  }
   function stop() {
     generation++
     disposed = true
     mutation.stop()
     state.password = state.confirmation = ""
+    state.passwordLink = null
   }
-  return { state, reset, begin, cancel, save, setEnabled, remove, stop }
+  return {
+    state,
+    reset,
+    begin,
+    cancel,
+    save,
+    setEnabled,
+    remove,
+    createPasswordLink,
+    copyPasswordLink,
+    stop,
+  }
 }

@@ -194,4 +194,58 @@ describe("principal administration", () => {
     controller.stop()
     expect(controller.state.password).toBe("")
   })
+  it("creates and copies a link without changing the identity, then clears it when leaving", async () => {
+    const link = {
+      url: "https://gatehouse.test/app/set-password/#capability=secret",
+      expires_at: "2026-10-17T12:00:00Z",
+    }
+    const request = vi.fn(async () => response(link))
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal("fetch", request)
+    vi.stubGlobal("navigator", { clipboard: { writeText } })
+    const { controller, onChanged } = fixture()
+    await controller.createPasswordLink(login)
+    expect(request.mock.calls[0]).toEqual([
+      expect.stringContaining(
+        `/principals/${principal.id}/identities/${login.id}/password-link`,
+      ),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ expected_revision: login.revision }),
+      }),
+    ])
+    expect(controller.state.passwordLink).toEqual({
+      ...link,
+      username: "user",
+    })
+    expect(onChanged).not.toHaveBeenCalled()
+    await controller.copyPasswordLink()
+    expect(writeText).toHaveBeenCalledWith(link.url)
+    expect(controller.state.notice).toMatch(/copied/)
+    controller.stop()
+    expect(controller.state.passwordLink).toBeNull()
+  })
+  it("reloads changed identities and ignores link responses for another principal", async () => {
+    let resolve!: (response: Response) => void
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("revision conflict", { status: 409 }))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((done) => {
+            resolve = done
+          }),
+      )
+    vi.stubGlobal("fetch", request)
+    const { controller, onReload } = fixture()
+    await controller.createPasswordLink(login)
+    expect(onReload).toHaveBeenCalledOnce()
+    expect(controller.state.error).toMatch(/changed/)
+    const pending = controller.createPasswordLink(login)
+    controller.reset("prn_other")
+    resolve(response({ url: "secret", expires_at: "later" }))
+    await pending
+    expect(controller.state.passwordLink).toBeNull()
+    controller.stop()
+  })
 })
