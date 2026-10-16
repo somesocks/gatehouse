@@ -18,6 +18,7 @@
   import StorageProviderListRoute from "./pages/system/storage-providers/StorageProviderListRoute.svelte"
   import StorageProviderNewRoute from "./pages/system/storage-providers/StorageProviderNewRoute.svelte"
   import PrincipalsRoute from "./pages/system/principals/PrincipalsRoute.svelte"
+  import PrincipalNewRoute from "./pages/system/principals/PrincipalNewRoute.svelte"
   import PrincipalDetailRoute from "./pages/system/principals/PrincipalDetailRoute.svelte"
   import SystemGrantNewRoute from "./pages/system/grants/SystemGrantNewRoute.svelte"
   import SystemGrantsRoute from "./pages/system/grants/SystemGrantsRoute.svelte"
@@ -149,6 +150,8 @@
     />
   {:else if owner === "principals"}
     <PrincipalsRoute />
+  {:else if owner === "principal-new"}
+    <PrincipalNewRoute />
   {:else if owner === "principal-detail"}
     <PrincipalDetailRoute
       principalID={runtime.state.route.kind === "system-principal" ||

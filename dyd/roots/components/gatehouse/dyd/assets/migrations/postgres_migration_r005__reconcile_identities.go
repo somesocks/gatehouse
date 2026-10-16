@@ -78,7 +78,7 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 				if exists {
 					eventName = "identity.update"
 				}
-				event, err := newActivityMigrationEvent("", eventName, "identity", "", principalID, "", principalID+"/"+id)
+				event, err := newActivityMigrationEvent("", eventName, "principal", "", principalID, "", principalID+"/"+id)
 				if err != nil {
 					return err, ""
 				}
@@ -102,9 +102,9 @@ func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Princip
 			{{ range .Events }}
 			{{ $event := . }}
 			INSERT INTO gatehouse_activity_events (
-				id, event, resource_kind, resource_identity, created_at
+				id, event, resource_kind, resource_principal, detail_identity, created_at
 			) VALUES (
-				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .IdentityID }}, {{ sqlLiteral .CreatedAt }}
+				{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .PrincipalID }}, {{ sqlLiteral .IdentityID }}, {{ sqlLiteral .CreatedAt }}
 			);
 			{{ range .Topics }}
 			INSERT INTO gatehouse_activity_event_topics (activity, topic)

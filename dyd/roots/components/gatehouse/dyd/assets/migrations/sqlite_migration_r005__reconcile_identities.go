@@ -87,9 +87,9 @@ func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal
 			WHERE gatehouse_identities.revision < excluded.revision;
 
 			INSERT INTO gatehouse_activity_events (
-				id, event, resource_kind, resource_identity, created_at
+				id, event, resource_kind, resource_principal, detail_identity, created_at
 			)
-			SELECT id, event, 'identity', identity, gh_id_timestamp(id)
+			SELECT id, event, 'principal', principal, identity, gh_id_timestamp(id)
 			FROM gatehouse_migration_identity_activities;
 			INSERT INTO gatehouse_activity_event_topics (activity, topic)
 			SELECT id, principal || '/' || identity FROM gatehouse_migration_identity_activities;

@@ -56,6 +56,7 @@ func (store *Store) SystemPrincipalsGet(ctx context.Context) (error, []SystemPri
 		}
 		if identityID.Valid {
 			principals[index].Identities = append(principals[index].Identities, SystemPrincipalIdentity{ID: identityID.String, Key: identityKey.String, Enabled: identityEnabled.Bool, Revision: int(identityRevision.Int64)})
+			principals[index].IdentityCount++
 		}
 	}
 	if err := rows.Err(); err != nil { return fmt.Errorf("iterate system principals: %w", err), nil }

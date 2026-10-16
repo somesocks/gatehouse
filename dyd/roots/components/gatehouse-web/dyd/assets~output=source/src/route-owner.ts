@@ -19,6 +19,7 @@ export type RouteOwner =
   | "system-overview"
   | "system-grants"
   | "principals"
+  | "principal-new"
   | "principal-detail"
   | "system-grant-new"
   | "agent-provider-list"
@@ -124,6 +125,8 @@ export function routeOwner(route: Route): RouteOwner {
       return "system-grant-new"
     case "system-principals":
       return "principals"
+    case "system-principal-new":
+      return "principal-new"
     case "system-principal":
     case "system-principal-edit":
       return "principal-detail"

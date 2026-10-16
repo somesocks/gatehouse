@@ -11,6 +11,7 @@ export type Route =
   | { kind: "system-grants" }
   | { kind: "system-grant-new" }
   | { kind: "system-principals" }
+  | { kind: "system-principal-new" }
   | { kind: "system-principal"; principalID: string }
   | { kind: "system-principal-edit"; principalID: string }
   | { kind: "system-agent-providers" }
@@ -212,7 +213,9 @@ export function parseRoute(url: URL): Route {
     if (segments[2] === "grants" && segments[3] === "new")
       return { kind: "system-grant-new" }
     if (segments[2] === "principals")
-      return { kind: "system-principal", principalID: segments[3] }
+      return segments[3] === "new"
+        ? { kind: "system-principal-new" }
+        : { kind: "system-principal", principalID: segments[3] }
   }
   if (
     segments.length === 4 &&
@@ -836,6 +839,8 @@ export function routePath(route: NavigableRoute): string {
       return "/app/system/grants/new"
     case "system-principals":
       return "/app/system/principals"
+    case "system-principal-new":
+      return "/app/system/principals/new"
     case "system-principal":
       return `/app/system/principals/${segment(route.principalID)}`
     case "system-principal-edit":

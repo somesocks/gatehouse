@@ -22,7 +22,7 @@
       <UI.NavigationGrid>
         <UI.NavigationCard
           title="Principals"
-          description="Inspect principals, identities, and account status."
+          description="Create principals and manage login identities and account status."
           href="/app/system/principals"
         />
         <UI.NavigationCard

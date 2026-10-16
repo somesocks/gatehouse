@@ -185,7 +185,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 		t.Fatalf("keychain activity target version = %d, want 1", keychainVersion)
 	}
 	assertActivity("principal.create", "resource_principal", principal.Id, principal.Id, 1)
-	assertActivity("identity.create", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("identity.create", "detail_identity", identityID, principal.Id+"/"+identityID, 1)
 	assertActivity("agent_provider.create", "resource_agent_provider", providerID, "sys/"+providerID, 1)
 	assertActivity("agent_model.create", "resource_agent_model", modelID, "sys/"+modelID, 1)
 	assertActivity("storage_provider.create", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
@@ -195,7 +195,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 	}
 	assertActivity("keychain.create", "resource_keychain_id", "events", "sys/kch/events/1", 1)
 	assertActivity("principal.create", "resource_principal", principal.Id, principal.Id, 1)
-	assertActivity("identity.create", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("identity.create", "detail_identity", identityID, principal.Id+"/"+identityID, 1)
 	assertActivity("agent_provider.create", "resource_agent_provider", providerID, "sys/"+providerID, 1)
 	assertActivity("agent_model.create", "resource_agent_model", modelID, "sys/"+modelID, 1)
 	assertActivity("storage_provider.create", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
@@ -209,7 +209,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
-	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("identity.update", "detail_identity", identityID, principal.Id+"/"+identityID, 1)
 	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
 	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
 	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
@@ -218,7 +218,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
-	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("identity.update", "detail_identity", identityID, principal.Id+"/"+identityID, 1)
 	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
 	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
 	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)
@@ -232,7 +232,7 @@ func TestMigrateSQLiteEmitsReconciliationActivityTargets(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertActivity("principal.update", "resource_principal", principal.Id, principal.Id, 1)
-	assertActivity("identity.update", "resource_identity", identityID, principal.Id+"/"+identityID, 1)
+	assertActivity("identity.update", "detail_identity", identityID, principal.Id+"/"+identityID, 1)
 	assertActivity("agent_provider.update", "resource_agent_provider", providerID, "sys/"+providerID, 1)
 	assertActivity("agent_model.update", "resource_agent_model", modelID, "sys/"+modelID, 1)
 	assertActivity("storage_provider.update", "resource_storage_provider", storageProviderID, "sys/"+storageProviderID, 1)

@@ -1400,7 +1400,7 @@ let ActivityEvent =
                , resource_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group resource ID" }
                , resource_group_member_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership group ID" }
                , resource_group_member_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership principal ID" }
-               , resource_identity = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "identity resource ID" }
+                , detail_identity = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "historical identity ID for a principal activity; the identity may have been deleted" }
                , resource_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "principal resource ID" }
                , resource_project = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project resource ID" }
                , resource_project_file = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project file resource ID" }

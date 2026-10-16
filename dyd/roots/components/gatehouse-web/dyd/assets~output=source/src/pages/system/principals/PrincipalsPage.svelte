@@ -44,8 +44,12 @@
   <UI.AdminContent
     ><UI.AdminHeader
       title="Principals"
-      description="Inspect accounts, their status, and associated identities."
-    />
+      description="Create accounts and manage their status and login identities."
+      >{#snippet actions()}<UI.RouterLink
+          variant="default"
+          href="/app/system/principals/new">Create principal</UI.RouterLink
+        >{/snippet}</UI.AdminHeader
+    >
     <UI.SearchToolbar
       bind:value={controller.state.search}
       bind:status={controller.state.status}

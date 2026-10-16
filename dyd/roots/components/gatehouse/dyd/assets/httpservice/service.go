@@ -139,6 +139,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/grants/{grant}", systemGrant(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals", systemPrincipals(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/principals/{principal}", systemPrincipal(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/principals/{principal}/identities", systemPrincipalIdentities(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/principals/{principal}/identities/{identity}", systemPrincipalIdentity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/keychains", systemKeychains(keyring, store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers", systemAgentProviders(store, keyring, tokens[0]))
 		mux.HandleFunc("/api/v1/system/agent-providers/{provider}", systemAgentProvider(store, keyring, tokens[0]))

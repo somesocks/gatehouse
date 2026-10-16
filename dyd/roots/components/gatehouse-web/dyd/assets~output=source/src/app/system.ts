@@ -7,13 +7,20 @@ export type SystemGrant = {
   revision: number
 }
 
+export type SystemPrincipalIdentity = {
+  id: string
+  key: string
+  enabled: boolean
+  revision: number
+}
+
 export type SystemPrincipal = {
   id: string
   alias?: string
   name?: string
   enabled: boolean
   revision: number
-  identities: { id: string; key: string; enabled: boolean; revision: number }[]
+  identities: SystemPrincipalIdentity[]
   identity_count?: number
 }
 

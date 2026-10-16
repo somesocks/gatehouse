@@ -163,6 +163,14 @@ func passwordVerifier(password []byte) (string, error) {
 	return "gh-ver:" + base64.RawURLEncoding.EncodeToString(salt) + "." + base64.RawURLEncoding.EncodeToString(digest) + "?alg=" + passwordAlgorithm, nil
 }
 
+// NewPasswordVerifier hashes a password supplied through administration APIs.
+func NewPasswordVerifier(password []byte) (string, error) {
+	if len(password) == 0 || bytes.IndexByte(password, 0) >= 0 {
+		return "", fmt.Errorf("password must be nonempty and must not contain NUL")
+	}
+	return passwordVerifier(password)
+}
+
 func NewDummyPasswordVerifier() (error, string) {
 	value, err := passwordVerifier([]byte("gatehouse dummy password verifier"))
 	if err != nil {

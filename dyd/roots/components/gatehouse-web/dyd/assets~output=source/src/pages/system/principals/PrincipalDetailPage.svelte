@@ -2,6 +2,7 @@
   import { untrack } from "svelte"
   import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
+  import PrincipalLogins from "./PrincipalLogins.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
@@ -142,7 +143,7 @@
     {:else if editingPage}<UI.AdminHeader
         title={`Edit ${principal.name ?? principal.alias ?? "principal"}`}
         id={principalID}
-        description="Change account availability. Identity associations are read-only."
+        description="Change account availability. Manage logins from the principal detail page."
       />
       <UI.Form
         surface
@@ -185,24 +186,14 @@
         ><UI.Property label="Revision">{principal.revision}</UI.Property
         ></UI.DetailSection
       >
-      <UI.Stack
-        ><UI.Heading level={3}>Identities</UI.Heading><UI.RecordTable
-          headers={["Identity", "Status", "Revision"]}
-          >{#each principal.identities as identity (identity.id)}<UI.RecordRow
-              ><UI.RecordCell primary
-                ><UI.Text emphasis="strong">{identity.key}</UI.Text
-                ><UI.Identifier value={identity.id} /></UI.RecordCell
-              ><UI.RecordCell label="Status"
-                ><UI.StatusBadge enabled={identity.enabled} /></UI.RecordCell
-              ><UI.RecordCell label="Revision"
-                >{identity.revision}</UI.RecordCell
-              ></UI.RecordRow
-            >{:else}<UI.TableEmpty
-              columns={3}
-              message="No identity associations."
-            />{/each}</UI.RecordTable
-        ></UI.Stack
-      >
+      <PrincipalLogins
+        {principal}
+        onChanged={(next) => {
+          resource.stop()
+          principal = next
+        }}
+        onReload={load}
+      />
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>

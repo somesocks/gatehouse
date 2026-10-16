@@ -87,6 +87,14 @@ Workspace, project, and session grants have immutable `wgr_...`, `pgr_...`,
   - `prn_.../idt_...`
 - `identity.update` - emitted when an identity's mutable state changes.
   - `prn_.../idt_...`
+- `identity.remove` - emitted when an identity and its verifiers are deleted.
+  - `prn_.../idt_...`
+
+Identity events target the owning principal (`resource_kind = 'principal'`,
+`resource_principal = prn_...`). The affected identity ID is retained in
+`detail_identity` as historical detail without a foreign key. Deleting a login
+therefore preserves its activity events and topics. The resource principal is
+the account being changed, not an attribution of the acting administrator.
 
 ### Workspace
 
