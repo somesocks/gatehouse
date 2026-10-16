@@ -17,6 +17,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
 	"gatehouse/authz"
+	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/diagnostics"
 	"gatehouse/inputform"
@@ -561,7 +562,7 @@ func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context,
 			return err, ""
 		}
 		return nil, reply.Content
-	case "openai-responses":
+	case "openai-responses", config.AgentProviderProtocolOpenAICodex:
 		if selected.Endpoint == nil || selected.Keychain == nil || selected.APIKey == nil {
 			return fmt.Errorf("name session with provider %q: missing credentials", selected.ProviderID), ""
 		}
@@ -700,8 +701,9 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 	}
 	*selected = *current
 	if claim.WorkspaceOutput != nil || claim.UserOutput != nil {
-		// An existing reservation bounds output even if the model's token limit
-		// changed while waiting or recovering. Settlement uses that same claim.
+		// An existing reservation bounds accepted output even if the model's token
+		// limit changed while waiting or recovering. Codex checks reported usage
+		// after completion because its backend has no generation-cap parameter.
 		selected.MaxOutputTokens = min(selected.MaxOutputTokens, int(claim.OutputTokens))
 		if request.Chat != nil {
 			request.Chat.MaxTokens = selected.MaxOutputTokens
@@ -728,8 +730,18 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			return nil, agentProviderTurn{Metrics: completion.Metrics, Failure: err}, claim
 		}
 		return nil, agentProviderTurn{Final: &final, Metrics: completion.Metrics}, claim
-	case "openai-responses":
-		response, err := runtime.openAIResponsesComplete(ctx, selected, *request.Responses)
+	case "openai-responses", config.AgentProviderProtocolOpenAICodex:
+		var response openAIResponsesResponse
+		var err error
+		if selected.Protocol == config.AgentProviderProtocolOpenAICodex {
+			callContext, cancel := context.WithCancel(ctx)
+			stopWatch := runtime.watchReplyCancellation(&parent, cancel)
+			response, err = runtime.codexComplete(callContext, selected, *request.Responses)
+			stopWatch()
+			cancel()
+		} else {
+			response, err = runtime.openAIResponsesComplete(ctx, selected, *request.Responses)
+		}
 		if err != nil {
 			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
@@ -739,7 +751,9 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 			var output openAIResponsesOutput
 			if err := json.Unmarshal(raw, &output); err != nil {
 				err := fmt.Errorf("decode OpenAI Responses output: %w", err)
-				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
+				if selected.Protocol != config.AgentProviderProtocolOpenAICodex {
+					logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
+				}
 				return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 			}
 			outputs[index] = output
@@ -755,7 +769,9 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 		}
 		final, err := openAIResponsesFinalReply(outputs)
 		if err != nil {
-			logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
+			if selected.Protocol != config.AgentProviderProtocolOpenAICodex {
+				logInvalidOpenAIResponsesFinalReply(selected.ProviderID, parent, request.Responses.Input, response.Output)
+			}
 			return nil, agentProviderTurn{Metrics: response.Metrics, Failure: err}, claim
 		}
 		return nil, agentProviderTurn{Final: &final, Metrics: response.Metrics}, claim
@@ -775,6 +791,9 @@ func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Conte
 }
 
 func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAIResponsesRequest) (openAIResponsesResponse, error) {
+	if selected.Protocol == config.AgentProviderProtocolOpenAICodex {
+		return runtime.codexComplete(ctx, selected, request)
+	}
 	err, apiKey := runtime.openAIAPIKey(ctx, selected)
 	if err != nil {
 		return openAIResponsesResponse{}, err
@@ -922,7 +941,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 		NewWebModule(),
 	)
 	evaluationContext, cancelEvaluation := context.WithCancel(ctx)
-	stopCancellationWatch := runtime.watchToolCallCancellation(request.Parent, cancelEvaluation)
+	stopCancellationWatch := runtime.watchReplyCancellation(request.Parent, cancelEvaluation)
 	defer stopCancellationWatch()
 	defer cancelEvaluation()
 	evalErr, result := lisp.Evaluate(code, lisp.EvalOptions{Context: evaluationContext, Prelude: agentPreludeFor(selected, project != nil), HostModules: modules})
@@ -938,7 +957,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	return runtime.toolCallFinish(ctx, *request, agent, execution)
 }
 
-func (runtime *SessionEventReplyRuntime) watchToolCallCancellation(parent *model.SessionEventRef, cancel context.CancelFunc) func() {
+func (runtime *SessionEventReplyRuntime) watchReplyCancellation(parent *model.SessionEventRef, cancel context.CancelFunc) func() {
 	if parent == nil {
 		return func() {}
 	}

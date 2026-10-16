@@ -55,7 +55,6 @@ func TestParseAgentRateLimitBucketTime(t *testing.T) {
 }
 
 func TestValidateAgentRateLimitUsage(t *testing.T) {
-	claim := AgentRateLimitClaim{OutputTokens: 100}
 	validInput, validOutput := 150, 100
 	negative := -1
 	overReservation := 101
@@ -67,10 +66,10 @@ func TestValidateAgentRateLimitUsage(t *testing.T) {
 		"valid usage":         {&validInput, &validOutput, false},
 		"negative input":      {&negative, &validOutput, true},
 		"negative output":     {&validInput, &negative, true},
-		"output over reserve": {&validInput, &overReservation, true},
+		"output over reserve": {&validInput, &overReservation, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			err := validateAgentRateLimitUsage(claim, test.input, test.output)
+			err := validateAgentRateLimitUsage(test.input, test.output)
 			if (err != nil) != test.wantError {
 				t.Fatalf("validateAgentRateLimitUsage() error = %v, want error %t", err, test.wantError)
 			}

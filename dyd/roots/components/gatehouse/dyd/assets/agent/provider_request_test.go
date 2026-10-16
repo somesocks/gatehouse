@@ -25,7 +25,7 @@ func TestAgentProviderRequestPreservesToolConversationAcrossProtocols(t *testing
 		{Role: "tool", ToolCallID: "call-b", Content: "7"},
 	}
 	endpoint, key := "https://new.invalid/custom", "encrypted"
-	for _, protocol := range []string{"openai-responses", "openai-chat-completions"} {
+	for _, protocol := range []string{"openai-responses", "openai-chat-completions", "openai-codex"} {
 		t.Run(protocol, func(t *testing.T) {
 			selected := &database.WorkspaceAgentModel{Alias: "test", Protocol: protocol, Endpoint: &endpoint, APIKey: &key,
 				Keychain: &model.KeychainRef{Id: "test", Version: 1}, Model: "new-model", Parameters: `{}`, MaxOutputTokens: 123}
@@ -33,7 +33,7 @@ func TestAgentProviderRequestPreservesToolConversationAcrossProtocols(t *testing
 			if err != nil {
 				t.Fatal(err)
 			}
-			if protocol == "openai-responses" {
+			if protocol != "openai-chat-completions" {
 				if request.Responses.Model != "new-model" || request.Responses.MaxOutputTokens != 123 || !reflect.DeepEqual(request.Responses.Input, openAIResponsesInput(messages)) {
 					t.Fatalf("Responses request = %#v", request.Responses)
 				}
@@ -46,7 +46,7 @@ func TestAgentProviderRequestPreservesToolConversationAcrossProtocols(t *testing
 
 func TestAgentProviderRequestUsesCurrentPrompt(t *testing.T) {
 	endpoint, key, prompt := "https://provider.invalid/custom", "encrypted", "OLD_CONFIGURED_PROMPT"
-	for _, protocol := range []string{"openai-responses", "openai-chat-completions"} {
+	for _, protocol := range []string{"openai-responses", "openai-chat-completions", "openai-codex"} {
 		selected := &database.WorkspaceAgentModel{Alias: "test", Protocol: protocol, Endpoint: &endpoint, APIKey: &key,
 			Keychain: &model.KeychainRef{Id: "test", Version: 1}, Model: "old-model", Parameters: `{}`, MaxOutputTokens: 123, SystemPrompt: &prompt}
 		prompt = "OLD_CONFIGURED_PROMPT"
@@ -61,7 +61,7 @@ func TestAgentProviderRequestUsesCurrentPrompt(t *testing.T) {
 			t.Fatal(err)
 		}
 		oldPrompt, newPrompt := "", ""
-		if protocol == "openai-responses" {
+		if protocol != "openai-chat-completions" {
 			oldPrompt, newPrompt = first.Responses.Instructions, second.Responses.Instructions
 			if second.Responses.Model != "new-model" || second.Responses.MaxOutputTokens != 456 {
 				t.Fatal("Responses request retained old model settings")

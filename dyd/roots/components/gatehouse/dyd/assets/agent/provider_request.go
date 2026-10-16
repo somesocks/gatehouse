@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/model"
 )
@@ -13,6 +14,7 @@ import (
 type agentProviderRequest struct {
 	Chat      *openAICompatibleRequest
 	Responses *openAIResponsesRequest
+	codex     bool
 }
 
 func (request agentProviderRequest) body() any {
@@ -20,6 +22,9 @@ func (request agentProviderRequest) body() any {
 		return request.Chat
 	}
 	if request.Responses != nil {
+		if request.codex {
+			return codexRequestFromResponses(*request.Responses)
+		}
 		return request.Responses
 	}
 	return nil
@@ -69,7 +74,8 @@ func agentProviderRequestPrepare(selected *database.WorkspaceAgentModel, project
 			Tools: []openAICompatibleTool{openAICompatibleLispTool()}, ResponseFormat: openAIFinalReplyResponseFormat(),
 			ParallelToolCalls: true, ReasoningEffort: effort, MaxTokens: selected.MaxOutputTokens,
 		}
-	case "openai-responses":
+	case "openai-responses", config.AgentProviderProtocolOpenAICodex:
+		request.codex = selected.Protocol == config.AgentProviderProtocolOpenAICodex
 		var reasoning *openAIResponsesReasoning
 		if effort != "" {
 			reasoning = &openAIResponsesReasoning{Effort: effort}

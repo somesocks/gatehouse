@@ -12,8 +12,8 @@ by the selected keychain. The success card shows **Account connected**, the emai
 when available, and a close-tab action. Tokens never pass through browser responses
 or workflow checkpoints. Account ID, optional email, and expiry are stored as
 derived public metadata alongside the ciphertext. The hourly [provider maintenance
-workflow](provider-maintenance.md) refreshes OAuth credentials. Subscription
-inference is a subsequent milestone.
+workflow](provider-maintenance.md) refreshes OAuth credentials. Connected providers
+support [Codex subscription inference](codex-inference.md).
 
 The provider detail page supports **Reconnect ChatGPT** and **Disconnect**.
 Reconnect preserves the old credential until the new bundle is committed.

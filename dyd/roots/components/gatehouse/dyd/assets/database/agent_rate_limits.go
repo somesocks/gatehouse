@@ -87,7 +87,9 @@ func (store *Store) AgentRateLimitClaimInTransaction(ctx context.Context, transa
 }
 
 // AgentRateLimitSettleInTransaction reconciles a claim with actual provider
-// usage. A nil usage retains that dimension's reservation.
+// usage. A nil usage retains that dimension's reservation. Actual usage can
+// exceed the reservation (not every protocol supports a server-side output
+// cap); debit the overage rather than leaving settlement unfinished.
 func (store *Store) AgentRateLimitSettleInTransaction(ctx context.Context, transaction dbos.Tx, claim AgentRateLimitClaim, inputTokens, outputTokens *int) error {
 	if transaction == nil {
 		return fmt.Errorf("settle agent rate limit: transaction is required")
@@ -95,7 +97,7 @@ func (store *Store) AgentRateLimitSettleInTransaction(ctx context.Context, trans
 	if claim.Workspace.Id == "" || (inputTokens == nil && outputTokens == nil) {
 		return nil
 	}
-	if err := validateAgentRateLimitUsage(claim, inputTokens, outputTokens); err != nil {
+	if err := validateAgentRateLimitUsage(inputTokens, outputTokens); err != nil {
 		return err
 	}
 	now := time.Now().UTC()
@@ -118,15 +120,12 @@ func (store *Store) AgentRateLimitSettleInTransaction(ctx context.Context, trans
 	return nil
 }
 
-func validateAgentRateLimitUsage(claim AgentRateLimitClaim, inputTokens, outputTokens *int) error {
+func validateAgentRateLimitUsage(inputTokens, outputTokens *int) error {
 	if inputTokens != nil && *inputTokens < 0 {
 		return fmt.Errorf("settle agent rate limit: input usage is negative")
 	}
 	if outputTokens != nil && *outputTokens < 0 {
 		return fmt.Errorf("settle agent rate limit: output usage is negative")
-	}
-	if outputTokens != nil && float64(*outputTokens) > claim.OutputTokens {
-		return fmt.Errorf("settle agent rate limit: output usage exceeds reservation")
 	}
 	return nil
 }
