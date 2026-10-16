@@ -2,7 +2,9 @@ package database
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -14,6 +16,24 @@ import (
 type AgentProviderCredential struct {
 	Provider  SystemAgentProvider
 	Encrypted *string `json:"-"`
+}
+
+// Fingerprint is an opaque reference derived from the existing ciphertext and
+// encryption context. It can be checkpointed without copying credential data;
+// it is never stored as a provider field or inside the credential bundle.
+func (record AgentProviderCredential) Fingerprint() string {
+	return agentProviderCredentialFingerprint(record.Provider.Protocol, record.Provider.Keychain, record.Encrypted)
+}
+
+func agentProviderCredentialFingerprint(protocol string, ref *model.KeychainRef, encrypted *string) string {
+	encoded, _ := json.Marshal(struct {
+		Protocol   string
+		Keychain   *model.KeychainRef
+		Credential *string
+	}{protocol, ref, encrypted})
+	defer clear(encoded)
+	hash := sha256.Sum256(encoded)
+	return hex.EncodeToString(hash[:])
 }
 
 // Read the configuration and ciphertext in one snapshot. Never expose this
@@ -40,15 +60,15 @@ func (store *Store) AgentProviderCredentialGet(ctx context.Context, id string) (
 	return nil, record
 }
 
-// A credential change is a revision-checked user action. Future automatic token
-// refresh must use separate runtime concurrency control, not configuration edits.
+// Manual changes use the configuration revision. Runtime maintenance compares
+// the original ciphertext, so credential changes also fence in-flight refreshes.
 func (store *Store) SystemAgentProviderCodexCredentialSet(ctx context.Context, id string, revision int, ref *model.KeychainRef, encrypted *string, account *SystemAgentProviderAccount) (error, *SystemAgentProvider) {
 	if !typed_id.Valid(typed_id.AgentProvider, id) || revision < 1 {
 		return fmt.Errorf("invalid provider credential update"), nil
 	}
 	var metadata any
 	if encrypted != nil {
-		if strings.TrimSpace(*encrypted) == "" || ref == nil || account == nil || strings.TrimSpace(account.ID) == "" || account.ExpiresAt.IsZero() {
+		if strings.TrimSpace(*encrypted) == "" || ref == nil || account == nil || strings.TrimSpace(account.ID) == "" {
 			return fmt.Errorf("invalid Codex credential"), nil
 		}
 		encoded, err := json.Marshal(account)

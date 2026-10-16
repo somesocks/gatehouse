@@ -389,3 +389,24 @@ it("uses the latest provider revision on a new attempt after a conflict", async 
   })
   login.stop()
 })
+
+it("accepts a saved connection whose token expiry is unknown", async () => {
+  const fetch = vi
+    .fn()
+    .mockResolvedValueOnce(json(attempt))
+    .mockResolvedValueOnce(
+      json({
+        status: "succeeded",
+        account: success.account,
+        provider: success.provider,
+      }),
+    )
+  stubFetch(fetch)
+  const login = controller()
+  await login.start()
+  await vi.advanceTimersByTimeAsync(7000)
+  expect(login.state.phase).toBe("succeeded")
+  expect(login.state.result?.expires_at).toBeUndefined()
+  expect(vi.getTimerCount()).toBe(0)
+  login.stop()
+})

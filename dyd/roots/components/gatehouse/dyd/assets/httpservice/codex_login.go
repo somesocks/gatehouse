@@ -89,7 +89,7 @@ func codexLoginPoll(store *database.Store, ring *keychain.Keyring, tokens *auth.
 			writeJSON(w, result.PollResult)
 			return
 		}
-		if result.Status != "succeeded" || result.Credential == nil || result.Account == nil || result.ExpiresAt == nil {
+		if result.Status != "succeeded" || result.Credential == nil || result.Account == nil {
 			codexLoginError(w, fmt.Errorf("missing exchanged credential"))
 			return
 		}
@@ -112,7 +112,7 @@ func codexLoginPoll(store *database.Store, ring *keychain.Keyring, tokens *auth.
 			codexCredentialError(w, err)
 			return
 		}
-		account := &database.SystemAgentProviderAccount{ID: result.Account.ID, Email: result.Account.Email, ExpiresAt: *result.ExpiresAt}
+		account := &database.SystemAgentProviderAccount{ID: result.Credential.AccountID, Email: result.Credential.Email, ExpiresAt: result.Credential.ExpiresAt}
 		err, updated := store.SystemAgentProviderCodexCredentialSet(r.Context(), provider.ID, input.ExpectedRevision, sealed.ref, sealed.text, account)
 		if err != nil {
 			codexCredentialError(w, err)

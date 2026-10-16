@@ -11,8 +11,9 @@ The server installs the exchanged access/refresh tokens as versioned JSON sealed
 by the selected keychain. The success card shows **Account connected**, the email
 when available, and a close-tab action. Tokens never pass through browser responses
 or workflow checkpoints. Account ID, optional email, and expiry are stored as
-derived public metadata alongside the ciphertext. Token refresh and subscription
-inference are subsequent milestones.
+derived public metadata alongside the ciphertext. The hourly [provider maintenance
+workflow](provider-maintenance.md) refreshes OAuth credentials. Subscription
+inference is a subsequent milestone.
 
 The provider detail page supports **Reconnect ChatGPT** and **Disconnect**.
 Reconnect preserves the old credential until the new bundle is committed.

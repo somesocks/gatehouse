@@ -42,7 +42,7 @@ type SystemAgentProvider struct {
 type SystemAgentProviderAccount struct {
 	ID        string    `json:"id"`
 	Email     string    `json:"email,omitempty"`
-	ExpiresAt time.Time `json:"expires_at"`
+	ExpiresAt time.Time `json:"expires_at,omitzero"`
 }
 
 type SystemAgentProviderInput struct {

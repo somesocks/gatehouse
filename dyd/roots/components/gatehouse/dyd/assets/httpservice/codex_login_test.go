@@ -227,4 +227,9 @@ func TestCodexLoginInstallsEncryptedCredentialAndFencesLateCompletion(t *testing
 	if response := poll(4); response.Code != 200 {
 		t.Fatalf("reconnect = %d %s", response.Code, response.Body.String())
 	}
+	client.result.Credential.ExpiresAt = time.Time{}
+	client.result.ExpiresAt = nil
+	if response := poll(5); response.Code != 200 || strings.Contains(response.Body.String(), "expires_at") {
+		t.Fatalf("unknown expiry connect = %d %s", response.Code, response.Body.String())
+	}
 }

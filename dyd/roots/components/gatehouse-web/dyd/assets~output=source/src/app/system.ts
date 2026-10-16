@@ -28,7 +28,7 @@ export type CodexLoginAttempt = {
 export type CodexLoginSuccess = {
   status: "succeeded"
   account: { id: string; email?: string }
-  expires_at: string
+  expires_at?: string
   provider: SystemAgentProvider
 }
 export type CodexLoginBinding = { provider: string; expected_revision: number }
@@ -74,7 +74,7 @@ export type SystemAgentProvider = {
   keychain?: SystemKeychain
   credential_configured: boolean
   enabled: boolean
-  account?: { id: string; email?: string; expires_at: string }
+  account?: { id: string; email?: string; expires_at?: string }
 }
 
 export function fetchAgentProvider(

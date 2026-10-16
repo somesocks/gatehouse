@@ -65,13 +65,13 @@ type Credential struct {
 	Version      int       `json:"version"`
 	AccessToken  string    `json:"access_token"`
 	RefreshToken string    `json:"refresh_token"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ExpiresAt    time.Time `json:"expires_at,omitzero"`
 	AccountID    string    `json:"account_id"`
 	Email        string    `json:"email,omitempty"`
 }
 
 func (credential Credential) Validate() error {
-	if credential.Version != 1 || strings.TrimSpace(credential.AccessToken) == "" || strings.TrimSpace(credential.RefreshToken) == "" || strings.TrimSpace(credential.AccountID) == "" || credential.ExpiresAt.IsZero() {
+	if credential.Version != 1 || strings.TrimSpace(credential.AccessToken) == "" || strings.TrimSpace(credential.RefreshToken) == "" || strings.TrimSpace(credential.AccountID) == "" {
 		return invalidResponse()
 	}
 	return nil
@@ -149,57 +149,22 @@ func (client *Client) Poll(ctx context.Context, deviceAuthID, userCode string) (
 		"code": {approved.Code}, "code_verifier": {approved.Verifier},
 		"redirect_uri": {issuer + "/deviceauth/callback"},
 	}
-	var tokens struct {
-		AccessToken  string      `json:"access_token"`
-		RefreshToken string      `json:"refresh_token"`
-		IDToken      string      `json:"id_token"`
-		ExpiresIn    json.Number `json:"expires_in"`
-	}
+	var tokens tokenResponse
 	_, err = client.post(ctx, "/oauth/token", "application/x-www-form-urlencoded", []byte(form.Encode()), &tokens, false)
 	if err != nil {
 		return PollOutcome{}, err
 	}
-	if strings.TrimSpace(tokens.AccessToken) == "" || strings.TrimSpace(tokens.RefreshToken) == "" {
+	credential, err := credentialFromResponse(tokens, nil, client.now().UTC())
+	if err != nil {
 		return PollOutcome{}, invalidResponse()
 	}
-
-	// These claims come only from the fixed HTTPS token endpoint. They describe
-	// the upstream account; they are not used to authenticate a Gatehouse user.
-	idClaims, accessClaims := tokenClaims(tokens.IDToken), tokenClaims(tokens.AccessToken)
-	account := Account{ID: idClaims.accountID(), Email: idClaims.Email}
-	if account.ID == "" {
-		account.ID = accessClaims.accountID()
-	}
-	if account.Email == "" {
-		account.Email = accessClaims.Email
-		if account.Email == "" {
-			account.Email = accessClaims.Profile.Email
-		}
-	}
-	if account.ID == "" {
-		return PollOutcome{}, invalidResponse()
-	}
-	now := client.now().UTC()
-	expires := now.Add(time.Hour)
-	if tokens.ExpiresIn != "" {
-		seconds, err := tokens.ExpiresIn.Int64()
-		if err != nil || seconds <= 0 || seconds > int64((365*24*time.Hour)/time.Second) {
-			return PollOutcome{}, invalidResponse()
-		}
-		expires = now.Add(time.Duration(seconds) * time.Second)
-	}
-	if exp, err := accessClaims.Exp.Int64(); err == nil && exp > 0 {
-		accessExpiry := time.Unix(exp, 0).UTC()
-		if tokens.ExpiresIn == "" || accessExpiry.Before(expires) {
-			expires = accessExpiry
-		}
-	}
-	if !expires.After(now) {
-		return PollOutcome{}, invalidResponse()
+	var expires *time.Time
+	if !credential.ExpiresAt.IsZero() {
+		expires = &credential.ExpiresAt
 	}
 	return PollOutcome{
-		PollResult: PollResult{Status: "succeeded", Account: &account, ExpiresAt: &expires},
-		Credential: &Credential{Version: 1, AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, ExpiresAt: expires, AccountID: account.ID, Email: account.Email},
+		PollResult: PollResult{Status: "succeeded", Account: &Account{ID: credential.AccountID, Email: credential.Email}, ExpiresAt: expires},
+		Credential: &credential,
 	}, nil
 }
 

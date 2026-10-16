@@ -259,7 +259,8 @@ export function createCodexLoginController({
         result.status === "succeeded" &&
         typeof result.account?.id === "string" &&
         result.account.id.trim() &&
-        Number.isFinite(Date.parse(result.expires_at)) &&
+        (result.expires_at === undefined ||
+          Number.isFinite(Date.parse(result.expires_at))) &&
         result.provider?.id === providerID &&
         result.provider.protocol === "openai-codex" &&
         result.provider.credential_configured

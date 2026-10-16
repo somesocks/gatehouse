@@ -21,6 +21,7 @@ import (
 	"gatehouse/httpservice"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
+	"gatehouse/providermaintenance"
 )
 
 var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
@@ -118,8 +119,17 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "prepare agent replies: %v\n", err)
 			return 1
 		}
+		err, maintenance := providermaintenance.NewRuntime(dbosContext, store, keyring, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "prepare provider maintenance: %v\n", err)
+			return 1
+		}
 		if err := dbos.Launch(dbosContext); err != nil {
 			fmt.Fprintf(os.Stderr, "launch DBOS: %v\n", err)
+			return 1
+		}
+		if err := maintenance.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "schedule provider maintenance: %v\n", err)
 			return 1
 		}
 		reconcileContext, stopReconciliation := context.WithCancel(ctx)

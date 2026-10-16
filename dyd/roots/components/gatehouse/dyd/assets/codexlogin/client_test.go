@@ -154,8 +154,17 @@ func TestTokenValidationAndExpiryFallback(t *testing.T) {
 			if (err == nil) != test.valid {
 				t.Fatalf("result = %#v, error = %v", result, err)
 			}
-			if test.valid && (result.Account == nil || result.Account.ID != "account" || !result.ExpiresAt.Equal(client.now().Add(time.Hour))) {
-				t.Fatalf("metadata = %#v", result)
+			if test.valid {
+				if result.Account == nil || result.Account.ID != "account" {
+					t.Fatalf("metadata = %#v", result)
+				}
+				if test.name == "opaque access expiry fallback" {
+					if result.ExpiresAt != nil || !result.Credential.ExpiresAt.IsZero() {
+						t.Fatal("unknown expiry was fabricated")
+					}
+				} else if result.ExpiresAt == nil || !result.ExpiresAt.Equal(client.now().Add(time.Hour)) {
+					t.Fatalf("metadata = %#v", result)
+				}
 			}
 		})
 	}
