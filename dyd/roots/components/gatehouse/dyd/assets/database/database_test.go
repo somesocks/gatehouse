@@ -248,13 +248,13 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	defer store.Close()
 	t.Setenv("DOCUMENTS_SECRET", "secret-1")
 	state := config.State{
-		Keychains:  []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
+		Keychains:  []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:DOCUMENTS_KEYCHAIN"}}},
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{
 			{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true},
 			{
 				Alias: "documents", Revision: 1, Protocol: "s3", Enabled: true,
-				Endpoint: stringPointer("https://s3.example.test"), Region: stringPointer("us-east-1"), Bucket: stringPointer("documents"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:DOCUMENTS_SECRET"},
+				Endpoint: stringPointer("https://s3.example.test"), Region: stringPointer("us-east-1"), Bucket: stringPointer("documents"), AccessKeyID: stringPointer("access-key"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:DOCUMENTS_SECRET"},
 			},
 		},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{
@@ -280,7 +280,7 @@ func TestMigrateReconcilesStorageProvidersAndWorkspaceBindings(t *testing.T) {
 	`).Scan(&protocol, &endpoint, &region, &bucket, &accessKeyID, &keychainID, &keychainVersion, &secret, &revision, &enabled); err != nil {
 		t.Fatal(err)
 	}
-	if protocol != "s3" || endpoint != "https://s3.example.test" || region != "us-east-1" || bucket != "documents" || accessKeyID != "access-key" || keychainID != "storage" || keychainVersion != 1 || secret == "secret-1" || revision != 1 || !enabled {
+	if protocol != "s3" || endpoint != "https://s3.example.test" || region != "us-east-1" || bucket != "documents" || accessKeyID != "access-key" || keychainID != config.SystemKeychainID || keychainVersion != 1 || secret == "secret-1" || revision != 1 || !enabled {
 		t.Fatalf("documents storage provider = (%q, %q, %q, %q, %q, %q, %d, %q, %d, %t)", protocol, endpoint, region, bucket, accessKeyID, keychainID, keychainVersion, secret, revision, enabled)
 	}
 	err, encryptedSecret := keychain.ParseKey(secret)
@@ -453,11 +453,11 @@ func TestMigrateEncryptsAgentProviderAPIKeyWithAliasAAD(t *testing.T) {
 	defer store.Close()
 
 	baseURL := "https://api.example.test"
-	keychainID := "agent"
+	keychainID := config.SystemKeychainID
 	state := config.State{
 		Keychains: []config.Keychain{{ID: keychainID, Sources: []config.KeychainPassphraseSource{"env:AGENT_KEYCHAIN"}}},
 		AgentProviders: []config.AgentProvider{{
-			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", Endpoint: &baseURL, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:AGENT_API_KEY"}, Enabled: true,
+			Alias: "openai", Revision: 1, Protocol: "openai-chat-completions", Endpoint: &baseURL, Sources: []config.AgentProviderAPIKeySource{"env:AGENT_API_KEY"}, Enabled: true,
 		}},
 	}
 	t.Setenv("AGENT_KEYCHAIN", "agent passphrase")

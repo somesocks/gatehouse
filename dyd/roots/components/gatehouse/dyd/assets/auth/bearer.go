@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/identity"
 	"gatehouse/keychain"
@@ -35,16 +36,15 @@ type StorageToken struct {
 type BearerTokens struct {
 	store         *database.Store
 	keyring       *keychain.Keyring
-	keychainID    string
 	dummyVerifier string
 }
 
-func Prepare(ctx context.Context, store *database.Store, keyring *keychain.Keyring, keychainID string) (error, *BearerTokens) {
+func Prepare(ctx context.Context, store *database.Store, keyring *keychain.Keyring) (error, *BearerTokens) {
 	err, dummyVerifier := identity.NewDummyPasswordVerifier()
 	if err != nil {
 		return fmt.Errorf("create dummy password verifier: %w", err), nil
 	}
-	return nil, &BearerTokens{store: store, keyring: keyring, keychainID: keychainID, dummyVerifier: dummyVerifier}
+	return nil, &BearerTokens{store: store, keyring: keyring, dummyVerifier: dummyVerifier}
 }
 
 func (tokens *BearerTokens) StorageClient() *storage.Client {
@@ -53,14 +53,10 @@ func (tokens *BearerTokens) StorageClient() *storage.Client {
 
 // Encrypt seals an application value with the current bearer-token keychain.
 func (tokens *BearerTokens) Encrypt(ctx context.Context, associatedData, plaintext []byte) (error, string) {
-	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
+	err, reference := tokens.keyring.System(ctx)
 	if err != nil {
 		return err, ""
 	}
-	if len(current) != 1 {
-		return fmt.Errorf("get current bearer keychain %q: not found", tokens.keychainID), ""
-	}
-	reference := current[0].Ref
 	err, keys := tokens.keyring.Get(ctx, []model.KeychainRef{reference})
 	if err != nil {
 		return err, ""
@@ -99,14 +95,10 @@ func (tokens *BearerTokens) Mint(ctx context.Context, claims Claims) (error, str
 	if claims.Principal.Ref.Id == "" || claims.Identity == "" {
 		return fmt.Errorf("bearer claims must include principal and identity"), ""
 	}
-	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
+	err, keyReference := tokens.keyring.System(ctx)
 	if err != nil {
 		return err, ""
 	}
-	if len(current) != 1 {
-		return fmt.Errorf("get current bearer keychain %q: not found", tokens.keychainID), ""
-	}
-	keyReference := current[0].Ref
 	payload, err := json.Marshal(claims)
 	if err != nil {
 		return fmt.Errorf("encode bearer claims: %w", err), ""
@@ -117,7 +109,7 @@ func (tokens *BearerTokens) Mint(ctx context.Context, claims Claims) (error, str
 	}
 	key, ok := keys[keyReference]
 	if !ok {
-		return fmt.Errorf("get current bearer keychain %q: unavailable", tokens.keychainID), ""
+		return fmt.Errorf("get current bearer keychain %q: unavailable", config.SystemKeychainID), ""
 	}
 	defer clear(key)
 	err, encrypted := keychain.Seal(rand.Reader, key, bearerAssociatedData, payload)
@@ -159,7 +151,7 @@ func (tokens *BearerTokens) open(ctx context.Context, associatedData []byte, enc
 	if err != nil {
 		return fmt.Errorf("%w: parse sealed token: %v", ErrUnauthenticated, err), nil
 	}
-	if encrypted.Key == nil || encrypted.Key.Id != tokens.keychainID {
+	if encrypted.Key == nil || encrypted.Key.Id != config.SystemKeychainID {
 		return fmt.Errorf("%w: sealed token uses another keychain", ErrUnauthenticated), nil
 	}
 	err, stored := tokens.store.KeychainsGet(ctx, []model.KeychainRef{*encrypted.Key})
@@ -197,7 +189,7 @@ func (tokens *BearerTokens) AuthenticateStorageToken(ctx context.Context, encode
 	if err != nil {
 		return fmt.Errorf("parse storage token: %w", err), StorageToken{}
 	}
-	if encrypted.Key.Id != tokens.keychainID {
+	if encrypted.Key.Id != config.SystemKeychainID {
 		return fmt.Errorf("storage token uses another keychain"), StorageToken{}
 	}
 	err, stored := tokens.store.KeychainsGet(ctx, []model.KeychainRef{*encrypted.Key})
@@ -226,14 +218,10 @@ func (tokens *BearerTokens) AuthenticateStorageToken(ctx context.Context, encode
 }
 
 func (tokens *BearerTokens) seal(ctx context.Context, associatedData []byte, value any) (error, string) {
-	err, current := tokens.store.KeychainsGetCurrent(ctx, []string{tokens.keychainID})
+	err, keyReference := tokens.keyring.System(ctx)
 	if err != nil {
 		return err, ""
 	}
-	if len(current) != 1 {
-		return fmt.Errorf("get current keychain %q: not found", tokens.keychainID), ""
-	}
-	keyReference := current[0].Ref
 	payload, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Errorf("encode sealed payload: %w", err), ""
@@ -244,7 +232,7 @@ func (tokens *BearerTokens) seal(ctx context.Context, associatedData []byte, val
 	}
 	key, ok := keys[keyReference]
 	if !ok {
-		return fmt.Errorf("get current keychain %q: unavailable", tokens.keychainID), ""
+		return fmt.Errorf("get current keychain %q: unavailable", config.SystemKeychainID), ""
 	}
 	defer clear(key)
 	err, encrypted := keychain.Seal(rand.Reader, key, associatedData, payload)

@@ -34,14 +34,13 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer store.Close()
-	keychains := []config.Keychain{{ID: "cancel-test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_CANCEL_KEYCHAIN"}}}
-	keychainID := "cancel-test"
+	keychains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_CANCEL_KEYCHAIN"}}}
 	endpoint := server.URL + "/v1/responses"
 	state := config.State{
 		Keychains:       keychains,
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
-		AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: "openai-responses", Endpoint: &endpoint, Keychain: &keychainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_CANCEL_API_KEY"}, Enabled: true}},
+		AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: "openai-responses", Endpoint: &endpoint, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_CANCEL_API_KEY"}, Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "test", Model: "test-model", Parameters: `{}`, Compaction: defaultAgentModelCompaction, MaxTurns: 4, MaxOutputTokens: 1024, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Prelude: &testPrelude, Default: true, Enabled: true}},
 	}

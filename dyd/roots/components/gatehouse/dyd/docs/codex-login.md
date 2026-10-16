@@ -57,15 +57,14 @@ agent_providers:
   - alias: chatgpt
     revision: 1
     protocol: openai-codex
-    credential:
-      keychain: default
     enabled: true
 ```
 
 The endpoint defaults to the fixed Codex subscription endpoint. Credential
 sources are not accepted for this protocol: use login to install tokens. Higher
 configuration revisions preserve connected credentials and their actual keychain
-version. Disconnect before changing a connected provider's keychain.
+version. New and refreshed credentials use the current version of Gatehouse's
+fixed `default` system keychain; providers do not select a keychain.
 
 SQLite/PostgreSQL V056 renames operational `api_key` to `credential`, preserves
 existing API-key ciphertext unchanged, and permits disconnected Codex providers.

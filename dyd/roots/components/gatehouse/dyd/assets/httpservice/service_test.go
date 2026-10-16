@@ -1812,7 +1812,7 @@ func TestSystemPrincipalAPI(t *testing.T) {
 
 func TestSystemAdministrationAPI(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
-	configured := []config.Keychain{{ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}
+	configured := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}
 	err, ring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
@@ -1833,7 +1833,7 @@ func TestSystemAdministrationAPI(t *testing.T) {
 		return response
 	}
 	keychains := request(http.MethodGet, "/api/v1/system/keychains", "")
-	if keychains.Code != http.StatusOK || strings.Contains(keychains.Body.String(), "passphrase") || !strings.Contains(keychains.Body.String(), `"id":"test"`) {
+	if keychains.Code != http.StatusOK || strings.Contains(keychains.Body.String(), "passphrase") || !strings.Contains(keychains.Body.String(), `"id":"default"`) {
 		t.Fatalf("GET system keychains = status %d body %q", keychains.Code, keychains.Body.String())
 	}
 	listedWorkspaces := request(http.MethodGet, "/api/v1/system/workspaces", "")
@@ -1884,7 +1884,7 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(userWorkspaces.Body.Bytes(), &joinedWorkspaces); err != nil || userWorkspaces.Code != http.StatusOK || len(joinedWorkspaces) != 2 {
 		t.Fatalf("GET user workspaces after system create = (%d, %#v, %v)", userWorkspaces.Code, joinedWorkspaces, err)
 	}
-	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","api_key":"secret-value","enabled":true}`)
+	created := request(http.MethodPost, "/api/v1/system/agent-providers", `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","api_key":"secret-value","enabled":true}`)
 	var provider database.SystemAgentProvider
 	if err := json.Unmarshal(created.Body.Bytes(), &provider); err != nil || created.Code != http.StatusOK || provider.ID == "" || !provider.CredentialConfigured || strings.Contains(created.Body.String(), "secret-value") {
 		t.Fatalf("POST system agent provider = (%d, %#v, %v, %q)", created.Code, provider, err, created.Body.String())
@@ -1893,11 +1893,11 @@ func TestSystemAdministrationAPI(t *testing.T) {
 	if listed.Code != http.StatusOK || strings.Contains(listed.Body.String(), "secret-value") {
 		t.Fatalf("GET system agent providers = status %d body %q", listed.Code, listed.Body.String())
 	}
-	stale := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","enabled":false,"expected_revision":2}`)
+	stale := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","enabled":false,"expected_revision":2}`)
 	if stale.Code != http.StatusConflict {
 		t.Fatalf("PATCH stale system agent provider = %d", stale.Code)
 	}
-	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","keychain":"test","enabled":false,"expected_revision":1}`)
+	updated := request(http.MethodPatch, "/api/v1/system/agent-providers/"+provider.ID, `{"alias":"admin-openai","protocol":"openai-responses","endpoint":"https://api.example.test/v1/responses","enabled":false,"expected_revision":1}`)
 	if err := json.Unmarshal(updated.Body.Bytes(), &provider); err != nil || updated.Code != http.StatusOK || provider.Revision != 2 || provider.Enabled || !provider.CredentialConfigured {
 		t.Fatalf("PATCH system agent provider = (%d, %#v, %v)", updated.Code, provider, err)
 	}
@@ -2122,7 +2122,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
 	t.Setenv("GATEHOUSE_TEST_PASSWORD", "correct password")
 	configured := []config.Keychain{{
-		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
+		ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
 	alice := "Alice"
 	engineering := "Engineering"
@@ -2213,7 +2213,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}
-	err, tokens := auth.Prepare(ctx, store, keyring, "test")
+	err, tokens := auth.Prepare(ctx, store, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}

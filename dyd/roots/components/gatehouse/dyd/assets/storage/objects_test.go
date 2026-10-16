@@ -78,7 +78,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 	defer store.Close()
 	t.Setenv("S3_TEST_KEYCHAIN", "test passphrase")
 	t.Setenv("S3_TEST_SECRET", "test secret")
-	keychains := []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:S3_TEST_KEYCHAIN"}}}
+	keychains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:S3_TEST_KEYCHAIN"}}}
 	err, keyring := keychain.NewKeyring(store, keychains, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 		Keychains:  keychains,
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		StorageProviders: []config.StorageProvider{{
-			Alias: "s3", Revision: 1, Protocol: "s3", Endpoint: &server.URL, Region: stringPointer("us-east-1"), Bucket: stringPointer("gatehouse"), AccessKeyID: stringPointer("access-key"), Keychain: stringPointer("storage"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:S3_TEST_SECRET"}, Enabled: true,
+			Alias: "s3", Revision: 1, Protocol: "s3", Endpoint: &server.URL, Region: stringPointer("us-east-1"), Bucket: stringPointer("gatehouse"), AccessKeyID: stringPointer("access-key"), SecretKeySources: []config.StorageProviderSecretKeySource{"env:S3_TEST_SECRET"}, Enabled: true,
 		}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "s3", Revision: 1, Priority: 1, Enabled: true}},
 	}

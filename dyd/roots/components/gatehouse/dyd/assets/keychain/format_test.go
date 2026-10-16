@@ -47,7 +47,7 @@ func TestParseKDFRejectsInvalidValues(t *testing.T) {
 func TestEncryptedRoundTrip(t *testing.T) {
 	payload := []byte("0123456789abcdefghijklmnopqr")
 	value := Encrypted{Payload: payload, Key: &model.KeychainRef{Id: "default", Version: 1}, AAD: AADAlias}.String()
-	want := "gh-enc:" + base64.RawURLEncoding.EncodeToString(payload) + "?aad=alias&alg=aes128-gcm-v1&key=default&ver=1"
+	want := "gh-enc:" + base64.RawURLEncoding.EncodeToString(payload) + "?aad=alias&alg=aes128-gcm-v1&ver=1"
 	if value != want {
 		t.Fatalf("Encrypted.String() = %q, want %q", value, want)
 	}
@@ -71,12 +71,15 @@ func TestParseEncryptedRejectsInvalidValues(t *testing.T) {
 		{"missing algorithm", "gh-enc:" + payload, ParseEncrypted, "requires alg"},
 		{"unknown algorithm", "gh-enc:" + payload + "?alg=aes256-gcm-v1", ParseEncrypted, "requires alg"},
 		{"noncanonical query", "gh-enc:" + payload + "?key=default&alg=aes128-gcm-v1&ver=1", ParseEncrypted, "query must be canonical"},
-		{"missing key version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default", ParseEncrypted, "specified together"},
+		{"missing key version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default", ParseEncrypted, "explicit ver"},
 		{"invalid key", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=Default&ver=1", ParseEncrypted, "key must match"},
 		{"noncanonical version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default&ver=01", ParseEncrypted, "canonical"},
 		{"invalid AAD", "gh-enc:" + payload + "?aad=provider&alg=aes128-gcm-v1", ParseEncrypted, "aad must be"},
 		{"keychain key has selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1&key=default&ver=1", ParseKey, "must not select"},
-		{"resource lacks selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1", ParseResource, "requires key"},
+		{"implicit keychain key has selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1&ver=1", ParseKey, "must not select"},
+		{"resource lacks selector", "gh-enc:" + payload + "?alg=aes128-gcm-v1", ParseResource, "explicit ver"},
+		{"zero implicit version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&ver=0", ParseResource, "canonical"},
+		{"repeated implicit version", "gh-enc:" + payload + "?alg=aes128-gcm-v1&ver=1&ver=2", ParseResource, "positive integer"},
 		{"short payload", "gh-enc:" + base64.RawURLEncoding.EncodeToString([]byte("short")) + "?alg=aes128-gcm-v1", ParseEncrypted, "authentication tag"},
 	}
 	for _, test := range tests {
@@ -86,5 +89,26 @@ func TestParseEncryptedRejectsInvalidValues(t *testing.T) {
 				t.Fatalf("parse(%q) error = %v, want %q", test.value, err, test.contains)
 			}
 		})
+	}
+}
+
+func TestResourceKeychainReferences(t *testing.T) {
+	prefix := "gh-enc:" + base64.RawURLEncoding.EncodeToString([]byte("0123456789abcdefghijklmnopqr")) + "?alg=aes128-gcm-v1"
+	for _, test := range []struct{ query, id, canonical string }{
+		{"&ver=7", "default", "&ver=7"},
+		{"&key=default&ver=7", "default", "&ver=7"},
+		{"&key=workspace&ver=7", "workspace", "&key=workspace&ver=7"},
+	} {
+		err, encrypted := ParseResource(prefix + test.query)
+		if err != nil || encrypted.Key == nil || encrypted.Key.Id != test.id || encrypted.Key.Version != 7 {
+			t.Fatalf("parse %q: %#v %v", test.query, encrypted, err)
+		}
+		if got := encrypted.String(); got != prefix+test.canonical {
+			t.Fatalf("canonical %q = %q", test.query, got)
+		}
+	}
+	err, wrapped := ParseKey(prefix)
+	if err != nil || wrapped.Key != nil || wrapped.String() != prefix {
+		t.Fatalf("wrapped key changed: %#v %v", wrapped, err)
 	}
 }

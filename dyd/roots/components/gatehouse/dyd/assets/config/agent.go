@@ -25,7 +25,6 @@ type AgentProvider struct {
 	Revision int
 	Protocol string
 	Endpoint *string
-	Keychain *string
 	Sources  []AgentProviderAPIKeySource
 	Enabled  bool
 }
@@ -161,14 +160,7 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 			if configured.Endpoint != nil && *configured.Endpoint != endpoint {
 				return fmt.Errorf("agent_providers[%d] openai-codex endpoint is fixed", index), nil
 			}
-			keychain := defaultKeychainID
-			if configured.Credential != nil && configured.Credential.Keychain != nil {
-				keychain = *configured.Credential.Keychain
-			}
-			if !keychainID.MatchString(keychain) {
-				return fmt.Errorf("agent_providers[%d].credential.keychain is invalid", index), nil
-			}
-			provider.Endpoint, provider.Keychain = &endpoint, &keychain
+			provider.Endpoint = &endpoint
 		case agentProviderProtocolOpenAIChatCompletions, agentProviderProtocolOpenAIResponses:
 			if configured.Endpoint == nil || (configured.ApiKey == nil && configured.Credential == nil) {
 				return fmt.Errorf("agent_providers[%d] OpenAI providers require endpoint and api_key", index), nil
@@ -177,22 +169,15 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 			if err != nil || parsed.Scheme == "" || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 				return fmt.Errorf("agent_providers[%d].endpoint must be an absolute HTTP URL", index), nil
 			}
-			keychain := defaultKeychainID
 			var configuredSources []string
 			if configured.ApiKey != nil {
-				if configured.ApiKey.Keychain != nil {
-					keychain = *configured.ApiKey.Keychain
-				}
 				configuredSources = configured.ApiKey.Sources
 			} else {
-				if configured.Credential.Keychain != nil {
-					keychain = *configured.Credential.Keychain
-				}
 				if configured.Credential.Sources != nil {
 					configuredSources = *configured.Credential.Sources
 				}
 			}
-			if !keychainID.MatchString(keychain) || len(configuredSources) == 0 {
+			if len(configuredSources) == 0 {
 				return fmt.Errorf("agent_providers[%d].api_key is invalid", index), nil
 			}
 			sources := make([]AgentProviderAPIKeySource, 0, len(configuredSources))
@@ -208,7 +193,6 @@ func ResolveAgentProviders(document configschema.GatehouseConfig) (error, []Agen
 				sources = append(sources, AgentProviderAPIKeySource(source))
 			}
 			provider.Endpoint = configured.Endpoint
-			provider.Keychain = &keychain
 			provider.Sources = sources
 		default:
 			return fmt.Errorf("agent_providers[%d] has an invalid protocol", index), nil

@@ -35,7 +35,7 @@ agent_models:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.AgentProviders) != 1 || state.AgentProviders[0].Protocol != agentProviderProtocolBuiltin || state.AgentProviders[0].Endpoint != nil || state.AgentProviders[0].Keychain != nil {
+	if len(state.AgentProviders) != 1 || state.AgentProviders[0].Protocol != agentProviderProtocolBuiltin || state.AgentProviders[0].Endpoint != nil {
 		t.Fatalf("builtin provider = %#v", state.AgentProviders)
 	}
 	if len(state.AgentModels) != 1 || state.AgentModels[0].ResultInlineBytes != 4096 {

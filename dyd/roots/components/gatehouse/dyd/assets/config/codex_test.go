@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -13,7 +12,7 @@ func TestCodexProviderConfiguration(t *testing.T) {
 		valid       bool
 	}{
 		{"default keychain", "", true},
-		{"selected keychain", "    credential: {keychain: oauth}\n", true},
+		{"selected keychain rejected", "    credential: {keychain: oauth}\n", false},
 		{"fixed endpoint", "    endpoint: " + OpenAICodexEndpoint + "\n", true},
 		{"custom endpoint", "    endpoint: https://other.test/responses\n", false},
 		{"source import", "    credential: {sources: [env:TOKEN]}\n", false},
@@ -34,11 +33,8 @@ func TestCodexProviderConfiguration(t *testing.T) {
 			}
 			if test.valid {
 				_, providers := ResolveAgentProviders(document)
-				if len(providers) != 1 || *providers[0].Endpoint != OpenAICodexEndpoint || providers[0].Keychain == nil || len(providers[0].Sources) != 0 {
+				if len(providers) != 1 || *providers[0].Endpoint != OpenAICodexEndpoint || len(providers[0].Sources) != 0 {
 					t.Fatalf("resolved = %#v", providers)
-				}
-				if strings.Contains(test.extra, "oauth") && *providers[0].Keychain != "oauth" {
-					t.Fatal("keychain selection lost")
 				}
 			}
 		})
@@ -47,7 +43,7 @@ func TestCodexProviderConfiguration(t *testing.T) {
 
 func TestGenericAgentCredentialKeepsAPIKeySources(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("api_version: v1\nagent_providers:\n  - alias: api\n    revision: 1\n    protocol: openai-responses\n    endpoint: https://api.example.test/responses\n    credential: {keychain: api, sources: [env:API_KEY]}\n"), 0600); err != nil {
+	if err := os.WriteFile(path, []byte("api_version: v1\nagent_providers:\n  - alias: api\n    revision: 1\n    protocol: openai-responses\n    endpoint: https://api.example.test/responses\n    credential: {sources: [env:API_KEY]}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	err, document := ValidateFile(path)
@@ -55,7 +51,7 @@ func TestGenericAgentCredentialKeepsAPIKeySources(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, providers := ResolveAgentProviders(document)
-	if err != nil || len(providers) != 1 || *providers[0].Keychain != "api" || len(providers[0].Sources) != 1 || providers[0].Sources[0] != "env:API_KEY" {
+	if err != nil || len(providers) != 1 || len(providers[0].Sources) != 1 || providers[0].Sources[0] != "env:API_KEY" {
 		t.Fatalf("credentials = %#v %v", providers, err)
 	}
 }

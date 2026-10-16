@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"gatehouse/config"
 	"gatehouse/model"
 )
 
@@ -67,8 +68,8 @@ func ParseEncrypted(value string) (error, Encrypted) {
 	}
 	key, hasKey := query["key"]
 	version, hasVersion := query["ver"]
-	if hasKey != hasVersion {
-		return fmt.Errorf("%s key and ver must be specified together", encryptionScheme), Encrypted{}
+	if hasKey && !hasVersion {
+		return fmt.Errorf("%s key requires an explicit ver", encryptionScheme), Encrypted{}
 	}
 	expected := url.Values{"alg": []string{encryptionAlg}}
 	var aad string
@@ -80,9 +81,14 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		expected.Set("aad", aad)
 	}
 	var reference *model.KeychainRef
-	if hasKey {
-		if len(key) != 1 || !keyID.MatchString(key[0]) {
+	if hasVersion {
+		id := config.SystemKeychainID
+		if hasKey && (len(key) != 1 || !keyID.MatchString(key[0])) {
 			return fmt.Errorf("%s key must match %q", encryptionScheme, keyID.String()), Encrypted{}
+		}
+		if hasKey {
+			id = key[0]
+			expected.Set("key", id)
 		}
 		if len(version) != 1 {
 			return fmt.Errorf("%s ver must be a positive integer", encryptionScheme), Encrypted{}
@@ -91,8 +97,7 @@ func ParseEncrypted(value string) (error, Encrypted) {
 		if err != nil || parsedVersion <= 0 || strconv.Itoa(parsedVersion) != version[0] {
 			return fmt.Errorf("%s ver must be a positive canonical integer", encryptionScheme), Encrypted{}
 		}
-		reference = &model.KeychainRef{Id: key[0], Version: parsedVersion}
-		expected.Set("key", key[0])
+		reference = &model.KeychainRef{Id: id, Version: parsedVersion}
 		expected.Set("ver", version[0])
 	}
 	if err := requireQuery(parsed, expected); err != nil {
@@ -122,7 +127,7 @@ func ParseResource(value string) (error, Encrypted) {
 		return err, Encrypted{}
 	}
 	if encrypted.Key == nil {
-		return fmt.Errorf("%s resource encryption requires key and ver", encryptionScheme), Encrypted{}
+		return fmt.Errorf("%s resource encryption requires an explicit ver", encryptionScheme), Encrypted{}
 	}
 	return nil, encrypted
 }
@@ -130,7 +135,9 @@ func ParseResource(value string) (error, Encrypted) {
 func (encrypted Encrypted) String() string {
 	query := url.Values{"alg": []string{encryptionAlg}}
 	if encrypted.Key != nil {
-		query.Set("key", encrypted.Key.Id)
+		if encrypted.Key.Id != config.SystemKeychainID {
+			query.Set("key", encrypted.Key.Id)
+		}
 		query.Set("ver", strconv.Itoa(encrypted.Key.Version))
 	}
 	if encrypted.AAD != "" {

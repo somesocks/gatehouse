@@ -40,7 +40,7 @@ func (client *fakeCodexLogin) Poll(_ context.Context, id, code string) (codexlog
 
 func codexTestRing(t *testing.T, store *database.Store) *keychain.Keyring {
 	t.Helper()
-	err, ring := keychain.NewKeyring(store, []config.Keychain{{ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
+	err, ring := keychain.NewKeyring(store, []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func TestCodexLoginAdministration(t *testing.T) {
 	}
 	client := &fakeCodexLogin{}
 	ring := codexTestRing(t, store)
-	err, provider := store.SystemAgentProviderCreate(context.Background(), database.SystemAgentProviderInput{Alias: "chatgpt", Protocol: config.AgentProviderProtocolOpenAICodex, Keychain: &model.KeychainRef{Id: "test", Version: 1}, Enabled: true})
+	err, provider := store.SystemAgentProviderCreate(context.Background(), database.SystemAgentProviderInput{Alias: "chatgpt", Protocol: config.AgentProviderProtocolOpenAICodex, Keychain: &model.KeychainRef{Id: config.SystemKeychainID, Version: 1}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestCodexLoginInstallsEncryptedCredentialAndFencesLateCompletion(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, provider := store.SystemAgentProviderCreate(ctx, database.SystemAgentProviderInput{Alias: "chatgpt", Protocol: config.AgentProviderProtocolOpenAICodex, Keychain: &model.KeychainRef{Id: "test", Version: 1}, Enabled: true})
+	err, provider := store.SystemAgentProviderCreate(ctx, database.SystemAgentProviderInput{Alias: "chatgpt", Protocol: config.AgentProviderProtocolOpenAICodex, Keychain: &model.KeychainRef{Id: config.SystemKeychainID, Version: 1}, Enabled: true})
 	if err != nil {
 		t.Fatal(err)
 	}

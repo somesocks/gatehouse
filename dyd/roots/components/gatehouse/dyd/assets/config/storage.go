@@ -23,7 +23,6 @@ type StorageProvider struct {
 	Region           *string
 	Bucket           *string
 	AccessKeyID      *string
-	Keychain         *string
 	SecretKeySources []StorageProviderSecretKeySource
 	Enabled          bool
 }
@@ -77,11 +76,7 @@ func ResolveStorageProviders(document configschema.GatehouseConfig) (error, []St
 			if strings.TrimSpace(*configured.Region) == "" || strings.TrimSpace(*configured.Bucket) == "" || strings.TrimSpace(accessKeyID) == "" {
 				return fmt.Errorf("storage_providers[%d] S3 region, bucket, and access key ID must not be blank", index), nil
 			}
-			keychain := defaultKeychainID
-			if configured.Credentials.SecretAccessKey.Keychain != nil {
-				keychain = *configured.Credentials.SecretAccessKey.Keychain
-			}
-			if !keychainID.MatchString(keychain) || len(configured.Credentials.SecretAccessKey.Sources) == 0 {
+			if len(configured.Credentials.SecretAccessKey.Sources) == 0 {
 				return fmt.Errorf("storage_providers[%d].credentials.secret_access_key is invalid", index), nil
 			}
 			sources := make([]StorageProviderSecretKeySource, 0, len(configured.Credentials.SecretAccessKey.Sources))
@@ -100,7 +95,6 @@ func ResolveStorageProviders(document configschema.GatehouseConfig) (error, []St
 			provider.Region = configured.Region
 			provider.Bucket = configured.Bucket
 			provider.AccessKeyID = &accessKeyID
-			provider.Keychain = &keychain
 			provider.SecretKeySources = sources
 		default:
 			return fmt.Errorf("storage_providers[%d] has an invalid protocol", index), nil

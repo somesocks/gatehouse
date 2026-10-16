@@ -27,8 +27,8 @@ func TestCodexConcurrentCredentialInstallHasOneWinner(t *testing.T) {
 	}
 	defer first.Close()
 	t.Setenv("CODEX_CONCURRENT_KEYCHAIN", "passphrase")
-	id, endpoint := "oauth", config.OpenAICodexEndpoint
-	state := config.State{Keychains: []config.Keychain{{ID: id, Sources: []config.KeychainPassphraseSource{"env:CODEX_CONCURRENT_KEYCHAIN"}}}, AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Keychain: &id, Enabled: true}}}
+	id, endpoint := config.SystemKeychainID, config.OpenAICodexEndpoint
+	state := config.State{Keychains: []config.Keychain{{ID: id, Sources: []config.KeychainPassphraseSource{"env:CODEX_CONCURRENT_KEYCHAIN"}}}, AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Enabled: true}}}
 	if err := migrateState(ctx, first, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -89,10 +89,10 @@ func verifyCodexCredentialReconciliation(t *testing.T, configuration config.Data
 	}
 	defer store.Close()
 	t.Setenv("CODEX_KEYCHAIN_TEST", "passphrase")
-	id, endpoint := "oauth", config.OpenAICodexEndpoint
+	id, endpoint := config.SystemKeychainID, config.OpenAICodexEndpoint
 	state := config.State{
 		Keychains:      []config.Keychain{{ID: id, Sources: []config.KeychainPassphraseSource{"env:CODEX_KEYCHAIN_TEST"}}},
-		AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Keychain: &id, Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -131,20 +131,19 @@ func verifyCodexCredentialReconciliation(t *testing.T, configuration config.Data
 			t.Fatalf("reconciled = %#v %v", stored, err)
 		}
 	}
-	// Moving a connected credential to another keychain must not relabel it.
+	// Adding another keychain cannot change the system provider's reference.
 	other := "other"
 	state.Keychains = append(state.Keychains, config.Keychain{ID: other, Sources: []config.KeychainPassphraseSource{"env:CODEX_KEYCHAIN_TEST"}})
 	state.AgentProviders[0].Revision = 5
-	state.AgentProviders[0].Keychain = &other
-	if err := migrateState(ctx, store, configuration, state); err == nil {
-		t.Fatal("connected keychain switch accepted")
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
 	}
 	err, stored := store.AgentProviderCredentialGet(ctx, providerID)
-	if err != nil || stored.Provider.Revision != 4 || stored.Provider.Keychain.Id != id || *stored.Encrypted != ciphertext {
-		t.Fatal("failed reconciliation corrupted credential")
+	if err != nil || stored.Provider.Revision != 5 || stored.Provider.Keychain.Id != id || *stored.Encrypted != ciphertext {
+		t.Fatal("reconciliation corrupted credential")
 	}
 	// Disconnect removes both the secret and derived public account metadata.
-	err, disconnected := store.SystemAgentProviderCodexCredentialSet(ctx, providerID, 4, nil, nil, nil)
+	err, disconnected := store.SystemAgentProviderCodexCredentialSet(ctx, providerID, 5, nil, nil, nil)
 	if err != nil || disconnected.CredentialConfigured || disconnected.Account != nil || disconnected.Keychain.Version != 2 {
 		t.Fatalf("disconnect = %#v %v", disconnected, err)
 	}

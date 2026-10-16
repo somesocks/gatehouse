@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"gatehouse/config"
@@ -14,7 +15,7 @@ import (
 	"gatehouse/typed_id"
 )
 
-func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
+func TestBearerTokensRoundTripWithSystemKeychain(t *testing.T) {
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
 	if err != nil {
@@ -23,7 +24,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	defer store.Close()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	configured := []config.Keychain{{
-		ID: "test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
+		ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_KEYCHAIN"},
 	}}
 	t.Setenv("GATEHOUSE_TEST_KEYCHAIN", "test passphrase")
 	err, keyring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
@@ -59,7 +60,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	err, tokens := Prepare(ctx, store, keyring, "test")
+	err, tokens := Prepare(ctx, store, keyring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,8 +74,22 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(token, "key=") || !strings.Contains(token, "ver=1") {
+		t.Fatalf("system token did not use implicit default: %s", token)
+	}
+	legacy := strings.Replace(token, "&ver=1", "&key=default&ver=1", 1)
+	if err, _ := tokens.Authenticate(ctx, "Bearer "+legacy); err != nil {
+		t.Fatalf("explicit default token rejected: %v", err)
+	}
+	foreign := strings.Replace(token, "&ver=1", "&key=other&ver=1", 1)
+	if err, _ := tokens.Authenticate(ctx, "Bearer "+foreign); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("foreign keychain token accepted: %v", err)
+	}
+	if err, _ := tokens.Authenticate(ctx, "Bearer "+strings.Replace(token, "&ver=1", "", 1)); !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("versionless token accepted: %v", err)
+	}
 	if err := store.KeychainsInsert(ctx, []model.Keychain{{
-		Ref: model.KeychainRef{Id: "test", Version: 2}, KekKdf: "unavailable", Key: "unavailable", Enabled: true,
+		Ref: model.KeychainRef{Id: config.SystemKeychainID, Version: 2}, KekKdf: "unavailable", Key: "unavailable", Enabled: true,
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +105,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unavailableKeyring.Close()
-	err, unavailableTokens := Prepare(ctx, store, unavailableKeyring, "test")
+	err, unavailableTokens := Prepare(ctx, store, unavailableKeyring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,7 +113,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	if err == nil || errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("Authenticate() with unavailable keychain error = %v, want infrastructure error", err)
 	}
-	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_keychains SET enabled = FALSE WHERE id = 'test' AND version = 1`); err != nil {
+	if _, err := store.ExecContext(ctx, `UPDATE gatehouse_keychains SET enabled = FALSE WHERE id = 'default' AND version = 1`); err != nil {
 		t.Fatal(err)
 	}
 	err, _ = tokens.Authenticate(ctx, "Bearer "+token)
@@ -107,7 +122,7 @@ func TestBearerTokensRoundTripWithSelectedKeychain(t *testing.T) {
 	}
 }
 
-func TestPrepareDoesNotRequireSelectedKeychain(t *testing.T) {
+func TestPrepareResolvesSystemKeychainLazily(t *testing.T) {
 	ctx := context.Background()
 	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
 	if err != nil {
@@ -119,7 +134,7 @@ func TestPrepareDoesNotRequireSelectedKeychain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer keyring.Close()
-	if err, _ := Prepare(ctx, store, keyring, "missing"); err != nil {
+	if err, _ := Prepare(ctx, store, keyring); err != nil {
 		t.Fatalf("Prepare() error = %v, want lazy keychain resolution", err)
 	}
 }

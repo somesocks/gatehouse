@@ -55,7 +55,7 @@ func newConfiguredFixture(t *testing.T, configuration config.DatabaseConfig, ref
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	configured := []config.Keychain{{ID: "maintenance", Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}}
+	configured := []config.Keychain{{ID: "maintenance", Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}, {ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}}
 	err, ring := keychain.NewKeyring(store, configured, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
@@ -422,8 +422,8 @@ func TestReconnectDisconnectAndConfigurationChangesFenceRefresh(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "reconcile":
-				key, endpoint := "maintenance", config.OpenAICodexEndpoint
-				err, registry := migrations.Build(f.configuration, config.State{AgentProviders: []config.AgentProvider{{Alias: provider.Alias, Protocol: provider.Protocol, Revision: 10, Keychain: &key, Endpoint: &endpoint, Enabled: true}}}, f.ring)
+				endpoint := config.OpenAICodexEndpoint
+				err, registry := migrations.Build(f.configuration, config.State{AgentProviders: []config.AgentProvider{{Alias: provider.Alias, Protocol: provider.Protocol, Revision: 10, Endpoint: &endpoint, Enabled: true}}}, f.ring)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -531,27 +531,35 @@ func verifyExecutors(t *testing.T, configuration config.DatabaseConfig) {
 
 type flakyStore struct {
 	*database.Store
-	calls      int
-	ciphertext string
-	mu         sync.Mutex
+	calls       int
+	ciphertext  string
+	reference   model.KeychainRef
+	beforeRetry func(model.KeychainRef) error
+	mu          sync.Mutex
 }
 
-func (store *flakyStore) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref model.KeychainRef, encrypted *string, account *database.SystemAgentProviderAccount) (error, bool) {
+func (store *flakyStore) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref, nextRef model.KeychainRef, encrypted *string, account *database.SystemAgentProviderAccount) (error, bool) {
 	store.mu.Lock()
 	store.calls++
 	attempt := store.calls
 	if encrypted != nil {
-		if store.ciphertext != "" && store.ciphertext != *encrypted {
+		if store.ciphertext != "" && (store.ciphertext != *encrypted || store.reference != nextRef) {
 			store.mu.Unlock()
 			return errors.New("bundle changed on retry"), false
 		}
 		store.ciphertext = *encrypted
+		store.reference = nextRef
 	}
 	store.mu.Unlock()
 	if attempt == 1 {
+		if store.beforeRetry != nil {
+			if err := store.beforeRetry(nextRef); err != nil {
+				return err, false
+			}
+		}
 		return errors.New("temporary database failure"), false
 	}
-	return store.Store.AgentProviderMaintenanceCredentialSet(ctx, id, original, ref, encrypted, account)
+	return store.Store.AgentProviderMaintenanceCredentialSet(ctx, id, original, ref, nextRef, encrypted, account)
 }
 
 func TestSuccessfulExchangeRetriesSavingTheSameBundle(t *testing.T) {
@@ -587,7 +595,7 @@ func TestFreshCiphertextFencesStaleWritesEvenForIdenticalPlaintext(t *testing.T)
 	if f.credential(t, provider.ID) != plaintext || *after.Encrypted == *before.Encrypted || after.Fingerprint() == before.Fingerprint() {
 		t.Fatal("encryption nonce did not distinguish replacement credentials")
 	}
-	err, changed := f.store.AgentProviderMaintenanceCredentialSet(context.Background(), provider.ID, *before.Encrypted, *provider.Keychain, nil, nil)
+	err, changed := f.store.AgentProviderMaintenanceCredentialSet(context.Background(), provider.ID, *before.Encrypted, *provider.Keychain, *provider.Keychain, nil, nil)
 	if err != nil || changed {
 		t.Fatal("stale rejection cleared a re-encrypted credential")
 	}
@@ -602,8 +610,8 @@ type interruptStore struct {
 	step  context.Context
 }
 
-func (store *interruptStore) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref model.KeychainRef, encrypted *string, account *database.SystemAgentProviderAccount) (error, bool) {
-	err, changed := store.Store.AgentProviderMaintenanceCredentialSet(ctx, id, original, ref, encrypted, account)
+func (store *interruptStore) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref, nextRef model.KeychainRef, encrypted *string, account *database.SystemAgentProviderAccount) (error, bool) {
+	err, changed := store.Store.AgentProviderMaintenanceCredentialSet(ctx, id, original, ref, nextRef, encrypted, account)
 	if err == nil && changed {
 		close(store.saved)
 		<-store.step.Done()
@@ -640,7 +648,7 @@ func TestRecoveryAfterSaveBeforeCheckpointDoesNotRefreshUnknownExpiryTwice(t *te
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { reopened.Close() })
-	err, ring := keychain.NewKeyring(reopened, []config.Keychain{{ID: "maintenance", Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
+	err, ring := keychain.NewKeyring(reopened, []config.Keychain{{ID: "maintenance", Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}, {ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:MAINTENANCE_TEST_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}

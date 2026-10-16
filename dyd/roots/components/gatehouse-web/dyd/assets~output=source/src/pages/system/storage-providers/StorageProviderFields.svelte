@@ -1,23 +1,13 @@
 <script lang="ts">
   import * as UI from "../../../ui"
   import type { createStorageProviderFormController } from "./storage-provider-form-controller.svelte"
-  import type { SystemKeychain } from "../../../app/system"
-  import KeychainPicker from "../keychains/KeychainPicker.svelte"
   let {
     form = $bindable(),
-    keychains,
-    keychainsLoading = false,
-    keychainsError = "",
-    onKeychainsReload,
     editing = false,
   }: {
     form: ReturnType<
       typeof createStorageProviderFormController
     >["state"]["form"]
-    keychains: SystemKeychain[]
-    keychainsLoading?: boolean
-    keychainsError?: string
-    onKeychainsReload?: () => void
     editing?: boolean
   } = $props()
 </script>
@@ -79,13 +69,6 @@
         bind:value={form.accessKeyID}
       /></UI.Field
     >
-    <KeychainPicker
-      bind:value={form.keychain}
-      {keychains}
-      loading={keychainsLoading}
-      error={keychainsError}
-      onreload={onKeychainsReload}
-    />
     <UI.Field
       ><UI.Label for="storage-secret"
         >{editing
@@ -99,7 +82,7 @@
         bind:value={form.secret}
       />{#if editing}<UI.Text as="small" size="small" tone="muted"
           >Leave blank to keep the current secret. Replace it when changing
-          protocol or keychain.</UI.Text
+          protocol.</UI.Text
         >{/if}</UI.Field
     >
   </UI.FormSection>{/if}

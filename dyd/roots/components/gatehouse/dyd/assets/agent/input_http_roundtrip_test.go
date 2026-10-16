@@ -37,7 +37,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	}
 	defer store.Close()
 	t.Setenv("GATEHOUSE_TEST_INPUT_KEYCHAIN", "test passphrase")
-	keychains := []config.Keychain{{ID: "input-test", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_INPUT_KEYCHAIN"}}}
+	keychains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_INPUT_KEYCHAIN"}}}
 	state := config.State{
 		Keychains:       keychains,
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
@@ -171,7 +171,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	if request.Id == "" {
 		t.Fatal("Lisp input/ask did not persist an input.request")
 	}
-	err, tokens := auth.Prepare(ctx, store, ring, "input-test")
+	err, tokens := auth.Prepare(ctx, store, ring)
 	if err != nil {
 		t.Fatal(err)
 	}

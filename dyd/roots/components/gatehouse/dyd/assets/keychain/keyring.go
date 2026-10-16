@@ -161,6 +161,24 @@ func (keyring *Keyring) Close() {
 	clear(keyring.keys)
 }
 
+// System selects the current version for new system-owned ciphertext. Historical
+// ciphertext must always use Get with its recorded reference instead.
+func (keyring *Keyring) System(ctx context.Context) (error, model.KeychainRef) {
+	if keyring == nil {
+		return fmt.Errorf("system keychain is unavailable"), model.KeychainRef{}
+	}
+	err, references := keyring.Current(ctx)
+	if err != nil {
+		return err, model.KeychainRef{}
+	}
+	for _, reference := range references {
+		if reference.Id == config.SystemKeychainID {
+			return nil, reference
+		}
+	}
+	return fmt.Errorf("system keychain %q is not configured or has no enabled version", config.SystemKeychainID), model.KeychainRef{}
+}
+
 func decryptKeychain(reference model.KeychainRef, keychain model.Keychain, passphrase []byte) (error, []byte) {
 	err, kdf := ParseKDF(keychain.KekKdf)
 	if err != nil {

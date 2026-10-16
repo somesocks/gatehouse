@@ -75,14 +75,14 @@ it("creates a disconnected Codex provider without submitting a stale API key or 
   Object.assign(controller.state.form, {
     alias: "chatgpt",
     protocol: "openai-codex",
-    keychain: "default",
     endpoint: "https://old.test",
     apiKey: "OLD_SECRET",
   })
   const result = await controller.create()
   expect(result?.credential_configured).toBe(false)
   const body = JSON.parse(fetch.mock.calls[0][1]?.body as string)
-  expect(body).toMatchObject({ protocol: "openai-codex", keychain: "default" })
+  expect(body).toMatchObject({ protocol: "openai-codex" })
+  expect(body).not.toHaveProperty("keychain")
   expect(body).not.toHaveProperty("api_key")
   expect(body).not.toHaveProperty("endpoint")
   controller.stop()
@@ -133,5 +133,32 @@ it("disconnects with the current revision and removes account metadata from its 
   expect(controller.state.provider?.revision).toBe(4)
   expect(controller.state.provider?.credential_configured).toBe(false)
   expect(controller.state.provider?.account).toBeUndefined()
+  controller.stop()
+})
+
+it("creates an API provider without selecting or fetching a keychain", async () => {
+  const request = vi.fn(
+    async (_url: RequestInfo | URL, _options?: RequestInit) =>
+      Response.json({ id: "apr_new" }),
+  )
+  vi.stubGlobal("fetch", request)
+  const controller = createAgentProviderFormController({
+    onAuthenticationLost: vi.fn(),
+    onSystemAccessChange: vi.fn(),
+  })
+  Object.assign(controller.state.form, {
+    alias: "new",
+    protocol: "openai-responses",
+    endpoint: "https://example.test/responses",
+    apiKey: "secret",
+  })
+  expect(await controller.create()).toMatchObject({ id: "apr_new" })
+  expect(request).toHaveBeenCalledOnce()
+  const body = JSON.parse(request.mock.calls[0][1]?.body as string)
+  expect(body).toMatchObject({
+    api_key: "secret",
+    protocol: "openai-responses",
+  })
+  expect(body).not.toHaveProperty("keychain")
   controller.stop()
 })

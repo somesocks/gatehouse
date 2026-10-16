@@ -2,7 +2,6 @@ import {
   systemAdministration,
   disconnectAgentProvider,
   type SystemAgentProvider,
-  type SystemKeychain,
 } from "../../../app/system"
 import { createLoadState } from "../../../utils/load-state.svelte"
 
@@ -10,7 +9,6 @@ type Form = {
   alias: string
   protocol: string
   endpoint: string
-  keychain: string
   apiKey: string
   enabled: boolean
 }
@@ -18,7 +16,6 @@ const blank = (): Form => ({
   alias: "",
   protocol: "openai-responses",
   endpoint: "",
-  keychain: "",
   apiKey: "",
   enabled: true,
 })
@@ -32,7 +29,6 @@ export function createAgentProviderFormController({
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
   const resource = createLoadState()
-  const options = createLoadState()
   const mutation = createLoadState()
   const errors = $state({ value: "" })
   let owner = ""
@@ -40,16 +36,9 @@ export function createAgentProviderFormController({
   let editRevision: number | undefined
   const state = $state({
     provider: null as SystemAgentProvider | null,
-    keychains: [] as SystemKeychain[],
-    get keychainsLoading() {
-      return options.state.pending
-    },
-    get keychainsError() {
-      return options.state.error
-    },
     form: blank(),
     get error() {
-      return errors.value || resource.state.error || options.state.error
+      return errors.value || resource.state.error
     },
     set error(value: string) {
       errors.value = value
@@ -66,43 +55,12 @@ export function createAgentProviderFormController({
     editing: false,
     conflict: false,
   })
-  async function keychains(): Promise<void> {
-    if (disposed) return
-    const request = options.begin()
-    try {
-      const response = await systemAdministration(
-        "keychains",
-        "GET",
-        undefined,
-        request.signal,
-      )
-      if (!request.current()) return
-      if (response.status === 401) {
-        onAuthenticationLost()
-        return
-      }
-      if (response.status === 403) {
-        onSystemAccessChange("denied")
-        return
-      }
-      if (!response.ok) throw new Error("Keychains could not be loaded.")
-      const keys = (await response.json()) as SystemKeychain[]
-      request.commit(() => {
-        state.keychains = keys
-      })
-    } catch (error) {
-      request.fail(error)
-    } finally {
-      request.finish()
-    }
-  }
   async function load(id: string): Promise<void> {
     disposed = false
     if (owner !== id) {
       owner = id
       resource.reset()
       mutation.stop()
-      options.stop()
       state.provider = null
       state.editing = false
       state.form = blank()
@@ -149,34 +107,19 @@ export function createAgentProviderFormController({
       alias: state.provider.alias,
       protocol: state.provider.protocol,
       endpoint: state.provider.endpoint ?? "",
-      keychain: state.provider.keychain?.id ?? "",
       apiKey: "",
       enabled: state.provider.enabled,
     }
     state.editing = true
-    await keychains()
   }
   function validate(replacementRequired: boolean): boolean {
-    if (state.form.protocol !== "builtin" && state.form.keychain === "") {
-      state.error = "A keychain is required for this provider."
-      return false
-    }
     if (
       replacementRequired &&
       state.form.protocol !== "builtin" &&
       state.form.protocol !== "openai-codex" &&
       state.form.apiKey.trim() === ""
     ) {
-      state.error = "An API key is required when changing protocol or keychain."
-      return false
-    }
-    if (
-      state.provider?.protocol === "openai-codex" &&
-      state.provider.credential_configured &&
-      state.form.protocol === "openai-codex" &&
-      state.form.keychain !== state.provider.keychain?.id
-    ) {
-      state.error = "Disconnect the provider before changing its keychain."
+      state.error = "An API key is required when changing protocol."
       return false
     }
     return true
@@ -191,9 +134,7 @@ export function createAgentProviderFormController({
     if (disposed || state.saving) return false
     if (state.provider === null) return false
     state.error = ""
-    const replacement =
-      state.provider.protocol !== state.form.protocol ||
-      state.provider.keychain?.id !== optional(state.form.keychain)
+    const replacement = state.provider.protocol !== state.form.protocol
     if (!validate(replacement)) return false
     const saved = await save(
       `agent-providers/${encodeURIComponent(state.provider.id)}`,
@@ -226,8 +167,6 @@ export function createAgentProviderFormController({
             form.protocol === "builtin" || form.protocol === "openai-codex"
               ? undefined
               : optional(form.endpoint),
-          keychain:
-            form.protocol === "builtin" ? undefined : optional(form.keychain),
           api_key:
             form.protocol === "builtin" || form.protocol === "openai-codex"
               ? undefined
@@ -272,7 +211,6 @@ export function createAgentProviderFormController({
   function stop() {
     disposed = true
     resource.stop()
-    options.stop()
     mutation.stop()
     state.form.apiKey = ""
     state.editing = false
@@ -336,7 +274,6 @@ export function createAgentProviderFormController({
   }
   return {
     state,
-    keychains,
     load,
     beginEdit,
     create,

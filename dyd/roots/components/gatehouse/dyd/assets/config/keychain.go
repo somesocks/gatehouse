@@ -8,7 +8,8 @@ import (
 	"gatehouse/configschema"
 )
 
-const defaultKeychainID = "default"
+// SystemKeychainID is the fixed encryption domain for Gatehouse-owned data.
+const SystemKeychainID = "default"
 
 var keychainID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
@@ -22,7 +23,7 @@ type KeychainPassphraseSource string
 func ResolveKeychains(document configschema.GatehouseConfig) (error, []Keychain) {
 	if document.Keychains == nil {
 		return nil, []Keychain{{
-			ID:      defaultKeychainID,
+			ID:      SystemKeychainID,
 			Sources: []KeychainPassphraseSource{"env:GATEHOUSE_KEYCHAIN", "stdin:"},
 		}}
 	}

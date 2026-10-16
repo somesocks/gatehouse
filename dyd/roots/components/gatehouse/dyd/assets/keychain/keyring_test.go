@@ -119,6 +119,25 @@ func TestKeyringGetLoadsExactVersion(t *testing.T) {
 	if got := keys[reference]; !bytes.Equal(got, dek) {
 		t.Fatalf("Keyring.Get() = %x, want %x", got, dek)
 	}
+	if err, current := keyring.System(context.Background()); err != nil || current != reference {
+		t.Fatalf("current system version = %#v %v", current, err)
+	}
+	if _, err := store.Exec(`UPDATE gatehouse_keychains SET enabled = FALSE WHERE id = 'default' AND version = 2`); err != nil {
+		t.Fatal(err)
+	}
+	if err, current := keyring.System(context.Background()); err != nil || current.Version != 1 {
+		t.Fatalf("disabled version selected for encryption: %#v %v", current, err)
+	}
+}
+
+func TestSystemKeychainDoesNotFallBackToAnotherKeychain(t *testing.T) {
+	store := openKeyringTestStore(t)
+	keyring := newTestKeyring(t, store, []config.Keychain{{ID: "workspace", Sources: []config.KeychainPassphraseSource{"env:DEFAULT"}}}, testRandom(1, 2, 3))
+	defer keyring.Close()
+	insertCandidates(t, store, keyring)
+	if err, _ := keyring.System(context.Background()); err == nil {
+		t.Fatal("system encryption fell back to a workspace keychain")
+	}
 }
 
 func TestKeychainAssociatedData(t *testing.T) {

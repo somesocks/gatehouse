@@ -107,7 +107,7 @@ func codexLoginPoll(store *database.Store, ring *keychain.Keyring, tokens *auth.
 		}
 		defer clear(plain)
 		text := string(plain)
-		sealed, err := systemCredential(r.Context(), ring, &provider.Keychain.Id, &text, "gh=v1|agent-provider|alias="+provider.Alias)
+		sealed, err := systemCredential(r.Context(), ring, &text, "gh=v1|agent-provider|alias="+provider.Alias)
 		if err != nil {
 			codexCredentialError(w, err)
 			return
@@ -151,7 +151,7 @@ func codexLoginProvider(w http.ResponseWriter, r *http.Request, store *database.
 		http.Error(w, "Provider keychain is unavailable.", 503)
 		return nil
 	}
-	if _, err := systemCredential(r.Context(), ring, &provider.Keychain.Id, nil, ""); err != nil {
+	if _, err := systemCredential(r.Context(), ring, nil, ""); err != nil {
 		http.Error(w, "Provider keychain is unavailable.", 503)
 		return nil
 	}

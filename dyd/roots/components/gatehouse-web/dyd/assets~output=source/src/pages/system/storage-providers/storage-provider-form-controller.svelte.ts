@@ -1,6 +1,5 @@
 import {
   systemAdministration,
-  type SystemKeychain,
   type SystemStorageProvider,
 } from "../../../app/system"
 import { createLoadState } from "../../../utils/load-state.svelte"
@@ -11,7 +10,6 @@ type Form = {
   region: string
   bucket: string
   accessKeyID: string
-  keychain: string
   secret: string
   enabled: boolean
 }
@@ -22,7 +20,6 @@ const blank = (): Form => ({
   region: "",
   bucket: "",
   accessKeyID: "",
-  keychain: "",
   secret: "",
   enabled: true,
 })
@@ -36,7 +33,6 @@ export function createStorageProviderFormController({
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
 }) {
   const resource = createLoadState()
-  const options = createLoadState()
   const mutation = createLoadState()
   const errors = $state({ value: "" })
   let owner = ""
@@ -44,16 +40,9 @@ export function createStorageProviderFormController({
   let editRevision: number | undefined
   const state = $state({
     provider: null as SystemStorageProvider | null,
-    keychains: [] as SystemKeychain[],
-    get keychainsLoading() {
-      return options.state.pending
-    },
-    get keychainsError() {
-      return options.state.error
-    },
     form: blank(),
     get error() {
-      return errors.value || resource.state.error || options.state.error
+      return errors.value || resource.state.error
     },
     set error(value: string) {
       errors.value = value
@@ -70,39 +59,12 @@ export function createStorageProviderFormController({
     editing: false,
     conflict: false,
   })
-  async function keychains() {
-    if (disposed) return
-    const request = options.begin()
-    try {
-      const r = await systemAdministration(
-        "keychains",
-        "GET",
-        undefined,
-        request.signal,
-      )
-      if (!request.current()) return
-      if (r.status === 401) onAuthenticationLost()
-      else if (r.status === 403) onSystemAccessChange("denied")
-      else if (!r.ok) throw new Error("Keychains could not be loaded.")
-      else {
-        const keys = (await r.json()) as SystemKeychain[]
-        request.commit(() => {
-          state.keychains = keys
-        })
-      }
-    } catch (error) {
-      request.fail(error)
-    } finally {
-      request.finish()
-    }
-  }
   async function load(id: string) {
     disposed = false
     if (owner !== id) {
       owner = id
       resource.reset()
       mutation.stop()
-      options.stop()
       state.provider = null
       state.editing = false
       state.form = blank()
@@ -145,25 +107,18 @@ export function createStorageProviderFormController({
       region: state.provider.region ?? "",
       bucket: state.provider.bucket ?? "",
       accessKeyID: state.provider.access_key_id ?? "",
-      keychain: state.provider.keychain?.id ?? "",
       secret: "",
       enabled: state.provider.enabled,
     }
     state.editing = true
-    await keychains()
   }
   function valid(replace: boolean) {
-    if (state.form.protocol === "s3" && state.form.keychain === "") {
-      state.error = "A keychain is required for S3 storage."
-      return false
-    }
     if (
       replace &&
       state.form.protocol === "s3" &&
       state.form.secret.trim() === ""
     ) {
-      state.error =
-        "A secret access key is required when changing protocol or keychain."
+      state.error = "A secret access key is required when changing protocol."
       return false
     }
     return true
@@ -188,8 +143,6 @@ export function createStorageProviderFormController({
           bucket: f.protocol === "embedded" ? undefined : optional(f.bucket),
           access_key_id:
             f.protocol === "embedded" ? undefined : optional(f.accessKeyID),
-          keychain:
-            f.protocol === "embedded" ? undefined : optional(f.keychain),
           secret_access_key:
             f.protocol === "embedded" ? undefined : optional(f.secret),
           enabled: f.enabled,
@@ -240,9 +193,7 @@ export function createStorageProviderFormController({
     if (disposed || state.saving) return false
     if (!state.provider) return false
     state.error = ""
-    const replace =
-      state.provider.protocol !== state.form.protocol ||
-      state.provider.keychain?.id !== optional(state.form.keychain)
+    const replace = state.provider.protocol !== state.form.protocol
     if (!valid(replace)) return false
     const saved = await save(
       `storage-providers/${encodeURIComponent(state.provider.id)}`,
@@ -259,7 +210,6 @@ export function createStorageProviderFormController({
   function stop() {
     disposed = true
     resource.stop()
-    options.stop()
     mutation.stop()
     state.form.secret = ""
     state.editing = false
@@ -273,7 +223,6 @@ export function createStorageProviderFormController({
   }
   return {
     state,
-    keychains,
     load,
     beginEdit,
     create,

@@ -50,7 +50,6 @@ storage_providers:
     credentials:
       access_key_id: example-access-key
       secret_access_key:
-        keychain: storage
         sources: [env:DOCUMENTS_SECRET]
 workspaces:
   - alias: engineering
@@ -74,7 +73,7 @@ workspaces:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.StorageProviders) != 2 || state.StorageProviders[1].Alias != "embedded" || state.StorageProviders[0].Alias != "documents" || state.StorageProviders[0].AccessKeyID == nil || *state.StorageProviders[0].AccessKeyID != "example-access-key" || state.StorageProviders[0].Keychain == nil || *state.StorageProviders[0].Keychain != "storage" || len(state.StorageProviders[0].SecretKeySources) != 1 || state.StorageProviders[0].SecretKeySources[0] != "env:DOCUMENTS_SECRET" {
+	if len(state.StorageProviders) != 2 || state.StorageProviders[1].Alias != "embedded" || state.StorageProviders[0].Alias != "documents" || state.StorageProviders[0].AccessKeyID == nil || *state.StorageProviders[0].AccessKeyID != "example-access-key" || len(state.StorageProviders[0].SecretKeySources) != 1 || state.StorageProviders[0].SecretKeySources[0] != "env:DOCUMENTS_SECRET" {
 		t.Fatalf("storage providers = %#v", state.StorageProviders)
 	}
 	want := []WorkspaceStorageProvider{

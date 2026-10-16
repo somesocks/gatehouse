@@ -20,7 +20,6 @@ type HTTPService struct {
 	Enabled       bool
 	Listen        string
 	PublicBaseURL string
-	Keychain      string
 	Web           bool
 	API           bool
 }
@@ -50,9 +49,6 @@ func ResolveServices(document configschema.GatehouseConfig) (error, Services) {
 		}
 		service.PublicBaseURL = origin
 	}
-	if configured.Keychain != nil {
-		service.Keychain = *configured.Keychain
-	}
 	if configured.Web != nil && configured.Web.Enabled != nil {
 		service.Web = *configured.Web.Enabled
 	}
@@ -72,7 +68,6 @@ func defaultHTTPService() *HTTPService {
 	return &HTTPService{
 		Enabled:  true,
 		Listen:   defaultHTTPListen,
-		Keychain: defaultKeychainID,
 		Web:      true,
 		API:      true,
 	}

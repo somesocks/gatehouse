@@ -69,16 +69,16 @@ func newCodexAgentFixture(t *testing.T, named bool) *codexAgentFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { store.Close() })
-	chains := []config.Keychain{{ID: "codex", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_CODEX_KEYCHAIN"}}}
+	chains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_CODEX_KEYCHAIN"}}}
 	err, ring := keychain.NewKeyring(store, chains, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(ring.Close)
-	chainID, endpoint := "codex", config.OpenAICodexEndpoint
+	endpoint := config.OpenAICodexEndpoint
 	state := config.State{
 		Keychains: chains, Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}, Principals: []config.Principal{{Alias: "alice", Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Keychain: &chainID, Enabled: true}},
+		AgentProviders: []config.AgentProvider{{Alias: "chatgpt", Revision: 1, Protocol: config.AgentProviderProtocolOpenAICodex, Endpoint: &endpoint, Enabled: true}},
 		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "chatgpt", Model: "gpt-codex", Parameters: `{"reasoning_effort":"low"}`, Compaction: defaultAgentModelCompaction, MaxTurns: 4, MaxOutputTokens: 100, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true,
 			RateLimits: &config.WorkspaceAgentRateLimits{WorkspaceOutput: &config.TokenBucket{MinimumBalance: 0, MaximumBalance: 1000, RefillPerMinute: 1}}}},
@@ -271,7 +271,7 @@ func TestCodexAgentInference(t *testing.T) {
 						return
 					}
 					next := f.encrypt(t, "NEW_INFERENCE_ACCESS_SENTINEL")
-					if err, changed := f.store.AgentProviderMaintenanceCredentialSet(r.Context(), f.provider.ID, *original.Encrypted, *f.provider.Keychain, &next, &database.SystemAgentProviderAccount{ID: "account"}); err != nil || !changed {
+					if err, changed := f.store.AgentProviderMaintenanceCredentialSet(r.Context(), f.provider.ID, *original.Encrypted, *f.provider.Keychain, *f.provider.Keychain, &next, &database.SystemAgentProviderAccount{ID: "account"}); err != nil || !changed {
 						t.Error("could not simulate maintenance")
 						return
 					}

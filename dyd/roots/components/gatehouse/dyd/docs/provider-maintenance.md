@@ -30,9 +30,14 @@ report unsupported rather than guessing a check mechanism.
 
 ## Refresh and failure policy
 
-The Codex handler reads/decrypts the current bundle only when refresh is needed,
-uses the refresh-token grant at the fixed OpenAI token endpoint, validates the
-account, and encrypts the replacement under the stored keychain reference/AAD.
+The Codex handler reads/decrypts the current bundle only when refresh is needed.
+Before making an upstream request, it selects and unwraps the current `default`
+system key and retains that key/reference for the duration of the operation.
+An unavailable destination completes as `unavailable` with reason
+`encryption_key_unavailable`, without exchanging or changing the credential.
+It then uses the refresh-token grant at the fixed OpenAI token endpoint,
+validates the account, and encrypts the replacement with the pinned system key,
+preserving the credential's associated-data context.
 An omitted replacement refresh token preserves the previous token. Missing
 expiry stays unknown: neither the previous access-token expiry nor a fabricated
 one-hour timestamp is assigned to the new token. `expires_at` is omitted from
@@ -40,6 +45,11 @@ credential JSON and public metadata when unknown.
 
 A successful exchange retries saving the **same** encrypted bundle for up to ten
 seconds if database persistence fails. It does not repeat the token POST.
+The ciphertext and its key reference stay paired across retries. Retiring that
+version during an in-flight refresh does not block persistence: the wrapped key
+record is retained for historical decryption, and only new operations select a
+different enabled version. The operation's local unwrapped-key copy is cleared
+on completion.
 Transient upstream failures complete as `retry` and are retried on the next
 hourly sweep. Known permanent refresh rejections invalidate only the matching
 original ciphertext, clear account metadata, and require reconnect. A stale

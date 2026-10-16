@@ -1,21 +1,11 @@
 <script lang="ts">
   import * as UI from "../../../ui"
   import type { createAgentProviderFormController } from "./agent-provider-form-controller.svelte"
-  import type { SystemKeychain } from "../../../app/system"
-  import KeychainPicker from "../keychains/KeychainPicker.svelte"
   let {
     form = $bindable(),
-    keychains,
-    keychainsLoading = false,
-    keychainsError = "",
-    onKeychainsReload,
     editing = false,
   }: {
     form: ReturnType<typeof createAgentProviderFormController>["state"]["form"]
-    keychains: SystemKeychain[]
-    keychainsLoading?: boolean
-    keychainsError?: string
-    onKeychainsReload?: () => void
     editing?: boolean
   } = $props()
 </script>
@@ -58,13 +48,6 @@
     title="Credentials"
     description="Credentials are write-only. Existing secrets are never displayed."
   >
-    <KeychainPicker
-      bind:value={form.keychain}
-      {keychains}
-      loading={keychainsLoading}
-      error={keychainsError}
-      onreload={onKeychainsReload}
-    />
     {#if form.protocol === "openai-codex"}
       <UI.Text as="p" size="small" tone="muted"
         >Connect your ChatGPT account from the provider’s detail page after
@@ -81,7 +64,7 @@
           bind:value={form.apiKey}
         />{#if editing}<UI.Text as="small" size="small" tone="muted"
             >Leave blank to keep the current key. Replace it when changing
-            protocol or keychain.</UI.Text
+            protocol.</UI.Text
           >{/if}</UI.Field
       >{/if}
   </UI.FormSection>{/if}

@@ -75,7 +75,7 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 	t.Cleanup(func() { store.Close() })
 	t.Setenv("GATEHOUSE_RESULT_TEST_KEY", "test-passphrase")
 	t.Setenv("GATEHOUSE_RESULT_TEST_SECRET", "test-secret")
-	keys := []config.Keychain{{ID: "storage", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_RESULT_TEST_KEY"}}}
+	keys := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_RESULT_TEST_KEY"}}}
 	err, ring := keychain.NewKeyring(store, keys, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
@@ -90,9 +90,9 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "test", Alias: "test", Revision: 1, ModelAlias: "test", Enabled: true}},
 	}
 	if endpoint != "" {
-		region, bucket, access, keychainID := "us-east-1", "results", "test-access", "storage"
+		region, bucket, access := "us-east-1", "results", "test-access"
 		state.StorageProviders = []config.StorageProvider{
-			{Alias: "external", Revision: 1, Protocol: "s3", Endpoint: &endpoint, Region: &region, Bucket: &bucket, AccessKeyID: &access, Keychain: &keychainID, SecretKeySources: []config.StorageProviderSecretKeySource{"env:GATEHOUSE_RESULT_TEST_SECRET"}, Enabled: true},
+			{Alias: "external", Revision: 1, Protocol: "s3", Endpoint: &endpoint, Region: &region, Bucket: &bucket, AccessKeyID: &access, SecretKeySources: []config.StorageProviderSecretKeySource{"env:GATEHOUSE_RESULT_TEST_SECRET"}, Enabled: true},
 			{Alias: "local", Revision: 1, Protocol: "embedded", Enabled: true},
 		}
 		state.WorkspaceStorageProviders = []config.WorkspaceStorageProvider{

@@ -46,9 +46,13 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 				values = append(values, value)
 				continue
 			}
+			keyringErr, reference := keyring.System(ctx)
+			if keyringErr != nil {
+				return fmt.Errorf("get system keychain for provider %q: %w", provider.Alias, keyringErr), ""
+			}
 			if provider.Protocol == config.AgentProviderProtocolOpenAICodex {
 				value.Endpoint = config.OpenAICodexEndpoint
-				value.KeychainID, value.KeychainVersion = *provider.Keychain, 1
+				value.KeychainID, value.KeychainVersion = reference.Id, reference.Version
 				values = append(values, value)
 				continue
 			}
@@ -56,7 +60,6 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 			if apiKeyErr != nil {
 				return apiKeyErr, ""
 			}
-			reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
 			keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
 			if keyringErr != nil {
 				clear(apiKey)
@@ -115,7 +118,7 @@ func sqliteMigrationR009ReconcileAgentProvidersBuilder(providers []config.AgentP
 			FROM gatehouse_migration_agent_provider_state
 			WHERE TRUE
 			ON CONFLICT (alias) DO UPDATE SET revision = excluded.revision, protocol = excluded.protocol, endpoint = excluded.endpoint,
-			keychain_id = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL AND gatehouse_agent_providers.keychain_id <> excluded.keychain_id THEN NULL ELSE excluded.keychain_id END,
+			keychain_id = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL THEN gatehouse_agent_providers.keychain_id ELSE excluded.keychain_id END,
 			keychain_version = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' AND gatehouse_agent_providers.credential IS NOT NULL THEN gatehouse_agent_providers.keychain_version ELSE excluded.keychain_version END,
 			credential = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential ELSE excluded.credential END,
 			credential_metadata = CASE WHEN gatehouse_agent_providers.protocol = 'openai-codex' AND excluded.protocol = 'openai-codex' THEN gatehouse_agent_providers.credential_metadata ELSE NULL END,

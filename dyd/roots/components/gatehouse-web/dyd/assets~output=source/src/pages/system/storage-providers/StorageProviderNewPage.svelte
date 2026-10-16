@@ -2,7 +2,7 @@
   import * as UI from "../../../ui"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import { untrack } from "svelte"
+  import { onDestroy, untrack } from "svelte"
   import { createStorageProviderFormController } from "./storage-provider-form-controller.svelte"
   import StorageProviderFields from "./StorageProviderFields.svelte"
   const runtime = useRuntime()
@@ -12,10 +12,7 @@
       onSystemAccessChange: runtime.access.setSystemAccess,
     }),
   )
-  $effect(() => {
-    untrack(() => void controller.keychains())
-    return controller.stop
-  })
+  onDestroy(controller.stop)
   async function create() {
     const route = runtime.state.route
     const provider = await controller.create()
@@ -47,13 +44,7 @@
         void create()
       }}
     >
-      <StorageProviderFields
-        bind:form={controller.state.form}
-        keychains={controller.state.keychains}
-        keychainsLoading={controller.state.keychainsLoading}
-        keychainsError={controller.state.keychainsError}
-        onKeychainsReload={() => void controller.keychains()}
-      />
+      <StorageProviderFields bind:form={controller.state.form} />
       {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
           >{controller.state.error}</UI.Notice
         >{/if}

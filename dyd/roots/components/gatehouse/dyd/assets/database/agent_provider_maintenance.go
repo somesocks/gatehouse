@@ -76,13 +76,13 @@ func (store *Store) AgentProviderMaintenanceGet(ctx context.Context, id string) 
 // Runtime maintenance changes credentials without changing configuration revision.
 // Compare the actual ciphertext originally read, so a late refresh/rejection
 // cannot replace a reconnect, undo a disconnect, or cross an encryption context.
-func (store *Store) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref model.KeychainRef, encrypted *string, account *SystemAgentProviderAccount) (error, bool) {
+func (store *Store) AgentProviderMaintenanceCredentialSet(ctx context.Context, id string, original string, ref, nextRef model.KeychainRef, encrypted *string, account *SystemAgentProviderAccount) (error, bool) {
 	if !typed_id.Valid(typed_id.AgentProvider, id) || strings.TrimSpace(original) == "" || ref.Id == "" || ref.Version < 1 {
 		return fmt.Errorf("invalid maintenance credential update"), false
 	}
 	var metadata any
 	if encrypted != nil {
-		if strings.TrimSpace(*encrypted) == "" || account == nil || strings.TrimSpace(account.ID) == "" {
+		if strings.TrimSpace(*encrypted) == "" || account == nil || strings.TrimSpace(account.ID) == "" || nextRef.Id == "" || nextRef.Version < 1 {
 			return fmt.Errorf("invalid maintenance credential"), false
 		}
 		encoded, err := json.Marshal(account)
@@ -93,14 +93,17 @@ func (store *Store) AgentProviderMaintenanceCredentialSet(ctx context.Context, i
 	} else if account != nil {
 		return fmt.Errorf("invalid maintenance invalidation"), false
 	}
+	if encrypted == nil {
+		nextRef = ref
+	}
 	tx, err := store.BeginTx(ctx, nil)
 	if err != nil {
 		return err, false
 	}
 	defer tx.Rollback()
 	p := keychainPlaceholder(store.kind)
-	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_agent_providers SET credential = `+p(1)+`, credential_metadata = `+p(2)+`
-		WHERE id = `+p(3)+` AND credential = `+p(4)+` AND protocol = 'openai-codex' AND keychain_id = `+p(5)+` AND keychain_version = `+p(6), optionalStringValue(encrypted), metadata, id, original, ref.Id, ref.Version)
+	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_agent_providers SET credential = `+p(1)+`, credential_metadata = `+p(2)+`, keychain_id = `+p(3)+`, keychain_version = `+p(4)+`
+		WHERE id = `+p(5)+` AND credential = `+p(6)+` AND protocol = 'openai-codex' AND keychain_id = `+p(7)+` AND keychain_version = `+p(8), optionalStringValue(encrypted), metadata, nextRef.Id, nextRef.Version, id, original, ref.Id, ref.Version)
 	if err != nil {
 		return err, false
 	}
@@ -108,6 +111,9 @@ func (store *Store) AgentProviderMaintenanceCredentialSet(ctx context.Context, i
 	if err != nil || count != 1 {
 		return err, false
 	}
+	// The destination was selected while enabled before the upstream exchange.
+	// Its foreign key guarantees that the referenced version still exists, but
+	// retirement must not prevent an in-flight refresh from saving its bundle.
 	if err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: "agent_provider.update", ResourceKind: ActivityResourceKindAgentProvider, ResourceAgentProvider: &id}, []string{"sys/" + id}); err != nil {
 		return err, false
 	}

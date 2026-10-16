@@ -158,7 +158,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			<-ctx.Done()
 			return 0
 		}
-		err, tokens := auth.Prepare(ctx, store, keyring, services.HTTP.Keychain)
+		err, tokens := auth.Prepare(ctx, store, keyring)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "prepare bearer tokens: %v\n", err)
 			return 1

@@ -116,10 +116,6 @@
       >
         <AgentProviderFields
           bind:form={controller.state.form}
-          keychains={controller.state.keychains}
-          keychainsLoading={controller.state.keychainsLoading}
-          keychainsError={controller.state.keychainsError}
-          onKeychainsReload={() => void controller.keychains()}
           editing
         />
         {#if controller.state.error}<UI.Notice

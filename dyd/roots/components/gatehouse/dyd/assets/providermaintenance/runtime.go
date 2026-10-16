@@ -36,7 +36,7 @@ type maintenanceStore interface {
 	AgentProviderMaintenanceTargets(context.Context) (error, []database.AgentProviderMaintenanceTarget)
 	AgentProviderMaintenanceGet(context.Context, string) (error, *database.AgentProviderMaintenanceState)
 	AgentProviderCredentialGet(context.Context, string) (error, *database.AgentProviderCredential)
-	AgentProviderMaintenanceCredentialSet(context.Context, string, string, model.KeychainRef, *string, *database.SystemAgentProviderAccount) (error, bool)
+	AgentProviderMaintenanceCredentialSet(context.Context, string, string, model.KeychainRef, model.KeychainRef, *string, *database.SystemAgentProviderAccount) (error, bool)
 }
 
 type Check struct {
@@ -235,11 +235,19 @@ func (runtime *Runtime) checkCodex(ctx context.Context, input Check, state *data
 	if !input.Force && !previous.ExpiresAt.IsZero() && previous.ExpiresAt.After(runtime.now().Add(refreshWindow)) {
 		return result(input, "unchanged", "")
 	}
+	// A successful exchange can invalidate the previous refresh token. Resolve
+	// and unwrap its replacement's destination before making that exchange,
+	// and pin both the key and its reference through encryption/persistence.
+	sealer, err := runtime.prepareSeal(ctx, record)
+	if err != nil {
+		return result(input, "unavailable", "encryption_key_unavailable")
+	}
+	defer clear(sealer.key)
 	next, err := runtime.refresher.Refresh(ctx, previous)
 	if err != nil {
 		var failure *codexlogin.RefreshError
 		if errors.As(err, &failure) && failure.Permanent {
-			return runtime.persist(ctx, input, record, nil, nil, "reconnect_required")
+			return runtime.persist(ctx, input, record, *record.Provider.Keychain, nil, nil, "reconnect_required")
 		}
 		return result(input, "retry", "refresh_unavailable")
 	}
@@ -251,26 +259,24 @@ func (runtime *Runtime) checkCodex(ctx context.Context, input Check, state *data
 		return result(input, "retry", "refresh_response_invalid")
 	}
 	defer clear(payload)
-	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtime.persistTimeout)
-	defer cancel()
-	encrypted, err := runtime.seal(cleanup, record, payload)
+	encrypted, err := sealer.seal(payload)
 	if err != nil {
 		return result(input, "retry", "credential_unreadable")
 	}
 	account := &database.SystemAgentProviderAccount{ID: next.AccountID, Email: next.Email, ExpiresAt: next.ExpiresAt}
-	return runtime.persist(ctx, input, record, &encrypted, account, "refreshed")
+	return runtime.persist(ctx, input, record, sealer.reference, &encrypted, account, "refreshed")
 }
 
 // Retry persistence of the SAME exchanged bundle, not another token POST. Finish
 // a successful exchange under a bounded cleanup context even if the caller ends.
-func (runtime *Runtime) persist(ctx context.Context, input Check, record *database.AgentProviderCredential, encrypted *string, account *database.SystemAgentProviderAccount, state string) Result {
+func (runtime *Runtime) persist(ctx context.Context, input Check, record *database.AgentProviderCredential, reference model.KeychainRef, encrypted *string, account *database.SystemAgentProviderAccount, state string) Result {
 	if record.Provider.Keychain == nil || record.Encrypted == nil {
 		return result(input, "unavailable", "credential_unreadable")
 	}
 	write, cancel := context.WithTimeout(context.WithoutCancel(ctx), runtime.persistTimeout)
 	defer cancel()
 	for {
-		err, changed := runtime.store.AgentProviderMaintenanceCredentialSet(write, input.ProviderID, *record.Encrypted, *record.Provider.Keychain, encrypted, account)
+		err, changed := runtime.store.AgentProviderMaintenanceCredentialSet(write, input.ProviderID, *record.Encrypted, *record.Provider.Keychain, reference, encrypted, account)
 		if err == nil {
 			if !changed {
 				return result(input, "superseded", "")
@@ -321,27 +327,42 @@ func (runtime *Runtime) open(ctx context.Context, record *database.AgentProvider
 	return plain, nil
 }
 
-func (runtime *Runtime) seal(ctx context.Context, record *database.AgentProviderCredential, plain []byte) (string, error) {
+// credentialSealer is local to one maintenance step; it is never checkpointed.
+type credentialSealer struct {
+	reference model.KeychainRef
+	key       []byte
+	aad       []byte
+	selector  string
+}
+
+func (runtime *Runtime) prepareSeal(ctx context.Context, record *database.AgentProviderCredential) (credentialSealer, error) {
 	if runtime.ring == nil || record.Provider.Keychain == nil || record.Encrypted == nil {
-		return "", errors.New("provider keychain unavailable")
+		return credentialSealer{}, errors.New("provider keychain unavailable")
 	}
 	err, original := keychain.ParseKey(*record.Encrypted)
 	if err != nil {
-		return "", errors.New("provider credential unreadable")
+		return credentialSealer{}, errors.New("provider credential unreadable")
 	}
 	aad, err := associatedData(record, original.AAD)
 	if err != nil {
-		return "", err
+		return credentialSealer{}, err
 	}
-	err, keys := runtime.ring.Get(ctx, []model.KeychainRef{*record.Provider.Keychain})
+	err, reference := runtime.ring.System(ctx)
 	if err != nil {
-		return "", errors.New("provider keychain unavailable")
+		return credentialSealer{}, err
 	}
-	defer clear(keys[*record.Provider.Keychain])
-	err, encrypted := keychain.Seal(rand.Reader, keys[*record.Provider.Keychain], aad, plain)
+	err, keys := runtime.ring.Get(ctx, []model.KeychainRef{reference})
+	if err != nil {
+		return credentialSealer{}, errors.New("provider keychain unavailable")
+	}
+	return credentialSealer{reference: reference, key: keys[reference], aad: aad, selector: original.AAD}, nil
+}
+
+func (sealer credentialSealer) seal(plain []byte) (string, error) {
+	err, encrypted := keychain.Seal(rand.Reader, sealer.key, sealer.aad, plain)
 	if err != nil {
 		return "", errors.New("provider credential could not be encrypted")
 	}
-	encrypted.AAD = original.AAD
+	encrypted.AAD = sealer.selector
 	return encrypted.String(), nil
 }

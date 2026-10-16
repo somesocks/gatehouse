@@ -5,6 +5,33 @@ afterEach(() => {
   clearAccessToken()
   vi.unstubAllGlobals()
 })
+
+it("creates S3 storage without selecting or fetching a keychain", async () => {
+  const request = vi.fn(
+    async (_url: RequestInfo | URL, _options?: RequestInit) =>
+      Response.json({ id: "stp_new" }),
+  )
+  vi.stubGlobal("fetch", request)
+  const controller = createStorageProviderFormController({
+    onAuthenticationLost: vi.fn(),
+    onSystemAccessChange: vi.fn(),
+  })
+  Object.assign(controller.state.form, {
+    alias: "new",
+    protocol: "s3",
+    endpoint: "https://s3.example.test",
+    region: "region",
+    bucket: "bucket",
+    accessKeyID: "access",
+    secret: "secret",
+  })
+  expect(await controller.create()).toMatchObject({ id: "stp_new" })
+  expect(request).toHaveBeenCalledOnce()
+  const body = JSON.parse(request.mock.calls[0][1]?.body as string)
+  expect(body).toMatchObject({ secret_access_key: "secret", protocol: "s3" })
+  expect(body).not.toHaveProperty("keychain")
+  controller.stop()
+})
 it("omits hidden S3 fields when switching to embedded storage", async () => {
   const provider = {
     id: "stp_test",

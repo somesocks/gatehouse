@@ -51,7 +51,7 @@ func TestReplyRecoveryProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, ring := keychain.NewKeyring(store, []config.Keychain{{ID: "replay", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
+	err, ring := keychain.NewKeyring(store, []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}, keychain.NewPassphraseSourceResolver())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,8 +276,8 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { store.Close() }()
-			chains := []config.Keychain{{ID: "replay", Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}
-			chainID, endpoint := "replay", server.URL+"/custom/inference?deployment=test"
+			chains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}
+			endpoint := server.URL+"/custom/inference?deployment=test"
 			err, ring := keychain.NewKeyring(store, chains, keychain.NewPassphraseSourceResolver())
 			if err != nil {
 				t.Fatal(err)
@@ -285,7 +285,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			defer func() { ring.Close() }()
 			state := config.State{
 				Keychains: chains, Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}, Principals: []config.Principal{{Alias: "alice", Enabled: true}},
-				AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: protocol, Endpoint: &endpoint, Keychain: &chainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_API_KEY"}, Enabled: true}},
+				AgentProviders:  []config.AgentProvider{{Alias: "test", Revision: 1, Protocol: protocol, Endpoint: &endpoint, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_API_KEY"}, Enabled: true}},
 				AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "test", Model: "test-model", Parameters: `{}`, Compaction: defaultAgentModelCompaction, MaxTurns: 4, MaxOutputTokens: 1024, Enabled: true}},
 				WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 			}
@@ -439,7 +439,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 							state.AgentProviders[0].Revision++
 							state.AgentProviders[0].Enabled = false
 							state.AgentProviders = append(state.AgentProviders, config.AgentProvider{Alias: "next", Revision: 1, Protocol: nextProtocol,
-								Endpoint: &nextEndpoint, Keychain: &chainID, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_NEXT_KEY"}, Enabled: true})
+								Endpoint: &nextEndpoint, Sources: []config.AgentProviderAPIKeySource{"env:GATEHOUSE_TEST_REPLAY_NEXT_KEY"}, Enabled: true})
 							if outcome == "agent-switch" {
 								replacement := state.AgentModels[0]
 								replacement.Alias, replacement.Revision = "replacement", 1

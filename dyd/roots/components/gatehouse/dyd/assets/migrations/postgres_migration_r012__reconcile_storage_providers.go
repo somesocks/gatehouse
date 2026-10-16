@@ -69,7 +69,11 @@ func postgresMigrationR012ReconcileStorageProvidersBuilder(providers []config.St
 				if secretErr != nil {
 					return secretErr, ""
 				}
-				reference := model.KeychainRef{Id: *provider.Keychain, Version: 1}
+				keyringErr, reference := keyring.System(ctx)
+				if keyringErr != nil {
+					clear(secret)
+					return fmt.Errorf("get system keychain for storage provider %q: %w", provider.Alias, keyringErr), ""
+				}
 				keyringErr, keys := keyring.Get(ctx, []model.KeychainRef{reference})
 				if keyringErr != nil {
 					clear(secret)

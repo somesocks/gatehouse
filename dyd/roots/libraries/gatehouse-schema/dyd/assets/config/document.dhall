@@ -433,8 +433,7 @@ let AgentProviderAPIKey =
                 s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "API key source" } }
                 s.list.meta::{ description = Some "ordered API key sources" }
             }
-        , optional = toMap
-            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to seal the API key" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "AgentProviderAPIKey" }
 
@@ -442,8 +441,7 @@ let AgentProviderCredential =
       s.record.from
         s.record.props::{
         , optional = toMap
-            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to encrypt provider credentials" }
-            , sources = s.list.from
+            { sources = s.list.from
                 s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "API key source" } }
                 s.list.meta::{ description = Some "ordered API key sources; omit for OAuth providers" }
             }
@@ -526,8 +524,7 @@ let StorageProviderSecretAccessKey =
                 s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "secret access key source" } }
                 s.list.meta::{ description = Some "ordered secret access key sources" }
             }
-        , optional = toMap
-            { keychain = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "keychain used to seal the secret access key" } }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
         s.record.meta::{ name = Some "StorageProviderSecretAccessKey" }
 
@@ -596,10 +593,6 @@ let HTTPService =
                    s.text.from
                      s.text.props::{ variant = s.text.variants.none }
                      s.text.meta::{ description = Some "public Gatehouse origin for input launch links; required when the listener has no fixed loopback origin" }
-               , keychain =
-                   s.text.from
-                     s.text.props::{ variant = s.text.variants.none }
-                     s.text.meta::{ description = Some "keychain used for sealed bearer tokens" }
                , web = HTTPComponent
                , api = HTTPComponent
               }

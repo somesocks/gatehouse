@@ -56,7 +56,7 @@ for config_field in \
 	default rate_limits workspace_input minimum_balance maximum_balance refill_per_minute \
 	workspace_output user_input user_output storage_providers provider priority principals \
 	identities key verifiers system_grants keychains id sources agent_providers protocol \
-	api_key keychain agent_models parameters compaction algorithm history_bytes \
+	api_key agent_models parameters compaction algorithm history_bytes \
 	buffer_bytes max_output_tokens max_turns endpoint region bucket credentials \
 	access_key_id secret_access_key services http listen public_base_url web api; do
 	if ! grep -Eq "^[[:space:]]*(-[[:space:]]+)?${config_field}:" "$TMP_DIR/rendered-complete-config.yaml"; then
