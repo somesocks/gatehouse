@@ -68,8 +68,10 @@ func InsertSystemPrompt(ctx context.Context, tx *sql.Tx, p benchmarkmodel.System
 }
 
 func InsertQuestion(ctx context.Context, tx *sql.Tx, q benchmarkmodel.Question) error {
-	_, err := tx.ExecContext(ctx, `INSERT INTO questions (id, execution_id, alias, text) VALUES (?, ?, ?, ?)`,
-		q.Id, q.ExecutionId, q.Alias, q.Text)
+	_, err := tx.ExecContext(ctx, `INSERT INTO questions
+		(id, execution_id, alias, text, expected_output, expected_max_turns, expected_max_tool_failures, expected_max_tool_calls)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		q.Id, q.ExecutionId, q.Alias, q.Text, q.ExpectedOutput, q.ExpectedMaxTurns, q.ExpectedMaxToolFailures, q.ExpectedMaxToolCalls)
 	if err != nil {
 		return fmt.Errorf("insert benchmark question %q: %w", q.Id, err)
 	}

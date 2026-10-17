@@ -174,7 +174,7 @@ func TestOpenResultsCreatesIsolatedSchema(t *testing.T) {
 	if err := first.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if foreignKeys != 1 || version != 2 || first.Stats().MaxOpenConnections != 1 {
+	if foreignKeys != 1 || version != 3 || first.Stats().MaxOpenConnections != 1 {
 		t.Fatalf("unexpected database settings: foreign_keys=%d version=%d pool=%#v", foreignKeys, version, first.Stats())
 	}
 	rows, err := first.Query(`SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name`)
@@ -193,7 +193,7 @@ func TestOpenResultsCreatesIsolatedSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = rows.Close()
-	want := []string{"executions", "lisp_environments", "models", "providers", "questions", "runs", "session_events", "system_prompts"}
+	want := []string{"artifacts", "execution_inputs", "executions", "lisp_environments", "models", "providers", "questions", "runs", "session_events", "system_prompts"}
 	if !reflect.DeepEqual(tables, want) {
 		t.Fatalf("tables = %v, want %v", tables, want)
 	}

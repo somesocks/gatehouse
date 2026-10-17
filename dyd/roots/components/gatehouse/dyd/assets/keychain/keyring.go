@@ -26,6 +26,25 @@ func NewKeyring(store *database.Store, configured []config.Keychain, resolver *P
 	return newKeyring(store, configured, resolver, rand.Reader)
 }
 
+// NewEphemeralKeyring uses execution-local random passphrases for disposable
+// databases. No passphrases are read from or written to the process environment.
+func NewEphemeralKeyring(store *database.Store, ids []string) (error, *Keyring) {
+	keyring := &Keyring{store: store, passphrases: map[string][]byte{}, keys: map[model.KeychainRef][]byte{}, random: rand.Reader}
+	for _, id := range ids {
+		if _, exists := keyring.passphrases[id]; exists {
+			continue
+		}
+		passphrase := make([]byte, 32)
+		if _, err := io.ReadFull(rand.Reader, passphrase); err != nil {
+			keyring.Close()
+			return err, nil
+		}
+		keyring.ids = append(keyring.ids, id)
+		keyring.passphrases[id] = passphrase
+	}
+	return nil, keyring
+}
+
 func newKeyring(store *database.Store, configured []config.Keychain, resolver *PassphraseSourceResolver, random io.Reader) (error, *Keyring) {
 	keyring := &Keyring{
 		store:       store,

@@ -17,7 +17,7 @@ func main() {
 	}
 	args := os.Args
 	args[0] = "gatehouse"
-	exitCode := cli.BuildCLI(Version, Fingerprint).Run(args, os.Stdout)
+	exitCode := cli.BuildCLI(Version, Fingerprint).RunWithWriters(args, os.Stdout, os.Stderr)
 	if err := diagnostics.EmitProcessExit(os.Stdout, os.Stderr); err != nil {
 		_, _ = os.Stderr.WriteString("error emitting process-exit diagnostics: " + err.Error() + "\n")
 	}

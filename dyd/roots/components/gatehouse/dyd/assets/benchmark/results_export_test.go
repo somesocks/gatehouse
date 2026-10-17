@@ -30,7 +30,7 @@ func openResultsFileForTest(t *testing.T, path string) *sql.DB {
 
 func resultsFileRows(t *testing.T, db *sql.DB, table string) []string {
 	t.Helper()
-	rows, err := db.Query("SELECT * FROM " + quoteResultsIdentifier(table) + " ORDER BY id")
+	rows, err := db.Query("SELECT * FROM " + quoteResultsIdentifier(table) + " ORDER BY rowid")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,8 +68,8 @@ func assertResultsFileEqual(t *testing.T, source, destination *sql.DB) {
 	if err := destination.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Fatalf("file schema version = %d, want 2", version)
+	if version != 3 {
+		t.Fatalf("file schema version = %d, want 3", version)
 	}
 	rows, err := destination.Query("PRAGMA foreign_key_check")
 	if err != nil {
@@ -205,7 +205,7 @@ func TestExportResultsFailedAppendRollsBack(t *testing.T) {
 }
 
 func TestExportResultsRejectsIncompatibleOutput(t *testing.T) {
-	for _, version := range []int{0, 1, 2} {
+	for _, version := range []int{0, 1, 2, 3} {
 		t.Run(fmt.Sprint(version), func(t *testing.T) {
 			source := openTestResults(t)
 			insertResultFixture(t, source, newResultsFixture(t, "source"))

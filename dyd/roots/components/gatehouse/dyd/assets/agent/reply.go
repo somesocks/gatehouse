@@ -98,17 +98,27 @@ type sessionReplyCancelled struct{}
 func (sessionReplyCancelled) Error() string { return "reply cancelled" }
 
 type SessionEventReplyRuntime struct {
-	store      *database.Store
-	keyring    *keychain.Keyring
-	storage    *storage.Client
-	dbos       dbos.Context
-	dataSource *dbos.DataSource
-	queue      dbos.Queue
-	toolQueue  dbos.Queue
-	nameQueue  dbos.Queue
+	store                   *database.Store
+	keyring                 *keychain.Keyring
+	storage                 *storage.Client
+	dbos                    dbos.Context
+	dataSource              *dbos.DataSource
+	queue                   dbos.Queue
+	toolQueue               dbos.Queue
+	nameQueue               dbos.Queue
+	systemPromptReplacement *string
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
+	return NewSessionEventReplyRuntimeWithOptions(ctx, store, keyring, SessionEventReplyOptions{})
+}
+
+// SessionEventReplyOptions applies immutable invocation-local execution settings.
+type SessionEventReplyOptions struct {
+	SystemPromptReplacement *string
+}
+
+func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring, options SessionEventReplyOptions) (error, *SessionEventReplyRuntime) {
 	queue, err := dbos.RegisterQueue(ctx, sessionEventReplyQueue, dbos.WithPartitionQueue())
 	if err != nil {
 		return fmt.Errorf("register session event reply queue: %w", err), nil
@@ -131,6 +141,10 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 		return fmt.Errorf("register Gatehouse database data source: %w", err), nil
 	}
 	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue, nameQueue: nameQueue}
+	if options.SystemPromptReplacement != nil {
+		text := *options.SystemPromptReplacement
+		runtime.systemPromptReplacement = &text
+	}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
 		dbos.WithWorkflowName("gatehouse.session-event-reply"),
@@ -2098,6 +2112,9 @@ var systemPromptWorkflowSource string
 var systemPromptWorkflow = template.Must(template.New("system_prompt_3_workflow").Parse(systemPromptWorkflowSource))
 
 func openAISystemPromptFor(selected *database.WorkspaceAgentModel, projectChat bool) string {
+	if selected.SystemPromptReplacement != nil {
+		return *selected.SystemPromptReplacement
+	}
 	var role, workflow strings.Builder
 	if err := systemPromptRole.Execute(&role, struct{ Handle string }{Handle: "@" + selected.Alias}); err != nil {
 		panic(fmt.Sprintf("render system prompt role: %v", err))

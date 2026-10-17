@@ -17,7 +17,7 @@ native-event capture belong at explicit boundaries.
 | `Provider` | Execution-scoped provider snapshot with deferred credential source descriptors |
 | `Model` | Execution-scoped model snapshot linked to its provider snapshot |
 | `SystemPrompt` | Execution-scoped prompt mode and loaded text |
-| `Question` | Execution-scoped loaded question |
+| `Question` | Execution-scoped loaded question and optional output/turn/tool expectations |
 | `LispEnvironment` | Execution-scoped project linkage and loaded prelude |
 | `Run` | One selected input combination and repetition, with lifecycle and native source references |
 | `SessionEvent` | Original event identity, context, authors, payload, metrics, parent, timestamp, and owning run |
@@ -44,7 +44,7 @@ database from `benchmark/results.sql`. Its connection pool retains one connectio
 so all queries see the same database. The caller closes the database when done.
 This initializer is separate from operational migrations and package startup.
 
-The eight tables use caller-supplied text IDs. Every input snapshot references
+The capture tables use caller-supplied text IDs. Every input snapshot references
 its execution, with alias uniqueness scoped to that execution. Models reference
 providers from the same execution; runs reference selected snapshots from their
 own execution. Different executions can therefore retain changed definitions
@@ -59,9 +59,10 @@ order.
 JSON objects hold parameters and payloads/metrics; credential-source
 arrays contain descriptors. Optional generated fields map to SQL `NULL`, while
 empty strings and false booleans are stored as explicit values. The capture
-database identifies this schema with SQLite `user_version = 2`. Version 2 names
-the provider's complete request URL `endpoint`; version-1 files with `base_url`
-are not compatible append destinations and are left untouched.
+database identifies this schema with SQLite `user_version = 3`. Version 3 adds
+question expectations, loaded execution inputs/planned counts, artifact contents,
+and SQL measurement/grading views. Version-1 and version-2 files are not compatible
+append destinations and are left untouched.
 
 ## Record writer
 
@@ -89,7 +90,7 @@ captured events.
 `benchmark.ExportResults(ctx, capture, path, appendOutput)` writes the complete
 captured dataset to a standalone SQLite file. The capture remains caller-owned.
 Without append, the destination must be new. With append, a missing destination
-is created, or records are inserted into an existing version-2 capture database.
+is created, or records are inserted into an existing version-3 capture database.
 Existing output must provide the capture tables and columns.
 
 The export reads one source transaction and writes one destination transaction.

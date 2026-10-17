@@ -119,7 +119,10 @@ fields are not file-reference locations.
 - **Prompts:** `mode` is `builtin`, `append`, or `replace`. Builtin mode omits
   `text`; append and replace require it. These describe the intended runtime
   prompt composition.
-- **Questions:** require nonblank `text`.
+- **Questions:** require nonblank `text`. Optional `expected` contains any nonempty
+  subset of `output` (a string), `max_turns`, `max_tool_failures`, and
+  `max_tool_calls` (nonnegative integers). Zero is distinct from omission.
+  Expectations are snapshot data for SQL grading; see [benchmark-run.md](benchmark-run.md).
 - **Lisp environments:** `project_linked` defaults to false. An omitted `prelude`
   selects the normal Gatehouse prelude; an explicitly empty prelude stays empty.
 

@@ -1690,8 +1690,10 @@ type WorkspaceAgentModel struct {
 	MaxOutputTokens   int
 	ResultInlineBytes int
 	SystemPrompt      *string
-	Prelude           *string
-	RateLimits        *config.WorkspaceAgentRateLimits
+	// SystemPromptReplacement is an invocation-local renderer override, not a stored binding field.
+	SystemPromptReplacement *string
+	Prelude                 *string
+	RateLimits              *config.WorkspaceAgentRateLimits
 }
 
 type WorkspaceAgent struct {

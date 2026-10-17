@@ -12,7 +12,7 @@ import (
 )
 
 var resultsTables = []string{
-	"executions", "providers", "models", "system_prompts", "questions", "lisp_environments", "runs", "session_events",
+	"executions", "execution_inputs", "providers", "models", "system_prompts", "questions", "lisp_environments", "runs", "session_events", "artifacts",
 }
 
 // ExportResults writes the complete capture to a SQLite file. Existing files
@@ -36,7 +36,7 @@ func ExportResults(ctx context.Context, source *sql.DB, path string, appendOutpu
 	if err := read.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return fmt.Errorf("read benchmark capture version: %w", err)
 	}
-	if version != 2 {
+	if version != 3 {
 		return fmt.Errorf("unsupported benchmark capture version %d", version)
 	}
 	created := false
@@ -81,7 +81,7 @@ func ExportResults(ctx context.Context, source *sql.DB, path string, appendOutpu
 		if err := write.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 			return fmt.Errorf("read benchmark output version: %w", err)
 		}
-		if version != 2 {
+		if version != 3 {
 			return fmt.Errorf("unsupported benchmark output version %d", version)
 		}
 	}

@@ -96,7 +96,13 @@ let SystemPrompt = s.root.from
 let Question = s.root.from
       (s.record.from
         s.record.props::{
-        , required = toMap (snapshotFields // { text = text "loaded question text" })
+         , required = toMap (snapshotFields // { text = text "loaded question text" })
+         , optional = toMap
+             { expected_output = text "expected final answer text"
+             , expected_max_turns = integer "maximum tool-using rounds"
+             , expected_max_tool_failures = integer "maximum failed tool invocations"
+             , expected_max_tool_calls = integer "maximum tool invocations"
+             }
         }
         s.record.meta::{=})
       s.root.meta::{ name = "Question" }

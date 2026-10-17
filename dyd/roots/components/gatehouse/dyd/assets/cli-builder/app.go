@@ -18,6 +18,8 @@ type ActionRequest struct {
 	Invocation []string
 	Args       []string
 	Opts       map[string]any
+	Stdout     io.Writer
+	Stderr     io.Writer
 }
 
 type AutoCompleteRequest struct {
@@ -68,6 +70,7 @@ type App interface {
 	Parse(appargs []string) (invocation []string, args []string, opts map[string]interface{}, err error)
 	// Run parses the argument list and runs the command specified with the corresponding options and arguments.
 	Run(appargs []string, w io.Writer) int
+	RunWithWriters(appargs []string, stdout, stderr io.Writer) int
 	// Usage prints out the full usage help.
 	Usage(invocation []string, w io.Writer) error
 
@@ -136,15 +139,20 @@ func (a *app) Parse(appargs []string) (invocation []string, args []string, opts 
 }
 
 func (a *app) Run(appargs []string, w io.Writer) int {
+	return a.RunWithWriters(appargs, w, w)
+}
+
+// RunWithWriters keeps parser diagnostics separate from command result output.
+func (a *app) RunWithWriters(appargs []string, w, stderr io.Writer) int {
 	invocation, args, opts, err := a.Parse(appargs)
 	_, help := opts["help"]
 	code := 1
-	if help && (err == nil || strings.HasPrefix(err.Error(), "missing required argument ") ) {
+	if help && (err == nil || strings.HasPrefix(err.Error(), "missing required argument ")) {
 		a.Usage(invocation, w)
 		code = 0
 	} else if err != nil {
-		fmt.Fprintf(w, "fatal: %v\n", err)
-		fmt.Fprintf(w, "usage: %v\n", shortUsage(a, invocation))
+		fmt.Fprintf(stderr, "fatal: %v\n", err)
+		fmt.Fprintf(stderr, "usage: %v\n", shortUsage(a, invocation))
 	} else {
 		action := a.Action()
 		if len(invocation) > 1 {
@@ -163,8 +171,8 @@ func (a *app) Run(appargs []string, w io.Writer) int {
 				}
 				// should never happen if invocation originates from the parser
 				if !matched {
-					fmt.Fprintf(w, "fatal: invalid invocation path %v\n", invocation)
-					fmt.Fprintf(w, "usage: %v\n", shortUsage(a, invocation[:1]))
+					fmt.Fprintf(stderr, "fatal: invalid invocation path %v\n", invocation)
+					fmt.Fprintf(stderr, "usage: %v\n", shortUsage(a, invocation[:1]))
 					action = nil
 					break
 				}
@@ -176,6 +184,8 @@ func (a *app) Run(appargs []string, w io.Writer) int {
 				Invocation: invocation,
 				Args:       args,
 				Opts:       opts,
+				Stdout:     w,
+				Stderr:     stderr,
 			})
 		} else {
 			a.Usage(invocation, w)

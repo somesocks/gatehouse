@@ -83,10 +83,24 @@ let Prompt = s.root.from
         s.record.meta::{=})
       s.root.meta::{ name = "BenchmarkPrompt" }
 
+let Expected = s.root.from
+      (s.record.from
+        s.record.props::{
+        , optional = toMap
+            { output = text "expected final answer text; comparison trims surrounding whitespace"
+            , max_turns = integer "maximum tool-using rounds, inclusive"
+            , max_tool_failures = integer "maximum failed tool invocations, inclusive"
+            , max_tool_calls = integer "maximum tool invocations, inclusive"
+            }
+        }
+        s.record.meta::{=})
+      s.root.meta::{ name = "BenchmarkExpected" }
+
 let Question = s.root.from
       (s.record.from
         s.record.props::{
         , required = toMap { alias = text "question alias", text = text "question text or file: reference" }
+        , optional = toMap { expected = ref Expected }
         }
         s.record.meta::{=})
       s.root.meta::{ name = "BenchmarkQuestion" }
@@ -144,5 +158,5 @@ in { fields
    , ref
    , list
    , fileReference = text "file: reference to one YAML definition"
-   , schemas = [ Provider, Model, Prompt, Question, Environment, Test ]
+    , schemas = [ Provider, Model, Prompt, Expected, Question, Environment, Test ]
    }

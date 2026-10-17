@@ -77,3 +77,34 @@ func TestAgentProviderRequestUsesCurrentPrompt(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentProviderRequestPromptReplacement(t *testing.T) {
+	endpoint, key, appendText := "https://provider.invalid", "encrypted", "appended"
+	for _, protocol := range []string{"openai-responses", "openai-chat-completions"} {
+		for _, replacement := range []string{"", "replacement only"} {
+			selected := &database.WorkspaceAgentModel{Alias: "test", Protocol: protocol, Endpoint: &endpoint, APIKey: &key,
+				Keychain: &model.KeychainRef{Id: "test", Version: 1}, Model: "test-model", Parameters: `{}`, MaxOutputTokens: 123, SystemPrompt: &appendText}
+			before := mcmtrProfileFingerprint(selected, false)
+			selected.SystemPromptReplacement = &replacement
+			if mcmtrProfileFingerprint(selected, false) == before {
+				t.Fatal("prompt replacement did not invalidate the context profile")
+			}
+			messages := []openAICompatibleMessage{{Role: "user", Content: "question"}}
+			err, request := agentProviderRequestPrepare(selected, false, messages)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if protocol == "openai-responses" {
+				if request.Responses.Instructions != replacement {
+					t.Fatalf("replacement instructions = %q", request.Responses.Instructions)
+				}
+			} else if replacement == "" {
+				if !reflect.DeepEqual(request.Chat.Messages, messages) {
+					t.Fatal("empty replacement retained a system message")
+				}
+			} else if request.Chat.Messages[0].Content != replacement || len(request.Chat.Messages) != 2 {
+				t.Fatalf("replacement messages = %#v", request.Chat.Messages)
+			}
+		}
+	}
+}

@@ -59,9 +59,12 @@ func Prepare(configuration Config, path, version, fingerprint string) (error, *P
 			StartedAt: time.Now().UTC().Format(time.RFC3339Nano), Status: "running",
 		},
 		RunCount:      configuration.RunCount,
-		configuration: Config{Document: document, RunCount: configuration.RunCount},
+		configuration: Config{Document: document, RunCount: configuration.RunCount, Sources: map[string]Source{}},
 		modelIDs:      map[string]string{}, promptIDs: map[string]string{},
 		questionIDs: map[string]string{}, environmentIDs: map[string]string{},
+	}
+	for key, source := range configuration.Sources {
+		prepared.configuration.Sources[key] = source
 	}
 	providerIDs := map[string]string{}
 	for _, definition := range document.AgentProviders {
@@ -121,6 +124,12 @@ func Prepare(configuration Config, path, version, fingerprint string) (error, *P
 			return err, nil
 		}
 		record := benchmarkmodel.Question{Id: id, ExecutionId: executionID, Alias: definition.Alias, Text: definition.Text}
+		if definition.Expected != nil {
+			record.ExpectedOutput = definition.Expected.Output
+			record.ExpectedMaxTurns = definition.Expected.MaxTurns
+			record.ExpectedMaxToolFailures = definition.Expected.MaxToolFailures
+			record.ExpectedMaxToolCalls = definition.Expected.MaxToolCalls
+		}
 		prepared.Questions = append(prepared.Questions, record)
 		prepared.questionIDs[record.Alias] = record.Id
 	}
@@ -167,6 +176,18 @@ func (prepared *Prepared) Runs() iter.Seq2[benchmarkmodel.Run, error] {
 func (prepared *Prepared) Insert(ctx context.Context, tx *sql.Tx) error {
 	if err := InsertExecution(ctx, tx, prepared.Execution); err != nil {
 		return err
+	}
+	document, err := json.Marshal(prepared.configuration.Document)
+	if err != nil {
+		return err
+	}
+	sources, err := json.Marshal(prepared.configuration.Sources)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO execution_inputs (execution_id, run_count, configuration, sources) VALUES (?, ?, ?, ?)`,
+		prepared.Execution.Id, fmt.Sprint(prepared.RunCount), string(document), string(sources)); err != nil {
+		return fmt.Errorf("insert execution inputs: %w", err)
 	}
 	for _, record := range prepared.Providers {
 		if err := InsertProvider(ctx, tx, record); err != nil {

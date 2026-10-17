@@ -316,6 +316,16 @@ func (configuration *Config) validate(object map[string]any) error {
 		if strings.TrimSpace(question.Text) == "" {
 			return fmt.Errorf("questions[%d] %q: text must not be empty", index, question.Alias)
 		}
+		if expected := question.Expected; expected != nil {
+			if expected.Output == nil && expected.MaxTurns == nil && expected.MaxToolFailures == nil && expected.MaxToolCalls == nil {
+				return fmt.Errorf("questions[%d] %q: expected must specify at least one check", index, question.Alias)
+			}
+			for name, limit := range map[string]*int{"max_turns": expected.MaxTurns, "max_tool_failures": expected.MaxToolFailures, "max_tool_calls": expected.MaxToolCalls} {
+				if limit != nil && *limit < 0 {
+					return fmt.Errorf("questions[%d] %q: expected.%s must not be negative", index, question.Alias, name)
+				}
+			}
+		}
 	}
 	for index, test := range configuration.Document.Tests {
 		location := fmt.Sprintf("tests[%d] %q", index, test.Alias)
