@@ -1638,7 +1638,7 @@ func TestActivityAPI(t *testing.T) {
 			t.Fatal(err)
 		}
 		response := httptest.NewRecorder()
-		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/activity", bytes.NewReader(body))
+		httpRequest := httptest.NewRequest(http.MethodPost, "/api/v1/activity/checkpoints", bytes.NewReader(body))
 		httpRequest.Header.Set("Authorization", "Bearer "+token)
 		handler.ServeHTTP(response, httpRequest)
 		return response
@@ -1726,7 +1726,7 @@ func TestSystemGrantAPI(t *testing.T) {
 	if err := json.Unmarshal(updated.Body.Bytes(), &grant); err != nil || updated.Code != http.StatusOK || grant.Enabled || grant.Revision != 2 {
 		t.Fatalf("PATCH system grant = (%d, %#v, %v)", updated.Code, grant, err)
 	}
-	activity := request(http.MethodPost, "/api/v1/activity", `{"topics":[{"name":"system-grant","topic":"sys/`+aliceGrant.Ref.Id+`","events":["system_grant.*"]}]}`)
+	activity := request(http.MethodPost, "/api/v1/activity/checkpoints", `{"topics":[{"name":"system-grant","topic":"sys/`+aliceGrant.Ref.Id+`","events":["system_grant.*"]}]}`)
 	var checkpoints model.ActivityTopicCheckpoints
 	if err := json.Unmarshal(activity.Body.Bytes(), &checkpoints); err != nil || activity.Code != http.StatusOK || len(checkpoints.Topics) != 1 || checkpoints.Topics[0].Cursor == nil {
 		t.Fatalf("POST system activity = (%d, %#v, %v)", activity.Code, checkpoints, err)

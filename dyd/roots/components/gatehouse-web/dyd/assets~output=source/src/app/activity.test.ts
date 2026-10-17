@@ -32,7 +32,7 @@ describe("activity client", () => {
     await client.poll()
 
     expect(request).toHaveBeenCalledWith(
-      "/api/v1/activity",
+      "/api/v1/activity/checkpoints",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     client.dispose()

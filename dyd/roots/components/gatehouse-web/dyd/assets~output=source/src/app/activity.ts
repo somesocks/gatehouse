@@ -22,7 +22,7 @@ export function createActivityClient({
 }: ActivityClientOptions) {
   const poller = new ActivityTopicPoller(
     async (topics, signal) => {
-      const response = await request("/api/v1/activity", {
+      const response = await request("/api/v1/activity/checkpoints", {
         method: "POST",
         credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
