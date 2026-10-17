@@ -8,6 +8,8 @@ export {
 export { default as Badge } from "./Badge.svelte"
 export { default as Chip } from "./Chip.svelte"
 export { default as InputBar } from "./InputBar.svelte"
+export { default as InputBarAttachments } from "./InputBarAttachments.svelte"
+export { default as InputAttachment } from "./InputAttachment.svelte"
 export { default as FloatingAction } from "./FloatingAction.svelte"
 export { Separator } from "../lib/vendor/shadcn/separator"
 export { FieldSet, FieldLegend } from "../lib/vendor/shadcn/field"
@@ -80,6 +82,7 @@ export { setWorkspaceTheme } from "./theme.svelte"
 export type { WorkspaceTheme, ThemeValues } from "./theme.svelte"
 export { renderMarkdown } from "./markdown"
 export {
+  ArrowDown,
   Bot,
   CircleCheck,
   CircleX,

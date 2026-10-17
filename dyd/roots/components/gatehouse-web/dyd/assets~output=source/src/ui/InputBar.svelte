@@ -5,7 +5,7 @@
 </script>
 
 <form
-  class="flex w-full min-w-0 flex-col gap-2 rounded-xl bg-card p-2"
+  class="flex w-full min-w-0 flex-col gap-2"
   {...rest}
 >
   {@render children?.()}

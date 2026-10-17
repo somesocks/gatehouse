@@ -6,4 +6,4 @@
   }: Omit<ComponentProps<typeof Button>, "class" | "style"> = $props()
 </script>
 
-<Button class="sticky bottom-24 z-10 self-center" {...rest} />
+<Button class="absolute right-4 bottom-4 z-10 shadow-sm md:right-6" {...rest} />

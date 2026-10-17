@@ -1,15 +1,15 @@
 <script lang="ts">
   import {
+    ArrowDown,
+    Send,
     Bot,
     CircleCheck,
     CircleX,
     Copy,
     Paperclip,
-    Send,
     ShieldCheck,
     ShieldQuestionMark,
     ShieldX,
-    X,
     Command,
     Dialog,
     RouterLink,
@@ -209,6 +209,13 @@
       : directAgent === undefined
         ? "Direct chat"
         : `Direct chat with @${directAgent.alias}`,
+  )
+  const sendLabel = $derived(
+    !controller.state.sendingMessage
+      ? "Send message"
+      : controller.state.composerFiles.some((entry) => entry.status === "uploading")
+        ? "Uploading files"
+        : "Sending message",
   )
 
   const activation = $derived(
@@ -618,7 +625,7 @@
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
-      <SidebarPage.Header placement="floating">
+      <SidebarPage.Header divider>
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb" data-page-breadcrumb>
           <UI.Breadcrumb.List>
@@ -1075,21 +1082,26 @@
                                 ></UI.Chip
                               >{/each}
                           </UI.Row>{/if}
-                      </UI.Message>{/each}{/each}{/if}{/each}{/if}{#if controller.state.showJumpToLatest}<UI.FloatingAction
-                variant="default"
-                size="sm"
-                type="button"
-                onclick={() => void controller.jumpToLatest()}
-                >Jump to latest</UI.FloatingAction
-              >{/if}
+                      </UI.Message>{/each}{/each}{/if}{/each}{/if}
+            {#snippet actions()}
+              {#if controller.state.showJumpToLatest}
+                <UI.FloatingAction
+                  variant="default"
+                  size="icon-lg"
+                  type="button"
+                  aria-label="Jump to latest"
+                  title="Jump to latest"
+                  onclick={() => void controller.jumpToLatest()}
+                ><ArrowDown size={20} strokeWidth={2.25} aria-hidden="true" /></UI.FloatingAction>
+              {/if}
+            {/snippet}
           </UI.Feed>
         {/if}
       </SidebarPage.Body>
       {#if session !== null}<SidebarPage.Footer
-          placement="floating"
-          surface={false}
           ><UI.InputBar
             data-pending={controller.state.sendingMessage || undefined}
+            aria-busy={controller.state.sendingMessage}
             autocomplete="off"
             onsubmit={(event) => {
               event.preventDefault()
@@ -1105,107 +1117,92 @@
               bind:ref={fileInputElement}
               onchange={(event) =>
                 controller.selectComposerFiles(event.currentTarget)}
-            />{#if controller.state.composerFiles.length > 0}<UI.Row
-                aria-label="Selected files"
-              >
-                {#each controller.state.composerFiles as entry (entry.file)}<UI.Chip
-                    data-state={entry.status}
-                    ><UI.Text
-                      >{#if entry.status === "uploading"}<UI.Spinner
-                          aria-hidden="true"
-                        ></UI.Spinner>{:else}<Paperclip
-                          size={14}
-                          strokeWidth={2}
-                          aria-hidden="true"
-                        />{/if}</UI.Text
-                    ><UI.Row as="span"
-                      ><UI.Text>{entry.file.name}</UI.Text><UI.Text
-                        as="small"
-                        size="small"
-                        >{entry.status === "uploading"
-                          ? "Uploading"
-                          : entry.status === "failed"
-                            ? entry.error
-                            : entry.id === undefined
-                              ? `${entry.file.size} bytes`
-                              : "Ready"}</UI.Text
-                      ></UI.Row
-                    ><UI.Button
-                      variant="ghost"
-                      size="icon"
-                      type="button"
-                      aria-label={`Remove ${entry.file.name}`}
-                      disabled={controller.state.sendingMessage}
-                      onclick={() => controller.removeComposerFile(entry.file)}
-                      ><X size={14} strokeWidth={2} /></UI.Button
-                    ></UI.Chip
-                  >{/each}
-              </UI.Row>{/if}
-            <UI.Row wrap={false} align="center" gap="small">
+            />
+            {#if controller.state.composerFiles.length > 0}
+              <UI.InputBarAttachments>
+                {#each controller.state.composerFiles as entry (entry.file)}
+                  <UI.InputAttachment
+                    name={entry.file.name}
+                    size={entry.file.size}
+                    status={entry.status}
+                    uploaded={entry.id !== undefined}
+                    error={entry.error}
+                    disabled={controller.state.sendingMessage}
+                    onremove={() => controller.removeComposerFile(entry.file)}
+                  />
+                {/each}
+              </UI.InputBarAttachments>
+            {/if}
+            <UI.Textarea
+              mode="composer"
+              id="message"
+              rows={3}
+              autocomplete="off"
+              placeholder="Write a message"
+              aria-describedby={controller.state.messageError !== "" ? "message-error" : undefined}
+              bind:ref={messageInputElement}
+              bind:value={controller.state.messageText}
+              disabled={controller.state.sendingMessage}
+              onkeydown={(event) => {
+                handleMentionKeydown(event)
+                if (event.isComposing) return
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault()
+                  void controller.sendMessage(delivery)
+                }
+              }}
+              oninput={openMentionAfterInput}
+            />
+            <UI.Row wrap={false} align="center" justify="between" gap="small">
+              <UI.Row wrap={false} gap="small">
+                <UI.Button
+                  variant="ghost"
+                  size="icon"
+                  type="button"
+                  aria-label="Attach files"
+                  title="Attach files"
+                  disabled={controller.state.sendingMessage}
+                  onclick={() => fileInputElement?.click()}
+                  ><Paperclip
+                    size={20}
+                    strokeWidth={2.25}
+                    aria-hidden="true"
+                  /></UI.Button
+                >
+                <UI.Button
+                  variant={deliveryMode === "direct" ? "default" : "outline"}
+                  size="icon"
+                  type="button"
+                  aria-label={deliveryTitle}
+                  title={deliveryTitle}
+                  data-selected={deliveryMode === "direct" || undefined}
+                  disabled={controller.state.sendingMessage}
+                  onclick={openDelivery}
+                  ><Bot
+                    size={20}
+                    strokeWidth={2.25}
+                    aria-hidden="true"
+                  /></UI.Button
+                >
+              </UI.Row>
               <UI.Button
-                variant="ghost"
-                size="icon"
-                type="button"
-                aria-label="Attach files"
-                title="Attach files"
-                disabled={controller.state.sendingMessage}
-                onclick={() => fileInputElement?.click()}
-                ><Paperclip
-                  size={20}
-                  strokeWidth={2.25}
-                  aria-hidden="true"
-                /></UI.Button
-              >
-              <UI.Button
-                variant={deliveryMode === "direct" ? "default" : "outline"}
-                size="icon"
-                type="button"
-                aria-label={deliveryTitle}
-                title={deliveryTitle}
-                data-selected={deliveryMode === "direct" || undefined}
-                disabled={controller.state.sendingMessage}
-                onclick={openDelivery}
-                ><Bot
-                  size={20}
-                  strokeWidth={2.25}
-                  aria-hidden="true"
-                /></UI.Button
-              >
-              <UI.Textarea
-                mode="inline"
-                id="message"
-                rows={1}
-                autocomplete="off"
-                placeholder="Write a message"
-                bind:ref={messageInputElement}
-                bind:value={controller.state.messageText}
-                disabled={controller.state.sendingMessage}
-                onkeydown={(event) => {
-                  handleMentionKeydown(event)
-                  if (event.isComposing) return
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault()
-                    void controller.sendMessage(delivery)
-                  }
-                }}
-                oninput={openMentionAfterInput}
-              ></UI.Textarea><UI.Button
                 variant="default"
                 size="icon"
                 type="submit"
-                aria-label="Send message"
-                title="Send message"
+                aria-label={sendLabel}
+                title={sendLabel}
                 disabled={controller.state.sendingMessage ||
                   (controller.state.messageText.trim() === "" &&
                     controller.state.composerFiles.length === 0)}
-                ><Send
-                  size={20}
-                  strokeWidth={2.25}
-                  aria-hidden="true"
-                /></UI.Button
+                >{#if controller.state.sendingMessage}
+                  <UI.Spinner aria-hidden="true" />
+                {:else}
+                  <Send size={20} strokeWidth={2.25} aria-hidden="true" />
+                {/if}</UI.Button
               >
             </UI.Row>
             {#if controller.state.messageError !== ""}<UI.Text
+                id="message-error"
                 as="p"
                 size="small"
                 role="alert"
