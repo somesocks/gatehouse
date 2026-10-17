@@ -6,6 +6,7 @@ import { compileModule, parse } from "svelte/compiler"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createChatCollectionController } from "./chat-collection-controller.svelte"
 import { createProjectCollectionController } from "../projects/project-collection-controller.svelte"
+import type { ActivityRefresh } from "../../app/activity"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -57,6 +58,57 @@ async function pageSubscription(page = "./ChatCollectionPage.svelte") {
 }
 
 describe("workspace directory route lifecycle", () => {
+  it("reconciles sharing changes without losing the current filters and disposes the subscription", async () => {
+    let refresh!: ActivityRefresh
+    const unsubscribe = vi.fn()
+    const activity = {
+      subscribe: vi.fn((_selectors, callback) => {
+        refresh = callback
+        return unsubscribe
+      }),
+      poll: vi.fn(async () => {}),
+      dispose: vi.fn(),
+    }
+    const request = vi.fn(async () =>
+      Response.json({ sessions: [{ id: "initial-chat" }] }),
+    )
+    vi.stubGlobal("fetch", request)
+    const controller = createChatCollectionController({
+      onAuthenticationLost: vi.fn(),
+      activity,
+    })
+    const stop = controller.start(
+      "workspace",
+      "design",
+      new AbortController().signal,
+      "project",
+    )
+    await vi.waitFor(() =>
+      expect(controller.state.chats[0]?.id).toBe("initial-chat"),
+    )
+    expect(activity.subscribe.mock.calls[0][0]).toEqual([
+      expect.objectContaining({
+        topic: "workspace",
+        events: expect.arrayContaining(["session_grant.*", "group_member.*"]),
+      }),
+    ])
+    request.mockResolvedValueOnce(
+      Response.json({ sessions: [{ id: "newly-shared-chat" }] }),
+    )
+    await refresh({
+      names: new Set(["chat-directory"]),
+      signal: new AbortController().signal,
+    })
+    expect(controller.state.chats[0]?.id).toBe("newly-shared-chat")
+    const path = new URL(
+      (request.mock.calls.at(-1) as unknown as [string])[0],
+      "http://localhost",
+    )
+    expect(path.searchParams.get("name")).toBe("design")
+    expect(path.searchParams.get("project")).toBe("project")
+    stop()
+    expect(unsubscribe).toHaveBeenCalledTimes(1)
+  })
   it("restarts the filtered request when the parent replaces an aborted route signal", async () => {
     const fetch = vi.fn(async (path: string, init: RequestInit) => {
       if (init.signal?.aborted)

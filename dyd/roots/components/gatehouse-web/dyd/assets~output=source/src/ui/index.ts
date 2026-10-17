@@ -63,6 +63,8 @@ export { default as FormSection } from "./FormSection.svelte"
 export { default as FormActions } from "./FormActions.svelte"
 export { default as RecordTable } from "./RecordTable.svelte"
 export { default as RecordPicker } from "./RecordPicker.svelte"
+export { default as RecordList } from "./RecordList.svelte"
+export { default as Tabs } from "./Tabs.svelte"
 export { default as RecordRow } from "./RecordRow.svelte"
 export { default as RecordCell } from "./RecordCell.svelte"
 export { default as TableEmpty } from "./TableEmpty.svelte"
@@ -86,10 +88,12 @@ export {
   Download,
   Menu,
   Paperclip,
+  Pencil,
   Search,
   Send,
   ShieldCheck,
   ShieldQuestionMark,
   ShieldX,
+  Trash2,
   X,
 } from "@lucide/svelte"

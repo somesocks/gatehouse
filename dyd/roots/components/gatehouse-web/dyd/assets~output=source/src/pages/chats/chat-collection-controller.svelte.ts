@@ -1,13 +1,17 @@
 import { fetchChats, type Chat, type ChatSearchResponse } from "../../app/chats"
 import { createDirectoryController } from "../../utils/directory-controller.svelte"
+import type { ActivityClient } from "../../app/activity"
 
 export function createChatCollectionController({
   onAuthenticationLost,
+  activity,
 }: {
   onAuthenticationLost: () => void
+  activity?: ActivityClient
 }) {
   let owner = ""
   let parent: AbortSignal | undefined
+  let unsubscribe: (() => void) | undefined
   const draft = $state({ projectID: "" })
   const directory = createDirectoryController<Chat>({
     onAuthenticationLost,
@@ -71,7 +75,7 @@ export function createChatCollectionController({
     signal: AbortSignal,
     projectID = "",
   ) {
-    directory.stop()
+    stop()
     if (owner !== workspaceID) directory.reset()
     owner = workspaceID
     parent = signal
@@ -79,12 +83,36 @@ export function createChatCollectionController({
     state.projectID = projectID
     directory.state.status = projectID
     void directory.search()
-    return directory.stop
+    unsubscribe = activity?.subscribe(
+      [
+        {
+          name: "chat-directory",
+          topic: workspaceID,
+          events: ["session.*", "session_grant.*", "group.*", "group_member.*"],
+        },
+      ],
+      async ({ signal: refreshSignal }) => {
+        if (signal.aborted || refreshSignal.aborted) return
+        if (
+          !(await directory.reload()) &&
+          !signal.aborted &&
+          !refreshSignal.aborted
+        )
+          throw new Error("Chat directory could not be refreshed.")
+      },
+    )
+    void activity?.poll()
+    return stop
+  }
+  function stop() {
+    unsubscribe?.()
+    unsubscribe = undefined
+    directory.stop()
   }
   return {
     state,
     start,
-    stop: directory.stop,
+    stop,
     reload: directory.reload,
     retry: directory.retry,
     search: directory.search,

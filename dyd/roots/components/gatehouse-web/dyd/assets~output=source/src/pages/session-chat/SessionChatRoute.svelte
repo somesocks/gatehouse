@@ -22,6 +22,7 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import SessionViewNavigation from "../../session-participants/SessionViewNavigation.svelte"
   import { onMount, tick, untrack } from "svelte"
   import { createLoadState } from "../../utils/load-state.svelte"
   import {
@@ -643,7 +644,9 @@
             {/if}
           </UI.Breadcrumb.List>
         </UI.Breadcrumb.Root>
-        {#if session !== null}<UI.ViewNavigation
+        {#if session !== null}<SessionViewNavigation
+            workspaceID={workspace.id}
+            sessionID={session.id}
             items={sessionViews(workspace.id, session.id, "chat")}
             name={session.name}
             onRename={(name) =>

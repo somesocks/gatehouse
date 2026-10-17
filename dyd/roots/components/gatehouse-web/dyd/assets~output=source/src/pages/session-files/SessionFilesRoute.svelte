@@ -8,6 +8,7 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import SessionViewNavigation from "../../session-participants/SessionViewNavigation.svelte"
   import { createCollectionPage } from "../../utils/collection-page.svelte"
   import {
     chatFileDownloadPath,
@@ -335,7 +336,9 @@
             {/if}
           </UI.Breadcrumb.List>
         </UI.Breadcrumb.Root>
-        {#if session !== null}<UI.ViewNavigation
+        {#if session !== null}<SessionViewNavigation
+            workspaceID={workspace.id}
+            sessionID={session.id}
             items={sessionViews(workspace.id, session.id, "files")}
             name={session.name}
             onRename={(name) =>

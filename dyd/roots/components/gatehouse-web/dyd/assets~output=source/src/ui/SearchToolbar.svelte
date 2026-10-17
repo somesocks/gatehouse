@@ -12,6 +12,7 @@
     label = "Search records",
     loading = false,
     filters,
+    framed = true,
   }: {
     value?: string
     status?: string
@@ -21,11 +22,14 @@
     label?: string
     loading?: boolean
     filters?: Snippet
+    framed?: boolean
   } = $props()
 </script>
 
 <form
-  class="flex w-full flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3 [&_button]:h-10"
+  class={framed
+    ? "flex w-full flex-wrap items-center gap-3 rounded-lg border bg-muted/20 p-3 [&_button]:h-10"
+    : "flex w-full flex-wrap items-center gap-2 [&_button]:h-10"}
   onsubmit={(event) => {
     event.preventDefault()
     onsearch()

@@ -1,0 +1,338 @@
+package database
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"strings"
+
+	"gatehouse/authz"
+	"gatehouse/config"
+	"gatehouse/model"
+	"gatehouse/typed_id"
+)
+
+var (
+	ErrSessionParticipantInput     = errors.New("invalid chat participant input")
+	ErrSessionParticipantNotFound  = errors.New("chat or participant is unavailable")
+	ErrSessionParticipantForbidden = errors.New("chat manager access is required")
+	ErrSessionGrantExists          = errors.New("this role is already assigned to the participant")
+	ErrSessionLastManager          = errors.New("the chat must retain an enabled manager")
+)
+
+type SessionParticipantGrant struct {
+	ID        string     `json:"id"`
+	Principal *string    `json:"principal,omitempty"`
+	Group     *string    `json:"group,omitempty"`
+	Role      authz.Role `json:"role"`
+	Enabled   bool       `json:"enabled"`
+	Revision  int        `json:"revision"`
+}
+
+type SessionParticipant struct {
+	ID      string                    `json:"id"`
+	Alias   *string                   `json:"alias,omitempty"`
+	Name    *string                   `json:"name,omitempty"`
+	Enabled bool                      `json:"enabled"`
+	Grants  []SessionParticipantGrant `json:"grants"`
+}
+
+type SessionParticipantSearch struct {
+	Kind   string
+	Name   string
+	Cursor string
+	Limit  int
+}
+
+func sessionParticipantSearchValues(search SessionParticipantSearch) (string, error) {
+	kind := typed_id.Principal
+	if search.Kind == "group" {
+		kind = typed_id.Group
+	} else if search.Kind != "principal" {
+		return "", ErrSessionParticipantInput
+	}
+	if search.Limit < 1 || search.Limit > 100 || len(strings.TrimSpace(search.Name)) > 256 || (search.Cursor != "" && !typed_id.Valid(kind, search.Cursor)) {
+		return "", ErrSessionParticipantInput
+	}
+	return "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(search.Name)) + "%", nil
+}
+
+// These queries reuse parameters. Number SQLite parameters explicitly rather
+// than using anonymous placeholders, which would require repeated arguments.
+func (store *Store) sessionParticipantPlaceholder(index int) string {
+	if store.kind == config.DatabaseKindSQLite {
+		return fmt.Sprintf("?%d", index)
+	}
+	return fmt.Sprintf("$%d", index)
+}
+
+// SessionParticipantsSearch lists explicit subjects, not expanded group members.
+// Options searches are workspace-scoped and exclude disabled subjects.
+func (store *Store) SessionParticipantsSearch(ctx context.Context, session model.SessionRef, search SessionParticipantSearch, options bool) (error, []SessionParticipant, string) {
+	pattern, err := sessionParticipantSearchValues(search)
+	if err != nil {
+		return err, nil, ""
+	}
+	p := store.sessionParticipantPlaceholder
+	table, column, scope := "gatehouse_principals", "principal", ""
+	if search.Kind == "group" {
+		table, column = "gatehouse_groups", `"group"`
+		scope = ` AND subjects.workspace_id = ` + p(1)
+	}
+	filter := `EXISTS (SELECT 1 FROM gatehouse_session_grants grants WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.` + column + ` = subjects.id AND grants.enabled = TRUE)`
+	if options {
+		filter = `subjects.enabled = TRUE`
+		if search.Kind == "principal" {
+			filter += ` AND ` + sessionWorkspacePrincipalEligibleSQL(p(1), "subjects.id")
+		}
+	}
+	query := `WITH page AS (
+		SELECT subjects.id, subjects.alias, subjects.name, subjects.enabled FROM ` + table + ` subjects
+		WHERE ` + filter + scope + ` AND (
+			LOWER(COALESCE(subjects.name, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\'
+			OR LOWER(COALESCE(subjects.alias, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\')
+		AND (` + p(4) + ` = '' OR subjects.id < ` + p(4) + `) ORDER BY subjects.id DESC LIMIT ` + p(5) + `
+	) SELECT page.id, page.alias, page.name, page.enabled`
+	if !options {
+		query += `, grants.id, grants.role, grants.revision FROM page JOIN gatehouse_session_grants grants
+			ON grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.` + column + ` = page.id AND grants.enabled = TRUE
+			ORDER BY page.id DESC, grants.role`
+	} else {
+		// Keep the session placeholder bound on PostgreSQL as well as SQLite.
+		query += ` FROM page WHERE ` + p(2) + ` <> '' ORDER BY page.id DESC`
+	}
+	rows, err := store.QueryContext(ctx, query, session.Workspace.Id, session.Id, pattern, search.Cursor, search.Limit+1)
+	if err != nil {
+		return fmt.Errorf("search chat participants: %w", err), nil, ""
+	}
+	defer rows.Close()
+	items := []SessionParticipant{}
+	for rows.Next() {
+		var item SessionParticipant
+		var alias, name sql.NullString
+		grant := SessionParticipantGrant{Enabled: true}
+		values := []any{&item.ID, &alias, &name, &item.Enabled}
+		if !options {
+			values = append(values, &grant.ID, &grant.Role, &grant.Revision)
+		}
+		if err := rows.Scan(values...); err != nil {
+			return err, nil, ""
+		}
+		if alias.Valid {
+			item.Alias = &alias.String
+		}
+		if name.Valid {
+			item.Name = &name.String
+		}
+		item.Grants = []SessionParticipantGrant{}
+		if !options {
+			if search.Kind == "principal" {
+				grant.Principal = &item.ID
+			} else {
+				grant.Group = &item.ID
+			}
+			if len(items) > 0 && items[len(items)-1].ID == item.ID {
+				items[len(items)-1].Grants = append(items[len(items)-1].Grants, grant)
+				continue
+			}
+			item.Grants = append(item.Grants, grant)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return err, nil, ""
+	}
+	if len(items) > search.Limit {
+		return nil, items[:search.Limit], items[search.Limit-1].ID
+	}
+	return nil, items, ""
+}
+
+func sessionWorkspacePrincipalEligibleSQL(workspace, principal string) string {
+	return `EXISTS (SELECT 1 FROM gatehouse_workspace_grants wg WHERE wg.workspace = ` + workspace + ` AND wg.enabled = TRUE AND (
+		wg.principal = ` + principal + ` OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
+		WHERE g.workspace_id = wg.workspace AND g.id = wg."group" AND g.enabled = TRUE AND gm.enabled = TRUE AND gm.principal_id = ` + principal + `)))`
+}
+
+// Lock the session row before checking roles or modifying grants. This serializes
+// competing manager removals on PostgreSQL and acquires SQLite's write lock before
+// reading the manager set. Permission is checked again inside the transaction.
+func (store *Store) sessionParticipantTransaction(ctx context.Context, session model.SessionRef, actor model.PrincipalRef) (*sql.Tx, error) {
+	tx, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	p := store.sessionParticipantPlaceholder
+	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_sessions SET enabled = enabled WHERE workspace = `+p(1)+` AND id = `+p(2)+` AND enabled = TRUE`, session.Workspace.Id, session.Id)
+	if err == nil {
+		var count int64
+		count, err = result.RowsAffected()
+		if err == nil && count == 0 {
+			err = ErrSessionParticipantNotFound
+		}
+	}
+	if err == nil {
+		var allowed bool
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS (
+			SELECT 1 FROM gatehouse_session_grants grants JOIN gatehouse_workspaces w ON w.id = grants.workspace
+			WHERE grants.workspace = `+p(1)+` AND grants.session = `+p(2)+` AND w.enabled = TRUE AND grants.enabled = TRUE AND grants.role = 'manager'
+			AND EXISTS (SELECT 1 FROM gatehouse_principals principal WHERE principal.id = `+p(3)+` AND principal.enabled = TRUE)
+			AND (grants.principal = `+p(3)+` OR EXISTS (
+				SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
+				WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE AND gm.principal_id = `+p(3)+`)))`, session.Workspace.Id, session.Id, actor.Id).Scan(&allowed)
+		if err == nil && !allowed {
+			err = ErrSessionParticipantForbidden
+		}
+	}
+	if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+	return tx, nil
+}
+
+func (store *Store) SessionParticipantGrantCreate(ctx context.Context, session model.SessionRef, actor model.PrincipalRef, principal, group *string, role authz.Role) (error, *SessionParticipantGrant) {
+	if !authz.ValidRole(string(role)) || (principal == nil) == (group == nil) || (principal != nil && !typed_id.Valid(typed_id.Principal, *principal)) || (group != nil && !typed_id.Valid(typed_id.Group, *group)) {
+		return ErrSessionParticipantInput, nil
+	}
+	tx, err := store.sessionParticipantTransaction(ctx, session, actor)
+	if err != nil {
+		return err, nil
+	}
+	defer tx.Rollback()
+	p := store.sessionParticipantPlaceholder
+	var eligible bool
+	if principal != nil {
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_principals subjects WHERE subjects.id = `+p(2)+` AND subjects.enabled = TRUE AND `+sessionWorkspacePrincipalEligibleSQL(p(1), "subjects.id")+`)`, session.Workspace.Id, *principal).Scan(&eligible)
+	} else {
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_groups WHERE workspace_id = `+p(1)+` AND id = `+p(2)+` AND enabled = TRUE)`, session.Workspace.Id, *group).Scan(&eligible)
+	}
+	if err != nil {
+		return err, nil
+	}
+	if !eligible {
+		return ErrSessionParticipantNotFound, nil
+	}
+	id, err := typed_id.New(typed_id.SessionGrant)
+	if err != nil {
+		return err, nil
+	}
+	grant := SessionParticipantGrant{ID: id, Principal: principal, Group: group, Role: role, Enabled: true, Revision: 1}
+	column := "principal"
+	if group != nil {
+		column = `"group"`
+	}
+	err = tx.QueryRowContext(ctx, `INSERT INTO gatehouse_session_grants (id, workspace, session, principal, "group", role, enabled, revision)
+		VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, `+p(4)+`, `+p(5)+`, `+p(6)+`, TRUE, 1)
+		ON CONFLICT (workspace, session, role, `+column+`) WHERE `+column+` IS NOT NULL DO UPDATE
+		SET enabled = TRUE, revision = gatehouse_session_grants.revision + 1 WHERE gatehouse_session_grants.enabled = FALSE RETURNING id, revision`,
+		id, session.Workspace.Id, session.Id, principal, group, role).Scan(&grant.ID, &grant.Revision)
+	if err == sql.ErrNoRows {
+		return ErrSessionGrantExists, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	event := "session_grant.create"
+	if grant.Revision > 1 {
+		event = "session_grant.update"
+	}
+	if err := store.sessionParticipantActivity(ctx, tx, session, grant, event); err != nil {
+		return err, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return err, nil
+	}
+	return nil, &grant
+}
+
+func (store *Store) SessionParticipantGrantUpdate(ctx context.Context, session model.SessionRef, actor model.PrincipalRef, id string, role *authz.Role, enabled *bool, revision int) (error, *SessionParticipantGrant) {
+	if !typed_id.Valid(typed_id.SessionGrant, id) || revision < 1 || (role == nil && enabled == nil) || (role != nil && !authz.ValidRole(string(*role))) {
+		return ErrSessionParticipantInput, nil
+	}
+	tx, err := store.sessionParticipantTransaction(ctx, session, actor)
+	if err != nil {
+		return err, nil
+	}
+	defer tx.Rollback()
+	p := store.sessionParticipantPlaceholder
+	var grant SessionParticipantGrant
+	var principal, group sql.NullString
+	err = tx.QueryRowContext(ctx, `SELECT id, principal, "group", role, enabled, revision FROM gatehouse_session_grants WHERE workspace = `+p(1)+` AND session = `+p(2)+` AND id = `+p(3), session.Workspace.Id, session.Id, id).Scan(&grant.ID, &principal, &group, &grant.Role, &grant.Enabled, &grant.Revision)
+	if err == sql.ErrNoRows {
+		return ErrSessionParticipantNotFound, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	if grant.Revision != revision {
+		return ErrRevisionConflict, nil
+	}
+	if principal.Valid {
+		grant.Principal = &principal.String
+	}
+	if group.Valid {
+		grant.Group = &group.String
+	}
+	nextRole, nextEnabled := grant.Role, grant.Enabled
+	if role != nil {
+		nextRole = *role
+	}
+	if enabled != nil {
+		nextEnabled = *enabled
+	}
+	if nextRole == grant.Role && nextEnabled == grant.Enabled {
+		return nil, &grant
+	}
+	// Re-enabling goes through the same subject validation as creation.
+	if !grant.Enabled && nextEnabled {
+		return ErrSessionParticipantInput, nil
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = `+p(1)+`, enabled = `+p(2)+`, revision = revision + 1 WHERE id = `+p(3), nextRole, nextEnabled, id)
+	if uniquePrincipalConstraint(err) {
+		return ErrSessionGrantExists, nil
+	}
+	if err != nil {
+		return err, nil
+	}
+	if grant.Enabled && grant.Role == authz.Manager && (!nextEnabled || nextRole != authz.Manager) {
+		var manager bool
+		err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_session_grants grants
+			WHERE grants.workspace = `+p(1)+` AND grants.session = `+p(2)+` AND grants.enabled = TRUE AND grants.role = 'manager' AND (
+			EXISTS (SELECT 1 FROM gatehouse_principals pr WHERE pr.id = grants.principal AND pr.enabled = TRUE)
+			OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
+			JOIN gatehouse_principals pr ON pr.id = gm.principal_id AND pr.enabled = TRUE
+			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE)))`, session.Workspace.Id, session.Id).Scan(&manager)
+		if err != nil {
+			return err, nil
+		}
+		if !manager {
+			return ErrSessionLastManager, nil
+		}
+	}
+	grant.Role, grant.Enabled, grant.Revision = nextRole, nextEnabled, grant.Revision+1
+	if err := store.sessionParticipantActivity(ctx, tx, session, grant, "session_grant.update"); err != nil {
+		return err, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return err, nil
+	}
+	return nil, &grant
+}
+
+func (store *Store) sessionParticipantActivity(ctx context.Context, tx *sql.Tx, session model.SessionRef, grant SessionParticipantGrant, event string) error {
+	topics := []string{ActivityTopicSessionGrant(session, grant.ID)}
+	if grant.Principal != nil {
+		topics = append(topics, ActivityTopicPrincipalGrant(model.PrincipalRef{Id: *grant.Principal}, grant.ID))
+	} else {
+		topics = append(topics, ActivityTopicGroupGrant(session.Workspace, model.GroupRef{Id: *grant.Group}, grant.ID))
+		members, err := groupPrincipalTopics(ctx, tx, keychainPlaceholder(store.kind), session.Workspace.Id, *grant.Group, grant.ID)
+		if err != nil {
+			return err
+		}
+		topics = append(topics, members...)
+	}
+	err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindSessionGrant, ResourceSessionGrant: &grant.ID}, topics)
+	return err
+}

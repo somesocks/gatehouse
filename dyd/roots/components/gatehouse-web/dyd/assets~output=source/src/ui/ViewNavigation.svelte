@@ -17,10 +17,12 @@
     items,
     name = "",
     onRename,
+    onParticipants,
   }: {
     items: NavigationItem[]
     name?: string
     onRename?: (name: string) => Promise<void>
+    onParticipants?: () => void
   } = $props()
   let modal = $state<DialogHandle>()
   let draft = $state("")
@@ -69,6 +71,9 @@
                   />{/if}
               </RouterLink>{/snippet}
           </Menu.Item>{/each}
+        {#if onParticipants}<Menu.Separator /><Menu.Item
+            onSelect={onParticipants}>Participants</Menu.Item
+          >{/if}
         {#if onRename}<Menu.Separator /><Menu.Item onSelect={edit}
             >Rename</Menu.Item
           >{/if}
@@ -81,6 +86,11 @@
         href={item.href}
         aria-current={item.active ? "page" : undefined}>{item.label}</RouterLink
       >{/each}
+    {#if onParticipants}<Button
+        variant="ghost"
+        size="sm"
+        onclick={onParticipants}>Participants</Button
+      >{/if}
     {#if onRename}<Button variant="ghost" size="sm" onclick={edit}
         >Rename</Button
       >{/if}

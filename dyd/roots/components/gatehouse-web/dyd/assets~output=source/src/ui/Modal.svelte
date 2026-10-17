@@ -6,6 +6,7 @@
   let {
     modal = $bindable(),
     title = "Dialog",
+    size = "default",
     labelledBy,
     onClose,
     oncancel,
@@ -14,6 +15,7 @@
   }: {
     modal?: DialogHandle
     title?: string
+    size?: "default" | "compact" | "wide"
     labelledBy?: string
     onClose?: () => void
     oncancel?: (event: Event) => void
@@ -46,6 +48,7 @@
 
 <Dialog.Root bind:open onOpenChange={changed}>
   <Dialog.Content
+    {size}
     showCloseButton={!header}
     onEscapeKeydown={oncancel}
     onInteractOutside={oncancel}

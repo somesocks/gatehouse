@@ -16,6 +16,7 @@
     renameSession,
   } from "../../app/navigation"
   import * as UI from "../../ui"
+  import SessionViewNavigation from "../../session-participants/SessionViewNavigation.svelte"
   import { userAuthorLabel } from "../../app/user-labels"
   import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { fetchChatSession } from "../../app/chat"
@@ -818,7 +819,9 @@
             {/if}
           </UI.Breadcrumb.List>
         </UI.Breadcrumb.Root>
-        {#if session !== null}<UI.ViewNavigation
+        {#if session !== null}<SessionViewNavigation
+            workspaceID={workspace.id}
+            sessionID={session.id}
             items={sessionViews(workspace.id, session.id, "notes")}
             name={session.name}
             onRename={(name) =>

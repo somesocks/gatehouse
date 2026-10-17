@@ -5,6 +5,7 @@
   import { untrack } from "svelte"
   import type { Workspace } from "../../app/access"
   import { createChatCollectionController } from "./chat-collection-controller.svelte"
+  import { useRuntime } from "../../app/runtime.svelte"
 
   let {
     workspace,
@@ -25,8 +26,12 @@
     onCreate: () => void | Promise<void>
     onNavigate: (path: string) => void
   } = $props()
+  const runtime = useRuntime()
   const controller = untrack(() =>
-    createChatCollectionController({ onAuthenticationLost }),
+    createChatCollectionController({
+      onAuthenticationLost,
+      activity: runtime.activity,
+    }),
   )
 
   $effect(() => {
