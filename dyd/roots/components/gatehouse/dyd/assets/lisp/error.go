@@ -58,8 +58,8 @@ type taintedError struct {
 
 type interruptedError struct{ cause error }
 
-func (err interruptedError) Error() string { return ErrInterrupted.Error() }
-func (err interruptedError) Unwrap() error { return err.cause }
+func (err interruptedError) Error() string        { return ErrInterrupted.Error() }
+func (err interruptedError) Unwrap() error        { return err.cause }
 func (err interruptedError) Is(target error) bool { return target == ErrInterrupted }
 
 func (err *raisedError) Error() string {
@@ -85,6 +85,26 @@ func taintError(err error, taint Taint) error {
 		return existing
 	}
 	return &taintedError{cause: err, taint: taint}
+}
+
+func errorTaint(err error) Taint {
+	taint := TaintNone
+	for err != nil {
+		switch value := err.(type) {
+		case *taintedError:
+			taint = joinTaint(taint, value.taint)
+		case *raisedError:
+			taint = joinTaint(taint, TaintOf(value.value))
+		}
+		if joined, ok := err.(interface{ Unwrap() []error }); ok {
+			for _, cause := range joined.Unwrap() {
+				taint = joinTaint(taint, errorTaint(cause))
+			}
+			return taint
+		}
+		err = errors.Unwrap(err)
+	}
+	return taint
 }
 
 func errorExpression(value Expr) Expr {
@@ -203,11 +223,12 @@ func errorValueOf(_ *evaluator, arguments []Expr) (error, Expr) {
 }
 
 func caughtError(err error) Expr {
-	if raised, ok := err.(*raisedError); ok {
-		return raised.value
+	var raised *raisedError
+	if errors.As(err, &raised) {
+		return withTaint(raised.value, errorTaint(err))
 	}
 	if tainted, ok := err.(*taintedError); ok {
-		return errorExpression(withTaint(stringValue(tainted.cause.Error()), tainted.taint))
+		return errorExpression(withTaint(stringValue(tainted.cause.Error()), errorTaint(err)))
 	}
-	return errorExpression(stringValue(err.Error()))
+	return errorExpression(withTaint(stringValue(err.Error()), errorTaint(err)))
 }

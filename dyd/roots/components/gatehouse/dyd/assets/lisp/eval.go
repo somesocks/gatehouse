@@ -60,6 +60,7 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 			if err != nil {
 				return err, nil
 			}
+			tailTaint = joinTaint(tailTaint, TaintOf(callee))
 			calleeBase, _ := unwrap(callee)
 			if builtin, ok := calleeBase.(*builtin); ok {
 				arguments := forms[1:]
@@ -120,7 +121,14 @@ func (evaluator *evaluator) eval(expression Expr, env *environment) (err error, 
 	}
 }
 
-func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr) (error, Expr) {
+func (evaluator *evaluator) call(callee Expr, env *environment, arguments []Expr) (err error, result Expr) {
+	defer func() {
+		if err != nil {
+			err = taintError(err, TaintOf(callee))
+		} else {
+			result = withTaint(result, TaintOf(callee))
+		}
+	}()
 	if err := evaluator.interrupted(); err != nil {
 		return err, nil
 	}

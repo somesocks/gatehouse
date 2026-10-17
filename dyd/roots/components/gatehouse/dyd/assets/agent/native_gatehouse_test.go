@@ -176,6 +176,7 @@ func TestGatehouseFileAPIsRejectWrongFileKinds(t *testing.T) {
 func TestAgentPreludeHidesImportBindings(t *testing.T) {
 	err, result := lisp.Evaluate(`(list
   (error? (error/catch (import)))
+  (error? (error/catch (import/define null)))
   (error? (error/catch (import/restrict)))
   (error? (error/catch (import/search))))`, lisp.EvalOptions{
 		Prelude: agentPrelude,
@@ -186,7 +187,7 @@ func TestAgentPreludeHidesImportBindings(t *testing.T) {
 			NewWebModule(),
 		}),
 	})
-	if err != nil || result.String() != "(#t #t #t)" {
+	if err != nil || result.String() != "(#t #t #t #t)" {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
 }

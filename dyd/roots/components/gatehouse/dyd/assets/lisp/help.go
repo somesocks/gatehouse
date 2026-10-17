@@ -9,7 +9,7 @@ func helpValue(_ *evaluator, env *environment, arguments []Expr) (error, Expr) {
 	if len(arguments) != 1 {
 		return expressionError("help requires one argument"), nil
 	}
-	return nil, stringValue(helpText(arguments[0], env, make(map[string]struct{})))
+	return nil, helpText(arguments[0], env, make(map[string]struct{}))
 }
 func helpSearch(_ *evaluator, env *environment, arguments []Expr) (error, Expr) {
 	err, terms := helpTerms(arguments)
@@ -86,53 +86,54 @@ func matchesTerms(haystack string, terms []string) bool {
 	}
 	return true
 }
-func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) string {
+func helpText(expr Expr, env *environment, seenSymbols map[string]struct{}) (result Expr) {
+	defer func() { result = withTaint(result, TaintOf(expr)) }()
 	base, _ := unwrap(expr)
 	if symbol, ok := base.(*symbolExpr); ok {
 		if _, exists := seenSymbols[symbol.value]; exists {
-			return "symbol"
+			return stringValue("symbol")
 		}
 		seenSymbols[symbol.value] = struct{}{}
 		if value, exists := env.visibleValue(symbol.value); exists {
 			return helpText(value, env, seenSymbols)
 		}
-		return "symbol"
+		return stringValue("symbol")
 	}
 	if help := helpOf(expr); help != "" {
-		return help
+		return stringValue(help)
 	}
 	switch value := base.(type) {
 	case *booleanExpr:
-		return "bool"
+		return stringValue("bool")
 	case *integerExpr:
-		return "int"
+		return stringValue("int")
 	case *stringExpr:
-		return "string"
+		return stringValue("string")
 	case *bytesExpr:
-		return "bytes"
+		return stringValue("bytes")
 	case *errorValue:
-		return "error"
+		return stringValue("error")
 	case *nullExpr:
-		return "null"
+		return stringValue("null")
 	case *pair:
 		if isProperList(value) {
-			return "list"
+			return stringValue("list")
 		}
-		return "pair"
+		return stringValue("pair")
 	case *closure:
 		if value.restParameter != nil {
 			if len(value.parameters) == 0 {
-				return "function " + *value.restParameter
+				return stringValue("function " + *value.restParameter)
 			}
-			return "function (" + strings.Join(value.parameters, " ") + " . " + *value.restParameter + ")"
+			return stringValue("function (" + strings.Join(value.parameters, " ") + " . " + *value.restParameter + ")")
 		}
-		return "function (" + strings.Join(value.parameters, " ") + ")"
+		return stringValue("function (" + strings.Join(value.parameters, " ") + ")")
 	case *builtin:
-		return "builtin"
+		return stringValue("builtin")
 	case *moduleReference:
-		return "module reference"
+		return stringValue("module reference")
 	default:
-		return "invalid"
+		return stringValue("invalid")
 	}
 }
 func (env *environment) visibleValue(name string) (Expr, bool) {

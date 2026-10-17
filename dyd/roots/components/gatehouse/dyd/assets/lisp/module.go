@@ -159,10 +159,178 @@ func importBuiltin(loader *moduleLoader) Expr {
 	}, importDocumentation.text())
 }
 
-func importRestrict(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
+func importDefine(evaluator *evaluator, env *environment, forms []Expr) (err error, result Expr) {
+	taint := TaintNone
+	defer func() {
+		if err != nil {
+			err = taintError(err, taint)
+		} else {
+			result = withTaint(result, taint)
+		}
+	}()
+	if len(forms) == 0 {
+		return expressionError("import/define requires a body expression"), nil
+	}
+	err, importer := env.lookup("import")
+	taint = joinTaint(taint, TaintOf(importer))
+	base, _ := unwrap(importer)
+	importerBuiltin, ok := base.(*builtin)
+	if err != nil || !ok || !importerBuiltin.special {
+		return expressionError("import/define requires an import binding"), nil
+	}
+	err, search := env.lookup("import/search")
+	if err != nil {
+		return err, nil
+	}
+	taint = joinTaint(taint, TaintOf(search))
+
+	definitions := make(map[moduleReference][]moduleExport, len(forms)-1)
+	for _, form := range forms[:len(forms)-1] {
+		taint = joinTaint(taint, TaintOf(form))
+		err, declaration := expressions(form)
+		if err != nil || len(declaration) != 2 {
+			return expressionError("import/define declarations must contain a module reference and export expression"), nil
+		}
+		base, _ := unwrap(declaration[0])
+		reference, ok := base.(*moduleReference)
+		if !ok {
+			return expressionError("import/define declarations must start with a module reference"), nil
+		}
+		if _, exists := definitions[*reference]; exists {
+			return expressionError("import/define contains duplicate module reference %s", reference.String()), nil
+		}
+		err, value := evaluator.eval(declaration[1], env)
+		if err != nil {
+			return err, nil
+		}
+		taint = joinTaint(taint, TaintOf(value))
+		err, exports := moduleExports(value)
+		if err != nil {
+			return taintError(fmt.Errorf("import/define %s: %w", reference.String(), err), errorTaint(err)), nil
+		}
+		definitions[*reference] = exports
+	}
+
+	defined := &environment{parent: env, values: make(map[string]*Expr, 2)}
+	defined.bind("import", withTaint(definedImportBuiltin(importer, definitions), taint))
+	defined.bind("import/search", withTaint(definedImportSearchBuiltin(search, definitions), taint))
+	return evaluator.eval(forms[len(forms)-1], defined)
+}
+
+func definedImportBuiltin(importer Expr, definitions map[moduleReference][]moduleExport) Expr {
+	return withHelp(&builtin{
+		special: true,
+		call: valueCall(func(evaluation *evaluator, env *environment, forms []Expr) (error, Expr) {
+			if len(forms) < 2 {
+				return expressionError("import requires declarations and a body expression"), nil
+			}
+			locals := &environment{values: make(map[string]*Expr)}
+			aliases := make(map[string]struct{}, len(forms)-1)
+			delegated := make([]Expr, 0, len(forms))
+			for _, form := range forms[:len(forms)-1] {
+				err, alias, reference := moduleImportDeclaration(form)
+				if err != nil {
+					return err, nil
+				}
+				if _, exists := aliases[alias]; exists {
+					return expressionError("import alias %q is duplicated", alias), nil
+				}
+				aliases[alias] = struct{}{}
+				if exports, exists := definitions[reference]; exists {
+					if err := bindModuleExports(locals, alias, exports); err != nil {
+						return err, nil
+					}
+				} else {
+					delegated = append(delegated, form)
+				}
+			}
+			body := forms[len(forms)-1]
+			if len(delegated) == 0 {
+				locals.parent = env
+				return evaluation.eval(body, locals)
+			}
+			if len(locals.values) == 0 {
+				return evaluation.call(importer, env, append(delegated, body))
+			}
+			continuation := &builtin{special: true, call: valueCall(func(evaluation *evaluator, imported *environment, _ []Expr) (error, Expr) {
+				// Check only bindings introduced by the delegated import. Existing
+				// caller bindings may be shadowed normally, in any number of frames.
+				for name, local := range locals.values {
+					for scope := imported; scope != nil && scope != env; scope = scope.parent {
+						if existing, exists := scope.values[name]; exists {
+							taint := TaintOf(*local)
+							if existing != nil {
+								taint = joinTaint(taint, TaintOf(*existing))
+							}
+							return taintError(expressionError("import binding %q is duplicated", name), taint), nil
+						}
+					}
+				}
+				return evaluation.eval(body, &environment{parent: imported, values: locals.values})
+			})}
+			return evaluation.call(importer, env, append(delegated, list([]Expr{continuation})))
+		}),
+	}, helpOf(importer))
+}
+
+func definedImportSearchBuiltin(search Expr, definitions map[moduleReference][]moduleExport) Expr {
+	return withHelp(&builtin{
+		leaky: true,
+		call: valueCall(func(evaluator *evaluator, env *environment, arguments []Expr) (error, Expr) {
+			err, terms := helpTerms(arguments)
+			if err != nil {
+				return err, nil
+			}
+			err, value := evaluator.call(search, env, arguments)
+			if err != nil {
+				return err, nil
+			}
+			err, references := importSearchReferences(value)
+			if err != nil {
+				return taintError(err, TaintOf(value)), nil
+			}
+			_, inherited := expressions(value)
+			annotated := make(map[moduleReference]Expr, len(inherited))
+			for _, expression := range inherited {
+				base, _ := unwrap(expression)
+				reference := *base.(*moduleReference)
+				if first, exists := annotated[reference]; exists {
+					// Keep the first reference's documentation and join duplicate taints.
+					expression = withTaint(first, TaintOf(expression))
+				}
+				annotated[reference] = expression
+			}
+			for reference := range definitions {
+				if matchesTerms(reference.String(), terms) {
+					references[reference] = struct{}{}
+				}
+			}
+			result := make([]Expr, 0, len(references))
+			for _, reference := range sortedModuleReferences(references) {
+				expression, exists := annotated[reference]
+				if !exists {
+					expression = moduleReferenceExpr(reference)
+				}
+				result = append(result, expression)
+			}
+			return nil, withTaint(list(result), TaintOf(value))
+		}),
+	}, importSearchDocumentation.text())
+}
+
+func importRestrict(evaluator *evaluator, env *environment, forms []Expr) (err error, result Expr) {
+	taint := TaintNone
+	defer func() {
+		if err != nil {
+			err = taintError(err, taint)
+		} else {
+			result = withTaint(result, taint)
+		}
+	}()
 	if len(forms) != 2 {
 		return expressionError("import/restrict requires an allowlist and body expression"), nil
 	}
+	taint = joinTaint(taint, TaintOf(forms[0]))
 	err, values := expressions(forms[0])
 	if err != nil {
 		return expressionError("import/restrict allowlist must be a proper list"), nil
@@ -181,29 +349,29 @@ func importRestrict(evaluator *evaluator, env *environment, forms []Expr) (error
 	}
 
 	err, importer := env.lookup("import")
+	taint = joinTaint(taint, TaintOf(importer))
 	base, _ := unwrap(importer)
 	importerBuiltin, ok := base.(*builtin)
 	if err != nil || !ok || !importerBuiltin.special {
 		return expressionError("import/restrict requires an import binding"), nil
 	}
-	err, allowed = intersectImportAllowlist(evaluator, env, allowed)
+	err, allowed, searchTaint := intersectImportAllowlist(evaluator, env, allowed)
+	taint = joinTaint(taint, searchTaint)
 	if err != nil {
 		return err, nil
 	}
 	restricted := &environment{parent: env, values: make(map[string]*Expr, 2)}
-	restricted.bind("import", restrictedImportBuiltin(importer, allowed))
-	restricted.bind("import/search", importSearchBuiltin(allowed))
+	restricted.bind("import", withTaint(restrictedImportBuiltin(importer, allowed), taint))
+	restricted.bind("import/search", withTaint(importSearchBuiltin(allowed), taint))
 	return evaluator.eval(forms[1], restricted)
 }
 
 func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}) Expr {
-	base, _ := unwrap(importer)
-	importerBuiltin := base.(*builtin)
 	return withHelp(&builtin{
 		special: true,
-		call: func(evaluator *evaluator, env *environment, forms []Expr) (error, callOutcome) {
+		call: valueCall(func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
 			if len(forms) < 2 {
-				return importerBuiltin.call(evaluator, env, forms)
+				return evaluator.call(importer, env, forms)
 			}
 			for _, form := range forms[:len(forms)-1] {
 				err, _, reference := moduleImportDeclaration(form)
@@ -214,23 +382,23 @@ func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}
 					return expressionError("import %s is not allowed", reference.String()), nil
 				}
 			}
-			return importerBuiltin.call(evaluator, env, forms)
-		},
+			return evaluator.call(importer, env, forms)
+		}),
 	}, helpOf(importer))
 }
 
-func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed map[moduleReference]struct{}) (error, map[moduleReference]struct{}) {
+func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed map[moduleReference]struct{}) (error, map[moduleReference]struct{}, Taint) {
 	search, exists := env.visibleValue("import/search")
 	if !exists {
-		return nil, allowed
+		return nil, allowed, TaintNone
 	}
 	err, result := evaluator.call(search, env, nil)
 	if err != nil {
-		return err, nil
+		return err, nil, TaintOf(search)
 	}
 	err, outer := importSearchReferences(result)
 	if err != nil {
-		return err, nil
+		return err, nil, TaintOf(result)
 	}
 	intersection := make(map[moduleReference]struct{}, len(allowed))
 	for reference := range allowed {
@@ -238,7 +406,7 @@ func intersectImportAllowlist(evaluator *evaluator, env *environment, allowed ma
 			intersection[reference] = struct{}{}
 		}
 	}
-	return nil, intersection
+	return nil, intersection, TaintOf(result)
 }
 
 func importSearchBuiltin(allowed map[moduleReference]struct{}) Expr {
@@ -318,17 +486,28 @@ func importModules(loader *moduleLoader, evaluator *evaluator, env *environment,
 
 		err, exports := loader.load(reference, env)
 		if err != nil {
-			return expressionError("import %s: %v", reference.String(), err), nil
+			return taintError(fmt.Errorf("import %s: %w", reference.String(), err), errorTaint(err)), nil
 		}
-		for _, export := range exports {
-			name := alias + "/" + export.name
-			if _, exists := imports.values[name]; exists {
-				return expressionError("import binding %q is duplicated", name), nil
-			}
-			imports.bind(name, export.value)
+		if err := bindModuleExports(imports, alias, exports); err != nil {
+			return err, nil
 		}
 	}
 	return evaluator.eval(forms[len(forms)-1], imports)
+}
+
+func bindModuleExports(env *environment, alias string, exports []moduleExport) error {
+	for _, export := range exports {
+		name := alias + "/" + export.name
+		if existing, exists := env.values[name]; exists {
+			taint := TaintOf(export.value)
+			if existing != nil {
+				taint = joinTaint(taint, TaintOf(*existing))
+			}
+			return taintError(expressionError("import binding %q is duplicated", name), taint)
+		}
+		env.bind(name, export.value)
+	}
+	return nil
 }
 
 func moduleImportDeclaration(expression Expr) (error, string, moduleReference) {
@@ -349,12 +528,17 @@ func moduleImportDeclaration(expression Expr) (error, string, moduleReference) {
 	return nil, symbol.value, *module
 }
 
-func moduleExports(expression Expr) (error, []moduleExport) {
+func moduleExports(expression Expr) (err error, exports []moduleExport) {
+	defer func() {
+		if err != nil {
+			err = taintError(err, TaintOf(expression))
+		}
+	}()
 	err, values := expressions(expression)
 	if err != nil {
 		return err, nil
 	}
-	exports := make([]moduleExport, 0, len(values))
+	exports = make([]moduleExport, 0, len(values))
 	seen := make(map[string]struct{}, len(values))
 	for _, value := range values {
 		base, _ := unwrap(value)
@@ -371,7 +555,7 @@ func moduleExports(expression Expr) (error, []moduleExport) {
 			return expressionError("module export %q is duplicated", name.value), nil
 		}
 		seen[name.value] = struct{}{}
-		exported := pair.rest
+		exported := withTaint(pair.rest, joinTaint(TaintOf(expression), TaintOf(value)))
 		if help := helpOf(value); help != "" {
 			exported = withHelp(exported, help)
 		}

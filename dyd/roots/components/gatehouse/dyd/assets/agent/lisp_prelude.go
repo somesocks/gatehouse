@@ -70,6 +70,7 @@ const agentPreludeEnd = `
                 (list/map prelude/operation-binding prelude/operations))
               '(let
                   ((import null)
+                   (import/define null)
                    (import/restrict null)
                    (import/search null)
                    (input/ask-json null)
