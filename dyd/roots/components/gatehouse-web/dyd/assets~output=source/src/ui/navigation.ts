@@ -5,6 +5,9 @@ export type NavigationItem = {
   active?: boolean;
   external?: boolean;
 };
+export type SessionNavigationItem = Omit<NavigationItem, "icon"> & {
+  icon?: "files" | "notes" | "tasks" | "secrets";
+};
 export type NavigationIcon =
   | "overview"
   | "chats"

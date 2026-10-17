@@ -18,8 +18,9 @@
       | "item"
       | "entry"
       | "card"
-      | "navigation"
-    size?: "default" | "sm"
+       | "navigation"
+       | "record"
+    size?: "default" | "sm" | "icon"
   } = $props()
 </script>
 
@@ -29,7 +30,9 @@
   >
 {:else}
   <a
-    class={variant === "navigation"
+    class={variant === "record"
+      ? "flex min-w-0 flex-1 flex-col gap-1 rounded-sm text-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring"
+      : variant === "navigation"
       ? "flex min-w-0 items-center gap-2 rounded-md text-sm hover:underline aria-[current=page]:font-medium aria-[current=page]:text-sidebar-foreground"
       : variant === "item" || variant === "entry" || variant === "card"
         ? cn(

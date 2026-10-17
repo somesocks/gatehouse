@@ -73,6 +73,7 @@ export type Route =
   | ({ kind: "session-note-new" } & SessionRoute)
   | ({ kind: "session-note"; noteID: string } & SessionRoute)
   | ({ kind: "session-note-edit"; noteID: string } & SessionRoute)
+  | ({ kind: "session-note-history"; noteID: string } & SessionRoute)
   | ({
       kind: "session-note-revision"
       noteID: string
@@ -553,6 +554,19 @@ export function parseRoute(url: URL): Route {
       }
     }
     if (
+      segments.length === 8 &&
+      section === "notes" &&
+      segments[7] === "revisions" &&
+      segments[6] !== "new"
+    ) {
+      return {
+        kind: "session-note-history",
+        workspaceID,
+        sessionID: resourceID,
+        noteID: segments[6],
+      }
+    }
+    if (
       segments.length === 9 &&
       section === "notes" &&
       segments[7] === "revisions" &&
@@ -954,6 +968,8 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}`
     case "session-note-edit":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}/edit`
+    case "session-note-history":
+      return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}/revisions`
     case "session-note-revision":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}/notes/${segment(route.noteID)}/revisions/${segment(String(route.revision))}`
     case "session-tasks":

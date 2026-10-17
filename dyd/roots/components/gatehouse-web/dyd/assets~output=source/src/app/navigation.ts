@@ -2,7 +2,7 @@ import type { Workspace } from "./access";
 import { signOut } from "./auth";
 import { updateChatSession } from "./chat";
 import type { ApplicationRuntime } from "./runtime.svelte";
-import type { NavigationIcon, NavigationOptions } from "../ui/navigation";
+import type { NavigationIcon, NavigationOptions, SessionNavigationItem } from "../ui/navigation";
 
 function workspaceSwitcher(
   runtime: ApplicationRuntime,
@@ -171,12 +171,13 @@ export function sessionViews(
   workspaceID: string,
   sessionID: string,
   active: string,
-) {
+): SessionNavigationItem[] {
   const base = `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}`;
-  return ["chat", "files", "notes", "tasks", "secrets"].map((view) => ({
+  return (["chat", "files", "notes", "tasks", "secrets"] as const).map((view) => ({
     label: view[0].toUpperCase() + view.slice(1),
     href: view === "chat" ? base : `${base}/${view}`,
     active: view === active,
+    icon: view === "chat" ? undefined : view,
   }));
 }
 

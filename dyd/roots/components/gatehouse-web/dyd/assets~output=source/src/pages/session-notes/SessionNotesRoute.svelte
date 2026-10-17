@@ -2,8 +2,6 @@
   import { untrack } from "svelte"
   import { createLoadState } from "../../utils/load-state.svelte"
   import {
-    X,
-    Modal,
     PageBody,
     PageHeading,
     RouterLink,
@@ -44,6 +42,7 @@
         | "session-note-new"
         | "session-note"
         | "session-note-edit"
+        | "session-note-history"
         | "session-note-revision"
     }
   >
@@ -59,6 +58,7 @@
     "title" | "description" | "sensitive" | "author" | "created_at"
   > & { revision: number; body?: string }
 
+  let { embedded = false }: { embedded?: boolean } = $props()
   const runtime = useRuntime()
   const sessionLoad = createLoadState()
   const notesLoad = createLoadState()
@@ -87,12 +87,14 @@
   let editing = $state(false)
   let saving = $state(false)
   let deleting = $state(false)
+  let removal = $state<SessionNote | null>(null)
+  let collectionOwner = ""
+  let historyOwner = ""
   let title = $state("")
   let description = $state("")
   let body = $state("")
   let sensitive = $state(false)
   let error = $state("")
-  let historyModal = $state<UI.DialogHandle | undefined>()
   let history = $state<Revision[]>([])
   let historyLoading = $state(false)
   let historyRequest: AbortController | undefined
@@ -180,9 +182,16 @@
   })
 
   function activate(route: NotesRoute): () => void {
-    page.reset()
-    sessionLoad.reset()
-    notesLoad.reset()
+    const owner = JSON.stringify([route.workspaceID, route.sessionID, auth.state.claims?.principal.ref.id])
+    if (owner !== collectionOwner) {
+      collectionOwner = owner
+      page.reset()
+      sessionLoad.reset()
+      notesLoad.reset()
+      session = null
+      notes = []
+      historyOwner = ""
+    } else page.suspend()
     detailLoad.reset()
     revisionLoad.reset()
     const value = ++generation
@@ -191,20 +200,22 @@
     unsubscribe?.()
     unsubscribe = undefined
     historyGeneration += 1
-    if (historyModal?.open) historyModal.close()
-    session = null
-    notes = []
     active = null
     creating = route.kind === "session-note-new"
     editing = creating
     saving = false
     deleting = false
+    removal = null
     title = ""
     description = ""
     body = ""
     sensitive = false
     error = ""
-    history = []
+    if ("noteID" in route && historyOwner !== route.noteID) {
+      historyOwner = route.noteID
+      historyPage.reset()
+      history = []
+    } else historyPage.suspend()
     historyLoading = false
     historyError = ""
     selectedRevision = null
@@ -221,6 +232,8 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        page.suspend()
+        historyPage.suspend()
         sessionLoad.stop()
         notesLoad.stop()
         detailLoad.stop()
@@ -316,6 +329,10 @@
     if (route.kind === "session-note-edit") {
       if (!editing) startEdit()
       return true
+    }
+    if (route.kind === "session-note-history") {
+      await openHistory(false)
+      return historyError === ""
     }
     return (
       route.kind !== "session-note-revision" ||
@@ -575,10 +592,7 @@
       if (!isCurrent(value, route.workspaceID, route.sessionID, signal)) return
       detailLoad.stop()
       notesLoad.stop()
-      notes = sortNotes([
-        saved,
-        ...notes.filter((candidate) => candidate.id !== saved.id),
-      ])
+      notes = notes.map((candidate) => candidate.id === saved.id ? saved : candidate)
       runtime.navigate(detailPath(route.workspaceID, route.sessionID, saved.id))
     } catch {
       if (isCurrent(value, route.workspaceID, route.sessionID, signal))
@@ -589,15 +603,16 @@
     }
   }
 
+  function requestRemove(): void {
+    if (active === null || deleting) return
+    error = ""
+    removal = { ...active }
+  }
+
   async function remove(): Promise<void> {
-    if (
-      active === null ||
-      deleting ||
-      !window.confirm(`Remove ${active.title}?`)
-    )
-      return
+    if (removal === null || active?.id !== removal.id || deleting) return
     const route = currentRoute
-    const note = active
+    const note = removal
     const value = generation
     const signal = abortController?.signal
     if (signal === undefined) return
@@ -646,7 +661,6 @@
     if (reset) history = []
     historyError = ""
     historyLoading = true
-    if (!historyModal?.open) historyModal?.showModal()
     try {
       const response = await fetchSessionNoteRevisions(
         route.workspaceID,
@@ -693,24 +707,6 @@
     }
   }
 
-  function selectRevision(revision: number): void {
-    if (active === null) return
-    const route = currentRoute
-    historyModal?.close()
-    runtime.navigate(
-      revision === active.revision
-        ? detailPath(route.workspaceID, route.sessionID, active.id)
-        : revisionPath(route.workspaceID, route.sessionID, active.id, revision),
-    )
-  }
-
-  function closeHistory(): void {
-    historyRequest?.abort()
-    historyLoading = false
-    historyPage.reset()
-    historyGeneration += 1
-    historyError = ""
-  }
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -763,14 +759,11 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <SidebarPage.Root>
-    <SidebarPage.Sidebar
-      ><UI.Navigation
+  <UI.ResourcePage {embedded}>
+    {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
-      /></SidebarPage.Sidebar
-    >
-    <SidebarPage.Page>
-      <SidebarPage.Header>
+      />{/snippet}
+    {#snippet header()}
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb">
           <UI.Breadcrumb.List>
@@ -832,10 +825,9 @@
                 name,
                 updateSessionName,
               )}
-          />{/if}</SidebarPage.Header
-      >
-      <SidebarPage.Body
-        ><PageBody fluid>
+          />{/if}
+    {/snippet}
+    <PageBody fluid>
           {#if sessionLoad.reloading || notesLoad.reloading || detailLoad.reloading || revisionLoad.reloading}<UI.Text
               role="status">Refreshing notes…</UI.Text
             >{/if}
@@ -878,17 +870,23 @@
                   void loadRoute(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
+          {:else if removal !== null}
+            <UI.ResourceRemoval noun="note" name={removal.title} busy={deleting} {error} onCancel={() => { removal = null; error = "" }} onConfirm={() => void remove()} />
           {:else if editing}<UI.AdminHeader
+              compact={embedded}
               title={creating ? "New note" : `Edit ${active?.title ?? "note"}`}
-              description="Update the summary, content, and sensitivity."
+              description={embedded ? undefined : "Update the summary, content, and sensitivity."}
             /><UI.Form
-              surface
+              id="session-note-form"
+              surface={!embedded}
+              compact={embedded}
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
               <UI.FormSection
+                dialog={embedded}
                 title="Summary"
                 description="A title and short description identify this note."
                 ><UI.Field>
@@ -914,10 +912,11 @@
                   ></UI.Textarea>
                 </UI.Field>
               </UI.FormSection><UI.FormSection
+                dialog={embedded}
                 title="Content"
                 description="Write the note using Markdown."
                 ><UI.Field>
-                  <UI.Label for="session-note-body">Content (optional)</UI.Label
+                  <UI.Label for="session-note-body">Content (optional Markdown)</UI.Label
                   >
                   <UI.Textarea
                     id="session-note-body"
@@ -928,6 +927,7 @@
                   ></UI.Textarea>
                 </UI.Field>
               </UI.FormSection><UI.FormSection
+                dialog={embedded}
                 title="Sensitivity"
                 description="Control how agents handle the note content."
                 ><UI.Field>
@@ -944,24 +944,26 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.FormActions>
+              <UI.FormActions dialog={embedded}>
                 <UI.Button
                   variant="outline"
                   type="button"
                   disabled={saving}
                   onclick={cancelEdit}>Cancel</UI.Button
-                ><UI.Button variant="default" type="submit" disabled={saving}
+                ><UI.Button variant="default" type="submit" form="session-note-form" disabled={saving}
                   >{saving ? "Saving..." : "Save note"}</UI.Button
                 >
               </UI.FormActions>
             </UI.Form>
-          {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "checking"}<UI.Text
+          {:else if currentRoute.kind === "session-note-history" && (history.length > 0 || detailStatus === "ready")}
+            {@render historyContent()}
+          {:else if "noteID" in currentRoute && detailStatus === "checking"}<UI.Text
               as="p"
               tone="muted"
             >
               Loading note...
             </UI.Text>
-          {:else if (currentRoute.kind === "session-note" || currentRoute.kind === "session-note-edit" || currentRoute.kind === "session-note-revision") && detailStatus === "unavailable"}<UI.Text
+          {:else if "noteID" in currentRoute && detailStatus === "unavailable"}<UI.Text
               as="p"
               tone="muted"
             >
@@ -978,55 +980,27 @@
             >
           {:else if active !== null}{@const displayed =
               selectedRevision ?? active}
-            {#snippet noteActions()}{#if selectedRevision === null}<UI.Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onclick={() =>
-                    active !== null &&
-                    runtime.navigate(
-                      editPath(
-                        currentRoute.workspaceID,
-                        currentRoute.sessionID,
-                        active.id,
-                      ),
-                    )}>Edit</UI.Button
-                >{:else}<UI.Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  onclick={() =>
-                    active !== null &&
-                    runtime.navigate(
-                      detailPath(
-                        currentRoute.workspaceID,
-                        currentRoute.sessionID,
-                        active.id,
-                      ),
-                    )}>Current revision</UI.Button
-                >{/if}<UI.Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onclick={() => void openHistory()}>History</UI.Button
-              >{#if selectedRevision === null}<UI.Button
-                  variant="outline"
-                  size="sm"
-                  type="button"
-                  disabled={deleting}
-                  onclick={() => void remove()}
-                  >{deleting ? "Removing..." : "Remove"}</UI.Button
-                >{/if}{/snippet}
+            {#snippet noteActions()}
+              <UI.Button variant="outline" size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(`${detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id)}/revisions`)}>History</UI.Button>
+              {#if selectedRevision === null}
+                <UI.Button variant={embedded ? "destructive" : "outline"} size={embedded ? "default" : "sm"} disabled={deleting} onclick={requestRemove}>Remove</UI.Button>
+                <UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(editPath(currentRoute.workspaceID, currentRoute.sessionID, active.id))}>Edit</UI.Button>
+              {:else}
+                <UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id))}>Current revision</UI.Button>
+              {/if}
+            {/snippet}
             <UI.Stack as="article">
               <UI.AdminHeader
+                compact={embedded}
                 kind={selectedRevision === null
-                  ? "Chat note"
+                  ? embedded ? undefined : "Chat note"
                   : `Historical revision ${selectedRevision.revision}`}
                 title={displayed.title}
                 description={displayed.description}
-                actions={noteActions}
+                actions={embedded ? undefined : noteActions}
               />
-              <UI.DetailSection title="Note information">
+              {#if embedded}<UI.ResourceActions>{@render noteActions()}</UI.ResourceActions>{/if}
+              <UI.DetailSection title="Note information" compact={embedded}>
                 <UI.Property label="Author"
                   >{authorLabel(displayed.author)}</UI.Property
                 >
@@ -1051,69 +1025,44 @@
             </UI.Stack>
           {:else}{#snippet collectionActions()}<UI.Button
                 variant="default"
-                size="sm"
+                size={embedded ? "default" : "sm"}
                 type="button"
                 onclick={() =>
                   runtime.navigate(
                     `${listPath(workspace.id, currentRoute.sessionID)}/new`,
                   )}>New note</UI.Button
               >{/snippet}
-            <UI.AdminHeader
-              title="Notes"
-              description="Documents associated with this chat."
-              actions={collectionActions}
-            />
-            <UI.SearchToolbar
-              label="Search notes"
-              placeholder="Title or description"
-              bind:value={page.state.search}
+            {#if embedded}
+              <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>
+            {:else}
+              <UI.AdminHeader
+                title="Notes"
+                description="Documents associated with this chat."
+                actions={collectionActions}
+              />
+            {/if}
+            <UI.RecordList
+              label="Notes"
+              items={notes.map((note) => ({ ...note, label: note.title }))}
+              href={(note) => detailPath(workspace.id, currentRoute.sessionID, note.id)}
               loading={page.state.busy || notesLoad.state.pending}
-              onsearch={() => void page.search(reloadNotes)}
-            />
-            <UI.RecordTable
-              headers={["Title", "Sensitivity", "Author", "Date"]}
+              scrollable={false}
+              pageKey={JSON.stringify([page.state.query, page.state.cursor])}
+              emptyMessage={notesStatus === "checking" ? "Loading…" : notesStatus === "unavailable" ? "Notes could not be loaded." : "No matching notes."}
             >
-              {#if notesStatus !== "ready"}<UI.TableEmpty
-                  columns={4}
-                  message={notesStatus === "unavailable"
-                    ? "Notes could not be loaded."
-                    : notesStatus === "checking"
-                      ? "Loading notes…"
-                      : "Notes could not be loaded."}
-                />
-              {:else}{#each notes as note (note.id)}<UI.RecordRow>
-                    <UI.RecordCell primary
-                      ><RouterLink
-                        href={detailPath(
-                          workspace.id,
-                          currentRoute.sessionID,
-                          note.id,
-                        )}>{note.title}</RouterLink
-                      ><UI.Text size="small" tone="muted"
-                        >{note.description}</UI.Text
-                      ></UI.RecordCell
-                    >
-                    <UI.RecordCell
-                      >{note.sensitive
-                        ? "Sensitive"
-                        : "Standard"}</UI.RecordCell
-                    >
-                    <UI.RecordCell>{authorLabel(note.author)}</UI.RecordCell>
-                    <UI.RecordCell>{dateLabel(note.created_at)}</UI.RecordCell>
-                  </UI.RecordRow>{:else}<UI.TableEmpty
-                    columns={4}
-                    message="No notes yet."
-                  />{/each}{/if}
-            </UI.RecordTable>
-            <UI.PaginationFooter
-              noun="notes"
+              {#snippet toolbar()}<UI.SearchToolbar framed={false} label="Search notes" placeholder="Search" bind:value={page.state.search} loading={page.state.busy || notesLoad.state.pending} onsearch={() => void page.search(reloadNotes)} />{/snippet}
+              {#snippet badges(note)}{#if note.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}{/snippet}
+              {#snippet details(note)}{note.description || `${authorLabel(note.author)} · ${dateLabel(note.created_at)}`}{/snippet}
+            </UI.RecordList>
+            {#if page.state.history.length > 0 || page.state.next}<UI.PaginationFooter
+              showCount={false}
               count={notes.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
               loading={page.state.busy || notesLoad.state.pending}
               onprevious={() => void page.previous(reloadNotes)}
               onnext={() => void page.next(reloadNotes)}
-            />
+            />{/if}
             {#if notesStatus === "unavailable"}<UI.Button
                 variant="outline"
                 onclick={() =>
@@ -1125,69 +1074,36 @@
                   )}>Try again</UI.Button
               >{/if}
           {/if}
-        </PageBody></SidebarPage.Body
-      >
-    </SidebarPage.Page>
-  </SidebarPage.Root>
-  <Modal
-    title="Revision history"
-    bind:modal={historyModal}
-    labelledBy="session-note-history-heading"
-    onClose={closeHistory}
-  >
-    {#snippet header()}<UI.Heading level={2} id="session-note-history-heading"
-        >Revision history</UI.Heading
-      >
-      <UI.Button
-        variant="ghost"
-        size="icon"
-        type="button"
-        aria-label="Close"
-        onclick={() => historyModal?.close()}
-        ><X size={18} strokeWidth={2} aria-hidden="true" /></UI.Button
-      >{/snippet}
-    {#if historyLoading}<UI.Text as="p" tone="muted">
-        Loading history...
-      </UI.Text>{:else}{#if historyError !== ""}<UI.Text
-          as="p"
-          size="small"
+    </PageBody>
+  </UI.ResourcePage>
+  {#snippet historyContent()}
+    <UI.AdminHeader title="Revision history" compact={embedded} />
+    {#if historyError !== ""}<UI.Notice
+          variant="destructive"
           role="alert"
-          aria-live="polite"
         >
           {historyError}
-        </UI.Text>{/if}
-      <UI.SearchToolbar
-        label="Search revisions"
-        placeholder="Title or revision"
-        bind:value={historyPage.state.search}
+          <UI.Button variant="outline" onclick={() => void reloadHistory()}>Try again</UI.Button>
+        </UI.Notice>{/if}
+      <UI.RecordList
+        label="Revisions"
+        items={history.map((revision) => ({ ...revision, id: String(revision.revision), label: revision.title }))}
+        href={(revision) => revision.revision === active?.revision ? detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id) : revisionPath(currentRoute.workspaceID, currentRoute.sessionID, "noteID" in currentRoute ? currentRoute.noteID : "", revision.revision)}
+        scrollable={false}
         loading={historyLoading || historyPage.state.busy}
-        onsearch={() => void historyPage.search(reloadHistory)}
-      />
-      <UI.RecordTable headers={["Revision", "Title", "Author", "Date"]}>
-        {#each history as revision (revision.revision)}<UI.RecordRow>
-            <UI.RecordCell primary
-              ><UI.Button
-                variant="link"
-                onclick={() => selectRevision(revision.revision)}
-                >Revision {revision.revision}</UI.Button
-              >{#if revision.revision === active?.revision}<UI.Badge
-                  >Current</UI.Badge
-                >{/if}</UI.RecordCell
-            >
-            <UI.RecordCell
-              >{revision.title}{#if revision.sensitive}<UI.Badge
-                  >Sensitive</UI.Badge
-                >{/if}</UI.RecordCell
-            >
-            <UI.RecordCell>{authorLabel(revision.author)}</UI.RecordCell>
-            <UI.RecordCell>{dateLabel(revision.created_at)}</UI.RecordCell>
-          </UI.RecordRow>{:else}<UI.TableEmpty
-            columns={4}
-            message="No matching revisions."
-          />{/each}
-      </UI.RecordTable>
-      <UI.PaginationFooter
-        noun="revisions"
+        pageKey={JSON.stringify([historyPage.state.query, historyPage.state.cursor])}
+        emptyMessage={historyLoading ? "Loading…" : "No matching revisions."}
+      >
+        {#snippet toolbar()}<UI.SearchToolbar framed={false} label="Search revisions" placeholder="Search" bind:value={historyPage.state.search} loading={historyLoading || historyPage.state.busy} onsearch={() => void historyPage.search(reloadHistory)} />{/snippet}
+        {#snippet badges(revision)}
+          <UI.Badge>Revision {revision.revision}</UI.Badge>
+          {#if revision.revision === active?.revision}<UI.Badge>Current</UI.Badge>{/if}
+          {#if revision.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}
+        {/snippet}
+        {#snippet details(revision)}{authorLabel(revision.author)} · {dateLabel(revision.created_at)}{/snippet}
+      </UI.RecordList>
+      {#if historyPage.state.history.length > 0 || historyPage.state.next}<UI.PaginationFooter
+        showCount={false}
         count={history.length}
         previous={historyPage.state.history.length > 0}
         next={!!historyPage.state.next}
@@ -1195,5 +1111,5 @@
         onprevious={() => void historyPage.previous(reloadHistory)}
         onnext={() => void historyPage.next(reloadHistory)}
       />{/if}
-  </Modal>
+  {/snippet}
 {/if}

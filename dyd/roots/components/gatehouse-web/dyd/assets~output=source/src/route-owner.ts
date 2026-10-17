@@ -100,6 +100,7 @@ export function routeOwner(route: Route): RouteOwner {
     case "session-note-new":
     case "session-note":
     case "session-note-edit":
+    case "session-note-history":
     case "session-note-revision":
       return "session-notes"
     case "session-tasks":

@@ -34,6 +34,8 @@ async function routeHarness(
   for (const statement of [...imports].reverse())
     body = body.slice(0, statement.getStart(ast)) + body.slice(statement.end)
   body = body.replace(/const runtime = useRuntime\(\)/, "")
+  // Script-only fixtures use the default component props without mounting a DOM.
+  body = body.replace(/\$props\(\)/g, "({})")
   const module = await import(
     /* @vite-ignore */ clientModuleURL(
       url,

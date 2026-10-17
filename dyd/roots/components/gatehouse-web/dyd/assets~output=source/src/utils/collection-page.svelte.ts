@@ -32,8 +32,7 @@ export function createCollectionPage() {
     else state.next = next
   }
   function reset() {
-    generation++
-    pending = undefined
+    suspend()
     Object.assign(state, {
       search: "",
       query: "",
@@ -42,6 +41,11 @@ export function createCollectionPage() {
       history: [],
       busy: false,
     })
+  }
+  function suspend() {
+    generation++
+    pending = undefined
+    state.busy = false
   }
   async function go(
     cursor: string,
@@ -88,5 +92,5 @@ export function createCollectionPage() {
       state.history.slice(0, -1),
     )
   }
-  return { state, key, params, accept, reset, search, next, previous }
+  return { state, key, params, accept, reset, suspend, search, next, previous }
 }

@@ -76,6 +76,7 @@
   type Owner = Project | Session
   type Status = "checking" | "ready" | "unavailable"
 
+  let { embedded = false }: { embedded?: boolean } = $props()
   const runtime = useRuntime()
   const ownerLoad = createLoadState()
   const tasksLoad = createLoadState()
@@ -99,6 +100,8 @@
   let editing = $state(false)
   let saving = $state(false)
   let deleting = $state(false)
+  let removal = $state<Task | null>(null)
+  let collectionOwner = ""
   let title = $state("")
   let description = $state("")
   let sensitive = $state(false)
@@ -171,21 +174,26 @@
   })
 
   function activate(route: TaskRoute): () => void {
-    page.reset()
-    ownerLoad.reset()
-    tasksLoad.reset()
+    const key = JSON.stringify([route.workspaceID, isProjectRoute(route), resourceID(route), auth.state.claims?.principal.ref.id])
+    if (key !== collectionOwner) {
+      collectionOwner = key
+      page.reset()
+      ownerLoad.reset()
+      tasksLoad.reset()
+      owner = null
+      tasks = []
+    } else page.suspend()
     detailLoad.reset()
     const value = ++generation
     abortController?.abort()
     abortController = new AbortController()
     unsubscribe?.()
     unsubscribe = undefined
-    owner = null
-    tasks = []
     active = null
     editing = route.kind.endsWith("-task-new")
     saving = false
     deleting = false
+    removal = null
     title = ""
     description = ""
     sensitive = false
@@ -204,6 +212,7 @@
     return () => {
       if (value === generation) {
         abortController?.abort()
+        page.suspend()
         ownerLoad.stop()
         tasksLoad.stop()
         detailLoad.stop()
@@ -512,6 +521,7 @@
       if (!response.ok) throw new Error("task could not be saved")
       const saved = (await response.json()) as Task
       if (!isCurrent(value, route, signal)) return
+      tasks = tasks.map((task) => task.id === saved.id ? saved : task)
       runtime.navigate(detailPath(route, saved.id))
     } catch {
       if (isCurrent(value, route, signal))
@@ -521,15 +531,16 @@
     }
   }
 
+  function requestRemove(): void {
+    if (active === null || deleting) return
+    error = ""
+    removal = { ...active }
+  }
+
   async function remove(): Promise<void> {
-    if (
-      active === null ||
-      deleting ||
-      !window.confirm(`Remove ${active.title}?`)
-    )
-      return
+    if (removal === null || active?.id !== removal.id || deleting) return
     const route = currentRoute
-    const task = active
+    const task = removal
     const value = generation
     const signal = abortController?.signal
     if (signal === undefined) return
@@ -604,18 +615,15 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <SidebarPage.Root>
-    <SidebarPage.Sidebar
-      ><UI.Navigation
+  <UI.ResourcePage {embedded}>
+    {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(
           runtime,
           workspace,
           isProjectRoute(currentRoute) ? "projects" : "chats",
         )}
-      /></SidebarPage.Sidebar
-    >
-    <SidebarPage.Page>
-      <SidebarPage.Header>
+      />{/snippet}
+    {#snippet header()}
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb">
           <UI.Breadcrumb.List>
@@ -687,10 +695,9 @@
                 name,
                 updateSessionName,
               )}
-          />{/if}</SidebarPage.Header
-      >
-      <SidebarPage.Body
-        ><PageBody fluid>
+          />{/if}
+    {/snippet}
+    <PageBody fluid>
           {#if ownerLoad.reloading || tasksLoad.reloading || detailLoad.reloading}<UI.Text
               role="status">Refreshing tasks…</UI.Text
             >{/if}
@@ -725,19 +732,25 @@
                   void loadRoute(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
+          {:else if removal !== null}
+            <UI.ResourceRemoval noun="task" scope={isProjectRoute(currentRoute) ? "project" : "chat"} name={removal.title} busy={deleting} {error} onCancel={() => { removal = null; error = "" }} onConfirm={() => void remove()} />
           {:else if editing}<UI.AdminHeader
+              compact={embedded}
               title={currentRoute.kind.endsWith("new")
                 ? "New task"
                 : `Edit ${active?.title ?? "task"}`}
-              description="Update task information, workflow, and sensitivity."
+              description={embedded ? undefined : "Update task information, workflow, and sensitivity."}
             /><UI.Form
-              surface
+              id="task-form"
+              surface={!embedded}
+              compact={embedded}
               onsubmit={(event) => {
                 event.preventDefault()
                 void save()
               }}
             >
               <UI.FormSection
+                dialog={embedded}
                 title="Task information"
                 description="Name the task and choose its workflow status."
                 ><UI.Field>
@@ -760,6 +773,7 @@
                   >
                 </UI.Field>
               </UI.FormSection><UI.FormSection
+                dialog={embedded}
                 title="Description"
                 description="Describe the work using Markdown."
                 ><UI.Field>
@@ -775,6 +789,7 @@
                   ></UI.Textarea>
                 </UI.Field>
               </UI.FormSection><UI.FormSection
+                dialog={embedded}
                 title="Sensitivity"
                 description="Control how agents handle the description."
                 ><UI.Field>
@@ -791,13 +806,13 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.FormActions>
+              <UI.FormActions dialog={embedded}>
                 <UI.Button
                   variant="outline"
                   type="button"
                   disabled={saving}
                   onclick={cancelEdit}>Cancel</UI.Button
-                ><UI.Button variant="default" type="submit" disabled={saving}
+                ><UI.Button variant="default" type="submit" form="task-form" disabled={saving}
                   >{saving ? "Saving..." : "Save task"}</UI.Button
                 >
               </UI.FormActions>
@@ -829,27 +844,24 @@
               }}>Try again</UI.Button
             >
           {:else if active !== null}{#snippet taskActions()}<UI.Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onclick={startEdit}>Edit</UI.Button
-              ><UI.Button
-                variant="outline"
-                size="sm"
+                variant={embedded ? "destructive" : "outline"}
+                size={embedded ? "default" : "sm"}
                 type="button"
                 disabled={deleting}
-                onclick={() => void remove()}
+                onclick={requestRemove}
                 >{deleting ? "Removing..." : "Remove"}</UI.Button
-              >{/snippet}
+              ><UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} type="button" onclick={startEdit}>Edit</UI.Button>{/snippet}
             <UI.Stack as="article">
               <UI.AdminHeader
-                kind={isProjectRoute(currentRoute)
+                compact={embedded}
+                kind={embedded ? undefined : isProjectRoute(currentRoute)
                   ? "Project task"
                   : "Chat task"}
                 title={active.title}
-                actions={taskActions}
+                actions={embedded ? undefined : taskActions}
               />
-              <UI.DetailSection title="Task information">
+              {#if embedded}<UI.ResourceActions>{@render taskActions()}</UI.ResourceActions>{/if}
+              <UI.DetailSection title="Task information" compact={embedded}>
                 <UI.Property label="Status"
                   ><UI.Badge>{statusLabel(active.status)}</UI.Badge
                   ></UI.Property
@@ -883,17 +895,36 @@
             </UI.Stack>
           {:else}{#snippet collectionActions()}<UI.Button
                 variant="default"
-                size="sm"
+                size={embedded ? "default" : "sm"}
                 type="button"
                 onclick={() =>
                   runtime.navigate(`${listPath(currentRoute)}/new`)}
                 >New task</UI.Button
               >{/snippet}
-            <UI.AdminHeader
-              title="Tasks"
-              description="Track work and workflow status."
-              actions={collectionActions}
-            />
+            {#if embedded}
+              <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>
+            {:else}
+              <UI.AdminHeader
+                title="Tasks"
+                description="Track work and workflow status."
+                actions={collectionActions}
+              />
+            {/if}
+            {#if embedded}
+              <UI.RecordList
+                label="Tasks"
+                items={tasks.map((task) => ({ ...task, label: task.title }))}
+                href={(task) => detailPath(currentRoute, task.id)}
+                loading={page.state.busy || tasksLoad.state.pending}
+                scrollable={false}
+                pageKey={JSON.stringify([page.state.query, page.state.cursor])}
+                emptyMessage={tasksStatus === "checking" ? "Loading…" : tasksStatus === "unavailable" ? "Tasks could not be loaded." : "No matching tasks."}
+              >
+                {#snippet toolbar()}<UI.SearchToolbar framed={false} label="Search tasks" placeholder="Search" bind:value={page.state.search} loading={page.state.busy || tasksLoad.state.pending} onsearch={() => void page.search(reloadTasks)} />{/snippet}
+                {#snippet badges(task)}<UI.Badge>{statusLabel(task.status)}</UI.Badge>{#if task.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}{/snippet}
+                {#snippet details(task)}{dateLabel(task.updated_at)} · {authorLabel(task.updater)}{/snippet}
+              </UI.RecordList>
+            {:else}
             <UI.SearchToolbar
               label="Search tasks"
               placeholder="Title, description, or status"
@@ -933,7 +964,9 @@
                     message="No tasks yet."
                   />{/each}{/if}
             </UI.RecordTable>
-            <UI.PaginationFooter
+            {/if}
+            {#if !embedded || page.state.history.length > 0 || page.state.next}<UI.PaginationFooter
+              showCount={!embedded}
               noun="tasks"
               count={tasks.length}
               previous={page.state.history.length > 0}
@@ -941,7 +974,7 @@
               loading={page.state.busy || tasksLoad.state.pending}
               onprevious={() => void page.previous(reloadTasks)}
               onnext={() => void page.next(reloadTasks)}
-            />
+            />{/if}
             {#if tasksStatus === "unavailable"}<UI.Button
                 variant="outline"
                 onclick={() =>
@@ -952,8 +985,6 @@
                   )}>Try again</UI.Button
               >{/if}
           {/if}
-        </PageBody></SidebarPage.Body
-      >
-    </SidebarPage.Page>
-  </SidebarPage.Root>
+    </PageBody>
+  </UI.ResourcePage>
 {/if}

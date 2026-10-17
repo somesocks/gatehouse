@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PageBody, PageHeading, RouterLink } from "../../ui"
+  import { PageBody } from "../../ui"
   import * as UI from "../../ui"
   import { untrack } from "svelte"
   import type { ActivityClient } from "../../app/activity"
@@ -25,6 +25,7 @@
     onAuthenticationLost,
     onNavigate,
     onBreadcrumbChange,
+    embedded = false,
   }: {
     workspaceID: string
     sessionID: string
@@ -34,6 +35,7 @@
     onAuthenticationLost: () => void
     onNavigate: (path: string, replace?: boolean) => void
     onBreadcrumbChange: (title: string | null) => void
+    embedded?: boolean
   } = $props()
   const controller = untrack(() =>
     createSessionSecretsController({
@@ -42,6 +44,7 @@
       onNavigate,
     }),
   )
+  let removal = $state<{ id: string; description: string } | null>(null)
 
   $effect(() => {
     const currentRoute = route
@@ -54,6 +57,7 @@
       currentRoute.kind === "session-secret" ||
       currentRoute.kind === "session-secret-edit"
     ) {
+      removal = null
       return untrack(() =>
         controller.start(workspace, session, currentRoute, requestSignal),
       )
@@ -71,6 +75,16 @@
 
   function secretPath(secretID: string) {
     return `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}/secrets/${encodeURIComponent(secretID)}`
+  }
+
+  function requestRemove() {
+    if (!controller.state.active || controller.state.deleting) return
+    controller.state.error = ""
+    removal = { ...controller.state.active }
+  }
+
+  function confirmRemove() {
+    if (removal && controller.state.active?.id === removal.id) void controller.remove()
   }
 
   function createdAtLabel(value: string) {
@@ -96,7 +110,7 @@
       ></UI.Notice
     >{/if}
   {#if "secretID" in route && controller.state.detailStatus !== "ready"}
-    <UI.AdminHeader title="Secret" />
+    <UI.AdminHeader title="Secret" compact={embedded} />
     {#if controller.state.detailStatus === "checking"}<UI.Text role="status"
         >Loading secret…</UI.Text
       >{:else}<UI.Notice variant="destructive" role="alert"
@@ -112,19 +126,25 @@
             signal,
           )}>Try again</UI.Button
       >{/if}
+  {:else if removal !== null}
+    <UI.ResourceRemoval noun="secret" name={removal.description} busy={controller.state.deleting} error={controller.state.error} onCancel={() => { removal = null; controller.state.error = "" }} onConfirm={confirmRemove} />
   {:else if controller.state.editing}
     <UI.AdminHeader
+      compact={embedded}
       title={controller.state.creating ? "New secret" : "Edit secret"}
-      description="Update the description and optionally replace the write-only value."
+      description={embedded ? undefined : "Update the description and optionally replace the write-only value."}
     />
     <UI.Form
-      surface
+      id="session-secret-form"
+      surface={!embedded}
+      compact={embedded}
       onsubmit={(event) => {
         event.preventDefault()
         void controller.save()
       }}
     >
       <UI.FormSection
+        dialog={embedded}
         title="Description"
         description="Identify the secret without including its value."
         ><UI.Field>
@@ -139,6 +159,7 @@
           ></UI.Textarea>
         </UI.Field>
       </UI.FormSection><UI.FormSection
+        dialog={embedded}
         title="Secret value"
         description={controller.state.creating
           ? "Values are write-only and cannot be displayed later."
@@ -157,9 +178,9 @@
             required={controller.state.creating}
             bind:value={controller.state.value}
           ></UI.Textarea>
-          {#if !controller.state.creating}<UI.Text as="p" size="small">
-              Leave blank to keep the current value.
-            </UI.Text>{/if}
+          <UI.Text as="p" size="small">
+            {controller.state.creating ? "Values are write-only and cannot be displayed later." : "Leave blank to keep the current value."}
+          </UI.Text>
         </UI.Field>
       </UI.FormSection>{#if controller.state.error !== ""}<UI.Text
           as="p"
@@ -169,7 +190,7 @@
         >
           {controller.state.error}
         </UI.Text>{/if}
-      <UI.FormActions>
+      <UI.FormActions dialog={embedded}>
         <UI.Button
           variant="outline"
           type="button"
@@ -178,6 +199,7 @@
         ><UI.Button
           variant="default"
           type="submit"
+          form="session-secret-form"
           disabled={controller.state.saving}
           >{controller.state.saving ? "Saving..." : "Save secret"}</UI.Button
         >
@@ -185,25 +207,21 @@
     </UI.Form>
   {:else if controller.state.active !== null}
     {#snippet secretActions()}<UI.Button
-        variant="outline"
-        size="sm"
-        type="button"
-        onclick={() => controller.startEdit()}>Edit</UI.Button
-      ><UI.Button
-        variant="outline"
-        size="sm"
+        variant={embedded ? "destructive" : "outline"}
+        size={embedded ? "default" : "sm"}
         type="button"
         disabled={controller.state.deleting}
-        onclick={() => void controller.remove()}
+        onclick={requestRemove}
         >{controller.state.deleting ? "Removing..." : "Remove"}</UI.Button
-      >{/snippet}
+      ><UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} type="button" onclick={() => controller.startEdit()}>Edit</UI.Button>{/snippet}
     <UI.Stack as="article">
-      <UI.AdminHeader
+      {#if !embedded}<UI.AdminHeader
         kind="Chat secret"
         title="Secret"
         actions={secretActions}
-      />
-      <UI.DetailSection title="Secret information">
+      />{/if}
+      {#if embedded}<UI.ResourceActions>{@render secretActions()}</UI.ResourceActions>{/if}
+      <UI.DetailSection title="Secret information" compact={embedded}>
         <UI.Property label="Description"
           >{controller.state.active.description}</UI.Property
         >
@@ -231,46 +249,33 @@
     </UI.Stack>
   {:else}{#snippet collectionActions()}<UI.Button
         variant="default"
-        size="sm"
+        size={embedded ? "default" : "sm"}
         type="button"
         onclick={() => controller.startCreate()}>New secret</UI.Button
       >{/snippet}
-    <UI.AdminHeader
-      title="Secrets"
-      description="Manage descriptions and write-only secret values."
-      actions={collectionActions}
-    />
-    <UI.SearchToolbar
-      label="Search secrets"
-      placeholder="Description"
-      bind:value={controller.page.state.search}
-      loading={controller.page.state.busy ||
-        controller.state.status === "checking"}
-      onsearch={() => void controller.page.search(controller.reload)}
-    />
-    <UI.RecordTable headers={["Description", "Author", "Updated"]}>
-      {#if controller.state.status !== "ready"}<UI.TableEmpty
-          columns={3}
-          message={controller.state.status === "checking"
-            ? "Loading secrets…"
-            : "Secrets could not be loaded."}
-        />
-      {:else}{#each controller.state.secrets as secret (secret.id)}<UI.RecordRow
-          >
-            <UI.RecordCell primary
-              ><RouterLink href={secretPath(secret.id)}
-                >{secret.description}</RouterLink
-              ></UI.RecordCell
-            >
-            <UI.RecordCell>{secret.author.name ?? "User"}</UI.RecordCell>
-            <UI.RecordCell>{createdAtLabel(secret.updated_at)}</UI.RecordCell>
-          </UI.RecordRow>{:else}<UI.TableEmpty
-            columns={3}
-            message="No secrets yet."
-          />{/each}{/if}
-    </UI.RecordTable>
-    <UI.PaginationFooter
-      noun="secrets"
+    {#if embedded}
+      <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>
+    {:else}
+      <UI.AdminHeader
+        title="Secrets"
+        description="Manage descriptions and write-only secret values."
+        actions={collectionActions}
+      />
+    {/if}
+    <UI.RecordList
+      label="Secrets"
+      items={controller.state.secrets.map((secret) => ({ ...secret, label: secret.description }))}
+      href={(secret) => secretPath(secret.id)}
+      loading={controller.page.state.busy || controller.state.busy}
+      scrollable={false}
+      pageKey={JSON.stringify([controller.page.state.query, controller.page.state.cursor])}
+      emptyMessage={controller.state.status === "checking" ? "Loading…" : controller.state.status === "unavailable" ? "Secrets could not be loaded." : "No matching secrets."}
+    >
+      {#snippet toolbar()}<UI.SearchToolbar framed={false} label="Search secrets" placeholder="Search" bind:value={controller.page.state.search} loading={controller.page.state.busy || controller.state.busy} onsearch={() => void controller.page.search(controller.reload)} />{/snippet}
+      {#snippet details(secret)}{secret.author.name ?? "User"} · {createdAtLabel(secret.updated_at)}{/snippet}
+    </UI.RecordList>
+    {#if controller.page.state.history.length > 0 || controller.page.state.next}<UI.PaginationFooter
+      showCount={false}
       count={controller.state.secrets.length}
       previous={controller.page.state.history.length > 0}
       next={!!controller.page.state.next}
@@ -278,7 +283,7 @@
         controller.state.status === "checking"}
       onprevious={() => void controller.page.previous(controller.reload)}
       onnext={() => void controller.page.next(controller.reload)}
-    />
+    />{/if}
     {#if controller.state.status === "unavailable"}<UI.Button
         variant="outline"
         onclick={() => void controller.reload()}>Try again</UI.Button

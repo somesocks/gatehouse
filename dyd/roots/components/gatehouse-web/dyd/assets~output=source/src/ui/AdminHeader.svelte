@@ -9,6 +9,7 @@
     id,
     enabled,
     actions,
+    compact = false,
   }: {
     title: string
     description?: string
@@ -16,11 +17,12 @@
     id?: string
     enabled?: boolean
     actions?: Snippet
+    compact?: boolean
   } = $props()
 </script>
 
 <header
-  class="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between"
+  class={compact ? "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between" : "flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between"}
 >
   <div class="min-w-0 flex-1 space-y-2">
     {#if kind}<p
@@ -30,7 +32,7 @@
       </p>{/if}
     <div class="flex flex-wrap items-center gap-3">
       <h1
-        class="text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]"
+        class={compact ? "text-lg font-semibold [overflow-wrap:anywhere]" : "text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]"}
       >
         {title}
       </h1>

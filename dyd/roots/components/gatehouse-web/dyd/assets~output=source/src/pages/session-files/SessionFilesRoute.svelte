@@ -31,6 +31,7 @@
   }
   type Status = "checking" | "ready" | "unavailable"
 
+  let { embedded = false }: { embedded?: boolean } = $props()
   const runtime = useRuntime()
   const sessionLoad = createLoadState()
   const filesLoad = createLoadState()
@@ -154,7 +155,7 @@
         {
           name: "session-files",
           topic: `${workspaceID}/${sessionID}`,
-          events: ["session.*"],
+          events: ["session.*", "session_file.*"],
         },
       ],
       async ({ signal: pollSignal }) => {
@@ -299,14 +300,11 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <SidebarPage.Root>
-    <SidebarPage.Sidebar
-      ><UI.Navigation
+  <UI.ResourcePage {embedded}>
+    {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
-      /></SidebarPage.Sidebar
-    >
-    <SidebarPage.Page>
-      <SidebarPage.Header>
+      />{/snippet}
+    {#snippet header()}
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb">
           <UI.Breadcrumb.List>
@@ -350,8 +348,7 @@
                 updateSessionName,
               )}
           />{/if}
-      </SidebarPage.Header>
-      <SidebarPage.Body>
+    {/snippet}
         {#if filesLoad.reloading || sessionLoad.reloading}<UI.Text role="status"
             >Refreshing files…</UI.Text
           >{/if}
@@ -376,65 +373,50 @@
           <UI.Text as="p" tone="muted">This chat could not be loaded.</UI.Text>
         {:else}
           <PageBody fluid>
-            <UI.AdminHeader
+            {#if !embedded}<UI.AdminHeader
               title="Files"
               description="Inspect and download chat attachments."
-            />
-            <UI.Label layout="choice">
-              <UI.Checkbox checked={includeAgentFiles} onCheckedChange={(checked) => { includeAgentFiles = checked; page.reset(); void reloadFiles() }} />
-              Include agent-authored files
-            </UI.Label>
-            <UI.SearchToolbar
-              label="Search files"
-              placeholder="File name or media type"
-              bind:value={page.state.search}
-              loading={page.state.busy || filesLoad.state.pending}
-              onsearch={() => void page.search(reloadFiles)}
-            />
+            />{/if}
             {#if filesStatus === "unavailable"}<UI.Notice
                 variant="destructive"
                 role="alert">Files could not be loaded.</UI.Notice
               ><UI.Button variant="outline" onclick={() => void reloadFiles()}
                 >Try again</UI.Button
               >{/if}
-            <UI.RecordTable headers={["Name", "Media type", "Size", "Actions"]}>
-              {#each files as file (file.id)}<UI.RecordRow>
-                  <UI.RecordCell primary>{file.name}</UI.RecordCell>
-                  <UI.RecordCell>{file.media_type ?? "Unknown"}</UI.RecordCell>
-                  <UI.RecordCell>{sizeLabel(file.size)}</UI.RecordCell>
-                  <UI.RecordCell
-                    ><UI.Link
-                      size="sm"
-                      href={chatFileDownloadPath(
-                        workspace.id,
-                        currentRoute.sessionID,
-                        file.id,
-                      )}
-                      target="_blank"
-                      rel="noopener">Download</UI.Link
-                    ></UI.RecordCell
-                  >
-                </UI.RecordRow>{:else}<UI.TableEmpty
-                  columns={4}
-                  message={filesStatus === "unavailable"
-                    ? "Files could not be loaded."
-                    : filesStatus === "checking"
-                      ? "Loading files…"
-                      : "No matching files."}
-                />{/each}
-            </UI.RecordTable>
-            <UI.PaginationFooter
-              noun="files"
+            <UI.RecordList
+              label="Files"
+              items={files.map((file) => ({ ...file, label: file.name }))}
+              loading={page.state.busy || filesLoad.state.pending}
+              scrollable={false}
+              pageKey={JSON.stringify([page.state.query, page.state.cursor, includeAgentFiles])}
+              emptyMessage={filesStatus === "checking" ? "Loading…" : filesStatus === "unavailable" ? "Files could not be loaded." : "No matching files."}
+            >
+              {#snippet toolbar()}
+                <UI.Stack gap="small">
+                  <UI.SearchToolbar framed={false} label="Search files" placeholder="Search" bind:value={page.state.search} loading={page.state.busy || filesLoad.state.pending} onsearch={() => void page.search(reloadFiles)} />
+                  <UI.Label layout="choice">
+                    <UI.Checkbox checked={includeAgentFiles} onCheckedChange={(checked) => { includeAgentFiles = checked; page.reset(); void reloadFiles() }} />
+                    Include agent-authored files
+                  </UI.Label>
+                </UI.Stack>
+              {/snippet}
+              {#snippet details(file)}{file.media_type ?? "Unknown type"} · {sizeLabel(file.size)}{/snippet}
+              {#snippet actions(file)}
+                <UI.Link variant="ghost" size="icon" href={chatFileDownloadPath(workspace.id, currentRoute.sessionID, file.id)} target="_blank" rel="noopener" aria-label={`Download ${file.name}`} title="Download">
+                  <UI.Download size={16} aria-hidden="true" />
+                </UI.Link>
+              {/snippet}
+            </UI.RecordList>
+            {#if page.state.history.length > 0 || page.state.next}<UI.PaginationFooter
+              showCount={false}
               count={files.length}
               previous={page.state.history.length > 0}
               next={!!page.state.next}
               loading={page.state.busy || filesLoad.state.pending}
               onprevious={() => void page.previous(reloadFiles)}
               onnext={() => void page.next(reloadFiles)}
-            />
+            />{/if}
           </PageBody>
         {/if}
-      </SidebarPage.Body>
-    </SidebarPage.Page>
-  </SidebarPage.Root>
+  </UI.ResourcePage>
 {/if}

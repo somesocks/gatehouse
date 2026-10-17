@@ -69,6 +69,7 @@ export function createSessionSecretsController({
     signal: AbortSignal
   } | null = null
   let generation = 0
+  let collectionOwner = ""
   let selectedRoute: SessionSecretsRoute | undefined
   let unsubscribe: (() => void) | undefined
 
@@ -240,14 +241,18 @@ export function createSessionSecretsController({
     signal: AbortSignal,
   ): () => void {
     stop()
-    page.reset()
-    listLoad.reset()
+    const owner = `${workspaceID}\u0000${sessionID}`
+    if (owner !== collectionOwner) {
+      collectionOwner = owner
+      page.reset()
+      listLoad.reset()
+      state.secrets = []
+    } else page.suspend()
     detailLoad.reset()
     context = { workspaceID, sessionID, signal }
     selectedRoute = route
     const currentGeneration = ++generation
     state.active = null
-    state.secrets = []
     state.creating = false
     state.editing = false
     state.saving = false
@@ -282,6 +287,7 @@ export function createSessionSecretsController({
   function stop(): void {
     generation += 1
     listLoad.stop()
+    page.suspend()
     detailLoad.stop()
     unsubscribe?.()
     unsubscribe = undefined
@@ -394,10 +400,7 @@ export function createSessionSecretsController({
       state.active = saved
       state.creating = false
       state.editing = false
-      state.secrets = [
-        saved,
-        ...state.secrets.filter((secret) => secret.id !== saved.id),
-      ]
+      state.secrets = state.secrets.map((secret) => secret.id === saved.id ? saved : secret)
       onNavigate(detailPath(workspaceID, sessionID, saved.id))
     } catch {
       if (isCurrent(currentGeneration))
@@ -413,8 +416,7 @@ export function createSessionSecretsController({
     if (
       context === null ||
       state.active === null ||
-      state.deleting ||
-      !window.confirm(`Remove ${state.active.description}?`)
+      state.deleting
     ) {
       return
     }

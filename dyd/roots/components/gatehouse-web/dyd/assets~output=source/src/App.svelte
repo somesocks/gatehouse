@@ -45,10 +45,7 @@
   import TasksRoute from "./pages/tasks/TasksRoute.svelte"
   import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
   import ProjectRecordsRoute from "./pages/project-records/ProjectRecordsRoute.svelte"
-  import SessionChatRoute from "./pages/session-chat/SessionChatRoute.svelte"
-  import SessionFilesRoute from "./pages/session-files/SessionFilesRoute.svelte"
-  import SessionNotesRoute from "./pages/session-notes/SessionNotesRoute.svelte"
-  import SessionSecretsRoute from "./pages/session-secrets/SessionSecretsRoute.svelte"
+  import SessionWorkspace from "./pages/session-chat/SessionWorkspace.svelte"
   import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
   import ChatCollectionRoute from "./pages/chats/ChatCollectionRoute.svelte"
   import ProjectCollectionRoute from "./pages/projects/ProjectCollectionRoute.svelte"
@@ -94,20 +91,14 @@
     <ProjectNotesRoute />
   {:else if owner === "project-files"}
     <ProjectFilesRoute />
-  {:else if owner === "project-tasks" || owner === "session-tasks"}
+  {:else if owner === "project-tasks"}
     <TasksRoute />
   {:else if owner === "project-secrets"}
     <ProjectSecretsRoute />
   {:else if owner === "project-records"}
     <ProjectRecordsRoute />
-  {:else if owner === "session-chat"}
-    <SessionChatRoute />
-  {:else if owner === "session-files"}
-    <SessionFilesRoute />
-  {:else if owner === "session-notes"}
-    <SessionNotesRoute />
-  {:else if owner === "session-secrets"}
-    <SessionSecretsRoute />
+  {:else if owner === "session-chat" || owner === "session-files" || owner === "session-notes" || owner === "session-tasks" || owner === "session-secrets"}
+    <SessionWorkspace />
   {:else if owner === "groups"}
     <GroupsRoute />
   {:else if owner === "agent-provider-list"}

@@ -72,6 +72,7 @@
   }
   type Status = "checking" | "ready" | "unavailable"
 
+  let { route }: { route?: SessionRoute } = $props()
   const runtime = useRuntime()
   const sessionLoad = createLoadState()
   const { access, activity, auth } = runtime
@@ -93,7 +94,7 @@
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
-  const currentRoute = $derived(runtime.state.route as SessionRoute)
+  const currentRoute = $derived(route ?? (runtime.state.route as SessionRoute))
   const sessionKey = $derived(
     `${currentRoute.workspaceID}\u0000${currentRoute.sessionID}`,
   )
@@ -161,7 +162,9 @@
     createChatController({
       isNearBottom,
       followLatest,
-      focusComposer: () => messageInputElement?.focus(),
+      focusComposer: () => {
+        if (runtime.state.route.kind === "session-chat") messageInputElement?.focus()
+      },
     }),
   )
   const filteredMentionAgents = $derived(
@@ -544,10 +547,9 @@
     deliveryMode = "group"
     directAgentID = null
     deliveryOpen = false
-    window.history.replaceState(
-      null,
-      "",
+    runtime.navigate(
       sessionPath(currentRoute.workspaceID, currentRoute.sessionID),
+      true,
     )
   }
   function setDirectDelivery(agentID?: string): void {
@@ -556,10 +558,9 @@
     deliveryMode = "direct"
     directAgentID = agentID ?? null
     deliveryOpen = false
-    window.history.replaceState(
-      null,
-      "",
+    runtime.navigate(
       `${sessionPath(currentRoute.workspaceID, currentRoute.sessionID)}?${parameters}`,
+      true,
     )
   }
   function openDelivery(): void {
@@ -625,7 +626,7 @@
       /></SidebarPage.Sidebar
     >
     <SidebarPage.Page>
-      <SidebarPage.Header divider>
+      <SidebarPage.Header divider compactBreadcrumb>
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb" data-page-breadcrumb>
           <UI.Breadcrumb.List>

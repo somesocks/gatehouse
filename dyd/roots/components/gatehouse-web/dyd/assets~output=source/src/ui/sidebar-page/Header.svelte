@@ -4,10 +4,12 @@
   let {
     placement = "inline",
     divider = false,
+    compactBreadcrumb = false,
     children,
   }: {
     placement?: "inline" | "floating"
     divider?: boolean
+    compactBreadcrumb?: boolean
     children: Snippet
   } = $props()
 </script>
@@ -18,7 +20,10 @@
     divider && "border-b",
   )}
 >
-  <div class="flex w-full min-w-0 items-center gap-2 px-4">
+  <div class={cn(
+    "flex w-full min-w-0 items-center gap-2 px-4",
+    compactBreadcrumb && "[&>[data-slot=breadcrumb]]:min-w-0 [&>[data-slot=breadcrumb]]:overflow-hidden [&_[data-slot=breadcrumb-list]]:flex-nowrap [&_[data-slot=breadcrumb-list]]:whitespace-nowrap [&_[data-slot=breadcrumb-item]]:min-w-0 [&_[data-slot=breadcrumb-page]]:truncate max-md:[&_[data-slot=breadcrumb-item]:not(:last-child)]:hidden max-md:[&_[data-slot=breadcrumb-separator]]:hidden",
+  )}>
     {@render children()}
   </div>
 </header>

@@ -35,6 +35,7 @@
   }
   type Status = "checking" | "ready" | "unavailable"
 
+  let { embedded = false }: { embedded?: boolean } = $props()
   const runtime = useRuntime()
   const resource = createLoadState()
   const { access, activity, auth } = runtime
@@ -42,6 +43,7 @@
   const sessionStatus = $derived(resource.status)
   let secretBreadcrumb = $state<string | null>(null)
   let generation = 0
+  let sessionOwner = ""
   let abortController: AbortController | null = null
   let routeSignal = $state<AbortSignal | null>(null)
   let unsubscribe: (() => void) | undefined
@@ -92,13 +94,17 @@
 
   function activate(route: SecretsRoute): () => void {
     const value = ++generation
-    resource.reset()
+    const owner = JSON.stringify([route.workspaceID, route.sessionID, auth.state.claims?.principal.ref.id])
+    if (owner !== sessionOwner) {
+      sessionOwner = owner
+      resource.reset()
+      session = null
+    }
     abortController?.abort()
     abortController = new AbortController()
     routeSignal = abortController.signal
     unsubscribe?.()
     unsubscribe = undefined
-    session = null
     secretBreadcrumb = null
     if (
       auth.state.status === "authenticated" &&
@@ -269,14 +275,11 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <SidebarPage.Root>
-    <SidebarPage.Sidebar
-      ><UI.Navigation
+  <UI.ResourcePage {embedded}>
+    {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
-      /></SidebarPage.Sidebar
-    >
-    <SidebarPage.Page>
-      <SidebarPage.Header>
+      />{/snippet}
+    {#snippet header()}
         <SidebarPage.Toggle />
         <UI.Breadcrumb.Root aria-label="Breadcrumb">
           <UI.Breadcrumb.List>
@@ -334,10 +337,9 @@
                 name,
                 updateSessionName,
               )}
-          />{/if}</SidebarPage.Header
-      >
-      <SidebarPage.Body
-        >{#if sessionStatus === "checking"}<UI.Text
+          />{/if}
+    {/snippet}
+    {#if sessionStatus === "checking"}<UI.Text
             as="p"
             tone="muted"
             aria-busy="true"
@@ -358,6 +360,7 @@
             }}>Try again</UI.Button
           >
         {:else if session !== null && routeSignal !== null}<SessionSecretsPage
+            {embedded}
             workspaceID={workspace.id}
             sessionID={session.id}
             route={currentRoute}
@@ -367,8 +370,6 @@
             onNavigate={(path, replace) => runtime.navigate(path, replace)}
             onBreadcrumbChange={(title) => (secretBreadcrumb = title)}
           />
-        {/if}</SidebarPage.Body
-      >
-    </SidebarPage.Page>
-  </SidebarPage.Root>
+    {/if}
+  </UI.ResourcePage>
 {/if}
