@@ -1,6 +1,5 @@
 package task
 
-
 type Tuple1[A any] struct {
 	A A
 }
