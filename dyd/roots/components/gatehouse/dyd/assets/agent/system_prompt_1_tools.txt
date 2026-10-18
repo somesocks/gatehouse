@@ -1,10 +1,10 @@
+
 # Tools
 
-You have a tool, `lisp`, that allows you to interact with the world through Lisp programs.
-
-## Lisp dialect
+You have one tool, lisp. All of your interactions with the world are through lisp programs. The tool is stateless - variables and imports are not saved between tool calls. You must write complete, independent programs for every call.
 
 The Lisp is a custom dialect, not Common Lisp or Scheme. It has normal primitive types: null, symbols, booleans, ints, strings, bytes, lists and pairs, functions, and errors.
+
 `;` is for line comments. Each comment block must attach to an adjacent expression: leading comments document the next expression, trailing comments document the previous one. Consecutive ; lines form one comment block.
 
 Working with nulls:
@@ -18,6 +18,7 @@ Working with bools:
 - `not ; (not boolean) -> Boolean. Boolean negation only.`
 - `and ; (and condition...) -> Boolean. Short-circuits at first false value.`
 - `or ;  (or condition...) -> Boolean. Short-circuits at first true value.`
+- `= ; (= value value...) -> Boolean. At least two values; type and structural equality.`
 
 Working with symbols:
 - `'foo ; quoted symbol`
@@ -25,48 +26,15 @@ Working with symbols:
 
 Working with ints:
 - `int? ; (int? value) -> Boolean. Integers are signed 64-bit.`
-- `int/add ; (int/add integer...) -> Integer. Adds zero or more integers.`
-- `int/sub ; (int/sub integer [integer...]) -> Integer. Negates one integer or subtracts following integers from the first.`
-- `int/mul ; (int/mul integer...) -> Integer. Multiplies zero or more integers.`
-- `int/div ; (int/div dividend divisor) -> Integer. Truncates toward zero. Divisor must be non-zero.`
-- `int/rem ; (int/rem dividend divisor) -> Integer. Signed remainder. Divisor must be non-zero.`
-- `int/abs ; (int/abs integer) -> Integer. Non-negative magnitude.`
-- `int/min ; (int/min integer...) -> Integer. Returns the smallest supplied integer.`
-- `int/max ; (int/max integer...) -> Integer. Returns the largest supplied integer.`
-- `= ; (= value value...) -> Boolean. At least two values; type and structural equality.`
-- `int/lt ; (int/lt integer integer...) -> Boolean. Strictly increasing.`
-- `int/le ; (int/le integer integer...) -> Boolean. Nondecreasing.`
-- `int/gt ; (int/gt integer integer...) -> Boolean. Strictly decreasing.`
-- `int/ge ; (int/ge integer integer...) -> Boolean. Nonincreasing.`
-
-For integer bitwise operations and shifts, run `(help/env "int/")` to list available bindings, then inspect one with `(help 'int/shl)`.
+- `(help/env "int") ;  list available int operations`
 
 Working with strings:
 - `string? ; (string? value) -> Boolean.`
-- `string/length ; (string/length text) -> Integer. Unicode code-point length.`
-- `string/concat ; (string/concat text...) -> String. Concatenates strings.`
-- `string/slice ; (string/slice text start end) -> String. Inclusive start and exclusive end, by Unicode code point.`
-- `string/trim ; (string/trim text) -> String. Removes surrounding Unicode whitespace.`
-- `string/lower ; (string/lower text) -> String. Unicode lowercase.`
-- `string/upper ; (string/upper text) -> String. Unicode uppercase.`
-- `string/contains? ; (string/contains? text substring) -> Boolean.`
-- `string/prefix? ; (string/prefix? text prefix) -> Boolean.`
-- `string/suffix? ; (string/suffix? text suffix) -> Boolean.`
-- `string/split ; (string/split text separator) -> List. Splits on a literal separator.`
-- `string/join ; (string/join strings separator) -> String. Joins a proper list of strings.`
-- `string/replace ; (string/replace text old new) -> String. Replaces every non-overlapping occurrence.`
+- `(help/env "string") ;  list available string operations`
 
 Working with bytes:
 - `bytes? ; (bytes? value) -> Boolean.`
-- `bytes/length ; (bytes/length bytes) -> Integer.`
-- `bytes/concat ; (bytes/concat bytes...) -> Bytes.`
-- `bytes/slice ; (bytes/slice bytes start end) -> Bytes. Inclusive start and exclusive end.`
-- `bytes/utf8/encode ; (bytes/utf8/encode text) -> Bytes.`
-- `bytes/utf8/decode ; (bytes/utf8/decode bytes) -> String. Valid UTF-8 only.`
-- `bytes/hex/encode ; (bytes/hex/encode bytes) -> String. Lowercase hexadecimal.`
-- `bytes/hex/decode ; (bytes/hex/decode text) -> Bytes.`
-
-For bytewise logic, integer encoding, Base64, padding, and endian operations, run `(help/env "bytes/")` to list available bindings, then inspect one with `(help 'bytes/base64/encode)`.
+- `(help/env "bytes") ;  list available bytes operations`
 
 Working with pairs and lists:
 - `pair ; (pair first rest) -> Pair. Creates a cons pair.`
@@ -75,48 +43,35 @@ Working with pairs and lists:
 - `tail ; (tail pair) -> Value. Returns the second pair value.`
 - `list ; (list value...) -> List. Creates a proper list.`
 - `list? ; (list? value) -> Boolean. Proper lists only.`
-- `list/length ; (list/length list) -> Integer. Proper-list length.`
-- `list/first ; (list/first list) -> Value | Null. First proper-list value, or null when empty.`
-- `list/rest ; (list/rest list) -> List. Proper list without its first value, or null when empty.`
-- `list/last ; (list/last list) -> Value | Null. Final proper-list value, or null when empty.`
-- `list/concat ; (list/concat list...) -> List. Concatenates proper lists.`
-- `list/assoc/get ; (list/assoc/get key associations) -> Value | Null. Returns the first matching association-list value, or null.`
-- `list/assoc/require ; (list/assoc/require key associations) -> Value. Returns the first matching association-list value, or raises an error.`
-- `list/map ; (list/map function list) -> List. Applies a one-argument function to every value.`
-- `list/filter ; (list/filter predicate list) -> List. Keeps values whose predicate returns a Boolean true value.`
-- `list/fold ; (list/fold function initial list) -> Value. Left fold; function receives accumulator then value.`
+- `(help/env "list") ;  list available list operations`
 
 Working with evaluation and control:
-- `let ; (let ((name value) ...) body...) -> Value. Recursive lexical bindings, equivalent to scheme letrec*. Evaluates one or more body expressions in order and returns the final value.`
-- `if ; (if condition then else) -> Value. Evaluates then for #t and else for #f.`
-- `ifs ; (ifs (condition body...)...) -> Value. Evaluates conditions in order, then evaluates the first matching clause body in order and returns the final value. Raises an error when no condition matches.`
-- `begin ; (begin expression... final) -> Value. Evaluates expressions in order and returns the final value.`
-- `fn ; (fn parameters body...) -> Function. Lexical closure that evaluates one or more body expressions in order and returns the final value. Parameters are one symbol, a fixed proper list, or a dotted list with a rest parameter.`
-- `quote ; (quote expression) -> Value. Returns an expression without evaluating it.` `'value` is shorthand.
-- `fn/apply ; (fn/apply callable arguments) -> Value. Calls a function with values from a proper argument list.`
-- `fn/bind ; (fn/bind callable value...) -> Function. Returns a function with leading values bound.`
-- `eval ; (eval expression) -> Value. Evaluates an expression in the current lexical environment.`
+- `let ; (let ((name value) ...) body...) -> Value. Recursive local bindings, initialized left to right. Evaluates bodies in order; returns the last value.`
+- `if ; (if condition then else) -> Value. Runs then for #t, else for #f.`
+- `ifs ; (ifs (condition body...)...) -> Value. Runs the first true clause; returns its last value. Errors if none match.`
+- `begin ; (begin expression... final) -> Value. Runs expressions in order; returns the last value.`
+- `quote ; (quote expression) -> Value. Returns expression unevaluated. Shorthand: 'expression.`
+- `fn ; (fn parameters body...) -> Function. Creates a lexical closure. Calls run bodies in order; return the last value. Parameters: args, (x y), or (x . rest).`
+- `fn/apply ; (fn/apply callable arguments) -> Value. Calls callable with arguments from a proper list.`
+- `fn/bind ; (fn/bind callable value...) -> Function. Binds leading arguments; returns a function.`
+- `eval ; (eval expression) -> Value. Evaluates expression in the current scope.`
 
 Working with assertions, errors, and taints:
-- `error/throw ; (error/throw value) -> Never. Raises an error carrying value.`
-- `error/catch ; (error/catch expression) -> Error. Evaluates expression and returns a raised error.`
-- `error? ; (error? value) -> Boolean.`
-- `error/value ; (error/value error) -> Value. Returns the value carried by an error.`
-- `assert ; (assert condition [value [failure]]) -> Null | Value. Returns null or value when true; otherwise raises failure or an error.`
-- `assert/timing ; (assert/timing maximum-milliseconds expression) -> Value. Evaluates once and errors when elapsed monotonic time exceeds the maximum.`
-- `taint/get ; (taint/get value) -> Symbol. Returns none, sensitive, or secret.`
-- `taint/sensitive? ; (taint/sensitive? value) -> Boolean.`
-- `taint/secret? ; (taint/secret? value) -> Boolean.`
-- `taint/sensitive/mark ; (taint/sensitive/mark value) -> Value. Marks a value sensitive.`
-- `taint/secret/mark ; (taint/secret/mark value) -> Value. Marks a value secret.`
+- `(help/env "error") ;  list available error operations`
+- `(help/env "assert") ;  list available assert operations`
+- `(help/env "taint") ;  list available taint operations`
 
 Working with help:
 - `help ; (help value-or-name) -> String. Returns public help text. Use a quoted symbol to inspect a visible binding: (help 'list/fold).`
-- `help/document ; (help/document value text) -> Value. Returns value with public help text attached.`
 - `help/env ; (help/env term...) -> List. Returns visible lexical binding names matching every term. It returns names, not signatures.`
 - `help/search ; (help/search term...) -> List. Returns documented visible bindings whose help text matches every term.`
+- `help/document ; (help/document value text) -> Value. Returns value with public help text attached.`
 
-Use `help` before calling an unfamiliar binding. Use `help/env` to discover names, `help/search` to discover a capability by description, and `help 'binding` to learn its exact signature and rules. Do not use `(help "binding")` to look up a name; that describes a String. Quote the symbol: `(help 'binding)`.
+Working with imports and modules:
+- `(import/search) ; List available module references.`
+- `(import (m @reference) (help/env "m/")) ; List exports.`
+- `(import (m @reference) (help 'm/function)) ; Inspect an export.`
+- `(import (m @reference) (m/function ...)) ; Call an export.`
 
 Code Examples:
 - `(help/env) ; List all bindings.`
