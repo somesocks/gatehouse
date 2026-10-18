@@ -23,8 +23,8 @@ type moduleExport struct {
 }
 
 var importDocumentation = doc(
-	"(import (alias @reference) ... body) -> Value",
-	"Loads module exports as alias/export bindings while evaluating body.",
+	"(import (alias @reference) ... body...) -> Value",
+	"Leading (alias @reference) forms load exports as alias/export bindings. Evaluates the remaining body expressions in order and returns the last value.",
 	"(import (random @native:random/v1) (help/env \"random/\"))",
 	"(random/bool random/bytes random/int)",
 )
@@ -221,8 +221,9 @@ func definedImportBuiltin(importer Expr, definitions map[moduleReference][]modul
 	return withHelp(&builtin{
 		special: true,
 		call: valueCall(func(evaluation *evaluator, env *environment, forms []Expr) (error, Expr) {
-			if len(forms) < 2 {
-				return expressionError("import requires declarations and a body expression"), nil
+			err, forms := normalizeImportForms(forms)
+			if err != nil {
+				return err, nil
 			}
 			locals := &environment{values: make(map[string]*Expr)}
 			aliases := make(map[string]struct{}, len(forms)-1)
@@ -370,8 +371,9 @@ func restrictedImportBuiltin(importer Expr, allowed map[moduleReference]struct{}
 	return withHelp(&builtin{
 		special: true,
 		call: valueCall(func(evaluator *evaluator, env *environment, forms []Expr) (error, Expr) {
-			if len(forms) < 2 {
-				return evaluator.call(importer, env, forms)
+			err, forms := normalizeImportForms(forms)
+			if err != nil {
+				return err, nil
 			}
 			for _, form := range forms[:len(forms)-1] {
 				err, _, reference := moduleImportDeclaration(form)
@@ -467,8 +469,9 @@ func importModules(loader *moduleLoader, evaluator *evaluator, env *environment,
 	if loader == nil {
 		return expressionError("import requires a module loader"), nil
 	}
-	if len(forms) < 2 {
-		return expressionError("import requires declarations and a body expression"), nil
+	err, forms := normalizeImportForms(forms)
+	if err != nil {
+		return err, nil
 	}
 	loader.evaluator = evaluator
 
@@ -508,6 +511,35 @@ func bindModuleExports(env *environment, alias string, exports []moduleExport) e
 		env.bind(name, export.value)
 	}
 	return nil
+}
+
+// Keep delegation single-body: scoped importers can forward one expression to
+// their parent while all body forms still run in the resulting imported scope.
+func normalizeImportForms(forms []Expr) (error, []Expr) {
+	if len(forms) < 2 {
+		return expressionError("import requires declarations and a body expression"), nil
+	}
+	for index, form := range forms {
+		err, _, _ := moduleImportDeclaration(form)
+		if err == nil {
+			continue
+		}
+		if index == 0 {
+			return err, nil
+		}
+		body := forms[index:]
+		if len(body) == 1 {
+			return nil, forms
+		}
+		// Call begin directly so a shadowed binding cannot alter sequencing, and
+		// discarded body values retain the same taint semantics as begin.
+		sequence := &builtin{special: true, call: func(evaluator *evaluator, env *environment, _ []Expr) (error, callOutcome) {
+			return beginValues(evaluator, env, body)
+		}}
+		normalized := append([]Expr(nil), forms[:index]...)
+		return nil, append(normalized, list([]Expr{sequence}))
+	}
+	return expressionError("import requires declarations and a body expression"), nil
 }
 
 func moduleImportDeclaration(expression Expr) (error, string, moduleReference) {

@@ -170,6 +170,8 @@ func TestImportDefineDelegatesInParentScope(t *testing.T) {
     (first @native:fixture/one/v1)
     (local @native:fixture/local/v1)
     (second @native:fixture/two/v1)
+    (assert (= first/value 7))
+    (assert (= local/value 42))
     (list first/value local/value second/value parent/context)))`)
 	if err != nil {
 		t.Fatal(err)
