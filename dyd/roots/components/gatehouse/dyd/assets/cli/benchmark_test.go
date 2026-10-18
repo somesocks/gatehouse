@@ -19,6 +19,11 @@ func TestBenchmarkRunRejectsInvalidOptionsWithoutStdout(t *testing.T) {
 		{"--config=missing.yaml", "--format=unknown"},
 		{"--config=missing.yaml", "--format=sqlite"},
 		{"--config=missing.yaml", "--output="},
+		{"--config=missing.yaml", "--parallel=0"},
+		{"--config=missing.yaml", "--parallel=-1"},
+		{"--config=missing.yaml", "--parallel="},
+		{"--config=missing.yaml", "--parallel=abc"},
+		{"--config=missing.yaml", "--parallel=1.5"},
 		{"--config=missing.yaml", "--unknown=value"},
 	} {
 		var stdout, stderr bytes.Buffer
@@ -26,6 +31,9 @@ func TestBenchmarkRunRejectsInvalidOptionsWithoutStdout(t *testing.T) {
 		code := BuildCLI("test", "build").RunWithWriters(arguments, &stdout, &stderr)
 		if code == 0 || stdout.Len() != 0 || stderr.Len() == 0 {
 			t.Fatalf("arguments=%v code=%d stdout=%q stderr=%q", options, code, stdout.String(), stderr.String())
+		}
+		if strings.Contains(strings.Join(options, " "), "--parallel=") && (!strings.Contains(stderr.String(), "--parallel") || strings.Contains(stderr.String(), "benchmark configuration is invalid")) {
+			t.Fatalf("parallelism was not rejected before loading configuration: %s", stderr.String())
 		}
 	}
 }
@@ -37,7 +45,7 @@ func TestBenchmarkRunCLIReportsAndGrades(t *testing.T) {
 			var stdout, stderr bytes.Buffer
 			arguments := []string{"gatehouse", "benchmark", "run", "--config=" + path, "--report=results", "--format=json"}
 			if expected == "24" {
-				arguments = append(arguments, "--output=-")
+				arguments = append(arguments, "--output=-", "--parallel=1")
 			}
 			code := BuildCLI("test", "build").RunWithWriters(arguments, &stdout, &stderr)
 			want := 0

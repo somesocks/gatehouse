@@ -3,13 +3,13 @@ package benchmark
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
+	"iter"
+	"sync"
 	"time"
 
 	"gatehouse/agent"
@@ -17,21 +17,33 @@ import (
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/keychain"
-	"gatehouse/migrations"
 	"gatehouse/model"
 	"gatehouse/storage"
+	"gatehouse/task"
 	"gatehouse/typed_id"
-	"github.com/dbos-inc/dbos-transact-golang/dbos"
-	_ "github.com/dbos-inc/dbos-transact-golang/dbos/driver/sqlite"
 )
 
 // Execute always returns the complete capture once it has been opened, including
 // on execution failure or cancellation. The caller owns and closes that database.
-// Each run uses a separate disposable native database and the real reply runtime.
+// Runs share an execution-local native database and runtime, with fresh sessions.
 func Execute(ctx context.Context, configuration Config, path, version, fingerprint string, progress io.Writer) (error, *sql.DB) {
+	return ExecuteWithOptions(ctx, configuration, path, version, fingerprint, progress, ExecutionOptions{Parallel: DefaultParallel})
+}
+
+const DefaultParallel = 8
+
+type ExecutionOptions struct {
+	Parallel int
+}
+
+func ExecuteWithOptions(ctx context.Context, configuration Config, path, version, fingerprint string, progress io.Writer, options ExecutionOptions) (error, *sql.DB) {
+	if options.Parallel < 1 {
+		return fmt.Errorf("benchmark parallelism must be a positive integer"), nil
+	}
 	if progress == nil {
 		progress = io.Discard
 	}
+	progress = &lockedWriter{writer: progress}
 	err, prepared := Prepare(configuration, path, version, fingerprint)
 	if err != nil {
 		return err, nil
@@ -116,48 +128,85 @@ func Execute(ctx context.Context, configuration Config, path, version, fingerpri
 		}
 		keys[provider.Id] = key
 	}
-	var executionErr error
-	for run, preparationErr := range prepared.Runs() {
-		if preparationErr != nil {
-			return finish(preparationErr)
-		}
-		if ctx.Err() != nil {
-			return finish(ctx.Err())
-		}
-		run.Status, run.StartedAt = "running", stringPointer(timestamp())
-		if err := resultTransaction(ctx, capture, func(tx *sql.Tx) error { return InsertRun(ctx, tx, run) }); err != nil {
-			return finish(err)
-		}
-		selected := models[run.ModelId]
-		fmt.Fprintf(progress, "benchmark %s: %s / %s / %s / %s / repetition %d\n", run.Id, run.TestAlias, selected.Alias, questions[run.QuestionId].Alias, environments[run.LispEnvironmentId].Alias, run.Repetition)
-		infrastructureErr := executeNativeRun(ctx, capture, &run, providers[selected.ProviderId], selected, prompts[run.SystemPromptId], questions[run.QuestionId], environments[run.LispEnvironmentId], keys[selected.ProviderId], progress)
-		if run.Status == "running" {
-			run.Status = "failed"
+	err, native := newNativeRuntime(ctx, prepared, providers, models, prompts, environments, keys, progress)
+	if err != nil {
+		return finish(err)
+	}
+	workContext, stop := context.WithCancelCause(ctx)
+	defer stop(nil)
+	next, stopIterator := iter.Pull2(prepared.Runs())
+	defer stopIterator()
+	var scheduling sync.Mutex
+	worker := func(ctx context.Context, _ int) (error, bool) {
+		failed := false
+		for {
+			scheduling.Lock()
 			if ctx.Err() != nil {
-				run.Status = "cancelled"
+				scheduling.Unlock()
+				return nil, failed
 			}
+			run, preparationErr, ok := next()
+			scheduling.Unlock()
+			if preparationErr != nil {
+				stop(preparationErr)
+				return preparationErr, failed
+			}
+			if !ok {
+				return nil, failed
+			}
+			run.Status, run.StartedAt = "running", stringPointer(timestamp())
+			if err := resultTransaction(ctx, capture, func(tx *sql.Tx) error { return InsertRun(ctx, tx, run) }); err != nil {
+				stop(err)
+				return err, failed
+			}
+			selected := models[run.ModelId]
+			fmt.Fprintf(progress, "benchmark %s: %s / %s / %s / %s / repetition %d\n", run.Id, run.TestAlias, selected.Alias, questions[run.QuestionId].Alias, environments[run.LispEnvironmentId].Alias, run.Repetition)
+			infrastructureErr := native.executeRun(ctx, capture, &run, questions[run.QuestionId], environments[run.LispEnvironmentId])
 			if infrastructureErr != nil {
-				run.Error = stringPointer(infrastructureErr.Error())
+				stop(infrastructureErr)
 			}
-		}
-		run.FinishedAt = stringPointer(timestamp())
-		cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := resultTransaction(cleanup, capture, func(tx *sql.Tx) error { return UpdateRun(cleanup, tx, run) })
-		cancel()
-		if err != nil {
-			return finish(errors.Join(infrastructureErr, err))
-		}
-		if ctx.Err() != nil {
-			return finish(ctx.Err())
-		}
-		if infrastructureErr != nil {
-			return finish(infrastructureErr)
-		}
-		if run.Status != "completed" {
-			executionErr = fmt.Errorf("one or more benchmark runs did not complete")
+			if run.Status == "running" {
+				run.Status = "failed"
+				if ctx.Err() != nil {
+					run.Status = "cancelled"
+				}
+				if infrastructureErr != nil {
+					run.Error = stringPointer(infrastructureErr.Error())
+				}
+			}
+			run.FinishedAt = stringPointer(timestamp())
+			cleanup, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := resultTransaction(cleanup, capture, func(tx *sql.Tx) error { return UpdateRun(cleanup, tx, run) })
+			cancel()
+			if err := errors.Join(infrastructureErr, err); err != nil {
+				stop(err)
+				return err, failed
+			}
+			failed = failed || run.Status != "completed"
 		}
 	}
-	return finish(executionErr)
+	// ParallelMap runs a fixed number of worker loops; the matrix stays lazy.
+	workers := make([]int, int(min(uint64(options.Parallel), prepared.RunCount)))
+	err, failed := task.ParallelMap(worker)(task.WithConcurrency(workContext, options.Parallel), workers)
+	executionErr := errors.Join(err, context.Cause(workContext))
+	for _, failure := range failed {
+		if failure {
+			executionErr = errors.Join(executionErr, fmt.Errorf("one or more benchmark runs did not complete"))
+			break
+		}
+	}
+	return finish(errors.Join(executionErr, native.close()))
+}
+
+type lockedWriter struct {
+	mutex  sync.Mutex
+	writer io.Writer
+}
+
+func (writer *lockedWriter) Write(data []byte) (int, error) {
+	writer.mutex.Lock()
+	defer writer.mutex.Unlock()
+	return writer.writer.Write(data)
 }
 
 func runtimeModel(selected benchmarkmodel.Model) (database.SystemAgentModelInput, error) {
@@ -220,101 +269,14 @@ func resolveAPIKey(ctx context.Context, resolver *agent.APIKeySourceResolver, al
 	}
 }
 
-func executeNativeRun(ctx context.Context, capture *sql.DB, run *benchmarkmodel.Run, provider benchmarkmodel.Provider, selected benchmarkmodel.Model, prompt benchmarkmodel.SystemPrompt, question benchmarkmodel.Question, environment benchmarkmodel.LispEnvironment, credential []byte, progress io.Writer) (resultErr error) {
-	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, configuration)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	chainID := config.SystemKeychainID
-	if provider.Keychain != nil {
-		chainID = *provider.Keychain
-	}
-	err, keyring := keychain.NewEphemeralKeyring(store, []string{config.SystemKeychainID, chainID})
-	if err != nil {
-		return err
-	}
-	defer keyring.Close()
-	state := config.State{
-		Workspaces:                []config.Workspace{{Alias: "benchmark", Enabled: true}},
-		Principals:                []config.Principal{{Alias: "benchmark", Enabled: true}},
-		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
-		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "benchmark", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
-	}
-	err, set := migrations.Build(configuration, state, keyring)
-	if err != nil {
-		return err
-	}
-	if err := migrations.Run(ctx, store, set); err != nil {
-		return err
-	}
-	input := database.SystemAgentProviderInput{Alias: "provider", Protocol: provider.Protocol, Endpoint: provider.Endpoint, Enabled: true}
-	if provider.Protocol != "builtin" {
-		reference := model.KeychainRef{Id: chainID, Version: 1}
-		err, keys := keyring.Get(ctx, []model.KeychainRef{reference})
-		if err != nil {
-			return err
-		}
-		err, encrypted := keychain.Seal(rand.Reader, keys[reference], []byte("gh=v1|agent-provider|alias=provider"), credential)
-		for _, key := range keys {
-			clear(key)
-		}
-		if err != nil {
-			return err
-		}
-		encrypted.AAD = keychain.AADAlias
-		input.Keychain, input.EncryptedCredential = &reference, stringPointer(encrypted.String())
-	}
-	err, nativeProvider := store.SystemAgentProviderCreate(ctx, input)
-	if err != nil {
-		return err
-	}
-	modelInput, err := runtimeModel(selected)
-	if err != nil {
-		return err
-	}
-	modelInput.ProviderID = nativeProvider.ID
-	err, nativeModel := store.SystemAgentModelCreate(ctx, modelInput)
-	if err != nil {
-		return err
-	}
-	workspace := model.WorkspaceRef{}
-	principal := model.PrincipalRef{}
-	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspaces WHERE alias = 'benchmark'`).Scan(&workspace.Id); err != nil {
-		return err
-	}
-	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'benchmark'`).Scan(&principal.Id); err != nil {
-		return err
-	}
-	binding := database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: nativeModel.ID, Prelude: environment.Prelude, Enabled: true}
-	if prompt.Mode == "append" {
-		binding.SystemPrompt = prompt.Text
-	}
-	err, nativeAgent := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, binding)
-	if err != nil {
-		return err
-	}
-	options := agent.SessionEventReplyOptions{}
-	if prompt.Mode == "replace" {
-		options.SystemPromptReplacement = prompt.Text
-	}
-	durable, err := dbos.NewContext(context.Background(), dbos.Config{AppName: "gatehouse-benchmark", SQLiteSystemDB: store.DB, Logger: slog.New(slog.NewTextHandler(progress, nil))})
-	if err != nil {
-		return err
-	}
-	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(durable, store, keyring, options)
-	if err != nil {
-		return err
-	}
-	if err := dbos.Launch(durable); err != nil {
-		return err
-	}
+func (native *nativeRuntime) executeRun(ctx context.Context, capture *sql.DB, run *benchmarkmodel.Run, question benchmarkmodel.Question, environment benchmarkmodel.LispEnvironment) (resultErr error) {
+	store, keyring, runtime := native.store, native.keyring, native.runtime
+	binding := native.bindings[nativeSelection{run.ModelId, run.SystemPromptId, run.LispEnvironmentId}]
+	workspace, principal := binding.workspace, native.principal
 	var capturedSession model.SessionRef
 	seen := map[string]bool{}
 	defer func() {
-		// DBOS closes its supplied SQLite handle during shutdown, so capture
-		// the terminal (or partial) native state and artifacts first.
+		// All per-session capture finishes before the shared runtime is closed.
 		if capturedSession.Id != "" {
 			cleanup, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			err, events := store.SessionEventsGet(cleanup, capturedSession)
@@ -327,7 +289,6 @@ func executeNativeRun(ctx context.Context, capture *sql.DB, run *benchmarkmodel.
 			cancel()
 			resultErr = errors.Join(resultErr, err)
 		}
-		resultErr = errors.Join(resultErr, dbos.Shutdown(durable, 5*time.Second))
 	}()
 	sessionID, err := typed_id.New(typed_id.Session)
 	if err != nil {
@@ -348,7 +309,7 @@ func executeNativeRun(ctx context.Context, capture *sql.DB, run *benchmarkmodel.
 	if err, _ := store.SessionsCreate(ctx, session, principal); err != nil {
 		return err
 	}
-	run.WorkspaceId, run.WorkspaceAgentId, run.SessionId = &workspace.Id, &nativeAgent.ID, &sessionID
+	run.WorkspaceId, run.WorkspaceAgentId, run.SessionId = &workspace.Id, &binding.agentID, &sessionID
 	capturedSession = session.Ref
 	messageID, err := typed_id.New(typed_id.SessionEvent)
 	if err != nil {
@@ -356,10 +317,10 @@ func executeNativeRun(ctx context.Context, capture *sql.DB, run *benchmarkmodel.
 	}
 	author := model.Principal{Ref: principal, Enabled: true}
 	if err, _ := store.SessionMessagesCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session.Ref, Id: messageID}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &author,
-		Payload: map[string]interface{}{"text": question.Text, "agents": []string{nativeAgent.ID}}}); err != nil {
+		Payload: map[string]interface{}{"text": question.Text, "agents": []string{binding.agentID}}}); err != nil {
 		return err
 	}
-	if err := runtime.Reconcile(); err != nil {
+	if err := native.reconcile(); err != nil {
 		return err
 	}
 	var stopping error

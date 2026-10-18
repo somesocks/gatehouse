@@ -2,6 +2,7 @@
 
 ```sh
 gatehouse benchmark run --config=tests.yaml
+gatehouse benchmark run --config=tests.yaml --parallel=8 --report=results --format=text
 gatehouse benchmark run --config=tests.yaml --report=results --format=json > results.json
 gatehouse benchmark run --config=tests.yaml --report=full --format=jsonl > results.jsonl
 gatehouse benchmark run --config=tests.yaml --report=full --format=sqlite > results.sqlite
@@ -17,14 +18,21 @@ The default, also available explicitly as `--output=-`, writes to stdout for she
 redirection. Output files are opened before execution; an unavailable destination
 fails before model requests. Progress and runtime logging go to stderr. Diagnostics
 follow their configured destinations; the command does not override them or check
-whether they share an output with the report.
+whether they share an output with the report. `--parallel` is a positive integer
+limiting active benchmark runs; it defaults to **8**. Use `--parallel=1` for serial
+execution. This is independent of Dryad's similarly named option.
 
 ## Execution and isolation
 
-The runner expands the validated matrix lazily and executes it serially through
-Gatehouse's normal session-reply runtime. Every run has a private ephemeral
-operational database, workspace, agent binding, named session, and (when selected)
-project. Naming the session avoids an unrelated model call for automatic naming.
+The runner expands the validated matrix lazily through bounded workers, using
+Gatehouse's normal session-reply runtime. One execution shares an ephemeral
+operational database, keyring, and DBOS runtime, initialized and shut down once.
+Selected providers and models are registered once; each model/prompt/environment
+combination reuses a workspace and agent binding with the stable alias `assistant`.
+Every run gets a fresh named session and (when selected) a fresh linked project,
+so conversation history and project state do not leak between runs. Replacement
+prompts are immutable per-binding settings, allowing different prompt modes to
+run concurrently. Naming sessions avoids unrelated automatic-naming model calls.
 Lisp evaluation, provider calls/retries, limits, tool execution, and native event
 creation use the same runtime as ordinary Gatehouse sessions.
 
@@ -50,7 +58,11 @@ Individual agent failures are captured and execution continues with later runs.
 Infrastructure failures stop the execution. Input and approval requests fail the
 unattended run through native cancellation, rather than waiting for a human.
 SIGINT/SIGTERM cancel active work through the same native cancellation path. Partial
-captures are finalized and reported using an independent cleanup context.
+captures are finalized and reported using an independent cleanup context. On
+interruption or infrastructure failure, workers stop taking new runs and active
+sessions are drained/cancelled before the shared runtime shuts down. Per-run
+timing starts when a worker takes a run, excluding time waiting for a worker slot;
+shared initialization/shutdown remains part of overall execution elapsed time.
 Both native cancellation outcomes (`cancel.success` and `cancel.failure` when
 completion wins the race) end the cancellation wait, retaining the recorded agent
 terminal event.

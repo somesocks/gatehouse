@@ -88,8 +88,11 @@ func TestExecuteBuiltinAndSQLGrading(t *testing.T) {
 	if err := capture.QueryRow(`SELECT COUNT(*) FROM session_events WHERE kind = 'message.text'`).Scan(&count); err != nil || count != 2 {
 		t.Fatalf("question events = %d, %v", count, err)
 	}
-	if err := capture.QueryRow(`SELECT COUNT(DISTINCT workspace_id) FROM runs`).Scan(&count); err != nil || count != 2 {
-		t.Fatalf("run isolation = %d workspaces, %v", count, err)
+	if err := capture.QueryRow(`SELECT COUNT(DISTINCT session_id) FROM runs`).Scan(&count); err != nil || count != 2 {
+		t.Fatalf("run isolation = %d sessions, %v", count, err)
+	}
+	if err := capture.QueryRow(`SELECT COUNT(DISTINCT workspace_agent_id) FROM runs`).Scan(&count); err != nil || count != 1 {
+		t.Fatalf("binding reuse = %d agents, %v", count, err)
 	}
 	if err := capture.QueryRow(`SELECT COUNT(*) FROM execution_inputs WHERE json_extract(configuration, '$.questions[0].expected.max_tool_calls') = 0`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("captured expectations = %d, %v", count, err)

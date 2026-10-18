@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -42,6 +43,7 @@ func benchmarkCommand(version, fingerprint string) clib.Command {
 			WithOption(clib.NewOption("report", "summary (default), results, or full")).
 			WithOption(clib.NewOption("format", "text (default), json, jsonl, or sqlite (full only)")).
 			WithOption(clib.NewOption("output", "report file path, or - for stdout (default)")).
+			WithOption(clib.NewOption("parallel", "maximum concurrent runs (default 8); use 1 for serial execution")).
 			WithAction(func(request clib.ActionRequest) (code int) {
 				var signalCode atomic.Int32
 				// Registered first so this runs after report/file cleanup. An
@@ -62,6 +64,15 @@ func benchmarkCommand(version, fingerprint string) clib.Command {
 				if strings.TrimSpace(path) == "" {
 					fmt.Fprintln(stderr, "benchmark run requires --config=<path>")
 					return 1
+				}
+				parallel := benchmark.DefaultParallel
+				if value, ok := request.Opts["parallel"].(string); ok {
+					parsed, err := strconv.Atoi(value)
+					if err != nil || parsed < 1 {
+						fmt.Fprintln(stderr, "benchmark --parallel must be a positive integer")
+						return 1
+					}
+					parallel = parsed
 				}
 				report, format := "summary", "text"
 				if value, ok := request.Opts["report"].(string); ok {
@@ -133,7 +144,7 @@ func benchmarkCommand(version, fingerprint string) clib.Command {
 						}
 					}
 				}()
-				executionErr, capture := benchmark.Execute(ctx, configuration, path, version, fingerprint, stderr)
+				executionErr, capture := benchmark.ExecuteWithOptions(ctx, configuration, path, version, fingerprint, stderr, benchmark.ExecutionOptions{Parallel: parallel})
 				if capture == nil {
 					fmt.Fprintf(stderr, "benchmark execution failed: %v\n", executionErr)
 					return 1

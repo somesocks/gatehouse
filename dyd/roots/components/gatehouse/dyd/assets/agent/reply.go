@@ -98,15 +98,16 @@ type sessionReplyCancelled struct{}
 func (sessionReplyCancelled) Error() string { return "reply cancelled" }
 
 type SessionEventReplyRuntime struct {
-	store                   *database.Store
-	keyring                 *keychain.Keyring
-	storage                 *storage.Client
-	dbos                    dbos.Context
-	dataSource              *dbos.DataSource
-	queue                   dbos.Queue
-	toolQueue               dbos.Queue
-	nameQueue               dbos.Queue
-	systemPromptReplacement *string
+	store                    *database.Store
+	keyring                  *keychain.Keyring
+	storage                  *storage.Client
+	dbos                     dbos.Context
+	dataSource               *dbos.DataSource
+	queue                    dbos.Queue
+	toolQueue                dbos.Queue
+	nameQueue                dbos.Queue
+	systemPromptReplacement  *string
+	systemPromptReplacements map[model.WorkspaceAgentRef]string
 }
 
 func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring) (error, *SessionEventReplyRuntime) {
@@ -116,6 +117,9 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 // SessionEventReplyOptions applies immutable invocation-local execution settings.
 type SessionEventReplyOptions struct {
 	SystemPromptReplacement *string
+	// Per-binding replacements take precedence over the default replacement.
+	// The constructor copies the map so callers cannot mutate active settings.
+	SystemPromptReplacements map[model.WorkspaceAgentRef]string
 }
 
 func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring, options SessionEventReplyOptions) (error, *SessionEventReplyRuntime) {
@@ -144,6 +148,10 @@ func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.St
 	if options.SystemPromptReplacement != nil {
 		text := *options.SystemPromptReplacement
 		runtime.systemPromptReplacement = &text
+	}
+	runtime.systemPromptReplacements = make(map[model.WorkspaceAgentRef]string, len(options.SystemPromptReplacements))
+	for binding, text := range options.SystemPromptReplacements {
+		runtime.systemPromptReplacements[binding] = text
 	}
 	dbos.RegisterWorkflow(ctx, runtime.reply,
 		dbos.WithInstance(runtime),
