@@ -2,6 +2,8 @@
   import * as UI from "../ui"
   import {
     participantName,
+    participantNoun,
+    participantPlural,
     type ParticipantKind,
     type SessionParticipantGrant,
   } from "../app/session-participants"
@@ -33,6 +35,7 @@
   const tabs = [
     { value: "principal", label: "People" },
     { value: "group", label: "Groups" },
+    { value: "agent", label: "Bots" },
   ]
 
   function close() {
@@ -56,7 +59,7 @@
     }
     if (action !== target) return
     const directory =
-      target.kind === "principal" ? controller.people : controller.groups
+      controller.directory(target.kind)
     const latest = directory.state.items
       .flatMap((item) => item.grants)
       .find((grant) => grant.id === target.grant.id)
@@ -88,8 +91,8 @@
       {#snippet children(value)}
         {@const kind = value as ParticipantKind}
         {@const directory =
-          kind === "principal" ? controller.people : controller.groups}
-        {@const noun = kind === "principal" ? "people" : "groups"}
+          controller.directory(kind)}
+        {@const noun = participantPlural(kind)}
         <UI.Stack>
           {#if directory.state.error}<UI.Notice
               variant="destructive"
@@ -101,7 +104,7 @@
               ></UI.Notice
             >{/if}
           <UI.RecordList
-            label={kind === "principal" ? "People" : "Groups"}
+            label={noun}
             loading={directory.state.busy}
             items={directory.state.items.map((item) => ({
               ...item,
@@ -175,7 +178,7 @@
           disabled={controller.state.saving}
           onclick={() => {
             adding = tab as ParticipantKind
-          }}>{tab === "principal" ? "Add person" : "Add group"}</UI.Button
+          }}>Add {participantNoun(tab as ParticipantKind)}</UI.Button
         >{/if}
     </UI.Row>
     {#if adding !== null}

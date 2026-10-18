@@ -275,7 +275,7 @@ export function createChatController({
         state.authenticationRequired = true
         return
       }
-      if (response.status === 400) {
+      if (response.status === 400 || response.status === 403) {
         const error = (await response.text()).trim()
         if (validContext(value, workspaceID, sessionID))
           state.messageError = error || "The selected recipients are unavailable. Choose another recipient."

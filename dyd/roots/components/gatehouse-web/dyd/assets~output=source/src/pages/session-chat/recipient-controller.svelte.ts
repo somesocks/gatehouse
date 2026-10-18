@@ -4,9 +4,14 @@ import { readSavedTargets, recipientStorageKey, saveTargets, targetKey, uniqueTa
 export function createRecipientController() {
   const state = $state({
     options: [] as MessageTarget[],
+    inChat: [] as MessageTarget[],
+    outside: [] as MessageTarget[],
+    canManage: false,
     targets: [] as MessageTargetRef[],
     ready: false,
     error: "",
+    outsideReady: false,
+    outsideError: "",
   })
   let generation = 0
   let request: AbortController | undefined
@@ -31,9 +36,14 @@ export function createRecipientController() {
     request?.abort()
     context = undefined
     state.options = []
+    state.inChat = []
+    state.outside = []
+    state.canManage = false
     state.targets = []
     state.ready = false
     state.error = ""
+    state.outsideReady = false
+    state.outsideError = ""
     seed = undefined
   }
 
@@ -56,6 +66,8 @@ export function createRecipientController() {
     request?.abort()
     request = new AbortController()
     const combined = AbortSignal.any([signal, request.signal, ...(parent ? [parent] : [])])
+    state.outsideReady = false
+    state.outsideError = ""
     try {
       const kinds = ["agent", "principal", "group"] as const
       const [pages, defaults] = await Promise.all([
@@ -66,13 +78,34 @@ export function createRecipientController() {
         }) : undefined,
       ])
       if (value !== generation || combined.aborted) return false
-      state.options = pages.flat().sort((a, b) => (a.alias ?? a.name ?? a.ref.id).localeCompare(b.alias ?? b.name ?? b.ref.id))
+      const canManage = pages.every((page) => page.canManage)
+      const inChat = pages.flatMap((page) => page.targets)
+      state.inChat = inChat
+      state.outside = canManage
+        ? state.outside.filter((target) => !inChat.some((item) => targetKey(item.ref) === targetKey(target.ref)))
+        : []
+      state.canManage = canManage
+      state.options = [...state.inChat, ...state.outside].sort((a, b) => (a.alias ?? a.name ?? a.ref.id).localeCompare(b.alias ?? b.name ?? b.ref.id))
       if (seed !== undefined && revision === selectionRevision) {
         const id = seed ?? defaults?.find((agent) => agent.default)?.id ?? "unavailable-default"
         select([{ kind: "agent", id }])
       }
       state.ready = true
       state.error = ""
+      if (!canManage) {
+        state.outsideReady = true
+        return true
+      }
+      try {
+        const outside = (await Promise.all(kinds.map((kind) => fetchChatRecipients(workspace, session, kind, combined, "out")))).flatMap((page) => page.targets)
+        if (value !== generation || combined.aborted) return false
+        state.outside = outside.filter((target) => !inChat.some((item) => targetKey(item.ref) === targetKey(target.ref)))
+        state.options = [...state.inChat, ...state.outside].sort((a, b) => (a.alias ?? a.name ?? a.ref.id).localeCompare(b.alias ?? b.name ?? b.ref.id))
+        state.outsideReady = true
+      } catch {
+        if (value !== generation || combined.aborted) return false
+        state.outsideError = "Recipients outside this chat could not be loaded. Try again."
+      }
       return true
     } catch {
       if (value === generation && !combined.aborted) state.error = "Recipients could not be loaded. Try again."
@@ -83,10 +116,19 @@ export function createRecipientController() {
   function available(ref: MessageTargetRef): boolean {
     return state.options.some((option) => targetKey(option.ref) === targetKey(ref))
   }
+  function inChat(ref: MessageTargetRef): boolean {
+    return state.inChat.some((target) => targetKey(target.ref) === targetKey(ref))
+  }
 
   return {
     state, start, stop, refresh, select, available,
-    get canSend() { return state.ready && state.error === "" && state.targets.every(available) },
+    inChat,
+    get canSend() {
+      if (!context) return false
+      if (state.targets.length === 0) return seed === undefined
+      return state.ready && state.error === "" && state.targets.every((ref) =>
+        inChat(ref) || (state.canManage && state.outsideReady && available(ref)))
+    },
     target: (ref: MessageTargetRef): MessageTarget => state.options.find((option) => targetKey(option.ref) === targetKey(ref)) ?? { ref },
   }
 }

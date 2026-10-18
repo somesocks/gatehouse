@@ -462,6 +462,9 @@ func (runtime *SessionEventReplyRuntime) cancelledReplyFinalize(ctx dbos.Context
 }
 
 func (runtime *SessionEventReplyRuntime) Reconcile() error {
+	if err := runtime.cancelDetachedAgentRequests(); err != nil {
+		return err
+	}
 	err, tasks := runtime.store.SessionEventReplyTasksGet(runtime.dbos, 100)
 	if err != nil {
 		return err
@@ -547,6 +550,9 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 			}
 		}
 		if preferred == "" {
+			continue
+		}
+		if err := runtime.requireAgentParticipant(ctx, input.Session, model.WorkspaceAgentRef{Workspace: input.Session.Workspace, Id: preferred}); err != nil {
 			continue
 		}
 		err, selected := runtime.store.WorkspaceAgentModelGet(ctx, input.Session.Workspace, preferred)
@@ -937,6 +943,9 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	if selected == nil || selected.Ref != *request.AuthorAgent {
 		return model.SessionEventRef{}, fmt.Errorf("session tool call agent is unavailable")
 	}
+	if err := runtime.requireAgentParticipant(ctx, request.Ref.Session, selected.Ref); err != nil {
+		return model.SessionEventRef{}, err
+	}
 	agent := *request.AuthorAgent
 	principal := parent.AuthorPrincipal.Ref
 	err, project := runtime.store.SessionProjectGet(ctx, request.Ref.Session)
@@ -991,7 +1000,16 @@ func (runtime *SessionEventReplyRuntime) watchReplyCancellation(parent *model.Se
 	}
 	return watchCancellation(func(ctx context.Context) bool {
 		err, request := runtime.replyCancellationRequested(ctx, *parent)
-		return err == nil && request != nil
+		if err == nil && request != nil {
+			return true
+		}
+		err, root := runtime.store.SessionEventGet(ctx, *parent)
+		if err != nil || root == nil {
+			return false
+		}
+		id, _ := root.Payload["agent"].(string)
+		err, active := runtime.store.SessionAgentParticipantGet(ctx, parent.Session, model.WorkspaceAgentRef{Workspace: parent.Session.Workspace, Id: id})
+		return err == nil && !active
 	}, cancel)
 }
 
@@ -1898,6 +1916,9 @@ func projectRecordValueFromModel(value model.ProjectRecordValue) ProjectRecordVa
 }
 
 func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, description string) error {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+		return err
+	}
 	payload, err := database.SessionEventPayloadFrom(model.ApprovalRequestPayload{Description: description})
 	if err != nil {
 		return err
@@ -1918,6 +1939,9 @@ func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool mo
 	outcome, err := handle.GetResult()
 	if err != nil {
 		return fmt.Errorf("await approval %q: %w", request.Id, err)
+	}
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+		return err
 	}
 	if outcome == ApprovalGranted {
 		return nil
@@ -1953,6 +1977,9 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 }
 
 func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, form inputform.Form) (error, string) {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+		return err, ""
+	}
 	if err := form.Validate(); err != nil {
 		return err, ""
 	}
@@ -1972,6 +1999,9 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	response, err := dbos.Recv[model.SessionEventRef](ctx, sessionInputResponseTopic(request), sessionApprovalWait)
 	if err != nil {
 		return fmt.Errorf("await input %q: %w", request.Id, err), ""
+	}
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+		return err, ""
 	}
 	err, event := runtime.inputResponseEventGet(ctx, request, response)
 	if err != nil {
@@ -2225,7 +2255,15 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 		return err
 	}
 	if cancelled == nil {
-		return nil
+		err, request := runtime.store.SessionEventGet(ctx, parent)
+		if err != nil {
+			return err
+		}
+		if request == nil {
+			return fmt.Errorf("reply request is unavailable")
+		}
+		id, _ := request.Payload["agent"].(string)
+		return runtime.requireAgentParticipant(ctx, parent.Session, model.WorkspaceAgentRef{Workspace: parent.Session.Workspace, Id: id})
 	}
 	return sessionReplyCancelled{}
 }

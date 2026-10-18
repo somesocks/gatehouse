@@ -674,6 +674,22 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 
 	placeholder := keychainPlaceholder(store.kind)
 	inserts := make([]sessionEventInsert, 0, len(events))
+	if createReplyTasks {
+		root := events[0]
+		if root.AuthorPrincipal == nil {
+			return ErrSessionParticipantForbidden, nil
+		}
+		if err := store.sessionParticipantLock(ctx, transaction, root.Ref.Session); err != nil {
+			return err, nil
+		}
+		allowed, err := store.sessionPrincipalAllowed(ctx, transaction, root.Ref.Session, root.AuthorPrincipal.Ref, false)
+		if err != nil {
+			return err, nil
+		}
+		if !allowed {
+			return ErrSessionParticipantForbidden, nil
+		}
+	}
 	seen := make(map[model.SessionEventRef]struct{}, len(events))
 	for index, event := range events {
 		if strings.TrimSpace(event.Ref.Id) == "" || strings.TrimSpace(event.Kind) == "" {
@@ -737,7 +753,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 					return err, nil
 				}
 				for _, target := range targets {
-					if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session.Workspace, target); err != nil {
+					if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session, target); err != nil {
 						return err, nil
 					}
 				}
@@ -746,7 +762,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 				if err != nil {
 					return err, nil
 				}
-				if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session.Workspace, target); err != nil {
+				if err := store.sessionAgentTargetValidate(ctx, transaction, event.Ref.Session, target); err != nil {
 					return err, nil
 				}
 			}
@@ -851,7 +867,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 	return nil, stored
 }
 
-func (store *Store) sessionAgentTargetValidate(ctx context.Context, transaction *sql.Tx, workspace model.WorkspaceRef, agent string) error {
+func (store *Store) sessionAgentTargetValidate(ctx context.Context, transaction *sql.Tx, session model.SessionRef, agent string) error {
 	placeholder := keychainPlaceholder(store.kind)
 	var exists bool
 	err := transaction.QueryRowContext(ctx, `
@@ -863,12 +879,19 @@ func (store *Store) sessionAgentTargetValidate(ctx context.Context, transaction 
 			WHERE bindings.workspace_id = `+placeholder(1)+` AND bindings.id = `+placeholder(2)+`
 				AND bindings.enabled = TRUE AND models.enabled = TRUE AND providers.enabled = TRUE
 		)
-	`, workspace.Id, agent).Scan(&exists)
+	`, session.Workspace.Id, agent).Scan(&exists)
 	if err != nil {
 		return fmt.Errorf("validate agent request target: %w", err)
 	}
 	if !exists {
 		return fmt.Errorf("create session message: agent %q is unavailable", agent)
+	}
+	p := store.sessionParticipantPlaceholder
+	if err := transaction.QueryRowContext(ctx, `SELECT `+store.messageTargetMembershipSQL("agent", p(3)), session.Workspace.Id, session.Id, agent).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return ErrMessageTarget
 	}
 	return nil
 }

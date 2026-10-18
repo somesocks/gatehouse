@@ -510,7 +510,7 @@
   async function sendMessage(): Promise<void> {
     if (!recipients.canSend) return
     await controller.sendMessage(recipients.state.targets)
-    if (controller.state.messageError) void recipients.refresh()
+    void recipients.refresh()
   }
 </script>
 
@@ -1069,6 +1069,7 @@
                   <UI.InputRecipient
                     name={targetLabel(recipients.target(ref))}
                     unavailable={recipients.state.ready && !recipients.available(ref)}
+                    pending={recipients.state.ready && recipients.available(ref) && !recipients.inChat(ref)}
                     disabled={controller.state.sendingMessage}
                     onselect={openRecipients}
                     onremove={() => recipients.select(recipients.state.targets.filter((target) => targetKey(target) !== targetKey(ref)))}
@@ -1076,8 +1077,8 @@
                 {/each}
               </UI.Row>
             {/if}
-            {#if recipients.state.error}
-              <UI.Row><UI.Text as="p" size="small" role="alert">{recipients.state.error}</UI.Text>
+            {#if recipients.state.error || (recipients.state.outsideError && recipients.state.targets.some((ref) => !recipients.inChat(ref)))}
+              <UI.Row><UI.Text as="p" size="small" role="alert">{recipients.state.error || recipients.state.outsideError}</UI.Text>
                 <UI.Button type="button" variant="outline" size="sm" onclick={() => void recipients.refresh()}>Try again</UI.Button>
               </UI.Row>
             {/if}
@@ -1185,9 +1186,13 @@
               </UI.Text>{/if}
             <RecipientPicker
               bind:open={mentionOpen}
-              options={recipients.state.options}
+              inChat={recipients.state.inChat}
+              outside={recipients.state.outside}
+              canManage={recipients.state.canManage}
               ready={recipients.state.ready}
               error={recipients.state.error}
+              outsideReady={recipients.state.outsideReady}
+              outsideError={recipients.state.outsideError}
               onselect={selectRecipient}
               onretry={() => void recipients.refresh()}
               onclose={() => {

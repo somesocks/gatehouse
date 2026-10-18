@@ -29,6 +29,7 @@ const developers = {
     { ...grant, id: "group-grant", principal: undefined, group: "developers" },
   ],
 }
+const assistant = { id: "assistant", alias: "assistant", enabled: true, grants: [{ ...grant, id: "bot-grant", principal: undefined, agent: "assistant" }] }
 
 async function setup(canManage = true) {
   let refresh!: ActivityRefresh
@@ -49,7 +50,7 @@ async function setup(canManage = true) {
     if (!path.includes("/participants")) return Response.json({ id: "chat" })
     const kind = new URL(path, "http://localhost").searchParams.get("kind")
     return Response.json({
-      participants: kind === "group" ? [developers] : [alice],
+      participants: kind === "group" ? [developers] : kind === "agent" ? [assistant] : [alice],
       can_manage_participants: canManage,
     })
   })
@@ -77,15 +78,16 @@ async function setup(canManage = true) {
 }
 
 describe("chat participant lifecycle", () => {
-  it("loads explicit people and groups lazily and prevents read-only mutations", async () => {
+  it("loads explicit people, groups, and bots lazily and prevents read-only mutations", async () => {
     const { controller, request } = await setup(false)
     expect(request).not.toHaveBeenCalled()
     await controller.open()
     expect(controller.people.state.items).toEqual([alice])
     expect(controller.groups.state.items).toEqual([developers])
+    expect(controller.bots.state.items).toEqual([assistant])
     expect(controller.state.canManage).toBe(false)
     expect(await controller.remove(grant)).toBe(false)
-    expect(request).toHaveBeenCalledTimes(2)
+    expect(request).toHaveBeenCalledTimes(3)
     controller.stop()
   })
 
@@ -212,7 +214,7 @@ describe("chat participant lifecycle", () => {
         }),
         expect.objectContaining({
           topic: "workspace",
-          events: ["group.*", "group_member.*"],
+          events: ["group.*", "group_member.*", "workspace_agent.*"],
         }),
       ]),
     )

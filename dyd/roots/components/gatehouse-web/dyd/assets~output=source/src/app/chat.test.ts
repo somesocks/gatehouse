@@ -89,7 +89,7 @@ describe("chat transport", () => {
       .mockResolvedValueOnce(Response.json({ targets: [{ ref: { kind: "principal", id: "prn_two" }, name: "Two" }] }))
     vi.stubGlobal("fetch", request)
     const signal = new AbortController().signal
-    expect(await fetchChatRecipients("wsp/test", "ses/test", "principal", signal)).toHaveLength(2)
+    expect((await fetchChatRecipients("wsp/test", "ses/test", "principal", signal)).targets).toHaveLength(2)
     expect(request).toHaveBeenNthCalledWith(2, "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/recipients?kind=principal&limit=100&cursor=prn_cursor", { credentials: "same-origin", signal })
     request.mockImplementation(async () => Response.json({ targets: [], next_cursor: "same" }))
     await expect(fetchChatRecipients("workspace", "chat", "group", signal)).rejects.toThrow("Invalid recipient cursor.")

@@ -4,6 +4,8 @@
   import { useRuntime } from "../app/runtime.svelte"
   import {
     participantName,
+    participantNoun,
+    participantPlural,
     participantRoles,
     type ParticipantKind,
   } from "../app/session-participants"
@@ -33,7 +35,7 @@
     onPermissionsChanged: () => onPermissionsChanged(),
   })
   const uid = $props.id()
-  const label = $derived(kind === "principal" ? "person" : "group")
+  const label = $derived(participantNoun(kind))
   onMount(() => controller.open(workspaceID, sessionID, kind))
   async function save() {
     if (canManage && (await controller.save())) onClose()
@@ -71,12 +73,12 @@
       emptyMessage={controller.options.state.loading
         ? "Loading…"
         : controller.options.state.hasLoaded
-          ? `No matching ${kind === "principal" ? "people" : "groups"}.`
+            ? `No matching ${participantPlural(kind)}.`
           : "Options could not be loaded."}
     >
       {#snippet toolbar()}<UI.SearchToolbar
           framed={false}
-          label={`Search ${kind === "principal" ? "people" : "groups"}`}
+          label={`Search ${participantPlural(kind)}`}
           placeholder="Search"
           bind:value={controller.options.state.search}
           loading={controller.options.state.busy || controller.state.saving}
@@ -85,7 +87,7 @@
     </UI.RecordList>
     {#if controller.options.state.history.length > 0 || controller.options.state.next}<UI.PaginationFooter
         showCount={false}
-        noun={kind === "principal" ? "people" : "groups"}
+        noun={participantPlural(kind)}
         count={controller.options.state.items.length}
         previous={controller.options.state.history.length > 0}
         next={!!controller.options.state.next}

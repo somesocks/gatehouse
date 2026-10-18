@@ -6,12 +6,14 @@
   let {
     name,
     unavailable = false,
+    pending = false,
     disabled = false,
     onselect,
     onremove,
   }: {
     name: string
     unavailable?: boolean
+    pending?: boolean
     disabled?: boolean
     onselect: () => void
     onremove: () => void
@@ -34,6 +36,7 @@
     onclick={onselect}
   >{name}</button>
   {#if unavailable}<span class="text-destructive text-xs">Unavailable</span>{/if}
+  {#if pending && !unavailable}<span class="text-muted-foreground whitespace-nowrap text-xs">Will be added</span>{/if}
   <Button
     variant="ghost"
     size="icon-xs"

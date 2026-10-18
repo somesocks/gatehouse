@@ -26,12 +26,15 @@ export async function fetchChatRecipients(
   sessionID: string,
   kind: MessageTargetRef["kind"],
   signal: AbortSignal,
-): Promise<MessageTarget[]> {
+  scope: "in" | "out" = "in",
+): Promise<{ targets: MessageTarget[]; canManage: boolean }> {
   const targets: MessageTarget[] = []
+  let canManage = false
   let cursor = ""
   const seenCursors = new Set<string>()
   do {
     const query = new URLSearchParams({ kind, limit: "100" })
+    if (scope === "out") query.set("scope", scope)
     if (cursor) query.set("cursor", cursor)
     const response = await fetch(`${chatAPIPath(workspaceID, sessionID)}/recipients?${query}`, {
       credentials: "same-origin", signal,
@@ -41,11 +44,12 @@ export async function fetchChatRecipients(
     if (!Array.isArray(page.targets) || (page.next_cursor !== undefined && typeof page.next_cursor !== "string"))
       throw new Error("Invalid recipient page.")
     targets.push(...page.targets.map(decodeTranscriptMessageTarget))
+    canManage = page.can_manage_participants === true
     cursor = page.next_cursor ?? ""
     if (cursor && seenCursors.has(cursor)) throw new Error("Invalid recipient cursor.")
     seenCursors.add(cursor)
   } while (cursor)
-  return targets
+  return { targets, canManage }
 }
 type ChatEventsByKind = {
   [K in ChatEvent["kind"]]: Extract<ChatEvent, { kind: K }>

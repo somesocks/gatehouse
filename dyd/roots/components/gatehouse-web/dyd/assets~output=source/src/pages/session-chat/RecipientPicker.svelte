@@ -7,17 +7,25 @@
 
   let {
     open = $bindable(false),
-    options,
+    inChat,
+    outside,
+    canManage,
     ready,
     error,
+    outsideReady,
+    outsideError,
     onselect,
     onretry,
     onclose,
   }: {
     open?: boolean
-    options: MessageTarget[]
+    inChat: MessageTarget[]
+    outside: MessageTarget[]
+    canManage: boolean
     ready: boolean
     error: string
+    outsideReady: boolean
+    outsideError: string
     onselect: (ref: MessageTargetRef | null) => void
     onretry: () => void
     onclose: () => void
@@ -29,9 +37,12 @@
     principal: { label: "Person", icon: UserRound },
     group: { label: "Group", icon: UsersRound },
   } as const
-  const filtered = $derived(options
+  const lists = $derived([
+    { label: "In this chat", targets: inChat, ready, error: "" },
+    ...(canManage ? [{ label: "Outside this chat", targets: outside, ready: outsideReady, error: outsideError }] : []),
+  ].map((list) => ({ ...list, targets: list.targets
     .filter((target) => `${target.alias ?? ""} ${target.name ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => targetLabel(a).localeCompare(targetLabel(b))))
+    .sort((a, b) => targetLabel(a).localeCompare(targetLabel(b))) })))
 </script>
 
 <UI.Dialog.Root bind:open>
@@ -56,16 +67,18 @@
               open = false
             }}
           >
-            <UI.X size={16} visibility="hidden" aria-hidden="true" />
             <UI.Text truncate>@none</UI.Text>
             <UI.Text truncate size="small" tone="muted">clear selected</UI.Text>
           </UI.Command.Item>
-          {#each filtered as target (targetKey(target.ref))}
+        </UI.Command.Group>
+        {#each lists as list (list.label)}
+          <UI.Command.Group heading={list.label} aria-busy={!list.ready && list.error === ""}>
+          {#each list.targets as target (targetKey(target.ref))}
             {@const kind = kinds[target.ref.kind]}
             <UI.Command.Item
               value={targetKey(target.ref)}
               aria-label={`${targetLabel(target)}, ${kind.label}${target.alias && target.name ? `, ${target.name}` : ""}`}
-              disabled={!ready || error !== ""}
+              disabled={!ready || error !== "" || !list.ready || list.error !== ""}
               onSelect={() => {
                 onselect(target.ref)
                 open = false
@@ -76,8 +89,15 @@
               {#if target.alias && target.name}<UI.Text truncate size="small" tone="muted" title={target.name}>{target.name}</UI.Text>{/if}
             </UI.Command.Item>
           {/each}
-        </UI.Command.Group>
-        {#if ready && filtered.length === 0}<UI.Text as="p" tone="muted">No recipients found.</UI.Text>{/if}
+          {#if list.ready && list.targets.length === 0}<UI.Text as="p" size="small" tone="muted">No recipients found.</UI.Text>{/if}
+          {#if list.error}
+            <UI.Row>
+              <UI.Text as="p" size="small" role="alert">{list.error}</UI.Text>
+              <UI.Button type="button" variant="outline" size="sm" onclick={onretry}>Try again</UI.Button>
+            </UI.Row>
+          {/if}
+          </UI.Command.Group>
+        {/each}
       </UI.Command.List>
     </UI.Command.Root>
     {#if error}<UI.Text as="p" role="alert">{error}</UI.Text><UI.Button type="button" variant="outline" onclick={onretry}>Try again</UI.Button>{/if}

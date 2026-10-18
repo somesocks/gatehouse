@@ -203,6 +203,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/recipients", workspaceSessionRecipients(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/principal-options", workspaceSessionParticipants(store, tokens[0], "principal"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/group-options", workspaceSessionParticipants(store, tokens[0], "group"))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/agent-options", workspaceSessionParticipants(store, tokens[0], "agent"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/grants", workspaceSessionGrantCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/grants/{grant}", workspaceSessionGrantUpdate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/project", workspaceSessionProject(store, tokens[0]))
@@ -1849,6 +1850,10 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		err, stored := store.SessionMessagesCreate(request.Context(), event)
 		if err != nil {
+			if errors.Is(err, database.ErrSessionParticipantForbidden) {
+				http.Error(response, "You do not have permission to send to recipients outside this chat.", http.StatusForbidden)
+				return
+			}
 			if errors.Is(err, database.ErrMessageTarget) {
 				http.Error(response, err.Error(), http.StatusBadRequest)
 				return

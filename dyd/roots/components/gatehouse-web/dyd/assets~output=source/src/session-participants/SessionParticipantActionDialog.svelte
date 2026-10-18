@@ -3,6 +3,7 @@
   import * as UI from "../ui"
   import {
     participantRoles,
+    participantNoun,
     type ParticipantKind,
     type ParticipantRole,
     type SessionParticipantGrant,
@@ -81,9 +82,7 @@
     <UI.Dialog.Title
       >{mode === "role"
         ? `Edit role for ${name}`
-        : kind === "principal"
-          ? "Remove person"
-          : "Remove group"}</UI.Dialog.Title
+        : `Remove ${participantNoun(kind)}`}</UI.Dialog.Title
     >
     <UI.Form
       onsubmit={(event) => {

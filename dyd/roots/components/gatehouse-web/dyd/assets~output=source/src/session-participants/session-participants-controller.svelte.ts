@@ -62,6 +62,8 @@ export function createSessionParticipantsController({
   }
   const people = directory("principal")
   const groups = directory("group")
+  const bots = directory("agent")
+  const directories = { principal: people, group: groups, agent: bots }
   const current = (value: number, signal: AbortSignal) =>
     value === generation && !signal.aborted
 
@@ -69,6 +71,7 @@ export function createSessionParticipantsController({
     state.open = false
     people.stop()
     groups.stop()
+    bots.stop()
     cancelMutation()
   }
   function cancelMutation() {
@@ -87,6 +90,7 @@ export function createSessionParticipantsController({
     session = sessionID
     people.reset()
     groups.reset()
+    bots.reset()
     Object.assign(state, {
       canManage: false,
       error: "",
@@ -102,7 +106,7 @@ export function createSessionParticipantsController({
         {
           name: "chat-participant-groups",
           topic: workspace,
-          events: ["group.*", "group_member.*"],
+          events: ["group.*", "group_member.*", "workspace_agent.*"],
         },
       ],
       async ({ signal }) => {
@@ -117,10 +121,10 @@ export function createSessionParticipantsController({
   async function open() {
     state.open = true
     state.error = ""
-    await Promise.all([people.retry(), groups.retry()])
+    await Promise.all(Object.values(directories).map((directory) => directory.retry()))
   }
   async function reload() {
-    return (await Promise.all([people.reload(), groups.reload()])).every(
+    return (await Promise.all(Object.values(directories).map((directory) => directory.reload()))).every(
       Boolean,
     )
   }
@@ -214,6 +218,8 @@ export function createSessionParticipantsController({
     state,
     people,
     groups,
+    bots,
+    directory: (kind: ParticipantKind) => directories[kind],
     start,
     stop,
     open,

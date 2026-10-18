@@ -91,12 +91,13 @@ func workspaceSessionGrantCreate(store *database.Store, tokens *auth.BearerToken
 		var input struct {
 			Principal *string    `json:"principal"`
 			Group     *string    `json:"group"`
+			Agent     *string    `json:"agent"`
 			Role      authz.Role `json:"role"`
 		}
 		if !principalDecode(w, r, &input) {
 			return
 		}
-		err, grant := store.SessionParticipantGrantCreate(r.Context(), session, claims.Principal.Ref, input.Principal, input.Group, input.Role)
+		err, grant := store.SessionParticipantGrantCreateSubject(r.Context(), session, claims.Principal.Ref, input.Principal, input.Group, input.Agent, input.Role)
 		if err != nil {
 			sessionParticipantError(w, r, err)
 			return

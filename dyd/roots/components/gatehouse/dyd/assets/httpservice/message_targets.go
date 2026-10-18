@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"gatehouse/auth"
+	"gatehouse/authz"
 	"gatehouse/database"
 	"gatehouse/model"
 )
@@ -23,12 +24,27 @@ func workspaceSessionRecipients(store *database.Store, tokens *auth.BearerTokens
 		if !ok {
 			return
 		}
+		err, roles := store.SessionRolesGet(r.Context(), session, claims.Principal.Ref)
+		if err != nil {
+			sessionParticipantError(w, r, err)
+			return
+		}
+		canManage := authz.SessionAllows(roles, authz.SessionGrantManage)
+		scope := r.URL.Query().Get("scope")
+		if scope != "" && scope != "in" && scope != "out" {
+			http.Error(w, "invalid recipient scope", http.StatusBadRequest)
+			return
+		}
+		if scope == "out" && !canManage {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		name, cursor, limit, ok := catalogSearchParameters(w, r)
 		if !ok {
 			return
 		}
 		err, targets, next := store.SessionMessageTargetsSearch(r.Context(), session, database.SessionParticipantSearch{
-			Kind: r.URL.Query().Get("kind"), Name: name, Cursor: cursor, Limit: limit,
+			Kind: r.URL.Query().Get("kind"), Name: name, Cursor: cursor, Limit: limit, Outside: scope == "out",
 		})
 		if err != nil {
 			if errors.Is(err, database.ErrMessageTarget) {
@@ -39,8 +55,9 @@ func workspaceSessionRecipients(store *database.Store, tokens *auth.BearerTokens
 			return
 		}
 		writeJSON(w, struct {
-			Targets []model.MessageTarget `json:"targets"`
-			Next    string                `json:"next_cursor,omitempty"`
-		}{targets, next})
+			Targets   []model.MessageTarget `json:"targets"`
+			Next      string                `json:"next_cursor,omitempty"`
+			CanManage bool                  `json:"can_manage_participants"`
+		}{targets, next, canManage})
 	}
 }

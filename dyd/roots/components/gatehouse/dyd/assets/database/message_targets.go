@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gatehouse/authz"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -74,34 +75,29 @@ func SessionMessageTargets(event model.SessionEvent) ([]model.MessageTarget, err
 
 // messageTargetSource uses the same eligibility rules for lookup and send-time
 // validation, including people whose access comes through a conversation group.
-func (store *Store) messageTargetSource(kind string) (string, error) {
+func (store *Store) messageTargetSource(kind string, outside ...bool) (string, error) {
 	p := store.sessionParticipantPlaceholder
+	workspace := len(outside) > 0 && outside[0]
+	filter := store.messageTargetMembershipSQL(kind, "subjects.id")
+	if workspace {
+		filter = "TRUE"
+		if kind == "principal" {
+			filter = sessionWorkspacePrincipalEligibleSQL(p(1), "subjects.id")
+		}
+	}
 	switch kind {
 	case "agent":
 		return `SELECT subjects.id, subjects.alias, subjects.label FROM gatehouse_workspace_agents subjects
 			JOIN gatehouse_agent_models models ON models.id = subjects.model_id
 			JOIN gatehouse_agent_providers providers ON providers.id = models.provider_id
 			WHERE subjects.workspace_id = ` + p(1) + ` AND subjects.enabled = TRUE AND models.enabled = TRUE AND providers.enabled = TRUE
-			AND ` + p(2) + ` <> ''`, nil
+			AND ` + p(2) + ` <> '' AND ` + filter, nil
 	case "principal":
 		return `SELECT subjects.id, subjects.alias, subjects.name FROM gatehouse_principals subjects
-			WHERE subjects.enabled = TRUE AND EXISTS (
-				SELECT 1 FROM gatehouse_session_grants grants
-				WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.enabled = TRUE AND (
-					grants.principal = subjects.id OR EXISTS (
-						SELECT 1 FROM gatehouse_groups groups JOIN gatehouse_group_members members
-						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-						WHERE groups.workspace_id = grants.workspace AND groups.id = grants."group"
-						AND groups.enabled = TRUE AND members.enabled = TRUE AND members.principal_id = subjects.id
-					)
-				)
-			)`, nil
+			WHERE subjects.enabled = TRUE AND ` + p(2) + ` <> '' AND ` + filter, nil
 	case "group":
 		return `SELECT subjects.id, subjects.alias, subjects.name FROM gatehouse_groups subjects
-			WHERE subjects.workspace_id = ` + p(1) + ` AND subjects.enabled = TRUE AND EXISTS (
-				SELECT 1 FROM gatehouse_session_grants grants WHERE grants.workspace = subjects.workspace_id
-				AND grants.session = ` + p(2) + ` AND grants."group" = subjects.id AND grants.enabled = TRUE
-			)`, nil
+			WHERE subjects.workspace_id = ` + p(1) + ` AND subjects.enabled = TRUE AND ` + p(2) + ` <> '' AND ` + filter, nil
 	default:
 		return "", ErrMessageTarget
 	}
@@ -130,13 +126,47 @@ func (store *Store) sessionMessageTargetsSnapshot(ctx context.Context, tx *sql.T
 	if err != nil {
 		return err
 	}
+	// Resolve groups first so their members inherit access regardless of the
+	// order recipients were selected. Keep snapshots in the original order.
+	order := make([]int, 0, len(targets))
 	for index, target := range targets {
+		if target.Ref.Kind == "group" {
+			order = append(order, index)
+		}
+	}
+	for index, target := range targets {
+		if target.Ref.Kind != "group" {
+			order = append(order, index)
+		}
+	}
+	for _, index := range order {
+		target := targets[index]
 		query, err := store.messageTargetSource(target.Ref.Kind)
 		if err != nil {
 			return err
 		}
 		row := tx.QueryRowContext(ctx, query+` AND subjects.id = `+store.sessionParticipantPlaceholder(3), event.Ref.Session.Workspace.Id, event.Ref.Session.Id, target.Ref.Id)
 		targets[index], err = scanMessageTarget(row, target.Ref.Kind)
+		if errors.Is(err, ErrMessageTarget) {
+			allowed, permissionErr := store.sessionPrincipalAllowed(ctx, tx, event.Ref.Session, event.AuthorPrincipal.Ref, true)
+			if permissionErr != nil {
+				return permissionErr
+			}
+			if !allowed {
+				return ErrSessionParticipantForbidden
+			}
+			query, err = store.messageTargetSource(target.Ref.Kind, true)
+			if err != nil {
+				return err
+			}
+			targets[index], err = scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+store.sessionParticipantPlaceholder(3), event.Ref.Session.Workspace.Id, event.Ref.Session.Id, target.Ref.Id), target.Ref.Kind)
+			if err != nil {
+				return err
+			}
+			if _, err = store.sessionParticipantGrantInsert(ctx, tx, event.Ref.Session, target.Ref, authz.Contributor, true); err != nil {
+				return err
+			}
+		}
 		if err != nil {
 			return err
 		}
@@ -152,11 +182,14 @@ func (store *Store) SessionMessageTargetsSearch(ctx context.Context, session mod
 	if kind == "" || search.Limit < 1 || search.Limit > 100 || len(strings.TrimSpace(search.Name)) > 256 || (search.Cursor != "" && !typed_id.Valid(kind, search.Cursor)) {
 		return ErrMessageTarget, nil, ""
 	}
-	query, err := store.messageTargetSource(search.Kind)
+	query, err := store.messageTargetSource(search.Kind, search.Outside)
 	if err != nil {
 		return err, nil, ""
 	}
 	p := store.sessionParticipantPlaceholder
+	if search.Outside {
+		query += ` AND NOT ` + store.messageTargetMembershipSQL(search.Kind, "subjects.id")
+	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(search.Name)) + "%"
 	nameColumn := "subjects.name"
 	if search.Kind == "agent" {

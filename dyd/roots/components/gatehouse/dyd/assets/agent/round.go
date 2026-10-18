@@ -174,6 +174,11 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 		if selected == nil {
 			return model.SessionEventRef{}, fmt.Errorf("agent round model is unavailable")
 		}
+		if err, active := runtime.store.SessionAgentParticipantGetInTransaction(step, tx, root.Ref.Session, selected.Ref); err != nil {
+			return model.SessionEventRef{}, err
+		} else if !active {
+			return model.SessionEventRef{}, fmt.Errorf("bot is not a participant in this chat")
+		}
 		round, _, err := agentRoundHistory(input, selected.Ref, get)
 		if err != nil {
 			return model.SessionEventRef{}, err

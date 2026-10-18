@@ -1,11 +1,12 @@
 import { fetchGatehouse } from "./api"
 
-export type ParticipantKind = "principal" | "group"
+export type ParticipantKind = "principal" | "group" | "agent"
 export type ParticipantRole = "member" | "contributor" | "manager"
 export type SessionParticipantGrant = {
   id: string
   principal?: string
   group?: string
+  agent?: string
   role: ParticipantRole
   enabled: boolean
   revision: number
@@ -34,8 +35,14 @@ export function participantName(
   return (
     item.name ??
     item.alias ??
-    (kind === "principal" ? "Unnamed person" : "Unnamed group")
+    `Unnamed ${participantNoun(kind)}`
   )
+}
+export function participantNoun(kind: ParticipantKind): string {
+  return kind === "principal" ? "person" : kind === "agent" ? "bot" : "group"
+}
+export function participantPlural(kind: ParticipantKind): string {
+  return kind === "principal" ? "people" : kind === "agent" ? "bots" : "groups"
 }
 function path(workspaceID: string, sessionID: string) {
   return `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/sessions/${encodeURIComponent(sessionID)}`
