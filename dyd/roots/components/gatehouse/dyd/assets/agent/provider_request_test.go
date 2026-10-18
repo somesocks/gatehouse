@@ -20,7 +20,7 @@ func TestAgentProviderRequestPreservesToolConversationAcrossProtocols(t *testing
 	}
 	messages := []openAICompatibleMessage{
 		{Role: "user", Content: "calculate"},
-		{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call("call-a", "(+ 1 2)"), call("call-b", "(+ 3 4)")}},
+		{Role: "assistant", ToolCalls: []openAICompatibleToolCall{call("call-a", "(int/add 1 2)"), call("call-b", "(int/add 3 4)")}},
 		{Role: "tool", ToolCallID: "call-a", Content: "3"},
 		{Role: "tool", ToolCallID: "call-b", Content: "7"},
 	}

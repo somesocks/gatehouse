@@ -45,7 +45,7 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingUpdate, Payload: map[string]interface{}{"reason": "rate_limit", "until": "2026-01-01T00:00:00Z"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingSuccess, Payload: map[string]interface{}{}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingFailure, Payload: map[string]interface{}{"code": "cancelled"}}},
-		{Event: model.SessionEvent{Kind: model.SessionEventKindToolRequest, Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect", "call_id": "call", "code": "(+ 1 2)"}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindToolRequest, Payload: map[string]interface{}{"name": "lisp", "reason": "Inspect", "call_id": "call", "code": "(int/add 1 2)"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolSuccess, Payload: map[string]interface{}{"output": "3"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"output": "failure", "code": "execution_failed"}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"name": "lisp", "call_id": "old-call", "output": "failure without code"}}},

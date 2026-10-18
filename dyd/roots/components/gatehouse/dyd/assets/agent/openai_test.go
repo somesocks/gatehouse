@@ -82,7 +82,7 @@ func TestOpenAIResponsesComplete(t *testing.T) {
 			t.Fatalf("request body = %#v", body)
 		}
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(+ 1 2)\",\"reason\":\"test\"}"}],"usage":{"input_tokens":120,"output_tokens":30,"total_tokens":150,"input_tokens_details":{"cached_tokens":80},"output_tokens_details":{"reasoning_tokens":20}}}`))
+		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(int/add 1 2)\",\"reason\":\"test\"}"}],"usage":{"input_tokens":120,"output_tokens":30,"total_tokens":150,"input_tokens_details":{"cached_tokens":80},"output_tokens_details":{"reasoning_tokens":20}}}`))
 	}))
 	defer server.Close()
 

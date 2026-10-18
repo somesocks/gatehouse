@@ -271,7 +271,7 @@ func TestSessionPreludeDoesNotExposeProjectBindings(t *testing.T) {
 		runtime.sessionEventsModule(nil, model.SessionEventRef{Session: session}, agent, principal),
 		NewInputModule(), NewPolicyModule(nil), NewWebModule(),
 	}
-	err, result := lisp.Evaluate(`(and (> (list/length (help/env "session/")) 0) (= (list/length (help/env "project/")) 0))`, lisp.EvalOptions{Prelude: agentSessionPrelude, HostModules: modules})
+	err, result := lisp.Evaluate(`(and (int/gt (list/length (help/env "session/")) 0) (= (list/length (help/env "project/")) 0))`, lisp.EvalOptions{Prelude: agentSessionPrelude, HostModules: modules})
 	if err != nil || result == nil || result.String() != "#t" {
 		t.Fatalf("session prelude exposed project bindings or lost session bindings: (%v, %v)", result, err)
 	}

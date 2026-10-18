@@ -201,7 +201,7 @@ func TestExecuteScriptedProviders(t *testing.T) {
 				w.Header().Set("Content-Type", "application/json")
 				var response interface{}
 				if calls.Add(1) == 1 {
-					programs := []string{`(error/throw "recoverable")`, `(import (fixture @native:fixture/v1) (begin (assert (> (list/length (import/search "gatehouse/project")) 0)) fixture/value))`, `"` + strings.Repeat("x", 5000) + `"`}
+					programs := []string{`(error/throw "recoverable")`, `(import (fixture @native:fixture/v1) (begin (assert (int/gt (list/length (import/search "gatehouse/project")) 0)) fixture/value))`, `"` + strings.Repeat("x", 5000) + `"`}
 					tools := []interface{}{}
 					for index, program := range programs {
 						arguments, _ := json.Marshal(map[string]string{"code": program, "reason": "exercise deterministic fixture"})

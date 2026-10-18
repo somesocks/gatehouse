@@ -26,9 +26,9 @@ type builtinDefinition struct {
 }
 
 var preludeBuiltins = []builtinDefinition{
-	{name: "+", documentation: doc("(+ integer...) -> Integer", "Adds zero or more integers.", "(+ 1 2 3)", "6"), leaky: true, call: pure(add)},
-	{name: "-", documentation: doc("(- integer [integer...]) -> Integer", "Negates one integer or subtracts following integers from the first.", "(- 7 2)", "5"), leaky: true, call: pure(subtract)},
-	{name: "*", documentation: doc("(* integer...) -> Integer", "Multiplies zero or more integers.", "(* 2 3 4)", "24"), leaky: true, call: pure(multiply)},
+	{name: "int/add", documentation: doc("(int/add integer...) -> Integer", "Adds zero or more integers.", "(int/add 1 2 3)", "6"), leaky: true, call: pure(add)},
+	{name: "int/sub", documentation: doc("(int/sub integer [integer...]) -> Integer", "Negates one integer or subtracts following integers from the first.", "(int/sub 7 2)", "5"), leaky: true, call: pure(subtract)},
+	{name: "int/mul", documentation: doc("(int/mul integer...) -> Integer", "Multiplies zero or more integers.", "(int/mul 2 3 4)", "24"), leaky: true, call: pure(multiply)},
 	{name: "bool?", documentation: doc("(bool? value) -> Boolean", "Returns whether value is a Boolean.", "(bool? #t)", "#t"), call: pure(isBoolean)},
 	{name: "int?", documentation: doc("(int? value) -> Boolean", "Returns whether value is an Integer.", "(int? 1)", "#t"), call: pure(isInteger)},
 	{name: "symbol?", documentation: doc("(symbol? value) -> Boolean", "Returns whether value is a Symbol.", "(symbol? 'name)", "#t"), call: pure(isSymbolValue)},
@@ -44,16 +44,16 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "int/min", documentation: doc("(int/min integer...) -> Integer", "Returns the smallest supplied integer.", "(int/min 3 1 2)", "1"), leaky: true, call: pure(integerMinimum)},
 	{name: "int/max", documentation: doc("(int/max integer...) -> Integer", "Returns the largest supplied integer.", "(int/max 3 1 2)", "3"), leaky: true, call: pure(integerMaximum)},
 	{name: "=", documentation: doc("(= value value...) -> Boolean", "Returns whether values have equal types and structural contents.", "(= (list 1 2) (list 1 2))", "#t"), leaky: true, call: pure(equals)},
-	{name: "<", documentation: doc("(< integer integer...) -> Boolean", "Returns whether integers are strictly increasing.", "(< 1 2 3)", "#t"), leaky: true, call: pure(lessThan)},
-	{name: "<=", documentation: doc("(<= integer integer...) -> Boolean", "Returns whether integers are nondecreasing.", "(<= 1 1 2)", "#t"), leaky: true, call: pure(lessThanOrEqual)},
-	{name: ">", documentation: doc("(> integer integer...) -> Boolean", "Returns whether integers are strictly decreasing.", "(> 3 2 1)", "#t"), leaky: true, call: pure(greaterThan)},
-	{name: ">=", documentation: doc("(>= integer integer...) -> Boolean", "Returns whether integers are nonincreasing.", "(>= 3 3 1)", "#t"), leaky: true, call: pure(greaterThanOrEqual)},
+	{name: "int/lt", documentation: doc("(int/lt integer integer...) -> Boolean", "Returns whether integers are strictly increasing.", "(int/lt 1 2 3)", "#t"), leaky: true, call: pure(lessThan)},
+	{name: "int/le", documentation: doc("(int/le integer integer...) -> Boolean", "Returns whether integers are nondecreasing.", "(int/le 1 1 2)", "#t"), leaky: true, call: pure(lessThanOrEqual)},
+	{name: "int/gt", documentation: doc("(int/gt integer integer...) -> Boolean", "Returns whether integers are strictly decreasing.", "(int/gt 3 2 1)", "#t"), leaky: true, call: pure(greaterThan)},
+	{name: "int/ge", documentation: doc("(int/ge integer integer...) -> Boolean", "Returns whether integers are nonincreasing.", "(int/ge 3 3 1)", "#t"), leaky: true, call: pure(greaterThanOrEqual)},
 	{name: "not", documentation: doc("(not boolean) -> Boolean", "Negates a Boolean value.", "(not #t)", "#f"), leaky: true, call: pure(logicalNot)},
 	{name: "pair", documentation: doc("(pair first rest) -> Pair", "Creates a pair from two values.", "(pair 1 2)", "(1 . 2)"), leaky: true, call: pure(makePair)},
 	{name: "head", documentation: doc("(head pair) -> Value", "Returns the first value of a pair.", "(head (pair 1 2))", "1"), leaky: true, call: pure(head)},
 	{name: "tail", documentation: doc("(tail pair) -> Value", "Returns the second value of a pair.", "(tail (pair 1 2))", "2"), leaky: true, call: pure(tail)},
 	{name: "list", documentation: doc("(list value...) -> List", "Creates a proper list from its arguments.", "(list 1 2 3)", "(1 2 3)"), leaky: true, call: pure(makeList)},
-	{name: "let", documentation: doc("(let ((name value) ...) body...) -> Value", "Evaluates one or more body expressions in order with recursive lexical bindings, returning the final value.", "(let ((factorial (fn (n) (if (= n 0) 1 (* n (factorial (- n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
+	{name: "let", documentation: doc("(let ((name value) ...) body...) -> Value", "Evaluates one or more body expressions in order with recursive lexical bindings, returning the final value.", "(let ((factorial (fn (n) (if (= n 0) 1 (int/mul n (factorial (int/sub n 1))))))) (factorial 5))", "120"), special: true, call: letValues},
 	{name: "if", documentation: doc("(if condition then else) -> Value", "Evaluates then when condition is true, otherwise else.", "(if #t 1 2)", "1"), special: true, call: ifValues},
 	{name: "ifs", documentation: doc("(ifs (condition body...)...) -> Value", "Evaluates conditions in order, then evaluates the first matching clause body in order and returns its final value. Raises an error when no condition matches.", "(ifs ((= 1 2) \"no\") (#t \"yes\"))", "\"yes\""), special: true, call: ifsValues},
 	{name: "begin", documentation: doc("(begin expression... final) -> Value", "Evaluates expressions in order and returns the final value.", "(begin 1 2)", "2"), special: true, call: beginValues},
@@ -71,12 +71,12 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "list/concat", documentation: doc("(list/concat list...) -> List", "Concatenates proper lists.", "(list/concat (list 1 2) (list 3))", "(1 2 3)"), leaky: true, call: pure(concatLists)},
 	{name: "list/assoc/get", documentation: doc("(list/assoc/get key associations) -> Value | Null", "Returns the value from the first matching (key . value) pair in a proper association list, or null when no key matches.", "(list/assoc/get 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationGet)},
 	{name: "list/assoc/require", documentation: doc("(list/assoc/require key associations) -> Value", "Returns the value from the first matching (key . value) pair in a proper association list. Raises an error when no key matches.", "(list/assoc/require 'name (list (pair 'name \"report.txt\")))", "\"report.txt\""), leaky: true, call: pure(associationRequire)},
-	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (* x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: valueCall(mapValues)},
-	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (> x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: valueCall(filterValues)},
-	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold + 0 (list 1 2 3))", "6"), leaky: true, call: valueCall(foldValues)},
-	{name: "fn/apply", documentation: doc("(fn/apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(fn/apply + (list 1 2 3))", "6"), leaky: true, call: valueCall(fnApplyValues)},
-	{name: "fn/bind", documentation: doc("(fn/bind callable value...) -> Function", "Returns a function that calls callable with bound leading values followed by its arguments.", "((fn/bind + 1 2) 3)", "6"), call: valueCall(fnBindValues)},
-	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(+ 1 2))", "3"), leaky: true, call: valueCall(evaluate)},
+	{name: "list/map", documentation: doc("(list/map function list) -> List", "Applies function to every value in a proper list.", "(list/map (fn (x) (int/mul x x)) (list 1 2 3))", "(1 4 9)"), leaky: true, call: valueCall(mapValues)},
+	{name: "list/filter", documentation: doc("(list/filter predicate list) -> List", "Keeps list values whose predicate returns true.", "(list/filter (fn (x) (int/gt x 1)) (list 1 2 3))", "(2 3)"), leaky: true, call: valueCall(filterValues)},
+	{name: "list/fold", documentation: doc("(list/fold function initial list) -> Value", "Combines a proper list from left to right with an accumulator.", "(list/fold int/add 0 (list 1 2 3))", "6"), leaky: true, call: valueCall(foldValues)},
+	{name: "fn/apply", documentation: doc("(fn/apply callable arguments) -> Value", "Calls a function with values from a proper argument list, or invokes a special builtin with forms from that list.", "(fn/apply int/add (list 1 2 3))", "6"), leaky: true, call: valueCall(fnApplyValues)},
+	{name: "fn/bind", documentation: doc("(fn/bind callable value...) -> Function", "Returns a function that calls callable with bound leading values followed by its arguments.", "((fn/bind int/add 1 2) 3)", "6"), call: valueCall(fnBindValues)},
+	{name: "eval", documentation: doc("(eval expression) -> Value", "Evaluates an expression in the current lexical environment.", "(eval '(int/add 1 2))", "3"), leaky: true, call: valueCall(evaluate)},
 	{name: "string?", documentation: doc("(string? value) -> Boolean", "Returns whether value is a String.", "(string? \"text\")", "#t"), call: pure(isString)},
 	{name: "string/length", documentation: doc("(string/length text) -> Integer", "Returns the Unicode code-point length of text.", "(string/length \"hello\")", "5"), call: pure(stringLength)},
 	{name: "bytes?", documentation: doc("(bytes? value) -> Boolean", "Returns whether value is Bytes.", "(bytes? (bytes/utf8/encode \"x\"))", "#t"), call: pure(isBytes)},
@@ -127,7 +127,7 @@ var preludeBuiltins = []builtinDefinition{
 	{name: "error?", documentation: doc("(error? value) -> Boolean", "Returns whether value is an Error.", "(error? (error/catch (error/throw 1)))", "#t"), call: pure(isError)},
 	{name: "error/value", documentation: doc("(error/value error) -> Value", "Returns the value carried by an Error.", "(error/value (error/catch (error/throw 1)))", "1"), leaky: true, call: pure(errorValueOf)},
 	{name: "assert", documentation: doc("(assert condition [value [failure]]) -> Null | Value", "Returns null or value when condition is true, otherwise raises failure or an Error.", "(assert #t 7 \"required value\")", "7"), special: true, call: assertValues},
-	{name: "assert/timing", documentation: doc("(assert/timing maximum-milliseconds expression) -> Value", "Evaluates expression once and raises an Error when its elapsed monotonic time exceeds maximum-milliseconds.", "(assert/timing 1000 (+ 1 2))", "3"), special: true, call: assertTimingValues},
+	{name: "assert/timing", documentation: doc("(assert/timing maximum-milliseconds expression) -> Value", "Evaluates expression once and raises an Error when its elapsed monotonic time exceeds maximum-milliseconds.", "(assert/timing 1000 (int/add 1 2))", "3"), special: true, call: assertTimingValues},
 	{name: "taint/get", documentation: doc("(taint/get value) -> Symbol", "Returns none, sensitive, or secret for the value's taint.", "(taint/get (taint/secret/mark \"value\"))", "secret"), call: pure(taintGet)},
 	{name: "taint/sensitive?", documentation: doc("(taint/sensitive? value) -> Boolean", "Returns whether value is sensitive-tainted.", "(taint/sensitive? (taint/sensitive/mark \"value\"))", "#t"), call: pure(isSensitive)},
 	{name: "taint/secret?", documentation: doc("(taint/secret? value) -> Boolean", "Returns whether value is secret-tainted.", "(taint/secret? (taint/secret/mark \"value\"))", "#t"), call: pure(isSecret)},
@@ -163,7 +163,7 @@ func add(_ *evaluator, arguments []Expr) (error, Expr) {
 
 func subtract(_ *evaluator, arguments []Expr) (error, Expr) {
 	if len(arguments) == 0 {
-		return expressionError("- requires at least one argument"), nil
+		return expressionError("int/sub requires at least one argument"), nil
 	}
 	err, total := requireInteger(arguments[0])
 	if err != nil {
@@ -399,19 +399,19 @@ func equals(_ *evaluator, arguments []Expr) (error, Expr) {
 }
 
 func lessThan(_ *evaluator, arguments []Expr) (error, Expr) {
-	return compareIntegers(arguments, func(left int64, right int64) bool { return left < right }, "<")
+	return compareIntegers(arguments, func(left int64, right int64) bool { return left < right }, "int/lt")
 }
 
 func lessThanOrEqual(_ *evaluator, arguments []Expr) (error, Expr) {
-	return compareIntegers(arguments, func(left int64, right int64) bool { return left <= right }, "<=")
+	return compareIntegers(arguments, func(left int64, right int64) bool { return left <= right }, "int/le")
 }
 
 func greaterThan(_ *evaluator, arguments []Expr) (error, Expr) {
-	return compareIntegers(arguments, func(left int64, right int64) bool { return left > right }, ">")
+	return compareIntegers(arguments, func(left int64, right int64) bool { return left > right }, "int/gt")
 }
 
 func greaterThanOrEqual(_ *evaluator, arguments []Expr) (error, Expr) {
-	return compareIntegers(arguments, func(left int64, right int64) bool { return left >= right }, ">=")
+	return compareIntegers(arguments, func(left int64, right int64) bool { return left >= right }, "int/ge")
 }
 
 func compareIntegers(arguments []Expr, compare func(int64, int64) bool, name string) (error, Expr) {

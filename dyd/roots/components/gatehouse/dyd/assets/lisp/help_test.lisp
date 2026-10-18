@@ -22,7 +22,7 @@
          ))
      (documented
        ; replacement-marker
-       +))
+       int/add))
     (begin
       (assert (= (help 'leading) "Leading first line.\nLeading second line."))
       (assert (= (help 'trailing) "Trailing first line.\nTrailing second line."))
@@ -91,7 +91,7 @@
   (assert
     (and
       (= (help/env "BOOL?") (list 'bool?))
-      (= (let ((alias +)) (help/env "ALIAS")) (list 'alias))
+      (= (let ((alias int/add)) (help/env "ALIAS")) (list 'alias))
       (= (let ((string/slice 1)) (help/env "STRING/SLICE")) (list 'string/slice))
       (= ((fn (parameter) (help/env "PARAMETER")) 1) (list 'parameter))))
 
@@ -99,11 +99,11 @@
   (assert
     (and
       (= (let ((pi (help/document 3 "Circle constant."))) (help 'pi)) "Circle constant.")
-      (= (let ((double (help/document (fn (value) (+ value value)) "Doubles an integer."))) (help 'double)) "Doubles an integer.")
-      (= (let ((double (help/document (fn (value) (+ value value)) "Doubles an integer."))) (double 3)) 6)
+      (= (let ((double (help/document (fn (value) (int/add value value)) "Doubles an integer."))) (help 'double)) "Doubles an integer.")
+      (= (let ((double (help/document (fn (value) (int/add value value)) "Doubles an integer."))) (double 3)) 6)
       (= (let ((pi (help/document 3 "Circle constant."))) (help/search "circle")) (list 'pi))
-      (= (let ((sum (help/document + "Sums integer values."))) (help 'sum)) "Sums integer values.")
-      (= + (help/document + "Sums integer values."))))
+      (= (let ((sum (help/document int/add "Sums integer values."))) (help 'sum)) "Sums integer values.")
+      (= int/add (help/document int/add "Sums integer values."))))
 
   ; Documenting values validates its public text argument.
   (assert

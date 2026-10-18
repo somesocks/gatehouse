@@ -27,10 +27,10 @@ func TestImportMultipleBodies(t *testing.T) {
 				name, body, want string
 				calls            []int64
 			}{
-				{"ordered last value", `(record one/value) (record two/value) (+ one/value two/value)`, "18", []int64{7, 11}},
+				{"ordered last value", `(record one/value) (record two/value) (int/add one/value two/value)`, "18", []int64{7, 11}},
 				{"stop on exception", `(record one/value) (error/throw (list 'stop two/value)) (record 99)`, "(stop 11)", []int64{7}},
-				{"captured scope", `(record one/value) (fn () (+ one/value two/value))`, "(18 null null)", []int64{7}},
-				{"discarded taint", `(taint/secret/mark one/value) (+ one/value two/value)`, "18", nil},
+				{"captured scope", `(record one/value) (fn () (int/add one/value two/value))`, "(18 null null)", []int64{7}},
+				{"discarded taint", `(taint/secret/mark one/value) (int/add one/value two/value)`, "18", nil},
 			} {
 				t.Run(test.name, func(t *testing.T) {
 					var calls []int64

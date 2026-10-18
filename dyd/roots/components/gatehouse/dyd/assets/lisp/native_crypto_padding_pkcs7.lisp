@@ -1,7 +1,7 @@
 (let
   ((require-block-size
     (fn (block-size)
-      (if (or (< block-size 1) (> block-size 255))
+      (if (or (int/lt block-size 1) (int/gt block-size 255))
           (error/throw "pkcs7 requires a block size from 1 through 255")
           block-size)))
    (pad
@@ -12,8 +12,8 @@
         (let
           ((remainder (int/rem length size)))
           (let
-            ((padding (if (= remainder 0) size (- size remainder))))
-            (bytes/pad/end bytes (+ length padding) padding))))))
+            ((padding (if (= remainder 0) size (int/sub size remainder))))
+            (bytes/pad/end bytes (int/add length padding) padding))))))
    (unpad
     (fn (block-size bytes)
       (let
@@ -24,11 +24,11 @@
             (let
               ((padding
                 (bytes/uint/be/decode
-                  (bytes/slice bytes (- length 1) length))))
-              (if (or (< padding 1) (> padding size) (> padding length))
+                  (bytes/slice bytes (int/sub length 1) length))))
+              (if (or (int/lt padding 1) (int/gt padding size) (int/gt padding length))
                   (error/throw "pkcs7/unpad requires valid PKCS#7 padding")
                   (let
-                    ((content-length (- length padding)))
+                    ((content-length (int/sub length padding)))
                     (if (= (bytes/slice bytes content-length length)
                            (bytes/pad/end (bytes/concat) padding padding))
                         (bytes/slice bytes 0 content-length)

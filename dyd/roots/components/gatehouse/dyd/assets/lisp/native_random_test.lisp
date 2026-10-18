@@ -8,7 +8,7 @@
 
       ; Int returns a public value below its bound.
       (let ((value (random/int 10)))
-        (assert (and (<= 0 value) (< value 10) (not (taint/secret? value)))))
+        (assert (and (int/le 0 value) (int/lt value 10) (not (taint/secret? value)))))
 
       ; A bound of one has the only possible result.
       (assert (= (random/int 1) 0))

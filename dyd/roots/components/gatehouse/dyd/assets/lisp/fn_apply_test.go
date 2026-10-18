@@ -7,18 +7,18 @@ func TestFnApply(t *testing.T) {
 		source string
 		want   string
 	}{
-		{source: "(fn/apply + (list 1 2 3))", want: "6"},
-		{source: "(fn/apply (fn (left right) (- left right)) (list 7 2))", want: "5"},
+		{source: "(fn/apply int/add (list 1 2 3))", want: "6"},
+		{source: "(fn/apply (fn (left right) (int/sub left right)) (list 7 2))", want: "5"},
 		{source: "(fn/apply (fn (first . rest) (list first rest)) (list 1 2 3))", want: "(1 (2 3))"},
-		{source: "(fn/apply let '(((value 41)) (+ value 1)))", want: "42"},
-		{source: "(error? (error/catch (fn/apply + 1)))", want: "#t"},
-		{source: "(error? (error/catch (fn/apply + (pair 1 2))))", want: "#t"},
+		{source: "(fn/apply let '(((value 41)) (int/add value 1)))", want: "42"},
+		{source: "(error? (error/catch (fn/apply int/add 1)))", want: "#t"},
+		{source: "(error? (error/catch (fn/apply int/add (pair 1 2))))", want: "#t"},
 		{source: "(fn/apply if (list #f '(error/throw \"unused\") 42))", want: "42"},
-		{source: "(fn/apply begin '((assert #t) (+ 1 2)))", want: "3"},
-		{source: "(let ((offset 1)) ((fn/apply fn '((value) (+ value offset))) 41))", want: "42"},
+		{source: "(fn/apply begin '((assert #t) (int/add 1 2)))", want: "3"},
+		{source: "(let ((offset 1)) ((fn/apply fn '((value) (int/add value offset))) 41))", want: "42"},
 		{source: "(fn/apply and (list #f '(error/throw \"unused\")))", want: "#f"},
 		{source: "(fn/apply or (list #t '(error/throw \"unused\")))", want: "#t"},
-		{source: "(fn/apply quote (list '(+ 1 2)))", want: "(+ 1 2)"},
+		{source: "(fn/apply quote (list '(int/add 1 2)))", want: "(int/add 1 2)"},
 		{source: "(taint/secret? (fn/apply list (taint/secret/mark (list 1))))", want: "#t"},
 		{source: "(taint/secret? (error/catch (fn/apply ifs (list (list (taint/secret/mark #t) '(error/throw \"selected\"))))))", want: "#t"},
 	} {

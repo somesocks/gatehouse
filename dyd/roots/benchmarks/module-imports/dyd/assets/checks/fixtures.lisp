@@ -8,7 +8,7 @@
      (rain (fn (city) (list/assoc/require 'rain (weather/forecast city))))
      (fare (fn (city) (travel/fare "London" city)))
      (cheapest (fn (destinations)
-       (list/fold (fn (best city) (if (< (fare city) (fare best)) city best))
+       (list/fold (fn (best city) (if (int/lt (fare city) (fare best)) city best))
          (list/first destinations) (list/rest destinations))))
      (dry (list/filter (fn (city) (not (rain city))) cities)))
     ; Full records verify proper association lists, symbol keys, and field types.
@@ -26,12 +26,12 @@
     (assert (= (fare "Lisbon") 120))
     (assert (= (cheapest cities) "Helsinki"))
     (assert (= (list/fold
-      (fn (best city) (if (> (temperature city) (temperature best)) city best))
+      (fn (best city) (if (int/gt (temperature city) (temperature best)) city best))
       (list/first cities) (list/rest cities)) "Oslo"))
     (assert (= (cheapest dry) "Prague"))
     ; Alphabetical candidate order avoids adding a sorting module to the allowlist.
     (assert (= (string/join
-      (list/filter (fn (city) (and (not (rain city)) (<= (fare city) 150)))
+      (list/filter (fn (city) (and (not (rain city)) (int/le (fare city) 150)))
         cities) ", ") "Dublin, Lisbon, Prague, Warsaw"))
 
     (assert (= (import/search) (list @native:travel/v1 @native:weather/v1)))

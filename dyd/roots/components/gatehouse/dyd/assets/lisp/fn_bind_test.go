@@ -7,10 +7,10 @@ func TestFnBind(t *testing.T) {
 		source string
 		want   string
 	}{
-		{source: "((fn/bind +) 1 2 3)", want: "6"},
-		{source: "((fn/bind + 1 2) 3)", want: "6"},
-		{source: "((fn/bind (fn (first second third) (- first second third)) 10) 3 2)", want: "5"},
-		{source: "(let ((value 2) (add (fn/bind + value))) (add 3))", want: "5"},
+		{source: "((fn/bind int/add) 1 2 3)", want: "6"},
+		{source: "((fn/bind int/add 1 2) 3)", want: "6"},
+		{source: "((fn/bind (fn (first second third) (int/sub first second third)) 10) 3 2)", want: "5"},
+		{source: "(let ((value 2) (add (fn/bind int/add value))) (add 3))", want: "5"},
 		{source: "(taint/secret? ((fn/bind list (taint/secret/mark 1)) 2))", want: "#t"},
 	} {
 		err, result := Run(test.source)

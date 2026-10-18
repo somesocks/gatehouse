@@ -71,7 +71,7 @@ func TestImportDefineEvaluatesExportsOnceInOrder(t *testing.T) {
   (@native:fixture/one/v1 (list (pair 'value (initialize 1))))
   (@native:fixture/two/v1 (list (pair 'value (initialize 2))))
   (list
-    (import (one @native:fixture/one/v1) (two @native:fixture/two/v1) (+ one/value two/value))
+    (import (one @native:fixture/one/v1) (two @native:fixture/two/v1) (int/add one/value two/value))
     (import (one @native:fixture/one/v1) one/value)))`, EvalOptions{
 		Bindings: []Binding{{Name: "initialize", Value: Function(func(arguments []Expr) (error, Expr) {
 			err, value := RequireInteger(arguments[0])

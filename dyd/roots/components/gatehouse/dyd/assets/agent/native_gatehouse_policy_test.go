@@ -11,7 +11,7 @@ func TestGatehousePolicyModuleAwaitApprovalIsUnavailable(t *testing.T) {
   (policy @native:gatehouse/policy/v1)
   (list
     (error/value (error/catch (policy/await-approval "Await an action")))
-    (error/value (error/catch ((policy/require-approval "Add numbers" +) 1 2)))))`, lisp.EvalOptions{
+    (error/value (error/catch ((policy/require-approval "Add numbers" int/add) 1 2)))))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{NewPolicyModule(nil)},
 	})
 	if err != nil || result.String() != `("policy/await-approval is unavailable" "policy/await-approval is unavailable")` {
@@ -25,7 +25,7 @@ func TestGatehousePolicyModuleAwaitApprovalUsesCallback(t *testing.T) {
   (policy @native:gatehouse/policy/v1)
   (list
     (policy/await-approval "Await an action")
-    ((policy/require-approval "Add numbers" +) 1 2)))`, lisp.EvalOptions{
+    ((policy/require-approval "Add numbers" int/add) 1 2)))`, lisp.EvalOptions{
 		HostModules: []lisp.HostModule{
 			NewPolicyModule(func(description string) error {
 				descriptions = append(descriptions, description)

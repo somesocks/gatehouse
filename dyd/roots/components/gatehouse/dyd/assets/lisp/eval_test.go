@@ -7,9 +7,9 @@ func TestEvalLisp(t *testing.T) {
 		source string
 		want   string
 	}{
-		{source: "(eval '(+ 1 2))", want: "3"},
-		{source: "(let ((value 41)) (eval '(+ value 1)))", want: "42"},
-		{source: "(taint/secret? (eval (taint/secret/mark '(+ 1 2))))", want: "#t"},
+		{source: "(eval '(int/add 1 2))", want: "3"},
+		{source: "(let ((value 41)) (eval '(int/add value 1)))", want: "42"},
+		{source: "(taint/secret? (eval (taint/secret/mark '(int/add 1 2))))", want: "#t"},
 		{source: "(error? (error/catch (eval)))", want: "#t"},
 	} {
 		err, result := Run(test.source)
@@ -27,7 +27,7 @@ func TestLetTailRecursion(t *testing.T) {
   null
   (if (= value 0)
     0
-    (let ((next (- value 1)))
+    (let ((next (int/sub value 1)))
       (count-down next))))))
   (count-down 100000))`)
 	if err != nil {
@@ -41,7 +41,7 @@ func TestLetTailRecursion(t *testing.T) {
 func TestLetEvaluatesMultipleBodies(t *testing.T) {
 	err, result := Run(`(let ((value 41))
   (assert (= value 41))
-  (+ value 1))`)
+  (int/add value 1))`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestLetEvaluatesMultipleBodies(t *testing.T) {
 func TestFunctionEvaluatesMultipleBodies(t *testing.T) {
 	err, result := Run(`((fn (value)
   (assert (= value 41))
-  (+ value 1)) 41)`)
+  (int/add value 1)) 41)`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestFunctionEvaluatesMultipleBodies(t *testing.T) {
 		t.Fatalf("function result = %s, want 42", got)
 	}
 
-	err, result = Run(`(list/map (fn (value) (assert (> value 0)) (+ value 1)) (list 1 2))`)
+	err, result = Run(`(list/map (fn (value) (assert (int/gt value 0)) (int/add value 1)) (list 1 2))`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestIfsTailRecursion(t *testing.T) {
 	err, result := Run(`(let ((count-down (fn (value)
   (ifs
     ((= value 0) 0)
-    (#t (count-down (- value 1)))))))
+    (#t (count-down (int/sub value 1)))))))
   (count-down 100000))`)
 	if err != nil {
 		t.Fatal(err)

@@ -256,7 +256,7 @@ func TestCodexAgentInference(t *testing.T) {
 					return
 				}
 				if turn == 1 {
-					arguments, _ := json.Marshal(map[string]string{"code": "(+ 1 2)", "reason": "Calculate"})
+					arguments, _ := json.Marshal(map[string]string{"code": "(int/add 1 2)", "reason": "Calculate"})
 					tool := map[string]any{"type": "function_call", "call_id": "call_calculate", "name": "lisp", "arguments": string(arguments)}
 					if mode == "truncated-tool" {
 						w.Header().Set("Content-Type", "text/event-stream")

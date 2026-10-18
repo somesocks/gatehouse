@@ -20,7 +20,7 @@
       (fn (value count values)
         (if (= count 0)
             values
-            (repeat value (- count 1) (pair value values)))))
+            (repeat value (int/sub count 1) (pair value values)))))
      ; A reader retains the current immutable page and a bounded LSB-first bit buffer.
      (reader
       (fn (input page index bits count)
@@ -32,24 +32,24 @@
      (r/count (fn (value) (fifth value)))
      (r/byte
       (fn (value)
-        (if (< (r/index value) (bytes/length (r/page value)))
+        (if (int/lt (r/index value) (bytes/length (r/page value)))
             (pair
-              (bytes/uint/le/decode (bytes/slice (r/page value) (r/index value) (+ (r/index value) 1)))
-              (reader (r/input value) (r/page value) (+ (r/index value) 1) (r/buffer value) (r/count value)))
+              (bytes/uint/le/decode (bytes/slice (r/page value) (r/index value) (int/add (r/index value) 1)))
+              (reader (r/input value) (r/page value) (int/add (r/index value) 1) (r/buffer value) (r/count value)))
             (if (null? (r/input value))
                 (error/throw "unexpected end of DEFLATE input")
                 (r/byte (reader (seq/tail (r/input value)) (seq/head (r/input value)) 0 (r/buffer value) (r/count value)))))))
      (r/bits
       (fn (value width)
-        (if (>= (r/count value) width)
+        (if (int/ge (r/count value) width)
             (pair
-              (int/and (r/buffer value) (- (int/shl 1 width) 1))
+              (int/and (r/buffer value) (int/sub (int/shl 1 width) 1))
               (reader
                 (r/input value)
                 (r/page value)
                 (r/index value)
                 (int/shr (r/buffer value) width)
-                (- (r/count value) width)))
+                (int/sub (r/count value) width)))
             (let ((next (r/byte value)))
               (r/bits
                 (reader
@@ -57,7 +57,7 @@
                   (r/page (tail next))
                   (r/index (tail next))
                   (int/or (r/buffer (tail next)) (int/shl (head next) (r/count (tail next))))
-                  (+ (r/count (tail next)) 8))
+                  (int/add (r/count (tail next)) 8))
                 width)))))
      (r/align
       (fn (value)
@@ -66,7 +66,7 @@
        (fn (value)
          (let ((low (r/byte value))
                (high (r/byte (tail low))))
-           (pair (+ (head low) (* 256 (head high))) (tail high)))))
+           (pair (int/add (head low) (int/mul 256 (head high))) (tail high)))))
       ; Canonical Huffman codes are compiled into immutable bit-prefix tries.
       (h/node (fn (symbol left right) (list symbol left right)))
       (h/symbol (fn (node) (head node)))
@@ -78,31 +78,31 @@
             counts
             (let ((width (vector/get lengths index)))
               (if (= width 0)
-                  (h/count lengths (+ index 1) counts)
+                  (h/count lengths (int/add index 1) counts)
                   (h/count
                     lengths
-                    (+ index 1)
-                    (vector/set counts width (+ (vector/get counts width) 1))))))))
+                    (int/add index 1)
+                    (vector/set counts width (int/add (vector/get counts width) 1))))))))
      (h/next
       (fn (counts width code result)
-        (if (> width 15)
+        (if (int/gt width 15)
             result
-            (let ((next (* 2 (+ code (vector/get counts (- width 1))))))
-              (h/next counts (+ width 1) next (vector/set result width next))))))
+            (let ((next (int/mul 2 (int/add code (vector/get counts (int/sub width 1))))))
+              (h/next counts (int/add width 1) next (vector/set result width next))))))
       (h/assign
        (fn (lengths index next table)
          (if (= index (vector/length lengths))
              table
              (let ((width (vector/get lengths index)))
                (if (= width 0)
-                   (h/assign lengths (+ index 1) next table)
-                   (if (> width 15)
+                   (h/assign lengths (int/add index 1) next table)
+                   (if (int/gt width 15)
                        (error/throw "DEFLATE Huffman code length exceeds 15 bits")
                        (let ((code (vector/get next width)))
                          (h/assign
                            lengths
-                           (+ index 1)
-                           (vector/set next width (+ code 1))
+                           (int/add index 1)
+                           (vector/set next width (int/add code 1))
                            (h/insert table code width index 0)))))))))
       (h/insert
        (fn (tree code width symbol depth)
@@ -113,16 +113,16 @@
              (let ((node (if (null? tree) (h/node null null null) tree)))
                (if (not (null? (h/symbol node)))
                    (error/throw "DEFLATE Huffman tree has a prefix code")
-                   (let ((bit (int/and (int/shr code (- width depth 1)) 1)))
+                   (let ((bit (int/and (int/shr code (int/sub width depth 1)) 1)))
                      (if (= bit 0)
                          (h/node
                            null
-                           (h/insert (h/left node) code width symbol (+ depth 1))
+                           (h/insert (h/left node) code width symbol (int/add depth 1))
                            (h/right node))
                          (h/node
                            null
                            (h/left node)
-                           (h/insert (h/right node) code width symbol (+ depth 1))))))))))
+                           (h/insert (h/right node) code width symbol (int/add depth 1))))))))))
       (h/build
        (fn (lengths)
          (let ((zeroes (vector/from 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0))
@@ -140,27 +140,27 @@
                        (h/decode-at
                          (if (= (head bit) 0) (h/left tree) (h/right tree))
                          (tail bit)
-                         (+ depth 1))))))))
+                         (int/add depth 1))))))))
       (h/decode (fn (tree source) (h/decode-at tree source 0)))
      (list/vector (fn (values) (fn/apply vector/from values)))
      (list/take
       (fn (count values)
         (if (= count 0)
             null
-            (pair (head values) (list/take (- count 1) (tail values))))))
+            (pair (head values) (list/take (int/sub count 1) (tail values))))))
      (list/drop
       (fn (count values)
         (if (= count 0)
             values
-            (list/drop (- count 1) (tail values)))))
+            (list/drop (int/sub count 1) (tail values)))))
      (fixed-lengths
       (fn (index values)
         (if (= index 288)
             (reverse values)
             (fixed-lengths
-              (+ index 1)
+              (int/add index 1)
               (pair
-                (if (< index 144) 8 (if (< index 256) 9 (if (< index 280) 7 8)))
+                (if (int/lt index 144) 8 (if (int/lt index 256) 9 (if (int/lt index 280) 7 8)))
                 values)))))
      (fixed-literal (h/build (list/vector (fixed-lengths 0 null))))
      (fixed-distance (h/build (list/vector (reverse (repeat 5 32 null)))))
@@ -173,7 +173,7 @@
         (if (= width 0)
             (pair base source)
             (let ((extra (r/bits source width)))
-              (pair (+ base (head extra)) (tail extra))))))
+              (pair (int/add base (head extra)) (tail extra))))))
       (dynamic/lengths
        (fn (source tree remaining previous values)
          (if (= remaining 0)
@@ -181,21 +181,21 @@
              (let ((decoded (h/decode tree source))
                    (code (head decoded))
                    (next (tail decoded)))
-               (if (< code 16)
-                   (dynamic/lengths next tree (- remaining 1) code (pair code values))
+               (if (int/lt code 16)
+                   (dynamic/lengths next tree (int/sub remaining 1) code (pair code values))
                    (let ((repeat-bits (if (= code 16) 2 (if (= code 17) 3 7)))
                          (repeat-base (if (= code 16) 3 (if (= code 17) 3 11)))
                          (repeat-value (if (= code 16) previous 0)))
                      (if (and (= code 16) (= previous -1))
                          (error/throw "DEFLATE code-length repeat has no previous length")
                          (let ((amount (r/bits next repeat-bits))
-                               (count (+ repeat-base (head amount))))
-                           (if (> count remaining)
+                               (count (int/add repeat-base (head amount))))
+                           (if (int/gt count remaining)
                                (error/throw "DEFLATE code-length repeat exceeds table")
                                (dynamic/lengths
                                  (tail amount)
                                  tree
-                                 (- remaining count)
+                                 (int/sub remaining count)
                                  repeat-value
                                  (repeat repeat-value count values)))))))))))
      (dynamic/read-clen
@@ -207,7 +207,7 @@
                 (tail value)
                 count
                 order
-                (+ index 1)
+                (int/add index 1)
                 (vector/set lengths (vector/get order index) (head value)))))))
       (dynamic/trees
        (fn (source)
@@ -216,10 +216,10 @@
                (hclen (r/bits (tail hdist) 4))
                (order (vector/from 16 17 18 0 8 7 9 6 10 5 11 4 12 3 13 2 14 1 15))
                (zeroes (vector/from 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0))
-               (clens (dynamic/read-clen (tail hclen) (+ (head hclen) 4) order 0 zeroes))
-               (expanded (dynamic/lengths (head clens) (h/build (tail clens)) (+ 258 (head hlit) (head hdist)) -1 null))
-               (literal-lengths (list/vector (list/take (+ 257 (head hlit)) (tail expanded))))
-               (distance-lengths (list/vector (list/drop (+ 257 (head hlit)) (tail expanded)))))
+               (clens (dynamic/read-clen (tail hclen) (int/add (head hclen) 4) order 0 zeroes))
+               (expanded (dynamic/lengths (head clens) (h/build (tail clens)) (int/add 258 (head hlit) (head hdist)) -1 null))
+               (literal-lengths (list/vector (list/take (int/add 257 (head hlit)) (tail expanded))))
+               (distance-lengths (list/vector (list/drop (int/add 257 (head hlit)) (tail expanded)))))
            (pair (head expanded) (pair (h/build literal-lengths) (h/build distance-lengths))))))
       ; Decoder state: reader, history pages plus active page, write index, history length, final flag, trees, mode, mode data.
       (decoder (fn (source history write length final trees mode data) (list source history write length final trees mode data)))
@@ -242,27 +242,27 @@
          (if (= (bytes/length bytes) 0)
              value
              (let ((page (history/page value))
-                   (space (- 256 (bytes/length page)))
-                   (count (if (< (bytes/length bytes) space) (bytes/length bytes) space))
+                   (space (int/sub 256 (bytes/length page)))
+                   (count (if (int/lt (bytes/length bytes) space) (bytes/length bytes) space))
                    (next-page (bytes/concat page (bytes/slice bytes 0 count)))
                    (complete (= (bytes/length next-page) 256))
                    (pages (history/pages value)))
                (history/append
                  (history
                    (if complete
-                       (if (< (vector/length pages) 128)
+                       (if (int/lt (vector/length pages) 128)
                            (vector/tail/push pages next-page)
                            (vector/set pages (int/div write 256) next-page))
                        pages)
                    (if complete (bytes/concat) next-page))
-                 (int/rem (+ write count) 32768)
+                 (int/rem (int/add write count) 32768)
                  (bytes/slice bytes count (bytes/length bytes)))))))
       (history/page-at
        (fn (value write index)
          (let ((page (history/page value)))
            (if (and
                  (= (int/div index 256) (int/div write 256))
-                 (< (int/rem index 256) (bytes/length page)))
+                 (int/lt (int/rem index 256) (bytes/length page)))
                page
                (vector/get (history/pages value) (int/div index 256))))))
       (history/read
@@ -271,30 +271,30 @@
              (fn/apply bytes/concat (reverse pieces))
              (let ((page (history/page-at value write index))
                    (offset (int/rem index 256))
-                   (available (- (bytes/length page) offset))
-                   (count (if (< remaining available) remaining available)))
+                   (available (int/sub (bytes/length page) offset))
+                   (count (if (int/lt remaining available) remaining available)))
                (history/read
                  value
                  write
-                 (int/rem (+ index count) 32768)
-                 (- remaining count)
-                 (pair (bytes/slice page offset (+ offset count)) pieces))))))
+                 (int/rem (int/add index count) 32768)
+                 (int/sub remaining count)
+                 (pair (bytes/slice page offset (int/add offset count)) pieces))))))
       (history/repeat
        (fn (value count)
          (if (= (bytes/length value) count)
              value
-             (let ((remaining (- count (bytes/length value))))
+             (let ((remaining (int/sub count (bytes/length value))))
                (history/repeat
                  (bytes/concat
                    value
-                   (bytes/slice value 0 (if (< remaining (bytes/length value)) remaining (bytes/length value))))
+                   (bytes/slice value 0 (if (int/lt remaining (bytes/length value)) remaining (bytes/length value))))
                  count)))))
       (d/match-bytes
        (fn (value distance count)
-         (let ((index (if (< (d/length value) 32768)
-                          (- (d/write value) distance)
-                          (int/rem (+ (d/write value) 32768 (- distance)) 32768)))
-               (seed-length (if (< count distance) count distance)))
+         (let ((index (if (int/lt (d/length value) 32768)
+                          (int/sub (d/write value) distance)
+                          (int/rem (int/add (d/write value) 32768 (int/sub distance)) 32768)))
+               (seed-length (if (int/lt count distance) count distance)))
            (history/repeat
              (history/read (d/history value) (d/write value) index seed-length null)
              count))))
@@ -307,8 +307,8 @@
                value
                (d/source value)
                (history/append (d/history value) write bytes)
-               (int/rem (+ write (bytes/length bytes)) 32768)
-               (if (< (+ length (bytes/length bytes)) 32768) (+ length (bytes/length bytes)) 32768)
+               (int/rem (int/add write (bytes/length bytes)) 32768)
+               (if (int/lt (int/add length (bytes/length bytes)) 32768) (int/add length (bytes/length bytes)) 32768)
                (d/final value)
                (d/trees value)
                (d/mode value)
@@ -327,7 +327,7 @@
                (let ((aligned (r/align (tail kind)))
                      (length (r/u16 aligned))
                      (inverse (r/u16 (tail length))))
-                 (if (not (= (+ (head length) (head inverse)) 65535))
+                 (if (not (= (int/add (head length) (head inverse)) 65535))
                      (error/throw "DEFLATE stored block length check failed")
                      (d/with-mode (d/with-source value (tail inverse)) (head final) null 'stored (head length))))
                (if (= (head kind) 1)
@@ -345,7 +345,7 @@
                     (d/next (d/with-mode value 0 null 'block null)))
                  (let ((byte (r/byte (d/source value))))
                    (d/emit
-                     (d/with-mode (d/with-source value (tail byte)) (d/final value) null 'stored (- (d/data value) 1))
+                     (d/with-mode (d/with-source value (tail byte)) (d/final value) null 'stored (int/sub (d/data value) 1))
                      (bytes/uint/le/encode (head byte) 1))))
              (if (= (d/mode value) 'match)
                  (if (= (head (d/data value)) 0)
@@ -353,24 +353,24 @@
                      (let ((count (head (d/data value))) (distance (tail (d/data value))))
                        (d/emit
                          (d/with-mode value (d/final value) (d/trees value) 'match (pair 0 distance))
-                         (if (or (< distance 1) (> distance (d/length value)))
+                         (if (or (int/lt distance 1) (int/gt distance (d/length value)))
                              (error/throw "DEFLATE distance exceeds output history")
                              (d/match-bytes value distance count)))))
                  (if (= (d/mode value) 'huffman)
                       (let ((decoded (h/decode (head (d/trees value)) (d/source value)))
                            (symbol (head decoded))
                            (source (tail decoded)))
-                       (if (< symbol 256)
+                       (if (int/lt symbol 256)
                            (d/emit (d/with-source value source) (bytes/uint/le/encode symbol 1))
                            (if (= symbol 256)
                                (if (= (d/final value) 1)
                                    null
                                    (d/next (d/with-mode (d/with-source value source) 0 null 'block null)))
-                               (if (> symbol 285)
+                               (if (int/gt symbol 285)
                                    (error/throw "invalid DEFLATE length code")
-                                   (let ((length (read-extra source (vector/get length-base (- symbol 257)) (vector/get length-extra (- symbol 257))))
+                                   (let ((length (read-extra source (vector/get length-base (int/sub symbol 257)) (vector/get length-extra (int/sub symbol 257))))
                                           (distance-code (h/decode (tail (d/trees value)) (tail length))))
-                                     (if (> (head distance-code) 29)
+                                     (if (int/gt (head distance-code) 29)
                                          (error/throw "invalid DEFLATE distance code")
                                          (let ((distance (read-extra (tail distance-code) (vector/get distance-base (head distance-code)) (vector/get distance-extra (head distance-code)))))
                                            (d/next
@@ -398,11 +398,11 @@
                        (pair value (fn/apply bytes/concat (reverse pieces))))
                    (let ((bytes (head next))
                          (decoder (tail next))
-                         (remaining (- 1024 count)))
-                     (if (<= (bytes/length bytes) remaining)
+                         (remaining (int/sub 1024 count)))
+                     (if (int/le (bytes/length bytes) remaining)
                          (output-page
                            (output-state decoder (bytes/concat))
-                           (+ count (bytes/length bytes))
+                           (int/add count (bytes/length bytes))
                            (pair bytes pieces))
                          (output-page
                            (output-state decoder (bytes/slice bytes remaining (bytes/length bytes)))

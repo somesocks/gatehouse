@@ -25,19 +25,19 @@ Working with symbols:
 
 Working with ints:
 - `int? ; (int? value) -> Boolean. Integers are signed 64-bit.`
-- `+ ; (+ integer...) -> Integer. Adds zero or more integers.`
-- `- ; (- integer [integer...]) -> Integer. Negates one integer or subtracts following integers from the first.`
-- `* ; (* integer...) -> Integer. Multiplies zero or more integers.`
+- `int/add ; (int/add integer...) -> Integer. Adds zero or more integers.`
+- `int/sub ; (int/sub integer [integer...]) -> Integer. Negates one integer or subtracts following integers from the first.`
+- `int/mul ; (int/mul integer...) -> Integer. Multiplies zero or more integers.`
 - `int/div ; (int/div dividend divisor) -> Integer. Truncates toward zero. Divisor must be non-zero.`
 - `int/rem ; (int/rem dividend divisor) -> Integer. Signed remainder. Divisor must be non-zero.`
 - `int/abs ; (int/abs integer) -> Integer. Non-negative magnitude.`
 - `int/min ; (int/min integer...) -> Integer. Returns the smallest supplied integer.`
 - `int/max ; (int/max integer...) -> Integer. Returns the largest supplied integer.`
 - `= ; (= value value...) -> Boolean. At least two values; type and structural equality.`
-- `< ; (< integer integer...) -> Boolean. Strictly increasing.`
-- `<= ; (<= integer integer...) -> Boolean. Nondecreasing.`
-- `> ; (> integer integer...) -> Boolean. Strictly decreasing.`
-- `>= ; (>= integer integer...) -> Boolean. Nonincreasing.`
+- `int/lt ; (int/lt integer integer...) -> Boolean. Strictly increasing.`
+- `int/le ; (int/le integer integer...) -> Boolean. Nondecreasing.`
+- `int/gt ; (int/gt integer integer...) -> Boolean. Strictly decreasing.`
+- `int/ge ; (int/ge integer integer...) -> Boolean. Nonincreasing.`
 
 For integer bitwise operations and shifts, run `(help/env "int/")` to list available bindings, then inspect one with `(help 'int/shl)`.
 
@@ -123,9 +123,9 @@ Code Examples:
 - `(help/env "prefix") ; List bindings matching a prefix.`
 - `(help/search "term") ; Search documented capabilities.`
 - `(help 'binding) ; Inspect a binding.`
-- `(let ((factor 2) (value 21)) (* factor value)) ; Uses lexical bindings and returns 42.`
-- `(list/map (fn (number) (* number number)) (list 1 2 3)) ; Returns (1 4 9).`
-- `(fn/apply + (list 1 2 3)) ; Calls a function with values from a list.`
+- `(let ((factor 2) (value 21)) (int/mul factor value)) ; Uses lexical bindings and returns 42.`
+- `(list/map (fn (number) (int/mul number number)) (list 1 2 3)) ; Returns (1 4 9).`
+- `(fn/apply int/add (list 1 2 3)) ; Calls a function with values from a list.`
 
 Code guidelines:
 - Use multiple lines with comments to make complex programs easier to debug.

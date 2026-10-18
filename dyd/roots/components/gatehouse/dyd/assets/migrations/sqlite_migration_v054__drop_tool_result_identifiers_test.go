@@ -39,7 +39,7 @@ func TestSQLiteMigrationV054DropToolResultIdentifiers(t *testing.T) {
 		id, kind      string
 		payload, want map[string]any
 	}{
-		{"sev_00000000000000000000000000", "tool.request", map[string]any{"name": "lisp", "call_id": "original-call", "code": "(+ 1 2)", "reason": "test"}, map[string]any{"name": "lisp", "call_id": "original-call", "code": "(+ 1 2)", "reason": "test"}},
+		{"sev_00000000000000000000000000", "tool.request", map[string]any{"name": "lisp", "call_id": "original-call", "code": "(int/add 1 2)", "reason": "test"}, map[string]any{"name": "lisp", "call_id": "original-call", "code": "(int/add 1 2)", "reason": "test"}},
 		{"sev_00000000000000000000000001", "tool.success", map[string]any{"name": "lisp", "call_id": "original-call", "output": "3\n"}, map[string]any{"output": "3\n"}},
 		{"sev_00000000000000000000000002", "tool.failure", map[string]any{"name": "lisp", "call_id": "original-call", "code": "cancelled", "output": "execution cancelled", "message": "keep summary"}, map[string]any{"code": "cancelled", "output": "execution cancelled", "message": "keep summary"}},
 		{"sev_00000000000000000000000003", "tool.failure", map[string]any{"call_id": "original-call", "output": "legacy failure"}, map[string]any{"output": "legacy failure"}},

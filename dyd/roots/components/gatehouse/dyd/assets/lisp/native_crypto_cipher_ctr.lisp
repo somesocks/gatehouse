@@ -7,7 +7,7 @@
             null
             (let
               ((input (seq/head blocks)))
-              (if (> (bytes/length input) size)
+              (if (int/gt (bytes/length input) size)
                   (error/throw "ctr/crypt input block exceeds counter length")
                   (let
                     ((keystream (encrypt-block key counter)))

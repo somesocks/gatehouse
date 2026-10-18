@@ -26,8 +26,8 @@ _setup() {
 }
 
 _test() {
-    assert_equals "$(gatehouse lisp eval '(+ 1 2)')" "3" "argument evaluation"
-    assert_equals "$(printf '%s\n' '(+ 2 3)' | gatehouse lisp eval --from-stdin)" "5" "standard input evaluation"
+    assert_equals "$(gatehouse lisp eval '(int/add 1 2)')" "3" "argument evaluation"
+    assert_equals "$(printf '%s\n' '(int/add 2 3)' | gatehouse lisp eval --from-stdin)" "5" "standard input evaluation"
     assert_equals "$(gatehouse lisp eval '(taint/secret/mark "token")')" "#<secret>" "secret rendering"
     assert_equals "$(gatehouse lisp eval '(import (time @native:time/v1) (int? (time/now)))')" "#t" "native import"
 
@@ -49,7 +49,7 @@ _test() {
     fi
     assert_contains "$(<"$TEMP_DIR/missing.stderr")" "requires a source argument" "missing source"
 
-    if gatehouse lisp eval --from-stdin '(+ 1 2)' >"$TEMP_DIR/combined.stdout" 2>"$TEMP_DIR/combined.stderr"; then
+    if gatehouse lisp eval --from-stdin '(int/add 1 2)' >"$TEMP_DIR/combined.stdout" 2>"$TEMP_DIR/combined.stderr"; then
         printf '%s\n' "[ERROR] Fail: combined source unexpectedly succeeded" >&2
         return 1
     fi

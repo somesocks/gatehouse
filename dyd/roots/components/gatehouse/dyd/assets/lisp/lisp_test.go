@@ -272,7 +272,7 @@ func TestModuleImports(t *testing.T) {
 	core := "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	module := "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	cache := testModuleCache(t, map[string]string{
-		core:   "(list (pair 'value 7) (pair 'increment (fn (value) (+ value 1))))",
+		core:   "(list (pair 'value 7) (pair 'increment (fn (value) (int/add value 1))))",
 		module: "(import (core @#" + core + ") (list (pair 'value core/value) (pair 'increment core/increment)))",
 	})
 

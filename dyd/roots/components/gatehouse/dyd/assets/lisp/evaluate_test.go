@@ -32,7 +32,7 @@ func TestEvaluateKeepsSecretsTainted(t *testing.T) {
 }
 
 func TestEvaluatePreludeEvaluatesParsedProgramLexically(t *testing.T) {
-	err, result := Evaluate("(+ factor 1)", EvalOptions{Prelude: "(let ((factor 41)) (eval program))"})
+	err, result := Evaluate("(int/add factor 1)", EvalOptions{Prelude: "(let ((factor 41)) (eval program))"})
 	if err != nil || result.String() != "42" {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
@@ -59,7 +59,7 @@ func TestEvaluateHostModulesCanBeImported(t *testing.T) {
 func TestEvaluateSourceModulesCanImportHostModules(t *testing.T) {
 	err, result := Evaluate("example/value", EvalOptions{
 		HostModules:   []HostModule{{ID: "native:value/v1", Exports: []HostExport{{Name: "value", Value: Integer(41)}}}},
-		SourceModules: []SourceModule{{ID: "example", Source: "(import (value @native:value/v1) (list (pair 'value (+ value/value 1))))"}},
+		SourceModules: []SourceModule{{ID: "example", Source: "(import (value @native:value/v1) (list (pair 'value (int/add value/value 1))))"}},
 	})
 	if err != nil || result.String() != "42" {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)

@@ -72,13 +72,13 @@
   (assert (bytes? (assert #t (bytes/hex/decode "ff"))))
 
   ; Timing assertions return their expression value when within the limit.
-  (assert (= (assert/timing 1000 (+ 2 5)) 7))
+  (assert (= (assert/timing 1000 (int/add 2 5)) 7))
 
   ; Timing assertions report their signature and runnable example.
   (assert
     (and
       (string/contains? (help assert/timing) "(assert/timing maximum-milliseconds expression) -> Value")
-      (string/contains? (help assert/timing) "Example: (assert/timing 1000 (+ 1 2)) => 3.")))
+      (string/contains? (help assert/timing) "Example: (assert/timing 1000 (int/add 1 2)) => 3.")))
 
   ; Timing assertions require an integer, non-negative maximum and one expression.
   (assert

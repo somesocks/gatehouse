@@ -54,7 +54,7 @@
               (error/throw "selected")))))))
 
   ; Secret predicate recognizes marked strings and builtins.
-  (assert (and (taint/secret? (taint/secret/mark "secret")) (taint/secret? (taint/secret/mark +))))
+  (assert (and (taint/secret? (taint/secret/mark "secret")) (taint/secret? (taint/secret/mark int/add))))
 
   ; Help operations that discriminate their input preserve its taint.
   (assert

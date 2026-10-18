@@ -54,7 +54,7 @@
   (assert (= (list/concat (list 1 2) null (list 3)) (list 1 2 3)))
 
   ; Folding with addition accumulates from left to right.
-  (assert (= (list/fold + 0 (list 1 2 3)) 6))
+  (assert (= (list/fold int/add 0 (list 1 2 3)) 6))
 
   ; Folding can construct a reversed list.
   (assert
@@ -65,10 +65,10 @@
        (list 3 2 1)))
 
   ; Mapping applies a function to every element.
-  (assert (= (list/map (fn (x) (* x x)) (list 1 2 3)) (list 1 4 9)))
+  (assert (= (list/map (fn (x) (int/mul x x)) (list 1 2 3)) (list 1 4 9)))
 
   ; Filtering retains values accepted by the predicate.
-  (assert (= (list/filter (fn (x) (< x 3)) (list 1 2 3)) (list 1 2)))
+  (assert (= (list/filter (fn (x) (int/lt x 3)) (list 1 2 3)) (list 1 2)))
 
   ; Filtering can remove every value.
   (assert (= (list/filter (fn (x) #f) (list 1 2 3)) null))
@@ -109,13 +109,13 @@
   ; List folding rejects an improper pair.
   (assert
     (string/contains?
-      (error/value (error/catch (list/fold + 0 (pair 1 2))))
+      (error/value (error/catch (list/fold int/add 0 (pair 1 2))))
       "expected a proper list"))
 
   ; List folding requires a function, initial value, and list.
   (assert
     (string/contains?
-      (error/value (error/catch (list/fold + 0)))
+      (error/value (error/catch (list/fold int/add 0)))
       "requires a function, initial value, and list"))
 
   ; List filtering requires a Boolean predicate result.

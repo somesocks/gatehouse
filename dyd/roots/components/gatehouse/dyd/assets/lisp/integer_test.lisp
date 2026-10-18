@@ -1,15 +1,15 @@
 (begin
   ; Addition sums every integer argument.
-  (assert (= (+ 1 2 3) 6))
+  (assert (= (int/add 1 2 3) 6))
 
   ; Subtraction applies operands from left to right.
-  (assert (= (- 10 3 2) 5))
+  (assert (= (int/sub 10 3 2) 5))
 
   ; Multiplication multiplies every integer argument.
-  (assert (= (* 2 3 4) 24))
+  (assert (= (int/mul 2 3 4) 24))
 
   ; Multiplication preserves a negative factor.
-  (assert (= (* 1 -1) -1))
+  (assert (= (int/mul 1 -1) -1))
 
   ; Integers satisfy the integer predicate.
   (assert (int? 1))
@@ -80,16 +80,16 @@
   (assert (= (int/max -5) -5))
 
   ; Greater-than recognizes strictly decreasing values.
-  (assert (> 3 2))
+  (assert (int/gt 3 2))
 
   ; Greater-than rejects increasing values.
-  (assert (not (> 2 3)))
+  (assert (not (int/gt 2 3)))
 
   ; Greater-than-or-equal accepts equal values.
-  (assert (>= 3 3))
+  (assert (int/ge 3 3))
 
   ; Greater-than-or-equal rejects increasing values.
-  (assert (not (>= 2 3)))
+  (assert (not (int/ge 2 3)))
 
   ; Division rejects a zero divisor.
   (assert
@@ -162,6 +162,6 @@
   ; Comparisons require at least two integer arguments.
   (assert
     (string/contains?
-      (error/value (error/catch (> 1)))
+      (error/value (error/catch (int/gt 1)))
       "requires at least two arguments"))
   null)

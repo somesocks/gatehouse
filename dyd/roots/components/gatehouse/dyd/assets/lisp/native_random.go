@@ -17,7 +17,7 @@ var nativeRandomBytesDocumentation = doc(
 var nativeRandomIntegerDocumentation = doc(
 	"(random/int bound) -> Integer",
 	"Returns a uniformly random integer less than a positive bound.",
-	"(import (random @native:random/v1) (let ((value (random/int 10))) (and (<= 0 value) (< value 10))))",
+	"(import (random @native:random/v1) (let ((value (random/int 10))) (and (int/le 0 value) (int/lt value 10))))",
 	"#t",
 )
 

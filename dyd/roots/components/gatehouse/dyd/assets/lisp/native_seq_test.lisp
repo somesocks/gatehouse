@@ -32,7 +32,7 @@
       ; Map and filter defer their later nodes.
       (assert
         (and
-          (= (seq/take 3 (seq/map (fn (n) (* n n)) (seq/range 2))) (list 4 9 16))
+          (= (seq/take 3 (seq/map (fn (n) (int/mul n n)) (seq/range 2))) (list 4 9 16))
           (= (seq/take 3 (seq/filter (fn (n) (= (int/rem n 2) 1)) (seq/range 1))) (list 1 3 5))))
 
        ; Byte splitting emits fixed-size Bytes blocks and a final short block.
@@ -102,7 +102,7 @@
              2)))
 
        ; Bootstrapped sequence definitions do not capture caller shadowing.
-       (let ((+ (fn (left right) 0)))
+       (let ((int/add (fn (left right) 0)))
          (assert (= (seq/take 3 (seq/range 1)) (list 1 2 3))))
 
       ; Sequence exports report signatures and runnable examples.

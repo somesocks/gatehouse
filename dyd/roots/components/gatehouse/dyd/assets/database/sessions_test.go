@@ -1092,11 +1092,11 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 		}
 		return ref
 	}
-	tool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "prior-call", "code": "(+ 1 2)", "reason": "test"})
+	tool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "prior-call", "code": "(int/add 1 2)", "reason": "test"})
 	result := appendEvent(tool, model.SessionEventKindToolSuccess, map[string]any{"output": "3"})
 	thinking := appendEvent(secondRequest.Ref, model.SessionEventKindThinkingRequest, map[string]any{"turn": 1})
 	future := appendEvent(secondRequest.Ref, model.SessionEventKindMessageText, map[string]any{"text": "future active content"})
-	laterTool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "later-call", "code": "(+ 3 4)", "reason": "test"})
+	laterTool := appendEvent(secondRequest.Ref, model.SessionEventKindToolRequest, map[string]any{"name": "lisp", "call_id": "later-call", "code": "(int/add 3 4)", "reason": "test"})
 	laterResult := appendEvent(laterTool, model.SessionEventKindToolSuccess, map[string]any{"output": "7"})
 	err, bounded := store.SessionAgentRoundEventsGet(ctx, secondRequest.Ref, agent, thinking)
 	if err != nil {

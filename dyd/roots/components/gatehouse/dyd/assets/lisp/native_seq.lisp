@@ -6,13 +6,13 @@
           (pair (head values) (fn () (fn/apply from (tail values)))))))
    (range-from
     (fn (start)
-      (let ((value (+ start 0)))
-        (pair value (fn () (range-from (+ value 1)))))))
+      (let ((value (int/add start 0)))
+        (pair value (fn () (range-from (int/add value 1)))))))
    (range-to
     (fn (start end)
-      (if (>= start end)
+      (if (int/ge start end)
           null
-          (pair start (fn () (range-to (+ start 1) end))))))
+          (pair start (fn () (range-to (int/add start 1) end))))))
    (range
     (fn (start . ends)
       (if (null? ends)
@@ -26,13 +26,13 @@
     (fn (sequence) ((tail sequence))))
    (take
     (fn (count sequence)
-      (if (< count 0)
+      (if (int/lt count 0)
           (error/throw "seq/take requires a non-negative count")
           (if (= count 0)
               null
               (if (null? sequence)
                   null
-                  (pair (head sequence) (take (- count 1) (sequence-tail sequence))))))))
+                  (pair (head sequence) (take (int/sub count 1) (sequence-tail sequence))))))))
    (map
     (fn (function sequence)
       (if (null? sequence)
@@ -70,7 +70,7 @@
     (pair 'take take)
     ; (seq/map function sequence) -> Sequence
     ; Returns a sequence that applies function to each source value as nodes are produced.
-    ; Example: (import (seq @native:seq/v1) (seq/take 3 (seq/map (fn (n) (* n n)) (seq/from 2 3 4)))) => (4 9 16).
+    ; Example: (import (seq @native:seq/v1) (seq/take 3 (seq/map (fn (n) (int/mul n n)) (seq/from 2 3 4)))) => (4 9 16).
     (pair 'map map)
     ; (seq/filter predicate sequence) -> Sequence
     ; Returns a sequence containing source values for which predicate returns true.
