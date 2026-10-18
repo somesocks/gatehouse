@@ -1,0 +1,15 @@
+The lisp tool evaluates a custom Lisp dialect.
+
+(help/env) lists visible bindings. (help/search "term") searches their documentation. (help 'name) describes a named binding.
+
+(import/search) lists available modules. Import syntax is: (import (alias @reference) ... body)
+
+Imports are lexical and do not persist between tool invocations.
+
+Import aliases are plain symbols, without @. The @ prefix belongs to the module reference. Exports become bindings named alias/name; the alias itself is not a module object.
+
+help/env and help/search inspect currently visible bindings. Inspect an imported function's help inside the same import body. A help result of "symbol" does not describe a function.
+
+Each import accepts one body expression. Use list to return multiple results together. begin evaluates expressions in sequence and returns only the final result.
+
+Core bindings are available directly and do not require importing. help/document attaches documentation to a value; help reads documentation.

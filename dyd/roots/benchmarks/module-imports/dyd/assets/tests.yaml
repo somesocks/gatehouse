@@ -1,0 +1,88 @@
+api_version: v1
+
+agent_providers:
+  - alias: openai
+    protocol: openai-responses
+    endpoint: https://api.openai.com/v1/responses
+    api_key:
+      sources: [env:OPENAI_API_KEY]
+
+agent_models:
+  - alias: luna-low
+    provider: openai
+    model: gpt-6-luna
+    parameters: {reasoning_effort: low}
+  - alias: luna-medium
+    enabled: false
+    provider: openai
+    model: gpt-6-luna
+    parameters: {reasoning_effort: medium}
+  - alias: luna-high
+    enabled: false
+    provider: openai
+    model: gpt-6-luna
+    parameters: {reasoning_effort: high}
+
+system_prompts:
+  - alias: minimal
+    mode: replace
+    text: file:./prompts/minimal.txt
+  - alias: modules
+    mode: replace
+    text: file:./prompts/modules.txt
+  - alias: language
+    mode: replace
+    text: file:./prompts/language.txt
+  - alias: workflow
+    mode: replace
+    text: file:./prompts/workflow.txt
+  - alias: detailed
+    mode: replace
+    text: file:./prompts/detailed.txt
+
+lisp_environments:
+  - alias: pre-imported
+    project_linked: false
+    prelude: file:./preludes/pre-imported.lisp
+  - alias: self-import
+    project_linked: false
+    prelude: file:./preludes/self-import.lisp
+
+questions:
+  - alias: rome-temperature
+    text: "What temperature in degrees Celsius is forecast for Rome? Return only the number, without a unit."
+    expected: {output: "24"}
+  - alias: rainy-destinations
+    text: "Which of Athens, Berlin, Dublin, Helsinki, Lisbon, Madrid, Oslo, Paris, Prague, Rome, Vienna, and Warsaw have rain expected? Return only the city names, sorted alphabetically and joined by a comma and space (', ')."
+    expected: {output: "Athens, Berlin, Helsinki, Oslo, Paris, Vienna"}
+  - alias: lisbon-fare
+    text: "What is the fare in EUR from London to Lisbon? Return only the number, without a currency symbol or unit."
+    expected: {output: "120"}
+  - alias: cheapest-destination
+    text: "Which of Athens, Berlin, Dublin, Helsinki, Lisbon, Madrid, Oslo, Paris, Prague, Rome, Vienna, and Warsaw has the cheapest fare from London? Return only the city name."
+    expected: {output: "Helsinki"}
+  - alias: warmest-destination
+    text: "Which of Athens, Berlin, Dublin, Helsinki, Lisbon, Madrid, Oslo, Paris, Prague, Rome, Vienna, and Warsaw has the warmest forecast temperature? Return only the city name."
+    expected: {output: "Oslo"}
+  - alias: cheapest-dry-destination
+    text: "Which of Athens, Berlin, Dublin, Helsinki, Lisbon, Madrid, Oslo, Paris, Prague, Rome, Vienna, and Warsaw has the cheapest fare from London among destinations with no rain expected? Return only the city name."
+    expected: {output: "Prague"}
+  - alias: dry-destinations-under-budget
+    text: "Which of Athens, Berlin, Dublin, Helsinki, Lisbon, Madrid, Oslo, Paris, Prague, Rome, Vienna, and Warsaw have no rain expected and a fare from London of at most EUR 150? Return only the city names, sorted alphabetically and joined by a comma and space (', ')."
+    expected: {output: "Dublin, Lisbon, Prague, Warsaw"}
+
+tests:
+  - alias: weather-travel-imports
+    matrix:
+      models: [luna-low]
+      system_prompts: [minimal, modules, language, workflow, detailed]
+      questions:
+        - rome-temperature
+        - rainy-destinations
+        - lisbon-fare
+        - cheapest-destination
+        - warmest-destination
+        - cheapest-dry-destination
+        - dry-destinations-under-budget
+      lisp_environments: [pre-imported, self-import]
+    repetitions: 1

@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+set -eu
+exec gatehouse benchmark run --config="$DYD_STEM/dyd/assets/tests.yaml" "$@"

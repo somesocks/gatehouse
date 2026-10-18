@@ -1,0 +1,10 @@
+(begin
+  (assert (= (help/env "weather/") null))
+  (assert (= (help/env "travel/") null))
+  (assert (error? (error/catch (weather/forecast "Rome"))))
+  (assert (error? (error/catch (travel/fare "London" "Lisbon"))))
+  (import (weather @native:weather/v1) (travel @native:travel/v1)
+    (assert (= (travel/fare "London" "Rome") 160)))
+  (assert (= (help/env "weather/") null))
+  (assert (= (help/env "travel/") null))
+  null)
