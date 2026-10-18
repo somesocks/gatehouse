@@ -1577,8 +1577,31 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	}
 	message := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agents":["`+assistantID+`"]}`)
 	var event model.SessionEvent
-	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted || !reflect.DeepEqual(event.Payload["agents"], []interface{}{assistantID}) {
+	if err := json.Unmarshal(message.Body.Bytes(), &event); err != nil || message.Code != http.StatusAccepted {
 		t.Fatalf("POST message = (%d, %#v, %v)", message.Code, event, err)
+	}
+	targets, targetErr := database.SessionMessageTargets(event)
+	if targetErr != nil || len(targets) != 1 || targets[0].Ref.Id != assistantID || targets[0].Name == nil || *targets[0].Name != label {
+		t.Fatalf("legacy input normalized targets = %#v, %v", targets, targetErr)
+	}
+	base := "/api/v1/workspaces/" + engineering.Id + "/sessions/" + created.ID
+	canonical := request(http.MethodPost, base+"/messages", `{"text":"hello","targets":[{"kind":"agent","id":"`+assistantID+`"}]}`)
+	if canonical.Code != http.StatusAccepted {
+		t.Fatalf("canonical targets = %d %s", canonical.Code, canonical.Body.String())
+	}
+	for _, body := range []string{
+		`{"text":"hello","targets":[{"kind":"group","id":"` + assistantID + `"}]}`,
+		`{"text":"hello","targets":[],"agents":["` + assistantID + `"]}`,
+		`{"text":"hello","targets":[{"kind":"agent","id":"` + assistantID + `","name":"forged"}]}`,
+	} {
+		if bad := request(http.MethodPost, base+"/messages", body); bad.Code != http.StatusBadRequest {
+			t.Fatalf("invalid targets = %d %s", bad.Code, bad.Body.String())
+		}
+	}
+	for _, kind := range []string{"agent", "principal", "group"} {
+		if page := request(http.MethodGet, base+"/recipients?kind="+kind, ""); page.Code != http.StatusOK {
+			t.Fatalf("recipient lookup = %d %s", page.Code, page.Body.String())
+		}
 	}
 	alias := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+created.ID+"/messages", `{"text":"hello","agents":["assistant"]}`)
 	if alias.Code != http.StatusBadRequest {

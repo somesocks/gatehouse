@@ -200,6 +200,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions", workspaceSessions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}", workspaceSession(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/participants", workspaceSessionParticipants(store, tokens[0], ""))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/recipients", workspaceSessionRecipients(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/principal-options", workspaceSessionParticipants(store, tokens[0], "principal"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/group-options", workspaceSessionParticipants(store, tokens[0], "group"))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/grants", workspaceSessionGrantCreate(store, tokens[0]))
@@ -415,9 +416,10 @@ type sessionProjectRequest struct {
 }
 
 type sessionMessageRequest struct {
-	Text        string   `json:"text"`
-	Agents      []string `json:"agents"`
-	Attachments []string `json:"attachments"`
+	Text        string                    `json:"text"`
+	Agents      []string                  `json:"agents"`
+	Targets     *[]model.MessageTargetRef `json:"targets"`
+	Attachments []string                  `json:"attachments"`
 }
 
 type sessionEventSearchRequest struct {
@@ -1825,21 +1827,9 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			http.Error(response, "invalid message", http.StatusBadRequest)
 			return
 		}
-		seenAgents := make(map[string]struct{}, len(message.Agents))
-		for _, agent := range message.Agents {
-			if _, exists := seenAgents[agent]; exists {
-				continue
-			}
-			seenAgents[agent] = struct{}{}
-			err, selected := store.WorkspaceAgentModelGet(request.Context(), session.Workspace, agent)
-			if err != nil {
-				http.Error(response, "internal server error", http.StatusInternalServerError)
-				return
-			}
-			if selected == nil || selected.Ref.Id != agent {
-				http.Error(response, "invalid agent", http.StatusBadRequest)
-				return
-			}
+		if message.Targets != nil && message.Agents != nil {
+			http.Error(response, "specify targets or agents, not both", http.StatusBadRequest)
+			return
 		}
 		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
@@ -1859,6 +1849,10 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		}
 		err, stored := store.SessionMessagesCreate(request.Context(), event)
 		if err != nil {
+			if errors.Is(err, database.ErrMessageTarget) {
+				http.Error(response, err.Error(), http.StatusBadRequest)
+				return
+			}
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
@@ -3308,6 +3302,13 @@ func messagePayload(message sessionMessageRequest) (error, map[string]interface{
 	if len(message.Agents) > 0 {
 		payload.Agents = &message.Agents
 	}
+	if message.Targets != nil {
+		targets := make([]model.MessageTarget, 0, len(*message.Targets))
+		for _, ref := range *message.Targets {
+			targets = append(targets, model.MessageTarget{Ref: ref})
+		}
+		payload.Targets = &targets
+	}
 	if len(message.Attachments) > 0 {
 		payload.Attachments = &message.Attachments
 	}
@@ -3586,7 +3587,7 @@ func sessionEventTranscriptProject(entries []database.SessionEventTreeEntry) {
 		var keys []string
 		switch event.Kind {
 		case model.SessionEventKindMessageText:
-			keys = []string{"text", "attachments", "agents"}
+			keys = []string{"text", "attachments", "agents", "targets"}
 		case model.SessionEventKindAgentRequest:
 			keys = []string{"agent"}
 		case model.SessionEventKindAgentSuccess:

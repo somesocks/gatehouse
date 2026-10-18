@@ -6,6 +6,7 @@
     align = "start",
     purpose = "message",
     header,
+    metadata,
     actions,
     children,
     ...rest
@@ -13,6 +14,7 @@
     align?: "start" | "end"
     purpose?: "message" | "output" | "form"
     header?: Snippet
+    metadata?: Snippet
     actions?: Snippet
   } = $props()
 </script>
@@ -27,8 +29,9 @@
   {...rest}
 >
   <Panel tone={align === "end" ? "primary-tint" : "secondary"}>
-    {#if header}<header class="pr-8 text-base font-semibold text-foreground">
-        {@render header()}
+    {#if header}<header class="flex flex-col gap-1 pr-8">
+        <div class="text-base font-semibold text-foreground">{@render header()}</div>
+        {#if metadata}{@render metadata()}{/if}
       </header>{/if}
     {@render children?.()}
   </Panel>

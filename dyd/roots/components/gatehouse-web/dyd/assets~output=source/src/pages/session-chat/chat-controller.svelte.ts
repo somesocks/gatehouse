@@ -15,18 +15,15 @@ import {
   type ChatComposerFile,
   type ChatEvent,
   type ChatEventTree,
+  type MessageTargetRef,
 } from "../../app/chat"
-import { mentionedAgentIDs } from "./chat-mentions"
+import { uniqueTargets } from "./message-targets"
 
 type ChatControllerOptions = {
   isNearBottom: () => boolean
   followLatest: (behavior?: ScrollBehavior) => Promise<void>
   focusComposer: () => void
 }
-
-export type ChatDelivery =
-  | { mode: "group" }
-  | { mode: "direct"; agentID?: string }
 
 export function createChatController({
   isNearBottom,
@@ -236,7 +233,7 @@ export function createChatController({
   }
 
   async function sendMessage(
-    delivery: ChatDelivery = { mode: "group" },
+    recipients: MessageTargetRef[] = [],
   ): Promise<void> {
     if (
       context === null ||
@@ -248,12 +245,7 @@ export function createChatController({
     const value = generation
     const text = state.messageText
     const files = [...state.composerFiles]
-    if (delivery.mode === "direct" && delivery.agentID === undefined) {
-      state.messageError =
-        "The direct agent is unavailable. Choose another agent."
-      return
-    }
-    const agents = deliveredAgentIDs(text, state.agents, delivery)
+    const targets = uniqueTargets(recipients)
     state.messageError = ""
     state.sendingMessage = true
     try {
@@ -273,7 +265,7 @@ export function createChatController({
         sessionID,
         {
           ...(text.trim() === "" ? {} : { text }),
-          ...(agents.length === 0 ? {} : { agents }),
+          targets,
           ...(attachments.length === 0 ? {} : { attachments }),
         },
         signal,
@@ -281,6 +273,12 @@ export function createChatController({
       if (!validContext(value, workspaceID, sessionID)) return
       if (response.status === 401) {
         state.authenticationRequired = true
+        return
+      }
+      if (response.status === 400) {
+        const error = (await response.text()).trim()
+        if (validContext(value, workspaceID, sessionID))
+          state.messageError = error || "The selected recipients are unavailable. Choose another recipient."
         return
       }
       if (!response.ok) throw new Error("message could not be sent")
@@ -296,7 +294,7 @@ export function createChatController({
       if (!validContext(value, workspaceID, sessionID)) return
       state.events = [...state.events, { event, children: [] }]
       void followLatest()
-      if (agents.length > 0)
+      if (targets.some((target) => target.kind === "agent"))
         state.awaitingReplyFor = [...state.awaitingReplyFor, event.ref.id]
     } catch {
       if (current(value))
@@ -536,15 +534,6 @@ export function createChatController({
 
 export function eventTreeIDs(tree: ChatEventTree): string[] {
   return [tree.event.ref.id, ...tree.children.flatMap(eventTreeIDs)]
-}
-export function deliveredAgentIDs(
-  text: string,
-  agents: ChatAgent[],
-  delivery: ChatDelivery,
-): string[] {
-  const mentions = mentionedAgentIDs(text, agents)
-  if (mentions.length > 0 || delivery.mode === "group") return mentions
-  return delivery.agentID === undefined ? [] : [delivery.agentID]
 }
 function hasKind<K extends ChatEvent["kind"]>(
   tree: ChatEventTree,

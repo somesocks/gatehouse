@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"gatehouse/database"
 	"gatehouse/model"
 )
 
@@ -117,6 +118,22 @@ func transcriptEvent(event model.SessionEvent, kind, status, callID, contents st
 
 func transcriptMessageEvent(content transcriptMessage, text string) string {
 	var body strings.Builder
+	if content.Event.Kind == model.SessionEventKindMessageText {
+		if targets, err := database.SessionMessageTargets(content.Event); err == nil {
+			for _, target := range targets {
+				body.WriteString("<recipient")
+				transcriptAttribute(&body, "kind", target.Ref.Kind)
+				transcriptAttribute(&body, "id", target.Ref.Id)
+				if target.Alias != nil {
+					transcriptAttribute(&body, "alias", *target.Alias)
+				}
+				if target.Name != nil {
+					transcriptAttribute(&body, "name", *target.Name)
+				}
+				body.WriteString(" />")
+			}
+		}
+	}
 	if text != "" {
 		body.WriteString("<text")
 		transcriptTruncationAttributes(&body, content.Truncated, content.SizeBytes, content.ShownBytes)

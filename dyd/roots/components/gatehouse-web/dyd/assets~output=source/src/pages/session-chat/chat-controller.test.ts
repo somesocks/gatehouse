@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { ChatEvent, ChatEventTree } from "../../app/chat"
 import {
   agentRequests,
-  deliveredAgentIDs,
   finalReplies,
   hasCancellationFailure,
   inputRequests,
@@ -169,34 +168,5 @@ describe("thinking rate-limit delay", () => {
         Date.parse("2026-01-01T00:00:01.000Z"),
       ),
     ).toBeUndefined()
-  })
-})
-
-describe("chat delivery", () => {
-  const agents = [
-    { id: "wag_default", alias: "default", default: true },
-    { id: "wag_other", alias: "other", default: false },
-  ]
-
-  it("uses the direct recipient when no agent is mentioned", () => {
-    expect(
-      deliveredAgentIDs("Hello", agents, {
-        mode: "direct",
-        agentID: "wag_default",
-      }),
-    ).toEqual(["wag_default"])
-  })
-
-  it("replaces the direct recipient with mentions", () => {
-    expect(
-      deliveredAgentIDs("@other Hello", agents, {
-        mode: "direct",
-        agentID: "wag_default",
-      }),
-    ).toEqual(["wag_other"])
-  })
-
-  it("keeps unmentioned group messages human-only", () => {
-    expect(deliveredAgentIDs("Hello", agents, { mode: "group" })).toEqual([])
   })
 })

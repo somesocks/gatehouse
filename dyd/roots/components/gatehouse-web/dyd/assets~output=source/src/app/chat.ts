@@ -2,8 +2,11 @@ import { fetchGatehouse as fetch } from "./api"
 import { collectionQueryPath, type CollectionQuery } from "./collection-query"
 import {
   decodeTranscriptEvent,
+  decodeTranscriptMessageTarget,
   type TranscriptEvent,
   type TranscriptFile,
+  type TranscriptMessageTarget,
+  type TranscriptMessageTargetRef,
 } from "../api-model"
 
 export type ChatAgent = {
@@ -15,6 +18,35 @@ export type ChatAgent = {
 
 export type ChatFile = TranscriptFile
 export type ChatEvent = TranscriptEvent
+export type MessageTarget = TranscriptMessageTarget
+export type MessageTargetRef = TranscriptMessageTargetRef
+
+export async function fetchChatRecipients(
+  workspaceID: string,
+  sessionID: string,
+  kind: MessageTargetRef["kind"],
+  signal: AbortSignal,
+): Promise<MessageTarget[]> {
+  const targets: MessageTarget[] = []
+  let cursor = ""
+  const seenCursors = new Set<string>()
+  do {
+    const query = new URLSearchParams({ kind, limit: "100" })
+    if (cursor) query.set("cursor", cursor)
+    const response = await fetch(`${chatAPIPath(workspaceID, sessionID)}/recipients?${query}`, {
+      credentials: "same-origin", signal,
+    })
+    if (!response.ok) throw new Error("Recipients could not be loaded.")
+    const page = await response.json()
+    if (!Array.isArray(page.targets) || (page.next_cursor !== undefined && typeof page.next_cursor !== "string"))
+      throw new Error("Invalid recipient page.")
+    targets.push(...page.targets.map(decodeTranscriptMessageTarget))
+    cursor = page.next_cursor ?? ""
+    if (cursor && seenCursors.has(cursor)) throw new Error("Invalid recipient cursor.")
+    seenCursors.add(cursor)
+  } while (cursor)
+  return targets
+}
 type ChatEventsByKind = {
   [K in ChatEvent["kind"]]: Extract<ChatEvent, { kind: K }>
 }
@@ -136,7 +168,7 @@ export async function fetchChatAgents(
 export async function sendChatMessage(
   workspaceID: string,
   sessionID: string,
-  input: { text?: string; agents?: string[]; attachments?: string[] },
+  input: { text?: string; targets?: MessageTargetRef[]; agents?: string[]; attachments?: string[] },
   signal?: AbortSignal,
 ): Promise<Response> {
   return await fetch(`${chatAPIPath(workspaceID, sessionID)}/messages`, {

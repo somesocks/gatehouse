@@ -1059,6 +1059,27 @@ let AgentFailurePayload =
         }
         s.record.meta::{ name = Some "AgentFailurePayload", description = Some "Payload for an agent.failure event." }
 
+let MessageTargetRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { kind = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "recipient kind: agent, principal, or group" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "stable typed recipient identity" }
+            }
+        }
+        s.record.meta::{ name = Some "MessageTargetRef" }
+
+let MessageTarget =
+      s.record.from
+        s.record.props::{
+        , required = toMap { ref = s.reference.from s.reference.props::{ to = "MessageTargetRef" } s.reference.meta::{=} }
+        , optional = toMap
+            { alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{=}
+            , name = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{=}
+            }
+        }
+        s.record.meta::{ name = Some "MessageTarget", description = Some "Recipient identity and server-captured display labels at send time." }
+
 let MessageTextPayload =
       s.record.from
         s.record.props::{
@@ -1069,10 +1090,14 @@ let MessageTextPayload =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "message text" }
+              , targets =
+                  s.list.from
+                    s.list.props::{ values = s.reference.from s.reference.props::{ to = "MessageTarget" } s.reference.meta::{=} }
+                    s.list.meta::{ description = Some "participants addressed by the message" }
               , agents =
                   s.list.from
                     s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "target workspace agent identity" } }
-                    s.list.meta::{ description = Some "workspace agents addressed by the message" }
+                    s.list.meta::{ description = Some "legacy workspace agent targets; use targets for new messages" }
               , attachments =
                   s.list.from
                     s.list.props::{ values = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "session file identity" } }
@@ -1609,7 +1634,9 @@ in  Document::{
              , s.root.from AgentRequestPayload s.root.meta::{ name = "AgentRequestPayload" }
              , s.root.from AgentSuccessPayload s.root.meta::{ name = "AgentSuccessPayload" }
              , s.root.from AgentFailurePayload s.root.meta::{ name = "AgentFailurePayload" }
-             , s.root.from MessageTextPayload s.root.meta::{ name = "MessageTextPayload" }
+              , s.root.from MessageTargetRef s.root.meta::{ name = "MessageTargetRef" }
+              , s.root.from MessageTarget s.root.meta::{ name = "MessageTarget" }
+              , s.root.from MessageTextPayload s.root.meta::{ name = "MessageTextPayload" }
              , s.root.from ThinkingRequestPayload s.root.meta::{ name = "ThinkingRequestPayload" }
              , s.root.from ThinkingUpdatePayload s.root.meta::{ name = "ThinkingUpdatePayload" }
              , s.root.from ThinkingSuccessPayload s.root.meta::{ name = "ThinkingSuccessPayload" }

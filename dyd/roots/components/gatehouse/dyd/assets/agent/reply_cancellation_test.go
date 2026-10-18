@@ -22,7 +22,7 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 	ctx := context.Background()
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(input/ask (input/form \\\"Review\\\" (input/form/text \\\"name\\\" \\\"Name\\\")))\",\"reason\":\"review\"}"},{"type":"function_call","call_id":"call-2","name":"lisp","arguments":"{\"code\":\"((policy/require-approval \\\"Approve this action\\\" +) 1 2)\",\"reason\":\"approval\"}"}],"usage":{"input_tokens":20,"output_tokens":10,"total_tokens":30}}`))
+		_, _ = response.Write([]byte(`{"output":[{"type":"function_call","call_id":"call-1","name":"lisp","arguments":"{\"code\":\"(input/ask (input/form \\\"Review\\\" (input/form/text \\\"name\\\" \\\"Name\\\")))\",\"reason\":\"review\"}"},{"type":"function_call","call_id":"call-2","name":"lisp","arguments":"{\"code\":\"((policy/require-approval \\\"Approve this action\\\" int/add) 1 2)\",\"reason\":\"approval\"}"}],"usage":{"input_tokens":20,"output_tokens":10,"total_tokens":30}}`))
 	}))
 	defer server.Close()
 	t.Setenv("GATEHOUSE_TEST_CANCEL_KEYCHAIN", "test passphrase")

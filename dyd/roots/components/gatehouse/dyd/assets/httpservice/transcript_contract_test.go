@@ -62,6 +62,7 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolSuccess, Payload: map[string]interface{}{"output_file": file}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindToolFailure, Payload: map[string]interface{}{"code": "execution_failed", "message": "See full result", "output_file": file}}},
 		{Event: model.SessionEvent{Kind: model.SessionEventKindThinkingFailure, Payload: map[string]interface{}{"code": "failed", "message": "See diagnostics", "output_file": file}}},
+		{Event: model.SessionEvent{Kind: model.SessionEventKindMessageText, Payload: map[string]interface{}{"text": "Addressed", "targets": []model.MessageTarget{{Ref: model.MessageTargetRef{Kind: "principal", Id: "prn_test"}}, {Ref: model.MessageTargetRef{Kind: "group", Id: "grp_test"}}, {Ref: model.MessageTargetRef{Kind: "agent", Id: "wag_test"}}}}}},
 	}
 	for index := range entries {
 		entries[index].Event.Ref = model.SessionEventRef{Id: "sev_test", Session: model.SessionRef{Id: "ses_test", Workspace: model.WorkspaceRef{Id: "wsp_test"}}}

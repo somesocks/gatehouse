@@ -457,15 +457,15 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 }
 
 func (store *Store) SessionMessagesCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	if event.Payload == nil {
+		event.Payload = map[string]interface{}{}
+	}
 	targets, err := sessionMessageTargetAgents(event)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
 	if event.Parent != nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
 		return fmt.Errorf("create session message: message must be a principal-authored root"), model.SessionEvent{}
-	}
-	if len(targets) > 0 {
-		event.Payload["agents"] = targets
 	}
 	events := make([]model.SessionEvent, 1, len(targets)+1)
 	events[0] = event
@@ -509,33 +509,17 @@ func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
 }
 
 func sessionMessageTargetAgents(event model.SessionEvent) ([]string, error) {
-	if event.Kind != model.SessionEventKindMessageText {
-		return nil, fmt.Errorf("create session message: event kind must be message.text")
+	participants, err := SessionMessageTargets(event)
+	if err != nil {
+		return nil, err
 	}
-	if _, exists := event.Payload["agent"]; exists {
-		return nil, fmt.Errorf("create session message: use agents instead of agent")
-	}
-	value, exists := event.Payload["agents"]
-	if !exists {
-		return nil, nil
-	}
-	agents, ok := eventStringSlice(value)
-	if !ok {
-		return nil, fmt.Errorf("create session message: agents must be binding IDs")
-	}
-	targets := make([]string, 0, len(agents))
-	seen := make(map[string]struct{}, len(agents))
-	for _, agent := range agents {
-		if !typed_id.Valid(typed_id.WorkspaceAgent, agent) {
-			return nil, fmt.Errorf("create session message: agents must be binding IDs")
+	agents := []string{}
+	for _, target := range participants {
+		if target.Ref.Kind == "agent" {
+			agents = append(agents, target.Ref.Id)
 		}
-		if _, exists := seen[agent]; exists {
-			continue
-		}
-		seen[agent] = struct{}{}
-		targets = append(targets, agent)
 	}
-	return targets, nil
+	return agents, nil
 }
 
 func eventStringSlice(value interface{}) ([]string, bool) {
@@ -737,6 +721,9 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if createReplyTasks {
 			switch event.Kind {
 			case model.SessionEventKindMessageText:
+				if err := store.sessionMessageTargetsSnapshot(ctx, transaction, event); err != nil {
+					return err, nil
+				}
 				attachments, err := sessionMessageAttachmentIDs(event)
 				if err != nil {
 					return err, nil

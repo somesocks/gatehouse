@@ -5,6 +5,7 @@ import {
   decodeChatEvent,
   decodeChatEventTrees,
   fetchChatAgents,
+  fetchChatRecipients,
   fetchChatFiles,
   fetchChatEvents,
   fetchChatSession,
@@ -82,6 +83,17 @@ describe("chat event response decoding", () => {
 })
 
 describe("chat transport", () => {
+  it("loads all recipient pages with encoded paths and rejects repeated cursors", async () => {
+    const request = vi.fn()
+      .mockResolvedValueOnce(Response.json({ targets: [{ ref: { kind: "principal", id: "prn_one" }, name: "One" }], next_cursor: "prn_cursor" }))
+      .mockResolvedValueOnce(Response.json({ targets: [{ ref: { kind: "principal", id: "prn_two" }, name: "Two" }] }))
+    vi.stubGlobal("fetch", request)
+    const signal = new AbortController().signal
+    expect(await fetchChatRecipients("wsp/test", "ses/test", "principal", signal)).toHaveLength(2)
+    expect(request).toHaveBeenNthCalledWith(2, "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/recipients?kind=principal&limit=100&cursor=prn_cursor", { credentials: "same-origin", signal })
+    request.mockImplementation(async () => Response.json({ targets: [], next_cursor: "same" }))
+    await expect(fetchChatRecipients("workspace", "chat", "group", signal)).rejects.toThrow("Invalid recipient cursor.")
+  })
   it("uses encoded session paths and same-origin credentials", async () => {
     const fetch = vi.fn(async () => Response.json({}))
     vi.stubGlobal("fetch", fetch)

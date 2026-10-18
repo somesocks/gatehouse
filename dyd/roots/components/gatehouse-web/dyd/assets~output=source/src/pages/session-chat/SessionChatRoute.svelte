@@ -2,7 +2,7 @@
   import {
     ArrowDown,
     Send,
-    Bot,
+    AtSign,
     CircleCheck,
     CircleX,
     Copy,
@@ -10,8 +10,6 @@
     ShieldCheck,
     ShieldQuestionMark,
     ShieldX,
-    Command,
-    Dialog,
     RouterLink,
     StatusPage,
     renderMarkdown,
@@ -28,13 +26,16 @@
   import {
     chatFileDownloadPath,
     fetchChatSession,
-    type ChatAgent,
+    type MessageTargetRef,
     type ChatEventTree,
   } from "../../app/chat"
   import { useRuntime } from "../../app/runtime.svelte"
 
   import InputRequestCard from "./InputRequestCard.svelte"
   import InputRequestActivity from "./InputRequestActivity.svelte"
+  import RecipientPicker from "./RecipientPicker.svelte"
+  import { createRecipientController } from "./recipient-controller.svelte"
+  import { messageTargets, targetKey, targetLabel } from "./message-targets"
   import * as SidebarPage from "../../ui/sidebar-page"
 
   import type { Route } from "../../route"
@@ -46,7 +47,6 @@
     approvalRequests,
     approvalResponse,
     cancellationRequest,
-    type ChatDelivery,
     createChatController,
     displayedActivityEvents,
     elapsedDuration,
@@ -81,14 +81,9 @@
   let feedElement = $state<HTMLElement | undefined>()
   let messageInputElement = $state<HTMLTextAreaElement | undefined>()
   let fileInputElement = $state<HTMLInputElement | undefined>()
-  let mentionSearchInputElement = $state<HTMLInputElement | undefined>()
-  let deliverySearchInputElement = $state<HTMLInputElement | undefined>()
   let mentionOpen = $state(false)
-  let mentionQuery = $state("")
-  let deliveryQuery = $state("")
   let mentionStart = -1
   let pendingMentionStart: number | undefined
-  let deliveryOpen = $state(false)
   let generation = 0
   let startedSessionKey = ""
   let abortController: AbortController | null = null
@@ -167,52 +162,7 @@
       },
     }),
   )
-  const filteredMentionAgents = $derived(
-    controller.state.agents.filter((agent) => {
-      const query = mentionQuery.trim().toLowerCase()
-      return (
-        query === "" ||
-        agent.alias.includes(query) ||
-        agent.label?.toLowerCase().includes(query) === true
-      )
-    }),
-  )
-  const filteredDeliveryAgents = $derived(
-    controller.state.agents.filter((agent) => {
-      const query = deliveryQuery.trim().toLowerCase()
-      return (
-        query === "" ||
-        "direct".includes(query) ||
-        agent.alias.includes(query) ||
-        agent.label?.toLowerCase().includes(query) === true
-      )
-    }),
-  )
-  const groupDeliveryVisible = $derived(
-    "group chat".includes(deliveryQuery.trim().toLowerCase()),
-  )
-  let directAgentID = $state<string | null>(untrack(() => currentRoute.agent))
-  let deliveryMode = $state<ChatDelivery["mode"]>(
-    untrack(() => currentRoute.mode),
-  )
-  const directAgent = $derived.by(() => {
-    if (deliveryMode !== "direct") return undefined
-    return controller.state.agents.find((agent) =>
-      directAgentID === null ? agent.default : agent.id === directAgentID,
-    )
-  })
-  const delivery = $derived<ChatDelivery>(
-    deliveryMode === "direct"
-      ? { mode: "direct", agentID: directAgent?.id }
-      : { mode: "group" },
-  )
-  const deliveryTitle = $derived(
-    deliveryMode === "group"
-      ? "Group chat"
-      : directAgent === undefined
-        ? "Direct chat"
-        : `Direct chat with @${directAgent.alias}`,
-  )
+  const recipients = createRecipientController()
   const sendLabel = $derived(
     !controller.state.sendingMessage
       ? "Send message"
@@ -238,10 +188,6 @@
     })
   })
   $effect(() => {
-    directAgentID = currentRoute.agent
-    deliveryMode = currentRoute.mode
-  })
-  $effect(() => {
     if (controller.state.authenticationRequired) runtime.requireLogin()
   })
   onMount(() => {
@@ -253,12 +199,15 @@
         void copyMarkdown(code.textContent ?? "")
     }
     document.addEventListener("click", copyCodeBlock)
+    const refreshRecipients = () => void recipients.refresh()
+    window.addEventListener("focus", refreshRecipients)
     const clock = window.setInterval(
       () => controller.updateActivityTimestamp(),
       1000,
     )
     return () => {
       document.removeEventListener("click", copyCodeBlock)
+      window.removeEventListener("focus", refreshRecipients)
       window.clearInterval(clock)
     }
   })
@@ -272,6 +221,10 @@
     unsubscribe?.()
     unsubscribe = undefined
     controller.stop()
+    recipients.stop()
+    mentionOpen = false
+    mentionStart = -1
+    pendingMentionStart = undefined
     session = null
     if (
       auth.state.status === "authenticated" &&
@@ -290,6 +243,7 @@
         unsubscribe?.()
         unsubscribe = undefined
         controller.stop()
+        recipients.stop()
       }
     }
   }
@@ -318,10 +272,15 @@
     if (startedSessionKey !== key) {
       startedSessionKey = key
       controller.start(workspaceID, sessionID, signal)
+      const principalID = auth.state.claims?.principal.ref.id
+      if (principalID)
+        recipients.start(principalID, workspaceID, sessionID, signal,
+          currentRoute.mode === "direct" ? currentRoute.agent : undefined)
     } else
       await Promise.all([
         controller.refreshEvents(),
         controller.refreshAgents(),
+        recipients.refresh(),
       ])
     if (!isCurrent(value, workspaceID, sessionID, signal)) return
     subscribe(route, value, signal)
@@ -387,7 +346,12 @@
         {
           name: "session-chat-agent",
           topic: workspaceID,
-          events: ["workspace_agent.*"],
+          events: ["workspace_agent.*", "group.*", "group_member.*"],
+        },
+        {
+          name: "session-recipients",
+          topic: `${workspaceID}/${sessionID}`,
+          events: ["session_grant.*"],
         },
       ],
       async ({ names, signal }) => {
@@ -398,6 +362,8 @@
           return
         controller.updateActivityTimestamp()
         const refreshed = await Promise.all([
+          ...(names.has("session-chat-agent") || names.has("session-recipients")
+            ? [recipients.refresh(signal)] : []),
           ...(names.has("session-chat")
             ? [
                 controller.refreshEvents(signal),
@@ -518,8 +484,8 @@
     if (pendingMentionStart === undefined) return
     mentionStart = pendingMentionStart
     pendingMentionStart = undefined
-    mentionQuery = ""
     mentionOpen = true
+    void recipients.refresh()
   }
   function focusComposer(cursor?: number): void {
     void tick().then(() => {
@@ -528,44 +494,23 @@
         messageInputElement?.setSelectionRange(cursor, cursor)
     })
   }
-  function selectMention(agent: ChatAgent): void {
-    if (mentionStart < 0) return
-    const start = mentionStart
-    mentionStart = -1
-    const alias = `@${agent.alias}`
-    const text = controller.state.messageText
-    const suffix = text.slice(start + 1)
-    controller.state.messageText =
-      text.slice(0, start) +
-      alias +
-      (suffix.startsWith(" ") ? "" : " ") +
-      suffix
+  function selectRecipient(ref: MessageTargetRef | null): void {
+    recipients.select(ref === null ? [] : [...recipients.state.targets, ref])
+    if (mentionStart >= 0 && controller.state.messageText[mentionStart] === "@") {
+      const text = controller.state.messageText
+      controller.state.messageText = text.slice(0, mentionStart) + text.slice(mentionStart + 1)
+    }
     mentionOpen = false
-    focusComposer(start + alias.length + 1)
   }
-  function setGroupDelivery(): void {
-    deliveryMode = "group"
-    directAgentID = null
-    deliveryOpen = false
-    runtime.navigate(
-      sessionPath(currentRoute.workspaceID, currentRoute.sessionID),
-      true,
-    )
+  function openRecipients(): void {
+    mentionStart = -1
+    mentionOpen = true
+    void recipients.refresh()
   }
-  function setDirectDelivery(agentID?: string): void {
-    const parameters = new URLSearchParams({ mode: "direct" })
-    if (agentID !== undefined) parameters.set("agent", agentID)
-    deliveryMode = "direct"
-    directAgentID = agentID ?? null
-    deliveryOpen = false
-    runtime.navigate(
-      `${sessionPath(currentRoute.workspaceID, currentRoute.sessionID)}?${parameters}`,
-      true,
-    )
-  }
-  function openDelivery(): void {
-    deliveryQuery = ""
-    deliveryOpen = true
+  async function sendMessage(): Promise<void> {
+    if (!recipients.canSend) return
+    await controller.sendMessage(recipients.state.targets)
+    if (controller.state.messageError) void recipients.refresh()
   }
 </script>
 
@@ -726,6 +671,14 @@
                   >
                     {#snippet header()}
                       {tree.event.author_principal?.name ?? "User"}
+                    {/snippet}
+                    {#snippet metadata()}
+                      {#if tree.event.kind === "message.text"}
+                        {@const addressed = messageTargets(tree.event.payload, controller.state.agents)}
+                        {#if addressed.length > 0}
+                          <UI.Text as="p" size="small" tone="muted" aria-label="Message recipients">To: {addressed.map(targetLabel).join(", ")}</UI.Text>
+                        {/if}
+                      {/if}
                     {/snippet}
                     {#snippet actions()}{#if tree.event.kind === "message.text" && tree.event.payload.text !== undefined}<UI.Button
                           variant="ghost"
@@ -1106,9 +1059,28 @@
             autocomplete="off"
             onsubmit={(event) => {
               event.preventDefault()
-              void controller.sendMessage(delivery)
+              void sendMessage()
             }}
           >
+            {#if recipients.state.targets.length > 0}
+              <UI.Row gap="small" aria-label="Message recipients">
+                <UI.InlineButton type="button" disabled={controller.state.sendingMessage} onclick={openRecipients}>To:</UI.InlineButton>
+                {#each recipients.state.targets as ref (targetKey(ref))}
+                  <UI.InputRecipient
+                    name={targetLabel(recipients.target(ref))}
+                    unavailable={recipients.state.ready && !recipients.available(ref)}
+                    disabled={controller.state.sendingMessage}
+                    onselect={openRecipients}
+                    onremove={() => recipients.select(recipients.state.targets.filter((target) => targetKey(target) !== targetKey(ref)))}
+                  />
+                {/each}
+              </UI.Row>
+            {/if}
+            {#if recipients.state.error}
+              <UI.Row><UI.Text as="p" size="small" role="alert">{recipients.state.error}</UI.Text>
+                <UI.Button type="button" variant="outline" size="sm" onclick={() => void recipients.refresh()}>Try again</UI.Button>
+              </UI.Row>
+            {/if}
             <UI.Label hidden for="message">Message</UI.Label><UI.FileInput
               hidden
               id="files"
@@ -1149,7 +1121,7 @@
                 if (event.isComposing) return
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault()
-                  void controller.sendMessage(delivery)
+                  void sendMessage()
                 }
               }}
               oninput={openMentionAfterInput}
@@ -1171,15 +1143,14 @@
                   /></UI.Button
                 >
                 <UI.Button
-                  variant={deliveryMode === "direct" ? "default" : "outline"}
+                  variant="ghost"
                   size="icon"
                   type="button"
-                  aria-label={deliveryTitle}
-                  title={deliveryTitle}
-                  data-selected={deliveryMode === "direct" || undefined}
+                  aria-label="Choose recipient"
+                  title="Choose recipient"
                   disabled={controller.state.sendingMessage}
-                  onclick={openDelivery}
-                  ><Bot
+                  onclick={() => openRecipients()}
+                  ><AtSign
                     size={20}
                     strokeWidth={2.25}
                     aria-hidden="true"
@@ -1193,6 +1164,7 @@
                 aria-label={sendLabel}
                 title={sendLabel}
                 disabled={controller.state.sendingMessage ||
+                  !recipients.canSend ||
                   (controller.state.messageText.trim() === "" &&
                     controller.state.composerFiles.length === 0)}
                 >{#if controller.state.sendingMessage}
@@ -1211,130 +1183,18 @@
               >
                 {controller.state.messageError}
               </UI.Text>{/if}
-            <Dialog.Root bind:open={mentionOpen}>
-              <Dialog.Content
-                preventScroll={false}
-                onOpenAutoFocus={(event) => {
-                  event.preventDefault()
-                  requestAnimationFrame(() =>
-                    mentionSearchInputElement?.focus({ preventScroll: true }),
-                  )
-                }}
-                onCloseAutoFocus={(event) => {
-                  event.preventDefault()
-                  focusComposer()
-                }}
-                onkeydown={(event) => {
-                  if (event.key !== "Escape") return
-                  event.preventDefault()
-                  mentionOpen = false
-                  focusComposer()
-                }}
-              >
-                <UI.DialogTitle hidden>Choose an agent</UI.DialogTitle>
-                <Command.Root label="Choose an agent" shouldFilter={false}>
-                  <Command.Input
-                    bind:ref={mentionSearchInputElement}
-                    bind:value={mentionQuery}
-                    autofocus
-                    placeholder="Search agents"
-                  />
-                  <Command.List>
-                    {#if filteredMentionAgents.length === 0}<UI.Text as="p"
-                        >No agents found.</UI.Text
-                      >{:else}<Command.Group>
-                        <UI.Text size="eyebrow">Agents</UI.Text>
-
-                        {#each filteredMentionAgents as agent (agent.id)}
-                          <Command.Item
-                            value={agent.id}
-                            keywords={[
-                              agent.alias,
-                              ...(agent.label === undefined
-                                ? []
-                                : [agent.label]),
-                            ]}
-                            onSelect={() => selectMention(agent)}
-                            onclick={() => selectMention(agent)}
-                          >
-                            <UI.Text as="strong" emphasis="strong"
-                              >@{agent.alias}</UI.Text
-                            >
-                            {#if agent.label !== undefined}<UI.Text
-                                as="small"
-                                size="small">{agent.label}</UI.Text
-                              >{/if}
-                          </Command.Item>
-                        {/each}
-                      </Command.Group>{/if}
-                  </Command.List>
-                </Command.Root>
-              </Dialog.Content>
-            </Dialog.Root>
-            <Dialog.Root bind:open={deliveryOpen}>
-              <Dialog.Content
-                preventScroll={false}
-                onOpenAutoFocus={(event) => {
-                  event.preventDefault()
-                  requestAnimationFrame(() =>
-                    deliverySearchInputElement?.focus({ preventScroll: true }),
-                  )
-                }}
-                onkeydown={(event) => {
-                  if (event.key === "Escape") deliveryOpen = false
-                }}
-              >
-                <UI.DialogTitle hidden>Message delivery</UI.DialogTitle>
-                <Command.Root
-                  label="Choose message delivery"
-                  shouldFilter={false}
-                >
-                  <Command.Input
-                    bind:ref={deliverySearchInputElement}
-                    bind:value={deliveryQuery}
-                    autofocus
-                    placeholder="Search chat modes"
-                  />
-                  <Command.List>
-                    {#if groupDeliveryVisible || filteredDeliveryAgents.length > 0}<Command.Group
-                      >
-                        {#if groupDeliveryVisible}<Command.Item
-                            value="group"
-                            keywords={["group", "human", "explicit"]}
-                            onSelect={setGroupDelivery}
-                          >
-                            <UI.Text as="strong" emphasis="strong"
-                              >Group chat</UI.Text
-                            >
-                            <UI.Text as="small" size="small"
-                              >Only explicit @mentions receive a message.</UI.Text
-                            >
-                          </Command.Item>{/if}{#each filteredDeliveryAgents as agent (agent.id)}<Command.Item
-                            value={`direct-${agent.id}`}
-                            keywords={[
-                              agent.alias,
-                              ...(agent.label === undefined
-                                ? []
-                                : [agent.label]),
-                            ]}
-                            onSelect={() => setDirectDelivery(agent.id)}
-                          >
-                            <UI.Text as="strong" emphasis="strong"
-                              >Direct chat</UI.Text
-                            >
-                            <UI.Text as="small" size="small"
-                              >@{agent.alias}{agent.label === undefined
-                                ? ""
-                                : ` · ${agent.label}`}</UI.Text
-                            >
-                          </Command.Item>{/each}
-                      </Command.Group>{:else}<UI.Text as="p"
-                        >No chat modes found.</UI.Text
-                      >{/if}
-                  </Command.List>
-                </Command.Root>
-              </Dialog.Content>
-            </Dialog.Root>
+            <RecipientPicker
+              bind:open={mentionOpen}
+              options={recipients.state.options}
+              ready={recipients.state.ready}
+              error={recipients.state.error}
+              onselect={selectRecipient}
+              onretry={() => void recipients.refresh()}
+              onclose={() => {
+                focusComposer(mentionStart >= 0 ? mentionStart : undefined)
+                mentionStart = -1
+              }}
+            />
           </UI.InputBar></SidebarPage.Footer
         >{/if}
     </SidebarPage.Page>

@@ -10,6 +10,39 @@ const message = (id: string) => ({
 })
 
 describe("conversation request ownership", () => {
+  it("sends a stable mixed target set on successive messages without interpreting text as delivery", async () => {
+    const { createChatController } = await importClientModule(new URL("./chat-controller.svelte.ts", import.meta.url))
+    const sent: unknown[] = []
+    const request = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path.endsWith("/messages")) {
+        const body = JSON.parse(String(init?.body))
+        sent.push(body)
+        return Response.json({ ...message(`sent-${sent.length}`), payload: { text: body.text, targets: body.targets.map((ref: object) => ({ ref })) } })
+      }
+      return Response.json([])
+    })
+    vi.stubGlobal("fetch", request)
+    const controller = createChatController({ isNearBottom: () => true, followLatest: vi.fn(async () => {}), focusComposer: vi.fn() })
+    controller.start("workspace", "session", new AbortController().signal)
+    await vi.waitFor(() => expect(controller.state.status).toBe("ready"))
+    const targets = [{ kind: "agent", id: "wag_one" }, { kind: "principal", id: "prn_alex" }, { kind: "group", id: "grp_team" }]
+    controller.state.messageText = "First"
+    await controller.sendMessage(targets)
+    expect(controller.state.messageText).toBe("")
+    controller.state.messageText = "Follow up"
+    await controller.sendMessage(targets)
+    expect(sent).toEqual([{ text: "First", targets }, { text: "Follow up", targets }])
+    expect(targets).toHaveLength(3)
+    controller.state.messageText = "@assistant is just text after clearing recipients"
+    await controller.sendMessage([])
+    expect(sent[2]).toEqual({ text: "@assistant is just text after clearing recipients", targets: [] })
+    controller.state.messageText = "Keep this draft"
+    request.mockResolvedValueOnce(new Response("Recipient unavailable", { status: 400 }))
+    await controller.sendMessage(targets)
+    expect(controller.state.messageText).toBe("Keep this draft")
+    expect(controller.state.messageError).toBe("Recipient unavailable")
+    controller.stop()
+  })
   it("retains an empty success, composer draft and current events across failed and out-of-order refreshes", async () => {
     const { createChatController } = await importClientModule(
       new URL("./chat-controller.svelte.ts", import.meta.url),

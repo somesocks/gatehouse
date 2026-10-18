@@ -535,11 +535,17 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 		if !ok || strings.TrimSpace(text) == "" {
 			continue
 		}
-		values, ok := event.Payload["agents"].([]interface{})
-		if !ok || len(values) == 0 {
-			continue
+		targets, targetErr := database.SessionMessageTargets(event)
+		if targetErr != nil {
+			return false, targetErr
 		}
-		preferred, _ := values[0].(string)
+		preferred := ""
+		for _, target := range targets {
+			if target.Ref.Kind == "agent" {
+				preferred = target.Ref.Id
+				break
+			}
+		}
 		if preferred == "" {
 			continue
 		}

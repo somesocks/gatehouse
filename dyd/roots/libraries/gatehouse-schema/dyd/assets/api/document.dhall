@@ -92,11 +92,40 @@ let attachments =
         s.list.props::{ values = s.reference.from s.reference.props::{ to = "TranscriptFile" } s.reference.meta::{=} }
         s.list.meta::{=}
 
+let MessageTargetRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { kind = s.oneOf.from
+                s.oneOf.props::{ options =
+                    [ s.text.from s.text.props::{ variant = s.text.variants.literal "agent" } s.text.meta::{=}
+                    , s.text.from s.text.props::{ variant = s.text.variants.literal "principal" } s.text.meta::{=}
+                    , s.text.from s.text.props::{ variant = s.text.variants.literal "group" } s.text.meta::{=}
+                    ] }
+                s.oneOf.meta::{=}
+            , id = text
+            }
+        }
+        s.record.meta::{ name = Some "TranscriptMessageTargetRef" }
+
+let MessageTarget =
+      s.record.from
+        s.record.props::{
+        , required = toMap { ref = s.reference.from s.reference.props::{ to = "TranscriptMessageTargetRef" } s.reference.meta::{=} }
+        , optional = toMap { alias = text, name = text }
+        }
+        s.record.meta::{ name = Some "TranscriptMessageTarget" }
+
 let message =
       s.record.from
         s.record.props::{
         , required = [] : List { mapKey : Text, mapValue : s.type }
-        , optional = toMap { text = text, agents = s.list.from s.list.props::{ values = text } s.list.meta::{=}, attachments = attachments }
+        , optional = toMap
+            { text = text
+            , agents = s.list.from s.list.props::{ values = text } s.list.meta::{=}
+            , targets = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "TranscriptMessageTarget" } s.reference.meta::{=} } s.list.meta::{=}
+            , attachments = attachments
+            }
         }
         s.record.meta::{=}
 
@@ -209,6 +238,8 @@ in  Document::{
         , s.root.from GatewayRef s.root.meta::{ name = "TranscriptGatewayRef" }
         , s.root.from Metrics s.root.meta::{ name = "TranscriptEventMetrics" }
         , s.root.from File s.root.meta::{ name = "TranscriptFile" }
+        , s.root.from MessageTargetRef s.root.meta::{ name = "TranscriptMessageTargetRef" }
+        , s.root.from MessageTarget s.root.meta::{ name = "TranscriptMessageTarget" }
         , s.root.from TranscriptEvent s.root.meta::{ name = "TranscriptEvent" }
         ]
     }
