@@ -20,11 +20,10 @@
 <article
   data-slot="message"
   data-align={align}
-  class={purpose === "form"
-    ? "relative w-full min-w-0 self-start"
-    : align === "end"
-      ? "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-end"
-      : "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-start"}
+  data-purpose={purpose}
+  class={align === "end"
+    ? "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-end"
+    : "relative w-fit min-w-[min(28rem,100%)] max-w-[min(42rem,100%)] self-start"}
   {...rest}
 >
   <Panel tone={align === "end" ? "primary-tint" : "secondary"}>

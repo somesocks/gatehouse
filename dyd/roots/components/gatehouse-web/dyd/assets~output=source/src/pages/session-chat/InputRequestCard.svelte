@@ -119,6 +119,7 @@
   <UI.Message
     purpose="form"
     aria-label={request.event.payload.description ?? "Input form"}
+    aria-busy={formStatus === "loading" || localStatus === "loading"}
   >
     <UI.Heading level={2}
       >{controller?.state.form?.title ??
@@ -127,11 +128,9 @@
     >
     {#if formStatus === "ready" && controller !== null}
       <InputForm {controller} {inputID} depth={2} />
-    {:else if formStatus === "loading"}
-      <UI.Text as="p" role="status">Loading the form...</UI.Text>
     {:else if formStatus === "denied"}
       <UI.Text as="p" role="alert">Unavailable or already resolved.</UI.Text>
-    {:else}
+    {:else if formStatus === "error"}
       <UI.Text as="p" role="alert">The form could not be loaded.</UI.Text>
       <UI.Button variant="outline" type="button" onclick={() => (retry += 1)}
         >Try again</UI.Button

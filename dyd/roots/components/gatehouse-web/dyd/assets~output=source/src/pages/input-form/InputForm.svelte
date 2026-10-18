@@ -35,9 +35,7 @@
   })
 </script>
 
-{#if controller.state.status === "loading"}
-  <UI.Text as="p" role="status">Loading the shared form draft...</UI.Text>
-{:else if controller.state.status === "unavailable"}
+{#if controller.state.status === "unavailable"}
   <UI.Text as="p" role="alert">The form could not be loaded.</UI.Text>
   <UI.Button
     variant="outline"
@@ -58,7 +56,6 @@
   >
 {:else if controller.state.form !== null}
   <UI.Form
-    surface
     data-input-form
     bind:ref={formElement}
     aria-label={controller.state.form.title}
@@ -72,31 +69,20 @@
       void controller.submit()
     }}
   >
-    {#if controller.state.reloading}<UI.Text role="status"
-        >Refreshing shared draft…</UI.Text
-      >{/if}
-    <UI.FormSection
-      compact
-      level={Math.min(depth + 1, 6)}
-      title="Response"
-      description="Changes are saved to the shared draft. Submit when your response is ready."
-    >
-      {#each controller.state.form.fields as field (field.id)}
-        <FormField
-          {field}
-          path={[field.id ?? ""]}
-          controlID={`input-${inputID}-${field.id}`}
-          {depth}
-          value={controller.value([field.id ?? ""])}
-          busy={controller.state.terminalPending ||
-            controller.state.needsReload}
-          onSet={controller.set}
-          onRemove={controller.remove}
-          onUpload={controller.upload}
-          onOpen={controller.openCustom}
-        />
-      {/each}
-    </UI.FormSection>
+    {#each controller.state.form.fields as field (field.id)}
+      <FormField
+        {field}
+        path={[field.id ?? ""]}
+        controlID={`input-${inputID}-${field.id}`}
+        {depth}
+        value={controller.value([field.id ?? ""])}
+        busy={controller.state.terminalPending || controller.state.needsReload}
+        onSet={controller.set}
+        onRemove={controller.remove}
+        onUpload={controller.upload}
+        onOpen={controller.openCustom}
+      />
+    {/each}
     {#if controller.state.error !== ""}<UI.Text as="p" size="small" role="alert"
         >{controller.state.error}</UI.Text
       >{/if}
@@ -106,7 +92,7 @@
         disabled={controller.state.reloading}
         onclick={() => void controller.load()}>Retry unsaved changes</UI.Button
       >{/if}
-    <UI.FormActions>
+    <UI.Row justify="end">
       <UI.Button
         variant="outline"
         type="button"
@@ -120,6 +106,6 @@
           controller.state.reloading ||
           controller.state.needsReload}>Submit</UI.Button
       >
-    </UI.FormActions>
+    </UI.Row>
   </UI.Form>
 {/if}
