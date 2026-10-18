@@ -1,10 +1,10 @@
 # Weather/travel module-import benchmark
 
 This scenario compares initially bound module functions with discovering and
-importing the same functions. It uses `gpt-6-luna` at low reasoning effort,
-seven questions, five system prompts, two environments, and one repetition:
-**1 test, 70 runs**. Medium and high reasoning are disabled. A run can make
-multiple provider requests; 70 is not a request, token, or cost budget. Model
+importing the same functions. It uses `gpt-6-luna` at low and high reasoning effort,
+seven questions, three system prompts, two environments, and one repetition:
+**1 test, 84 runs**. Medium reasoning is disabled. A run can make
+multiple provider requests; 84 is not a request, token, or cost budget. Model
 availability is established only by the provider at execution time.
 
 The runner defaults to eight concurrent runs on one execution-local database and
@@ -53,11 +53,9 @@ and model settings.
 
 | Alias | Contents |
 |---|---|
-| `minimal` | Basic tool, help, and import mechanics |
-| `modules` | Minimal plus explicit import and help semantics |
-| `language` | Modules plus a compact Lisp reference |
-| `workflow` | Modules plus execution and verification instructions |
 | `detailed` | Grounding instructions and a full Lisp reference with import examples |
+| `compact` | Grounding and syntax reference with operation families discovered through help |
+| `minimal` | Grounding, stateless execution, and discovery/import examples |
 
 Complete replacement prompts are stored in `prompts/`.
 

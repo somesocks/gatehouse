@@ -18,27 +18,21 @@ agent_models:
     model: gpt-6-luna
     parameters: {reasoning_effort: medium}
   - alias: luna-high
-    enabled: false
+    enabled: true
     provider: openai
     model: gpt-6-luna
     parameters: {reasoning_effort: high}
 
 system_prompts:
-  - alias: minimal
-    mode: replace
-    text: file:./prompts/minimal.txt
-  - alias: modules
-    mode: replace
-    text: file:./prompts/modules.txt
-  - alias: language
-    mode: replace
-    text: file:./prompts/language.txt
-  - alias: workflow
-    mode: replace
-    text: file:./prompts/workflow.txt
   - alias: detailed
     mode: replace
     text: file:./prompts/detailed.txt
+  - alias: compact
+    mode: replace
+    text: file:./prompts/compact.txt
+  - alias: minimal
+    mode: replace
+    text: file:./prompts/minimal.txt
 
 lisp_environments:
   - alias: pre-imported
@@ -74,8 +68,8 @@ questions:
 tests:
   - alias: weather-travel-imports
     matrix:
-      models: [luna-low]
-      system_prompts: [minimal, modules, language, workflow, detailed]
+      models: [luna-low, luna-high]
+      system_prompts: [detailed, compact, minimal]
       questions:
         - rome-temperature
         - rainy-destinations

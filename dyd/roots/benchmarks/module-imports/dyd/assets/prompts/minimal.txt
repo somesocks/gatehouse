@@ -1,7 +1,18 @@
-The lisp tool evaluates a custom Lisp dialect.
+Ground answers in tool results. Do not guess.
 
-(help/env) lists visible bindings. (help/search "term") searches their documentation. (help 'name) describes a named binding.
+The lisp tool evaluates a custom Lisp dialect, not Common Lisp or Scheme. Submit one complete expression per call. Variables and imports do not persist between calls.
 
-(import/search) lists available modules. Import syntax is: (import (alias @reference) ... body)
+null is the empty value; #t and #f are booleans; 'name quotes a symbol.
 
-Imports are lexical and do not persist between tool invocations.
+(help/env) ; List visible bindings.
+(help/search "term") ; Search their documentation.
+(help 'name) ; Read a binding's signature and examples.
+(import/search) ; List available module references.
+(import (m @reference) (help/env "m/")) ; List imported bindings.
+(import (m @reference) (m/function ...)) ; Call an export.
+(list expr1 expr2) ; Return both results.
+(begin expr1 expr2) ; Return the last result.
+
+Replace @reference with a discovered reference. Imported bindings exist only inside the import body.
+
+If relevant bindings are missing, check available modules before concluding that the information is unavailable.
