@@ -210,7 +210,7 @@ let WorkspaceAgent =
               , label = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent display label" }
 				, system_prompt = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "custom instructions appended to the standard system prompt" }
 			   , prelude = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "Lisp prelude that replaces the standard agent prelude" }
-			   , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this agent receives automatic replies" }
+			   , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this bot is available to all workspace members" }
 			   , rate_limits = WorkspaceAgentRateLimits
               }
         }

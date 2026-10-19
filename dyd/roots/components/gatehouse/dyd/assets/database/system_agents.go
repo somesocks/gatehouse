@@ -483,11 +483,6 @@ func (store *Store) SystemWorkspaceAgentCreate(ctx context.Context, workspaceID 
 	}
 	placeholder := keychainPlaceholder(store.kind)
 	isDefault := input.Default && input.Enabled
-	if isDefault {
-		if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET "default" = FALSE WHERE workspace_id = `+placeholder(1)+` AND "default" = TRUE`, workspaceID); err != nil {
-			return fmt.Errorf("clear system workspace agent default: %w", err), nil
-		}
-	}
 	result, err := transaction.ExecContext(ctx, `INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled) VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, 1, `+placeholder(5)+`, `+placeholder(6)+`, `+placeholder(7)+`, `+placeholder(8)+`, `+placeholder(9)+`, `+placeholder(10)+`) ON CONFLICT (workspace_id, alias) DO NOTHING`, id, workspaceID, input.Alias, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), rateLimits, isDefault, input.Enabled)
 	if err != nil {
 		return fmt.Errorf("insert system workspace agent: %w", err), nil
@@ -540,11 +535,6 @@ func (store *Store) SystemWorkspaceAgentUpdate(ctx context.Context, workspaceID,
 		return err, nil
 	}
 	isDefault := input.Default && input.Enabled
-	if isDefault {
-		if _, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET "default" = FALSE WHERE workspace_id = `+placeholder(1)+` AND id <> `+placeholder(2)+` AND "default" = TRUE`, workspaceID, bindingID); err != nil {
-			return fmt.Errorf("clear system workspace agent default: %w", err), nil
-		}
-	}
 	result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_workspace_agents SET revision = `+placeholder(1)+`, model_id = `+placeholder(2)+`, label = `+placeholder(3)+`, system_prompt = `+placeholder(4)+`, prelude = `+placeholder(5)+`, rate_limits = `+placeholder(6)+`, "default" = `+placeholder(7)+`, enabled = `+placeholder(8)+` WHERE workspace_id = `+placeholder(9)+` AND id = `+placeholder(10)+` AND revision = `+placeholder(11), revision+1, input.ModelID, optionalStringValue(input.Label), optionalStringValue(input.SystemPrompt), optionalStringValue(input.Prelude), rateLimits, isDefault, input.Enabled, workspaceID, bindingID, revision)
 	if err != nil {
 		return fmt.Errorf("update system workspace agent: %w", err), nil

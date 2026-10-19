@@ -340,7 +340,6 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			continue
 		}
 		seen := make(map[string]struct{}, len(*workspace.Agents))
-		defaults := 0
 		for agentIndex, configured := range *workspace.Agents {
 			if !workspaceAgentAlias.MatchString(configured.Alias) {
 				return fmt.Errorf("workspaces[%d].agents[%d].alias is invalid", workspaceIndex, agentIndex), nil
@@ -360,18 +359,12 @@ func ResolveWorkspaceAgents(document configschema.GatehouseConfig, models []Agen
 			if isDefault && !enabled {
 				return fmt.Errorf("workspaces[%d].agents[%d] default agent is disabled", workspaceIndex, agentIndex), nil
 			}
-			if enabled && isDefault {
-				defaults++
-			}
 			rateLimits, err := resolveWorkspaceAgentRateLimits(configured.RateLimits)
 			if err != nil {
 				return fmt.Errorf("workspaces[%d].agents[%d].rate_limits: %w", workspaceIndex, agentIndex, err), nil
 			}
 			seen[configured.Alias] = struct{}{}
 			agents = append(agents, WorkspaceAgent{WorkspaceID: workspace.Alias, Alias: configured.Alias, ModelAlias: configured.Model, Revision: configured.Revision, Label: configured.Label, SystemPrompt: configured.SystemPrompt, Prelude: configured.Prelude, RateLimits: rateLimits, Default: isDefault, Enabled: enabled})
-		}
-		if defaults > 1 {
-			return fmt.Errorf("workspaces[%d].agents configures multiple defaults", workspaceIndex), nil
 		}
 	}
 	sort.Slice(agents, func(left, right int) bool {

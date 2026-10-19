@@ -62,7 +62,8 @@
 >
 <UI.FormSection title="Availability"
   ><UI.Label layout="choice"
-    ><UI.Checkbox bind:checked={form.default} />Default automatic-reply agent</UI.Label
+    ><UI.Checkbox bind:checked={form.default} />Available to all workspace
+    members</UI.Label
   >{#if form.enabled !== undefined}<UI.Label layout="choice"
       ><UI.Checkbox bind:checked={form.enabled} />Enabled</UI.Label
     >{/if}</UI.FormSection

@@ -158,7 +158,7 @@
             >Edit binding</UI.RouterLink
           >{/snippet}</UI.AdminHeader
       >
-      <UI.DetailSection title="Model and reply behavior"
+      <UI.DetailSection title="Model and availability"
         ><UI.Property label="Model"
           ><UI.RouterLink
             href={`/app/system/agent-models/${encodeURIComponent(controller.state.binding.model)}`}
@@ -166,10 +166,8 @@
           ></UI.Property
         ><UI.Property label="Label"
           >{controller.state.binding.label ?? "Not configured"}</UI.Property
-        ><UI.Property label="Automatic replies"
-          >{controller.state.binding.default
-            ? "Default agent"
-            : "Manual"}</UI.Property
+        ><UI.Property label="Available to all workspace members"
+          >{controller.state.binding.default ? "Yes" : "No"}</UI.Property
         ></UI.DetailSection
       >
       <UI.DetailSection title="Prompt and prelude"

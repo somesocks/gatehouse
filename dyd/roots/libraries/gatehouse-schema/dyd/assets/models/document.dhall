@@ -269,7 +269,7 @@ let WorkspaceAgent =
 		       { ref = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "workspace agent identity" }
 		       , alias = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local binding alias" }
 		        , model = s.reference.from s.reference.props::{ to = "AgentModelRef" } s.reference.meta::{ description = Some "current agent model identity" }
-		        , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this agent receives automatic replies" }
+		        , default = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether this bot is available to all workspace members" }
                , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the workspace agent is enabled" }
                }
         , optional = toMap

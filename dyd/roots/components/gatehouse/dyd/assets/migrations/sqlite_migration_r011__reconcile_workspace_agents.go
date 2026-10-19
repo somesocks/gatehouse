@@ -96,8 +96,6 @@ func sqliteMigrationR011ReconcileWorkspaceAgentsBuilder(agents []config.Workspac
 			FROM gatehouse_migration_workspace_agents_state
 			WHERE existing_id IS NULL OR existing_revision < revision;
 
-			UPDATE gatehouse_workspace_agents SET "default" = FALSE
-			WHERE "default" = TRUE AND workspace_id IN (SELECT workspace_id FROM gatehouse_migration_workspace_agents_state WHERE "default" = TRUE AND (existing_id IS NULL OR existing_revision < revision));
 			INSERT INTO gatehouse_workspace_agents (id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled)
 			SELECT binding_id, workspace_id, alias, model_id, revision, label, system_prompt, prelude, rate_limits, "default", enabled
 			FROM gatehouse_migration_workspace_agents_state

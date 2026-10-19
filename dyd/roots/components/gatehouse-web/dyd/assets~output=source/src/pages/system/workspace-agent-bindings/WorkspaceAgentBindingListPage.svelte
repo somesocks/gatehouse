@@ -55,7 +55,7 @@
     {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
         >{controller.state.error}</UI.Notice
       >{/if}
-    <UI.RecordTable headers={["Agent", "Model", "Replies", "Status"]}
+    <UI.RecordTable headers={["Agent", "Model", "Workspace-wide", "Status"]}
       >{#if !controller.state.hasLoaded}<UI.TableEmpty
           columns={4}
           message={controller.state.error
@@ -76,9 +76,9 @@
                 href={`/app/system/agent-models/${encodeURIComponent(binding.model)}`}
                 >{binding.model_alias ?? binding.model}</UI.RouterLink
               ></UI.RecordCell
-            ><UI.RecordCell label="Replies"
+            ><UI.RecordCell label="Workspace-wide"
               ><UI.Badge variant={binding.default ? "secondary" : "outline"}
-                >{binding.default ? "Default" : "Manual"}</UI.Badge
+                >{binding.default ? "Yes" : "No"}</UI.Badge
               ></UI.RecordCell
             ><UI.RecordCell label="Status"
               ><UI.StatusBadge enabled={binding.enabled} /></UI.RecordCell
