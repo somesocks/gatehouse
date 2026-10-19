@@ -75,7 +75,7 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	request("PATCH", path, `{"name":"stale","expected_revision":1}`, admin, 409)
 	request("PATCH", path, `{"alias":"admin-engineering","enabled":true,"expected_revision":2}`, admin, 200)
 	otherPath := strings.Replace(path, workspace.Id, workspaces["engineering"].Id, 1)
-	for _, suffix := range []string{"", "/members", "/grants"} {
+	for _, suffix := range []string{"", "/members", "/agents", "/grants"} {
 		request("GET", otherPath+suffix, "", admin, 404)
 	}
 	request("POST", otherPath+"/members", `{"principal":"`+bob+`"}`, admin, 404)
@@ -94,6 +94,49 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	if err := json.Unmarshal(listed.Body.Bytes(), &roster); err != nil || len(roster.Members) != 1 || roster.Members[0].Revision != 3 {
 		t.Fatalf("roster = %#v %v", roster, err)
 	}
+	var modelID, foreignBot string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_agent_models WHERE alias = 'assistant'`).Scan(&modelID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ?`, workspaces["engineering"].Id).Scan(&foreignBot); err != nil {
+		t.Fatal(err)
+	}
+	err, bot := store.SystemWorkspaceAgentCreate(ctx, workspace.Id, database.SystemWorkspaceAgentInput{Alias: "group-assistant", ModelID: modelID, Enabled: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agentsPath := path + "/agents"
+	request("GET", agentsPath, "", "", 401)
+	request("GET", agentsPath, "", ordinary, 403)
+	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, ordinary, 403)
+	request("POST", otherPath+"/agents", `{"agent":"`+bot.ID+`"}`, admin, 404)
+	for _, body := range []string{`{}`, `{"agent":"bad"}`, `{"agent":"` + bob + `"}`, `{"agent":"` + bot.ID + `","unexpected":true}`, `{"agent":"` + bot.ID + `"} {}`} {
+		request("POST", agentsPath, body, admin, 400)
+	}
+	request("POST", agentsPath, `{"agent":"`+foreignBot+`"}`, admin, 404)
+	request("POST", agentsPath, `{"agent":"wag_00000000000000000000000000"}`, admin, 404)
+	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, admin, 201)
+	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, admin, 409)
+	botPath := agentsPath + "/" + bot.ID
+	request("PATCH", botPath, `{"enabled":false,"expected_revision":1}`, ordinary, 403)
+	request("PATCH", botPath, `{"enabled":false}`, admin, 400)
+	request("PATCH", botPath, `{"enabled":false,"expected_revision":0}`, admin, 400)
+	request("PATCH", botPath, `{"enabled":false,"expected_revision":1}`, admin, 204)
+	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, admin, 409)
+	request("PATCH", botPath, `{"enabled":true,"expected_revision":1}`, admin, 409)
+	request("PATCH", agentsPath+"/"+foreignBot, `{"enabled":false,"expected_revision":1}`, admin, 404)
+	request("PATCH", strings.Replace(botPath, workspace.Id, workspaces["engineering"].Id, 1), `{"enabled":true,"expected_revision":2}`, admin, 404)
+	request("PATCH", botPath, `{"enabled":true,"expected_revision":2}`, admin, 204)
+	request("PATCH", botPath, `{"enabled":true,"expected_revision":3}`, admin, 204)
+	var botRoster struct {
+		Agents []database.SystemGroupAgent `json:"agents"`
+	}
+	if err := json.Unmarshal(request("GET", agentsPath+"?status=enabled&name=group-assistant", "", admin, 200).Body.Bytes(), &botRoster); err != nil || len(botRoster.Agents) != 1 || botRoster.Agents[0].Revision != 3 || !botRoster.Agents[0].AgentEnabled {
+		t.Fatalf("bot roster = %#v %v", botRoster, err)
+	}
+	request("GET", agentsPath+"?status=invalid", "", admin, 400)
+	request("GET", agentsPath+"?cursor="+bob, "", admin, 400)
+	request("DELETE", botPath, "", admin, 405)
 	request("POST", path+"/grants", `{"role":"owner"}`, admin, 400)
 	request("POST", path+"/grants", `{"role":"member"}`, ordinary, 403)
 	grantResponse := request("POST", path+"/grants", `{"role":"member"}`, admin, 201)

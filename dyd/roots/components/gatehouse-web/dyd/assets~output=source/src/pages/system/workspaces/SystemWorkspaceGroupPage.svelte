@@ -5,9 +5,12 @@
   import {
     fetchAdminGroupMembers,
     type SystemGroupMember,
+    fetchAdminGroupAgents,
+    type SystemGroupAgent,
   } from "../../../app/group-administration"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import PrincipalPicker from "../principals/PrincipalPicker.svelte"
+  import WorkspaceAgentPicker from "../workspace-agent-bindings/WorkspaceAgentPicker.svelte"
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
   import { createSystemGroupController } from "./system-group-controller.svelte"
   let { workspaceID, groupID }: { workspaceID: string; groupID: string } =
@@ -34,20 +37,44 @@
       return { response, items: result?.members, next: result?.next_cursor }
     },
   })
+  const agents = createDirectoryController<SystemGroupAgent>({
+    onAuthenticationLost: runtime.requireLogin,
+    onSystemAccessChange: runtime.access.setSystemAccess,
+    fetchPage: async (name, cursor, status, signal) => {
+      const response = await fetchAdminGroupAgents(
+        workspaceID,
+        groupID,
+        name,
+        cursor,
+        status,
+        signal,
+      )
+      const result = response.ok
+        ? ((await response.json()) as {
+            agents: SystemGroupAgent[]
+            next_cursor?: string
+          })
+        : undefined
+      return { response, items: result?.agents, next: result?.next_cursor }
+    },
+  })
   const controller = createSystemGroupController({
     workspaceID: () => workspaceID,
     groupID: () => groupID,
     onAuthenticationLost: runtime.requireLogin,
     onSystemAccessChange: runtime.access.setSystemAccess,
     onMembersChanged: () => members.reload(),
+    onAgentsChanged: () => agents.reload(),
   })
   const state = controller.state
   onMount(() => {
     void controller.load()
     void members.search()
+    void agents.search()
     return () => {
       controller.stop()
       members.stop()
+      agents.stop()
     }
   })
 </script>
@@ -226,10 +253,99 @@
           onnext={() => void members.next()}
         />
       </UI.DetailSection>
+      <UI.DetailSection title="Bots">
+        <UI.Form
+          onsubmit={(event) => {
+            event.preventDefault()
+            void controller.addAgent()
+          }}
+        >
+          <WorkspaceAgentPicker {workspaceID} bind:value={state.agent} />
+          <UI.Button type="submit" disabled={state.saving || !state.agent}
+            >Add bot</UI.Button
+          >
+        </UI.Form>
+        <UI.SearchToolbar
+          label="Search bots"
+          bind:value={agents.state.search}
+          loading={agents.state.busy}
+          onsearch={() => void agents.search()}
+        />
+        <UI.Field>
+          <UI.Label for="bots-status">Membership status</UI.Label>
+          <UI.Select
+            id="bots-status"
+            bind:value={agents.state.status}
+            onchange={(event) => {
+              agents.state.status = event.currentTarget.value
+              void agents.search()
+            }}
+          >
+            <UI.Option value="">All memberships</UI.Option>
+            <UI.Option value="enabled">Enabled</UI.Option>
+            <UI.Option value="disabled">Disabled</UI.Option>
+          </UI.Select>
+        </UI.Field>
+        {#if agents.state.error}
+          <UI.Notice variant="destructive" role="alert"
+            >{agents.state.error}<UI.Button
+              variant="outline"
+              onclick={() => void agents.retry()}>Retry</UI.Button
+            ></UI.Notice
+          >
+        {/if}
+        <UI.RecordTable
+          headers={["Bot", "Membership", "Bot status", "Revision", "Actions"]}
+        >
+          {#each agents.state.items as agent (agent.agent)}
+            <UI.RecordRow>
+              <UI.RecordCell primary>
+                <UI.RouterLink
+                  href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(agent.agent)}`}
+                  >{agent.label ?? agent.alias}</UI.RouterLink
+                >
+                <UI.Identifier value={agent.agent} />
+              </UI.RecordCell>
+              <UI.RecordCell label="Membership"
+                ><UI.StatusBadge enabled={agent.enabled} /></UI.RecordCell
+              >
+              <UI.RecordCell label="Bot status"
+                ><UI.StatusBadge enabled={agent.agent_enabled} /></UI.RecordCell
+              >
+              <UI.RecordCell label="Revision">{agent.revision}</UI.RecordCell>
+              <UI.RecordCell actions
+                ><UI.Button
+                  variant="outline"
+                  disabled={state.saving}
+                  onclick={() => void controller.toggleAgent(agent)}
+                  >{agent.enabled
+                    ? "Remove membership"
+                    : "Enable membership"}</UI.Button
+                ></UI.RecordCell
+              >
+            </UI.RecordRow>
+          {:else}
+            <UI.TableEmpty
+              columns={5}
+              message={agents.state.busy
+                ? "Loading bots…"
+                : "No bot memberships match your search."}
+            />
+          {/each}
+        </UI.RecordTable>
+        <UI.PaginationFooter
+          count={agents.state.items.length}
+          previous={!!agents.state.history.length}
+          next={!!agents.state.next}
+          loading={agents.state.busy}
+          onprevious={() => void agents.previous()}
+          onnext={() => void agents.next()}
+        />
+      </UI.DetailSection>
       <UI.DetailSection title="Workspace grants">
         <UI.Text size="small" tone="muted"
-          >Each grant gives its role to this group's enabled members. Grants
-          apply while the group and workspace are enabled.</UI.Text
+          >Each grant gives its role to this group's enabled human members.
+          Grants apply while the group and workspace are enabled.</UI.Text
         >
         <UI.Form
           layout="row"

@@ -44,7 +44,7 @@ func groupAdminError(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrGroupInput), errors.Is(err, database.ErrWorkspaceGrantRoleInvalid):
 		http.Error(w, err.Error(), http.StatusBadRequest)
-	case errors.Is(err, database.ErrGroupNotFound), errors.Is(err, database.ErrGroupPrincipalNotFound):
+	case errors.Is(err, database.ErrGroupNotFound), errors.Is(err, database.ErrGroupPrincipalNotFound), errors.Is(err, database.ErrGroupAgentNotFound):
 		http.NotFound(w, r)
 	default:
 		http.Error(w, "Group administration request could not be completed.", http.StatusInternalServerError)

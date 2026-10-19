@@ -31,19 +31,22 @@ const grant: SystemGroupGrant = {
 function fixture() {
   const onAuthenticationLost = vi.fn(),
     onSystemAccessChange = vi.fn(),
-    onMembersChanged = vi.fn(async () => true)
+    onMembersChanged = vi.fn(async () => true),
+    onAgentsChanged = vi.fn(async () => true)
   const controller = createSystemGroupController({
     workspaceID: () => group.workspace,
     groupID: () => group.id,
     onAuthenticationLost,
     onSystemAccessChange,
     onMembersChanged,
+    onAgentsChanged,
   })
   return {
     controller,
     onAuthenticationLost,
     onSystemAccessChange,
     onMembersChanged,
+    onAgentsChanged,
   }
 }
 function transport() {
@@ -175,6 +178,103 @@ describe("system group administration", () => {
     )
     expect(onMembersChanged).toHaveBeenCalledTimes(2)
     controller.stop()
+  })
+  it("adds and toggles bot memberships independently of human memberships and metadata drafts", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onAgentsChanged, onMembersChanged } = fixture()
+    await controller.load()
+    controller.state.form.name = "Unsaved group draft"
+    controller.state.agent = "wag_assistant"
+    await controller.addAgent()
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/agents",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ agent: "wag_assistant" }),
+      }),
+    )
+    expect(controller.state.agent).toBe("")
+    await controller.toggleAgent({
+      agent: "wag_assistant",
+      alias: "assistant",
+      agent_enabled: true,
+      enabled: true,
+      revision: 4,
+    })
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/agents/wag_assistant",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false, expected_revision: 4 }),
+      }),
+    )
+    await controller.toggleAgent({
+      agent: "wag_assistant",
+      alias: "assistant",
+      agent_enabled: true,
+      enabled: false,
+      revision: 5,
+    })
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/agents/wag_assistant",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ enabled: true, expected_revision: 5 }),
+      }),
+    )
+    expect(onAgentsChanged).toHaveBeenCalledTimes(3)
+    expect(onMembersChanged).not.toHaveBeenCalled()
+    expect(controller.state.form.name).toBe("Unsaved group draft")
+    expect(controller.state.form.revision).toBe(1)
+    controller.stop()
+  })
+  it("retains bot choices on duplicate or failed additions and reloads stale memberships without retrying", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onAgentsChanged } = fixture()
+    controller.state.agent = "wag_assistant"
+    fetch.mockResolvedValueOnce(
+      new Response("membership already exists", { status: 409 }),
+    )
+    await controller.addAgent()
+    expect(controller.state.agent).toBe("wag_assistant")
+    expect(controller.state.error).toContain("already exists")
+    expect(onAgentsChanged).not.toHaveBeenCalled()
+    fetch.mockResolvedValueOnce(
+      new Response("This record changed elsewhere. Reload before retrying.", {
+        status: 409,
+      }),
+    )
+    await controller.toggleAgent({
+      agent: "wag_assistant",
+      alias: "assistant",
+      agent_enabled: true,
+      enabled: true,
+      revision: 1,
+    })
+    expect(onAgentsChanged).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    controller.stop()
+  })
+  it("aborts an in-flight bot addition and ignores its response after leaving the page", async () => {
+    let resolve!: (value: Response) => void
+    const fetch = vi.fn<typeof globalThis.fetch>(
+      () =>
+        new Promise<Response>((done) => {
+          resolve = done
+        }),
+    )
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onAgentsChanged } = fixture()
+    controller.state.agent = "wag_assistant"
+    const pending = controller.addAgent()
+    controller.stop()
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true)
+    resolve(new Response(null, { status: 201 }))
+    await pending
+    expect(onAgentsChanged).not.toHaveBeenCalled()
+    expect(controller.state.notice).toBe("")
   })
   it("edits the selected grant's role and enabled status using its revision", async () => {
     const fetch = transport()

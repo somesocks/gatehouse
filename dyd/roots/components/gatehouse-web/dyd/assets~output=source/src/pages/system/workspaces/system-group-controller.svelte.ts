@@ -3,6 +3,7 @@ import {
   type SystemGroup,
   type SystemGroupGrant,
   type SystemGroupMember,
+  type SystemGroupAgent,
 } from "../../../app/group-administration"
 import { systemAdministration, type WorkspaceRole } from "../../../app/system"
 import { createLoadState } from "../../../utils/load-state.svelte"
@@ -13,12 +14,14 @@ export function createSystemGroupController({
   onAuthenticationLost,
   onSystemAccessChange,
   onMembersChanged = async () => {},
+  onAgentsChanged = async () => {},
 }: {
   workspaceID: () => string
   groupID: () => string
   onAuthenticationLost: () => void
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
   onMembersChanged?: () => Promise<unknown>
+  onAgentsChanged?: () => Promise<unknown>
 }) {
   const resource = createLoadState(),
     mutation = createLoadState()
@@ -28,6 +31,7 @@ export function createSystemGroupController({
     grants: [] as SystemGroupGrant[],
     form: { alias: "", name: "", enabled: true, revision: 0 },
     principal: "",
+    agent: "",
     newRole: "member" as WorkspaceRole,
     editingGrant: null as SystemGroupGrant | null,
     grantRole: "member" as WorkspaceRole,
@@ -209,6 +213,39 @@ export function createSystemGroupController({
     )
     if (result.conflict && !disposed) await onMembersChanged()
   }
+  async function addAgent() {
+    if (!state.agent) {
+      state.error = "Choose a bot."
+      return
+    }
+    const agent = state.agent
+    await mutate(
+      groupAdminPath(workspaceID(), groupID(), "/agents"),
+      "POST",
+      { agent },
+      async (_response, current) => {
+        if (current()) {
+          if (state.agent === agent) state.agent = ""
+          await onAgentsChanged()
+        }
+      },
+    )
+  }
+  async function toggleAgent(agent: SystemGroupAgent) {
+    const result = await mutate(
+      groupAdminPath(
+        workspaceID(),
+        groupID(),
+        `/agents/${encodeURIComponent(agent.agent)}`,
+      ),
+      "PATCH",
+      { enabled: !agent.enabled, expected_revision: agent.revision },
+      async () => {
+        await onAgentsChanged()
+      },
+    )
+    if (result.conflict && !disposed) await onAgentsChanged()
+  }
   async function createGrant() {
     await mutate(
       groupAdminPath(workspaceID(), groupID(), "/grants"),
@@ -278,6 +315,8 @@ export function createSystemGroupController({
     saveGroup,
     addMember,
     toggleMember,
+    addAgent,
+    toggleAgent,
     createGrant,
     beginGrant,
     cancelGrant,

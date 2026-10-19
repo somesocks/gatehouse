@@ -15,12 +15,19 @@ type Group struct {
 	Enabled     bool
 	Revision    int
 	Members     []GroupMember
+	Agents      []GroupAgent
 }
 
 type GroupMember struct {
 	PrincipalID string
 	Enabled     bool
 	Revision    int
+}
+
+type GroupAgent struct {
+	AgentID  string
+	Enabled  bool
+	Revision int
 }
 
 func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
@@ -97,6 +104,28 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 			sort.Slice(members, func(left, right int) bool {
 				return members[left].PrincipalID < members[right].PrincipalID
 			})
+			var agents []GroupAgent
+			if configured.Agents != nil {
+				agentAliases := make(map[string]bool, len(*configured.Agents))
+				for agentIndex, configuredAgent := range *configured.Agents {
+					if !workspaceAgentAlias.MatchString(configuredAgent.Agent) {
+						return fmt.Errorf("workspaces[%d].groups[%d].agents[%d].agent is invalid", workspaceIndex, groupIndex, agentIndex), nil
+					}
+					if agentAliases[configuredAgent.Agent] {
+						return fmt.Errorf("workspaces[%d].groups[%d].agents[%d].agent %q is duplicated", workspaceIndex, groupIndex, agentIndex, configuredAgent.Agent), nil
+					}
+					agentRevision := 1
+					if configuredAgent.Revision != nil {
+						agentRevision = *configuredAgent.Revision
+					}
+					if agentRevision < 1 {
+						return fmt.Errorf("workspaces[%d].groups[%d].agents[%d].revision must be positive", workspaceIndex, groupIndex, agentIndex), nil
+					}
+					agentAliases[configuredAgent.Agent] = true
+					agents = append(agents, GroupAgent{AgentID: configuredAgent.Agent, Enabled: configuredAgent.Enabled == nil || *configuredAgent.Enabled, Revision: agentRevision})
+				}
+			}
+			sort.Slice(agents, func(left, right int) bool { return agents[left].AgentID < agents[right].AgentID })
 			groupAliases[configured.Alias] = struct{}{}
 			groups = append(groups, Group{
 				WorkspaceID: workspace.Alias,
@@ -105,6 +134,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 				Enabled:     enabled,
 				Revision:    revision,
 				Members:     members,
+				Agents:      agents,
 			})
 		}
 	}

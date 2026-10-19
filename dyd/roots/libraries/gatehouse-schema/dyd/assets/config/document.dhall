@@ -88,6 +88,18 @@ let GroupMembers =
         s.list.props::{ values = GroupMember }
         s.list.meta::{ description = Some "configured group members" }
 
+let GroupAgent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { agent = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "workspace-local bot binding alias" } }
+        , optional = toMap
+            { enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the bot membership is enabled" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic bot membership configuration revision, defaults to 1" }
+            }
+        }
+        s.record.meta::{ name = Some "GroupAgent" }
+
 let Group =
       s.record.from
         s.record.props::{
@@ -108,7 +120,8 @@ let Group =
                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the group is enabled" }
-              , members = GroupMembers
+               , members = GroupMembers
+               , agents = s.list.from s.list.props::{ values = GroupAgent } s.list.meta::{ description = Some "configured bot memberships" }
               , revision =
                   s.number.from
                     s.number.props::{ variant = s.number.variants.integer }

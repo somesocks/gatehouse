@@ -374,6 +374,29 @@ let GroupMember =
         , description = Some "A principal assigned to a workspace-local authorization group."
         }
 
+let GroupAgentRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { group = s.reference.from s.reference.props::{ to = "GroupRef" } s.reference.meta::{ description = Some "assigned group identity" }
+            , agent = s.reference.from s.reference.props::{ to = "WorkspaceAgentRef" } s.reference.meta::{ description = Some "assigned bot binding identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "GroupAgentRef", description = Some "The stable identity of a bot's group membership." }
+
+let GroupAgent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "GroupAgentRef" } s.reference.meta::{ description = Some "bot membership identity" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the bot membership is enabled" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic membership revision" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "GroupAgent", description = Some "A bot assigned to a workspace-local authorization group." }
+
 let ProjectRef =
       s.record.from
         s.record.props::{
@@ -1425,6 +1448,8 @@ let ActivityEvent =
                , resource_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group resource ID" }
                , resource_group_member_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership group ID" }
                , resource_group_member_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership principal ID" }
+               , resource_group_agent_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "bot membership group ID" }
+               , resource_group_agent_agent = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "bot membership binding ID" }
                 , detail_identity = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "historical identity ID for a principal activity; the identity may have been deleted" }
                , resource_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "principal resource ID" }
                , resource_project = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project resource ID" }
@@ -1589,7 +1614,9 @@ in  Document::{
             , s.root.from GroupRef s.root.meta::{ name = "GroupRef" }
             , s.root.from Group s.root.meta::{ name = "Group" }
            , s.root.from GroupMemberRef s.root.meta::{ name = "GroupMemberRef" }
-           , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
+            , s.root.from GroupMember s.root.meta::{ name = "GroupMember" }
+            , s.root.from GroupAgentRef s.root.meta::{ name = "GroupAgentRef" }
+            , s.root.from GroupAgent s.root.meta::{ name = "GroupAgent" }
           , s.root.from ProjectRef s.root.meta::{ name = "ProjectRef" }
           , s.root.from Project s.root.meta::{ name = "Project" }
           , s.root.from ProjectPrincipalGrant s.root.meta::{ name = "ProjectPrincipalGrant" }

@@ -119,6 +119,20 @@ the account being changed, not an attribution of the acting administrator.
   - `wsp_.../grp_...`
   - `prn_.../grp_...`
 
+### Workspace Group Bot Membership
+
+- `group_agent.create` - emitted when a workspace bot is assigned to a group.
+  - `wsp_.../grp_...`
+  - `wsp_.../wag_...`
+  - `prn_.../grp_...` for each human member of the group.
+- `group_agent.update` - emitted when a bot membership's enabled state or revision changes.
+  - The same group, bot, and principal topics as creation.
+
+These events target `resource_kind = 'group_agent'`, with the membership's group
+and workspace-bot binding IDs in `resource_group_agent_group` and
+`resource_group_agent_agent`. Disabled memberships retain their identities and
+activity history. Membership changes and their activity are committed atomically.
+
 ### Workspace Grant
 
 - `workspace_grant.create` - emitted when a workspace grant is created.

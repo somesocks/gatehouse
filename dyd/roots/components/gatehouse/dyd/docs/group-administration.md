@@ -20,13 +20,26 @@ already-present membership, including a disabled one, returns a conflict.
 ## Workspace grants
 
 Each workspace grant gives one role—Member, Contributor, or Manager—to the
-group's enabled members. Create grants, edit their roles, or revoke/re-enable
+group's enabled human members. Create grants, edit their roles, or revoke/re-enable
 them individually. Revocation disables a grant; it does not delete it. Another
 grant for the same group and role, even disabled, is a duplicate.
 
 Disabling a group suspends all access inherited through it, including access to
 projects and chats. Re-enabling it restores access through enabled memberships
 and grants. Other direct or group-derived permissions continue to apply.
+
+## Bots
+
+The **Bots** section lists workspace bot bindings assigned to the group, with
+search, pagination, and enabled/disabled membership filters. Add a bot using the
+workspace-scoped bot picker. A bot can belong to multiple groups, and several
+bots backed by the same model can have different memberships.
+
+**Remove membership** disables the association; **Enable membership** restores
+it. Membership and bot availability have separate enabled states. Membership
+changes use independent revisions, and no-op updates retain the current revision.
+Adding an existing association, including a disabled one, returns a conflict.
+Bots from another workspace cannot be assigned to the group.
 
 ## API
 
@@ -43,6 +56,13 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
 - `POST /groups/{group}/members` accepts `{"principal":"prn_…"}`.
 - `PATCH /groups/{group}/members/{principal}` accepts `enabled` and
   `expected_revision`.
+- `GET /groups/{group}/agents` supports the same search/filter/pagination
+  parameters, with bot-binding ID cursors, and returns `agents` and optional
+  `next_cursor`. Each entry includes `agent`, `alias`, optional `label`,
+  `agent_enabled`, `enabled`, and `revision`.
+- `POST /groups/{group}/agents` accepts `{"agent":"wag_…"}`.
+- `PATCH /groups/{group}/agents/{agent}` accepts `enabled` and
+  `expected_revision`, returning `204` on success.
 - `GET /groups/{group}/grants` returns all of the group's workspace `grants`,
   including disabled ones. There can be at most one per role.
 - `POST /groups/{group}/grants` accepts `{"role":"contributor"}`.
@@ -73,6 +93,10 @@ workspaces:
           - principal: alice
             revision: 2
             enabled: true
+        agents:
+          - agent: engineering-assistant
+            revision: 2
+            enabled: true
 ```
 
 Missing records are created at their configured revision. Existing records are
@@ -88,6 +112,20 @@ Existing groups and memberships start at revision `1` when upgrading. Renaming a
 configured group requires updating its workspace/alias declaration too;
 otherwise reconciliation can recreate the old alias. Grant reconciliation keeps
 its existing revision-based behavior.
+
+Bot membership declarations identify the bot by its workspace-local binding
+alias. Their revisions follow the same higher-revision-wins policy, independently
+of group metadata and human memberships. They reconcile after workspace bot
+bindings, so groups, bots, and memberships can be created together on a fresh
+deployment. Undeclared bot memberships are retained. Mutations and reconciliation
+atomically record `group_agent.create` / `group_agent.update` activity with both
+group and bot identities and notifications for the group's human members.
+
+Membership aliases can refer to bots created through administration as well as
+configuration, including disabled bots. An unresolved workspace, group, or bot
+fails reconciliation with an error naming all three aliases and the missing
+resource. Validation happens inside the migration transaction before membership
+or activity writes.
 
 PostgreSQL group reconciliation resolves aliases and IDs inside its execution
 transaction. It briefly blocks writes to the group and membership tables while

@@ -69,6 +69,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationV058GroupAdministrationRevisions(),
 			postgresMigrationV059SessionGrantRevisions(),
 			postgresMigrationV060ChatBotParticipants(),
+			postgresMigrationV061GroupAgents(),
 		},
 		Repeatable: []RepeatableMigration{
 			postgresMigrationR001PrepareKeychains(keyring),
@@ -84,6 +85,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationR012ReconcileStorageProviders(state, keyring),
 			postgresMigrationR013ReconcileWorkspaceStorageProviders(state),
 			postgresMigrationR014ReconcileSystemGrants(state),
+			postgresMigrationR015ReconcileGroupAgents(state),
 		},
 	}
 }

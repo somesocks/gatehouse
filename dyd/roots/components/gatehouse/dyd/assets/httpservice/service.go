@@ -164,6 +164,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}", systemGroup(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/members", systemGroupMembers(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/members/{principal}", systemGroupMember(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents", systemGroupAgents(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents/{agent}", systemGroupAgent(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/grants", systemGroupGrants(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
