@@ -43,7 +43,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		},
 		WorkspaceAgents: []config.WorkspaceAgent{
 			{WorkspaceID: "engineering", Alias: "automatic", ModelAlias: "automatic", Revision: 1, Default: true, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Default: true, Enabled: true},
 		},
 	}
 	keyringErr, keyring := keychain.NewKeyring(store, nil, keychain.NewPassphraseSourceResolver())

@@ -40,8 +40,7 @@ func (store *Store) sessionPrincipalAllowed(ctx context.Context, tx *sql.Tx, ses
 	return allowed, err
 }
 
-func (store *Store) messageTargetMembershipSQL(kind, subject string) string {
-	p := store.sessionParticipantPlaceholder
+func (store *Store) messageTargetMembershipSQL(kind, subject, workspace, session string) string {
 	condition := "grants." + kind + " = " + subject
 	if kind == "group" {
 		condition = `grants."group" = ` + subject
@@ -50,7 +49,22 @@ func (store *Store) messageTargetMembershipSQL(kind, subject string) string {
 		condition += ` OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
 			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE AND gm.principal_id = ` + subject + `)`
 	}
-	return `EXISTS (SELECT 1 FROM gatehouse_session_grants grants WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.enabled = TRUE AND (` + condition + `))`
+	if kind == "agent" {
+		condition += ` OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_agents ga ON ga.workspace_id = g.workspace_id AND ga.group_id = g.id
+			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND ga.enabled = TRUE AND ga.agent_id = ` + subject + `)`
+	}
+	return `EXISTS (SELECT 1 FROM gatehouse_session_grants grants WHERE grants.workspace = ` + workspace + ` AND grants.session = ` + session + ` AND grants.enabled = TRUE AND (` + condition + `))`
+}
+
+func (store *Store) sessionAgentParticipationSQL(workspace, session, agent string) string {
+	// Availability is checked when discovering/sending and resolving a live model.
+	// Participation must still permit replay of committed decisions after a bot,
+	// model, or provider is disabled; only losing its chat paths detaches a request.
+	return `EXISTS (SELECT 1 FROM gatehouse_sessions participating_session
+		JOIN gatehouse_workspaces participating_workspace ON participating_workspace.id = participating_session.workspace
+		WHERE participating_session.workspace = ` + workspace + ` AND participating_session.id = ` + session + `
+		AND participating_session.enabled = TRUE AND participating_workspace.enabled = TRUE
+		AND ` + store.messageTargetMembershipSQL("agent", agent, workspace, session) + `)`
 }
 
 func (store *Store) SessionAgentParticipantGet(ctx context.Context, session model.SessionRef, agent model.WorkspaceAgentRef) (error, bool) {
@@ -67,8 +81,7 @@ func (store *Store) sessionAgentParticipantGet(session model.SessionRef, agent m
 	}
 	p := store.sessionParticipantPlaceholder
 	var active bool
-	err := query(`SELECT EXISTS (SELECT 1 FROM gatehouse_sessions s JOIN gatehouse_workspaces w ON w.id = s.workspace
-		WHERE s.workspace = `+p(1)+` AND s.id = `+p(2)+` AND s.enabled = TRUE AND w.enabled = TRUE AND `+store.messageTargetMembershipSQL("agent", p(3))+`)`, session.Workspace.Id, session.Id, agent.Id).Scan(&active)
+	err := query(`SELECT `+store.sessionAgentParticipationSQL(p(1), p(2), p(3)), session.Workspace.Id, session.Id, agent.Id).Scan(&active)
 	if err != nil {
 		return fmt.Errorf("check bot participation: %w", err), false
 	}
@@ -84,7 +97,7 @@ func (store *Store) SessionDetachedAgentRequestsGet(ctx context.Context, limit i
 	}
 	rows, err := store.QueryContext(ctx, `SELECT events.workspace, events.session, events.id FROM gatehouse_session_events events
 		WHERE events.kind = 'agent.request' AND events.author_principal IS NOT NULL
-		AND NOT EXISTS (SELECT 1 FROM gatehouse_session_grants g WHERE g.workspace = events.workspace AND g.session = events.session AND g.agent = `+target+` AND g.enabled = TRUE)
+		AND NOT `+store.sessionAgentParticipationSQL("events.workspace", "events.session", target)+`
 		AND NOT EXISTS (SELECT 1 FROM gatehouse_session_events child WHERE child.workspace = events.workspace AND child.session = events.session AND child.parent = events.id AND child.kind IN ('agent.success', 'agent.failure', 'cancel.request'))
 		ORDER BY events.id LIMIT `+keychainPlaceholder(store.kind)(1), limit)
 	if err != nil {

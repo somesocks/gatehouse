@@ -9,13 +9,6 @@ import {
   type TranscriptMessageTargetRef,
 } from "../api-model"
 
-export type ChatAgent = {
-  id: string
-  alias: string
-  label?: string
-  default: boolean
-}
-
 export type ChatFile = TranscriptFile
 export type ChatEvent = TranscriptEvent
 export type MessageTarget = TranscriptMessageTarget
@@ -156,16 +149,6 @@ export async function fetchChatFiles(
       credentials: "same-origin",
       ...(signal === undefined ? {} : { signal }),
     },
-  )
-}
-
-export async function fetchChatAgents(
-  workspaceID: string,
-  signal?: AbortSignal,
-): Promise<Response> {
-  return await fetch(
-    `/api/v1/workspaces/${encodeURIComponent(workspaceID)}/agents`,
-    { credentials: "same-origin", ...(signal === undefined ? {} : { signal }) },
   )
 }
 

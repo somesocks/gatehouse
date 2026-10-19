@@ -70,18 +70,7 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 	}
 	sessionEventTranscriptProject(entries)
 	for _, entry := range entries {
-		encoded, err := json.Marshal(entry.Event)
-		if err != nil {
-			t.Fatal(err)
-		}
-		value, err := jsonschema.UnmarshalJSON(bytes.NewReader(encoded))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := schema.Validate(value); err != nil {
-			t.Errorf("projected %s event does not match API schema: %v", entry.Event.Kind, err)
-		}
-		codecErr, wire := transcriptEventWire(entry.Event)
+		codecErr, wire := transcriptEventWire(entry.Event, nil)
 		if codecErr != nil {
 			t.Errorf("encode %s transcript event: %v", entry.Event.Kind, codecErr)
 			continue
@@ -89,8 +78,13 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		if err := schema.Validate(wire); err != nil {
 			t.Errorf("Go-encoded %s event does not match API schema: %v", entry.Event.Kind, err)
 		}
-		if !reflect.DeepEqual(wire, value) {
-			t.Errorf("Go-encoded %s event = %#v, want %#v", entry.Event.Kind, wire, value)
+		decodeErr, decoded := apischema.DecodeTranscriptEvent(wire)
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		encodeErr, roundTrip := apischema.EncodeTranscriptEvent(decoded)
+		if encodeErr != nil || !reflect.DeepEqual(roundTrip, wire) {
+			t.Fatalf("transcript projection failed codec round-trip: %v", encodeErr)
 		}
 	}
 	if entries[15].Event.Payload["form"] != nil || entries[16].Event.Payload["result"] != nil || entries[9].Event.Payload["output"] != nil {
@@ -107,18 +101,20 @@ func TestTranscriptProjectionMatchesAPISchema(t *testing.T) {
 		t.Fatalf("unrecognized event = %#v", entries[21].Event)
 	}
 	root := &sessionEventTreeResponse{Event: entries[0].Event, Children: []*sessionEventTreeResponse{{Event: entries[1].Event, Children: []*sessionEventTreeResponse{}}}}
-	if err, trees := transcriptEventTrees([]*sessionEventTreeResponse{root}); err != nil || len(trees) != 1 || len(trees[0].Children) != 1 {
+	if err, trees := transcriptEventTrees([]*sessionEventTreeResponse{root}, nil); err != nil || len(trees) != 1 || len(trees[0].Children) != 1 {
 		t.Fatalf("nested transcript tree = (%#v, %v)", trees, err)
 	}
 	invalid := entries[3].Event
 	invalid.Payload = map[string]interface{}{}
-	if err, _ := transcriptEventWire(invalid); err == nil {
+	if err, _ := transcriptEventWire(invalid, nil); err == nil {
 		t.Fatal("transcript codec accepted an agent failure without a code")
 	}
 	for _, payload := range []map[string]interface{}{{}, {"output": "duplicated", "output_file": file}} {
 		invalid.Kind = model.SessionEventKindToolFailure
 		invalid.Payload = payload
-		if err, _ := transcriptEventWire(invalid); err == nil { t.Fatal("transcript accepted an ambiguous tool failure body") }
+		if err, _ := transcriptEventWire(invalid, nil); err == nil {
+			t.Fatal("transcript accepted an ambiguous tool failure body")
+		}
 	}
 }
 
@@ -176,6 +172,7 @@ func TestTranscriptServesToolFailureWithoutCode(t *testing.T) {
 
 func TestTranscriptGoCodecRoundTrip(t *testing.T) {
 	for _, input := range []string{
+		`{"created_at":"2026-01-01T00:00:00.000Z","kind":"agent.success","payload":{"text":"Archived reply"},"ref":{"id":"sev_test","session":{"id":"ses_test","workspace":{"id":"wsp_test"}}},"author_agent":{"ref":{"id":"wag_test","workspace":{"id":"wsp_test"}},"alias":"archived","label":"Archived assistant","enabled":false}}`,
 		`{"created_at":"2026-01-01T00:00:00.000Z","kind":"thinking.success","payload":{},"ref":{"id":"sev_test","session":{"id":"ses_test","workspace":{"id":"wsp_test"}}}}`,
 		`{"created_at":"2026-01-01T00:00:00.000Z","kind":"message.text","payload":{"attachments":[{"id":"sfi_test","name":"report.txt","size":9007199254740993,"fingerprint":"sha256:test"}]},"ref":{"id":"sev_test","session":{"id":"ses_test","workspace":{"id":"wsp_test"}}}}`,
 	} {
@@ -192,5 +189,13 @@ func TestTranscriptGoCodecRoundTrip(t *testing.T) {
 		} else if !reflect.DeepEqual(encoded, decoded) {
 			t.Fatalf("round-trip transcript event = %#v, want %#v", encoded, decoded)
 		}
+	}
+}
+
+func TestTranscriptRequiresHydratedAuthorMetadata(t *testing.T) {
+	ref := model.WorkspaceAgentRef{Id: "wag_test", Workspace: model.WorkspaceRef{Id: "wsp_test"}}
+	event := model.SessionEvent{Ref: model.SessionEventRef{Id: "sev_test", Session: model.SessionRef{Id: "ses_test", Workspace: ref.Workspace}}, Kind: model.SessionEventKindAgentSuccess, AuthorAgent: &ref, CreatedAt: "2026-01-01T00:00:00Z", Payload: map[string]interface{}{"text": "Reply"}}
+	if err, _ := transcriptEventWire(event, nil); err == nil {
+		t.Fatal("transcript silently discarded missing author metadata")
 	}
 }

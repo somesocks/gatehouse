@@ -4,14 +4,12 @@ import {
   cancelChatReply,
   decodeChatEvent,
   decodeChatEventTrees,
-  fetchChatAgents,
   fetchChatEvents,
   finishChatFileUpload,
   respondToChatApproval,
   sendChatMessage,
   startChatFileUpload,
   uploadChatFile,
-  type ChatAgent,
   type ChatComposerFile,
   type ChatEvent,
   type ChatEventTree,
@@ -31,7 +29,6 @@ export function createChatController({
   focusComposer,
 }: ChatControllerOptions) {
   const eventsLoad = createLoadState()
-  const agentsLoad = createLoadState()
   let lifetime = new AbortController()
   const state = $state({
     events: [] as ChatEventTree[],
@@ -44,10 +41,6 @@ export function createChatController({
     get reloadError() {
       return eventsLoad.state.error
     },
-    get agentsError() {
-      return agentsLoad.state.error
-    },
-    agents: [] as ChatAgent[],
     messageText: "",
     composerFiles: [] as ChatComposerFile[],
     messageError: "",
@@ -145,39 +138,6 @@ export function createChatController({
     }
   }
 
-  async function refreshAgents(
-    value: number,
-    parent?: AbortSignal,
-  ): Promise<boolean> {
-    if (context === null) return false
-    const { workspaceID, sessionID, signal } = context
-    const request = agentsLoad.begin(
-      parent ? AbortSignal.any([signal, parent]) : signal,
-    )
-    try {
-      const response = await fetchChatAgents(workspaceID, request.signal)
-      if (!validContext(value, workspaceID, sessionID) || !request.current())
-        return false
-      if (response.status === 401) {
-        state.authenticationRequired = true
-        return false
-      }
-      if (!response.ok) throw new Error("agents could not be refreshed")
-      const agents = (await response.json()) as ChatAgent[]
-      if (!validContext(value, workspaceID, sessionID)) return false
-      if (!request.current()) return false
-      request.commit(() => {
-        state.agents = agents
-      })
-      return true
-    } catch {
-      request.fail("Agents could not be refreshed.")
-      return false
-    } finally {
-      request.finish()
-    }
-  }
-
   function start(
     workspaceID: string,
     sessionID: string,
@@ -191,10 +151,8 @@ export function createChatController({
       signal: AbortSignal.any([signal, lifetime.signal]),
     }
     eventsLoad.reset()
-    agentsLoad.reset()
     const value = ++generation
     state.events = []
-    state.agents = []
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
@@ -208,17 +166,15 @@ export function createChatController({
     state.activityTimestamp = Date.now()
     state.authenticationRequired = false
     followingLatest = false
-    void Promise.all([refreshEvents(value, true), refreshAgents(value)])
+    void refreshEvents(value, true)
   }
 
   function stop(): void {
     lifetime.abort()
     eventsLoad.stop()
-    agentsLoad.stop()
     generation += 1
     context = null
     state.events = []
-    state.agents = []
     state.messageText = ""
     state.composerFiles = []
     state.messageError = ""
@@ -519,7 +475,6 @@ export function createChatController({
     stop,
     refreshEvents: (signal?: AbortSignal) =>
       refreshEvents(generation, false, signal),
-    refreshAgents: (signal?: AbortSignal) => refreshAgents(generation, signal),
     sendMessage,
     cancelReply,
     respondToApproval,

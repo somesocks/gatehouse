@@ -894,8 +894,8 @@ func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesK
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:    []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{
-			{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true},
-			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true},
+			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -987,7 +987,7 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -1049,7 +1049,14 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 	if secondRequest.Ref.Id == "" {
 		t.Fatalf("second agent request = %#v", events)
 	}
-	lateID, err := typed_id.New(typed_id.SessionEvent)
+	// Snapshot boundaries are ordered by ID. Use distinct milliseconds rather
+	// than relying on the random suffixes of IDs created within one millisecond.
+	eventTime, err := typed_id.Timestamp(typed_id.SessionEvent, secondRequest.Ref.Id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventTime = eventTime.Add(time.Millisecond)
+	lateID, err := typed_id.NewAt(typed_id.SessionEvent, eventTime)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1082,7 +1089,8 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 	}
 	appendEvent := func(parent model.SessionEventRef, kind string, payload map[string]any) model.SessionEventRef {
 		t.Helper()
-		id, err := typed_id.New(typed_id.SessionEvent)
+		eventTime = eventTime.Add(time.Millisecond)
+		id, err := typed_id.NewAt(typed_id.SessionEvent, eventTime)
 		if err != nil {
 			t.Fatal(err)
 		}

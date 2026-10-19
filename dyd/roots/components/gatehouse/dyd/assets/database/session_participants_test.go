@@ -45,7 +45,7 @@ func TestSessionParticipantsPreserveExplicitPeopleAndGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	search := database.SessionParticipantSearch{Kind: "principal", Limit: 50}
-	err, options, _ := store.SessionParticipantsSearch(ctx, session, search, true)
+	err, options, _ := store.SessionParticipantsSearch(ctx, session, alice, search, true)
 	if err != nil || len(options) != 2 {
 		t.Fatalf("workspace people options = %#v, %v", options, err)
 	}
@@ -74,18 +74,18 @@ func TestSessionParticipantsPreserveExplicitPeopleAndGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, people, _ := store.SessionParticipantsSearch(ctx, session, database.SessionParticipantSearch{Kind: "principal", Name: "bob", Limit: 1}, false)
+	err, people, _ := store.SessionParticipantsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "principal", Name: "bob", Limit: 1}, false)
 	if err != nil || len(people) != 1 || len(people[0].Grants) != 2 {
 		t.Fatalf("explicit bob roles = %#v, %v", people, err)
 	}
-	err, groups, _ := store.SessionParticipantsSearch(ctx, session, database.SessionParticipantSearch{Kind: "group", Limit: 1}, false)
+	err, groups, _ := store.SessionParticipantsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "group", Limit: 1}, false)
 	if err != nil || len(groups) != 1 || groups[0].ID != group || groups[0].Grants[0].ID != grouped.ID {
 		t.Fatalf("explicit groups = %#v, %v", groups, err)
 	}
 	search.Limit = 1
 	seen := map[string]bool{}
 	for {
-		err, page, next := store.SessionParticipantsSearch(ctx, session, search, false)
+		err, page, next := store.SessionParticipantsSearch(ctx, session, alice, search, false)
 		if err != nil || len(page) != 1 || seen[page[0].ID] {
 			t.Fatalf("page = %#v %s %v", page, next, err)
 		}
@@ -115,7 +115,7 @@ func TestSessionParticipantsPreserveExplicitPeopleAndGroups(t *testing.T) {
 	if err != nil || restored.ID != direct.ID || restored.Revision != 3 {
 		t.Fatalf("re-enable = %#v %v", restored, err)
 	}
-	err, all, _ := store.SessionParticipantsSearch(ctx, session, database.SessionParticipantSearch{Kind: "principal", Limit: 50}, false)
+	err, all, _ := store.SessionParticipantsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "principal", Limit: 50}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

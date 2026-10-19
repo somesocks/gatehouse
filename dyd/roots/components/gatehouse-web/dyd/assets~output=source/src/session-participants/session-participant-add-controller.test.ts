@@ -1,5 +1,10 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { importClientModule } from "../testing/client-module"
+import type {
+  ActivityClient,
+  ActivityRefresh,
+  ActivitySelector,
+} from "../app/activity"
 
 afterEach(() => vi.unstubAllGlobals())
 let client: Awaited<ReturnType<typeof importClientModule>>
@@ -16,7 +21,7 @@ const developers = {
   enabled: true,
   grants: [],
 }
-function setup() {
+function setup(activity?: ActivityClient) {
   const request = vi.fn(async (path: string, _init?: RequestInit) =>
     Response.json({
       participants: path.includes("group-options") ? [developers] : [alice],
@@ -27,6 +32,7 @@ function setup() {
     onAuthenticationLost = vi.fn(),
     onPermissionsChanged = vi.fn()
   const controller = client.createSessionParticipantAddController({
+    activity,
     onAdded,
     onAuthenticationLost,
     onPermissionsChanged,
@@ -41,6 +47,58 @@ function setup() {
 }
 
 describe("add participant child-dialog lifecycle", () => {
+  it("refreshes eligibility on membership activity and disposes its chat-scoped subscription", async () => {
+    let refresh!: ActivityRefresh
+    const unsubscribe = vi.fn()
+    const activity = {
+      subscribe: vi.fn(
+        (_selectors: Iterable<ActivitySelector>, callback: ActivityRefresh) => {
+          refresh = callback
+          return unsubscribe
+        },
+      ),
+      poll: vi.fn(async () => {}),
+      dispose: vi.fn(),
+    }
+    const { controller, request, onAdded } = setup(activity)
+    controller.open("workspace", "chat", "principal")
+    await vi.waitFor(() =>
+      expect(controller.options.state.items).toHaveLength(1),
+    )
+    controller.select("alice")
+    expect(activity.subscribe.mock.calls[0][0]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          topic: "workspace",
+          events: expect.arrayContaining(["group_member.*", "group_agent.*"]),
+        }),
+        expect.objectContaining({
+          topic: "workspace/chat",
+          events: ["session_grant.*"],
+        }),
+      ]),
+    )
+    request.mockResolvedValueOnce(Response.json({ participants: [] }))
+    const update = {
+      names: new Set(["invitation-eligibility"]),
+      signal: new AbortController().signal,
+    }
+    await refresh(update)
+    expect(controller.options.state.items).toEqual([])
+    expect(controller.state.subject).toBe("alice")
+    request.mockResolvedValueOnce(
+      new Response("Participant is unavailable", { status: 404 }),
+    )
+    expect(await controller.save()).toBe(false)
+    expect(onAdded).not.toHaveBeenCalled()
+    expect(controller.state.error).toContain("unavailable")
+    controller.close()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+    const calls = request.mock.calls.length
+    await refresh(update)
+    expect(request).toHaveBeenCalledTimes(calls)
+  })
+
   it.each(["principal", "group"] as const)(
     "loads %s options only on opening and submits the chosen subject and role",
     async (kind) => {

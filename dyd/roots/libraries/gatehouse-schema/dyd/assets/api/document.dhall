@@ -53,6 +53,17 @@ let AgentRef =
         }
         s.record.meta::{ name = Some "TranscriptAgentRef" }
 
+let Agent =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "TranscriptAgentRef" } s.reference.meta::{=}
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{=}
+            }
+        , optional = toMap { alias = text, label = text }
+        }
+        s.record.meta::{ name = Some "TranscriptAgent" }
+
 let PrincipalRef =
       s.record.from
         s.record.props::{ required = toMap { id = text }, optional = [] : List { mapKey : Text, mapValue : s.type } }
@@ -122,7 +133,6 @@ let message =
         , required = [] : List { mapKey : Text, mapValue : s.type }
         , optional = toMap
             { text = text
-            , agents = s.list.from s.list.props::{ values = text } s.list.meta::{=}
             , targets = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "TranscriptMessageTarget" } s.reference.meta::{=} } s.list.meta::{=}
             , attachments = attachments
             }
@@ -175,7 +185,8 @@ let other =
         s.record.props::{ required = toMap { original_kind = text }, optional = [] : List { mapKey : Text, mapValue : s.type } }
         s.record.meta::{=}
 
-let event =
+let eventWith =
+      \(extra : List { mapKey : Text, mapValue : s.type }) ->
       \(kind : Text) ->
       \(payload : s.type) ->
         s.record.from
@@ -191,18 +202,20 @@ let event =
               toMap
                 { parent = s.reference.from s.reference.props::{ to = "TranscriptEventRef" } s.reference.meta::{=}
                 , author_principal = s.reference.from s.reference.props::{ to = "TranscriptPrincipal" } s.reference.meta::{=}
-                , author_agent = s.reference.from s.reference.props::{ to = "TranscriptAgentRef" } s.reference.meta::{=}
+                , author_agent = s.reference.from s.reference.props::{ to = "TranscriptAgent" } s.reference.meta::{=}
                 , author_gateway = s.reference.from s.reference.props::{ to = "TranscriptGatewayRef" } s.reference.meta::{=}
                 , metrics = s.reference.from s.reference.props::{ to = "TranscriptEventMetrics" } s.reference.meta::{=}
-                }
+                } # extra
           }
           s.record.meta::{=}
+
+let event = eventWith ([] : List { mapKey : Text, mapValue : s.type })
 
 let TranscriptEvent =
       s.oneOf.from
         { options =
             [ event "message.text" message
-            , event "agent.request" (s.record.from s.record.props::{ required = toMap { agent = text }, optional = [] : List { mapKey : Text, mapValue : s.type } } s.record.meta::{=})
+            , eventWith (toMap { target_agent = s.reference.from s.reference.props::{ to = "TranscriptAgent" } s.reference.meta::{=} }) "agent.request" (s.record.from s.record.props::{ required = toMap { agent = text }, optional = [] : List { mapKey : Text, mapValue : s.type } } s.record.meta::{=})
             , event "agent.success" agentSuccess
             , event "agent.failure" failure
             , event "thinking.request" empty
@@ -233,6 +246,7 @@ in  Document::{
         , s.root.from SessionRef s.root.meta::{ name = "TranscriptSessionRef" }
         , s.root.from EventRef s.root.meta::{ name = "TranscriptEventRef" }
         , s.root.from AgentRef s.root.meta::{ name = "TranscriptAgentRef" }
+        , s.root.from Agent s.root.meta::{ name = "TranscriptAgent" }
         , s.root.from PrincipalRef s.root.meta::{ name = "TranscriptPrincipalRef" }
         , s.root.from Principal s.root.meta::{ name = "TranscriptPrincipal" }
         , s.root.from GatewayRef s.root.meta::{ name = "TranscriptGatewayRef" }

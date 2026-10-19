@@ -31,12 +31,20 @@ type SessionParticipantGrant struct {
 	Revision  int        `json:"revision"`
 }
 
+// SessionParticipantGroupSource describes inherited participation without
+// exposing the source group's grant as an editable grant of this participant.
+type SessionParticipantGroupSource struct {
+	Group string     `json:"group"`
+	Role  authz.Role `json:"role"`
+}
+
 type SessionParticipant struct {
-	ID      string                    `json:"id"`
-	Alias   *string                   `json:"alias,omitempty"`
-	Name    *string                   `json:"name,omitempty"`
-	Enabled bool                      `json:"enabled"`
-	Grants  []SessionParticipantGrant `json:"grants"`
+	ID            string                          `json:"id"`
+	Alias         *string                         `json:"alias,omitempty"`
+	Name          *string                         `json:"name,omitempty"`
+	Enabled       bool                            `json:"enabled"`
+	Grants        []SessionParticipantGrant       `json:"grants"`
+	InheritedFrom []SessionParticipantGroupSource `json:"inherited_from,omitempty"`
 }
 
 type SessionParticipantSearch struct {
@@ -71,12 +79,25 @@ func (store *Store) sessionParticipantPlaceholder(index int) string {
 	return fmt.Sprintf("$%d", index)
 }
 
-// SessionParticipantsSearch lists explicit subjects, not expanded group members.
-// Options searches are workspace-scoped and exclude disabled subjects.
-func (store *Store) SessionParticipantsSearch(ctx context.Context, session model.SessionRef, search SessionParticipantSearch, options bool) (error, []SessionParticipant, string) {
+// SessionParticipantsSearch lists explicit people/groups and effective bots.
+// Grants contain only direct grants; inherited bot participation is separate
+// read-only provenance, including for clients that do not understand it yet.
+func (store *Store) SessionParticipantsSearch(ctx context.Context, session model.SessionRef, actor model.PrincipalRef, search SessionParticipantSearch, options bool) (error, []SessionParticipant, string) {
 	pattern, err := sessionParticipantSearchValues(search)
 	if err != nil {
 		return err, nil, ""
+	}
+	if err, available := store.SessionGet(ctx, session, actor); err != nil {
+		return err, nil, ""
+	} else if available == nil {
+		return ErrSessionParticipantNotFound, nil, ""
+	}
+	if options {
+		if err, roles := store.SessionRolesGet(ctx, session, actor); err != nil {
+			return err, nil, ""
+		} else if !authz.SessionAllows(roles, authz.SessionGrantManage) {
+			return ErrSessionParticipantForbidden, nil, ""
+		}
 	}
 	p := store.sessionParticipantPlaceholder
 	table, column, scope := "gatehouse_principals", "principal", ""
@@ -88,16 +109,28 @@ func (store *Store) SessionParticipantsSearch(ctx context.Context, session model
 		table, column, name = "gatehouse_workspace_agents", "agent", "subjects.label"
 		scope = ` AND subjects.workspace_id = ` + p(1)
 	}
-	filter := `EXISTS (SELECT 1 FROM gatehouse_session_grants grants WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.` + column + ` = subjects.id AND grants.enabled = TRUE)`
+	prefix := `WITH `
+	filter := `EXISTS (SELECT 1 FROM effective_grants WHERE effective_grants.subject_id = subjects.id)`
 	if options {
-		filter = `subjects.enabled = TRUE`
-		if search.Kind == "principal" {
-			filter += ` AND ` + sessionWorkspacePrincipalEligibleSQL(p(1), "subjects.id")
-		} else if search.Kind == "agent" {
-			filter += ` AND EXISTS (SELECT 1 FROM gatehouse_agent_models m JOIN gatehouse_agent_providers ap ON ap.id = m.provider_id WHERE m.id = subjects.model_id AND m.enabled = TRUE AND ap.enabled = TRUE)`
+		filter, err = chatInvitationEligibilitySQL(search.Kind, p(1), p(6), "subjects.id")
+		if err != nil {
+			return err, nil, ""
 		}
+	} else {
+		prefix += `effective_grants AS (
+			SELECT grants.id, grants.role, grants.revision, grants.` + column + ` AS subject_id, NULL AS source_group, FALSE AS inherited
+			FROM gatehouse_session_grants grants WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.enabled = TRUE AND grants.` + column + ` IS NOT NULL`
+		if search.Kind == "agent" {
+			prefix += ` UNION ALL
+				SELECT grants.id, grants.role, grants.revision, members.agent_id, grants."group", TRUE
+				FROM gatehouse_session_grants grants
+				JOIN gatehouse_groups groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group" AND groups.enabled = TRUE
+				JOIN gatehouse_group_agents members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id AND members.enabled = TRUE
+				WHERE grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.enabled = TRUE`
+		}
+		prefix += `), `
 	}
-	query := `WITH page AS (
+	query := prefix + `page AS (
 		SELECT subjects.id, subjects.alias, ` + name + ` AS name, subjects.enabled FROM ` + table + ` subjects
 		WHERE ` + filter + scope + ` AND (
 			LOWER(COALESCE(` + name + `, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\'
@@ -105,14 +138,17 @@ func (store *Store) SessionParticipantsSearch(ctx context.Context, session model
 		AND (` + p(4) + ` = '' OR subjects.id < ` + p(4) + `) ORDER BY subjects.id DESC LIMIT ` + p(5) + `
 	) SELECT page.id, page.alias, page.name, page.enabled`
 	if !options {
-		query += `, grants.id, grants.role, grants.revision FROM page JOIN gatehouse_session_grants grants
-			ON grants.workspace = ` + p(1) + ` AND grants.session = ` + p(2) + ` AND grants.` + column + ` = page.id AND grants.enabled = TRUE
-			ORDER BY page.id DESC, grants.role`
+		query += `, grants.id, grants.role, grants.revision, grants.source_group, grants.inherited FROM page JOIN effective_grants grants
+			ON grants.subject_id = page.id ORDER BY page.id DESC, grants.role, grants.id`
 	} else {
 		// Keep the session placeholder bound on PostgreSQL as well as SQLite.
 		query += ` FROM page WHERE ` + p(2) + ` <> '' ORDER BY page.id DESC`
 	}
-	rows, err := store.QueryContext(ctx, query, session.Workspace.Id, session.Id, pattern, search.Cursor, search.Limit+1)
+	args := []any{session.Workspace.Id, session.Id, pattern, search.Cursor, search.Limit + 1}
+	if options {
+		args = append(args, actor.Id)
+	}
+	rows, err := store.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("search chat participants: %w", err), nil, ""
 	}
@@ -120,11 +156,12 @@ func (store *Store) SessionParticipantsSearch(ctx context.Context, session model
 	items := []SessionParticipant{}
 	for rows.Next() {
 		var item SessionParticipant
-		var alias, name sql.NullString
+		var alias, name, sourceGroup sql.NullString
+		var inherited bool
 		grant := SessionParticipantGrant{Enabled: true}
 		values := []any{&item.ID, &alias, &name, &item.Enabled}
 		if !options {
-			values = append(values, &grant.ID, &grant.Role, &grant.Revision)
+			values = append(values, &grant.ID, &grant.Role, &grant.Revision, &sourceGroup, &inherited)
 		}
 		if err := rows.Scan(values...); err != nil {
 			return err, nil, ""
@@ -136,21 +173,24 @@ func (store *Store) SessionParticipantsSearch(ctx context.Context, session model
 			item.Name = &name.String
 		}
 		item.Grants = []SessionParticipantGrant{}
+		if len(items) == 0 || items[len(items)-1].ID != item.ID {
+			items = append(items, item)
+		}
+		participant := &items[len(items)-1]
 		if !options {
-			if search.Kind == "principal" {
-				grant.Principal = &item.ID
-			} else if search.Kind == "agent" {
-				grant.Agent = &item.ID
-			} else {
-				grant.Group = &item.ID
-			}
-			if len(items) > 0 && items[len(items)-1].ID == item.ID {
-				items[len(items)-1].Grants = append(items[len(items)-1].Grants, grant)
+			if inherited {
+				participant.InheritedFrom = append(participant.InheritedFrom, SessionParticipantGroupSource{Group: sourceGroup.String, Role: grant.Role})
 				continue
 			}
-			item.Grants = append(item.Grants, grant)
+			if search.Kind == "principal" {
+				grant.Principal = &participant.ID
+			} else if search.Kind == "agent" {
+				grant.Agent = &participant.ID
+			} else {
+				grant.Group = &participant.ID
+			}
+			participant.Grants = append(participant.Grants, grant)
 		}
-		items = append(items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return err, nil, ""
@@ -212,11 +252,11 @@ func (store *Store) SessionParticipantGrantCreateSubject(ctx context.Context, se
 	}
 	defer tx.Rollback()
 	p := store.sessionParticipantPlaceholder
-	query, err := store.messageTargetSource(ref.Kind, true)
+	query, err := store.messageTargetSource(ref.Kind, true, p(4))
 	if err != nil {
 		return err, nil
 	}
-	if _, err := scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+p(3), session.Workspace.Id, session.Id, ref.Id), ref.Kind); err != nil {
+	if _, err := scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+p(3), session.Workspace.Id, session.Id, ref.Id, actor.Id), ref.Kind); err != nil {
 		if errors.Is(err, ErrMessageTarget) {
 			return ErrSessionParticipantNotFound, nil
 		}
@@ -316,7 +356,23 @@ func (store *Store) SessionParticipantGrantUpdate(ctx context.Context, session m
 	}
 	// Re-enabling goes through the same subject validation as creation.
 	if !grant.Enabled && nextEnabled {
-		return ErrSessionParticipantInput, nil
+		kind, subject := "principal", grant.Principal
+		if grant.Group != nil {
+			kind, subject = "group", grant.Group
+		}
+		if grant.Agent != nil {
+			kind, subject = "agent", grant.Agent
+		}
+		query, err := store.messageTargetSource(kind, true, p(4))
+		if err != nil {
+			return err, nil
+		}
+		if _, err := scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+p(3), session.Workspace.Id, session.Id, *subject, actor.Id), kind); err != nil {
+			if errors.Is(err, ErrMessageTarget) {
+				return ErrSessionParticipantNotFound, nil
+			}
+			return err, nil
+		}
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = `+p(1)+`, enabled = `+p(2)+`, revision = revision + 1 WHERE id = `+p(3), nextRole, nextEnabled, id)
 	if uniquePrincipalConstraint(err) {

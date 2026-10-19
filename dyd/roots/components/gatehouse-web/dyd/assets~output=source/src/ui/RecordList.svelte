@@ -18,6 +18,7 @@
     badges,
     href,
     scrollable = true,
+    framed = true,
     pageKey,
     emptyMessage = "No matches.",
     loading = false,
@@ -34,6 +35,7 @@
     badges?: Snippet<[T]>
     href?: (item: T) => string
     scrollable?: boolean
+    framed?: boolean
     pageKey?: string
     emptyMessage?: string
     loading?: boolean
@@ -48,7 +50,8 @@
   let previousPage: string | undefined
   $effect(() => {
     const key = pageKey
-    if (previousPage !== undefined && previousPage !== key) dialog?.resetScroll()
+    if (previousPage !== undefined && previousPage !== key)
+      dialog?.resetScroll()
     previousPage = key
   })
 </script>
@@ -58,14 +61,19 @@
     <span>{item.label}</span>
     {@render badges?.(item)}
   </span>
-  {#if details}<span class="text-muted-foreground line-clamp-2 text-xs leading-relaxed">{@render details(item)}</span>{/if}
+  {#if details}<span
+      class="text-muted-foreground line-clamp-2 text-xs leading-relaxed"
+      >{@render details(item)}</span
+    >{/if}
   {#if item.disabled}<Badge>Disabled</Badge>{/if}
 {/snippet}
 
 {#snippet row(item: T)}
   <span class="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
     {#if href && !selectable}
-      <RouterLink variant="record" href={href(item)}>{@render identity(item)}</RouterLink>
+      <RouterLink variant="record" href={href(item)}
+        >{@render identity(item)}</RouterLink
+      >
     {:else}
       {@render identity(item)}
     {/if}
@@ -84,9 +92,16 @@
     </div>{/if}
 {/snippet}
 
-<div class="min-w-0 overflow-hidden rounded-lg border bg-card">
+<div
+  class={framed
+    ? "min-w-0 overflow-hidden rounded-lg border bg-card"
+    : "min-w-0 overflow-hidden"}
+>
   {#if toolbar}<div class="border-b p-3">{@render toolbar()}</div>{/if}
-  <div class={scrollable ? "max-h-72 overflow-y-auto" : undefined} aria-busy={loading}>
+  <div
+    class={scrollable ? "max-h-72 overflow-y-auto" : undefined}
+    aria-busy={loading}
+  >
     {#if selectable}
       <RadioGroup.Root
         bind:value

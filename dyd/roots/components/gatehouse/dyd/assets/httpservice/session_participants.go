@@ -61,7 +61,7 @@ func workspaceSessionParticipants(store *database.Store, tokens *auth.BearerToke
 		if kind == "" {
 			kind = "principal"
 		}
-		err, items, next := store.SessionParticipantsSearch(r.Context(), session, database.SessionParticipantSearch{Kind: kind, Name: name, Cursor: cursor, Limit: limit}, optionsKind != "")
+		err, items, next := store.SessionParticipantsSearch(r.Context(), session, claims.Principal.Ref, database.SessionParticipantSearch{Kind: kind, Name: name, Cursor: cursor, Limit: limit}, optionsKind != "")
 		if err != nil {
 			sessionParticipantError(w, r, err)
 			return

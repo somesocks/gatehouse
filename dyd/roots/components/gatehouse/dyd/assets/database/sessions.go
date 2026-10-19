@@ -887,7 +887,7 @@ func (store *Store) sessionAgentTargetValidate(ctx context.Context, transaction 
 		return fmt.Errorf("create session message: agent %q is unavailable", agent)
 	}
 	p := store.sessionParticipantPlaceholder
-	if err := transaction.QueryRowContext(ctx, `SELECT `+store.messageTargetMembershipSQL("agent", p(3)), session.Workspace.Id, session.Id, agent).Scan(&exists); err != nil {
+	if err := transaction.QueryRowContext(ctx, `SELECT `+store.messageTargetMembershipSQL("agent", p(3), p(1), p(2)), session.Workspace.Id, session.Id, agent).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
@@ -1713,8 +1713,17 @@ type WorkspaceAgent struct {
 	Default bool
 }
 
-func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.WorkspaceRef) (error, []WorkspaceAgent) {
-	placeholder := keychainPlaceholder(store.kind)
+func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.WorkspaceRef, actor model.PrincipalRef) (error, []WorkspaceAgent) {
+	if err, available := store.WorkspaceGet(ctx, workspace, actor); err != nil {
+		return err, nil
+	} else if available == nil {
+		return nil, []WorkspaceAgent{}
+	}
+	placeholder := store.sessionParticipantPlaceholder
+	eligible, err := chatInvitationEligibilitySQL("agent", placeholder(1), placeholder(2), "bindings.id")
+	if err != nil {
+		return err, nil
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT bindings.id, bindings.alias, bindings.label, bindings."default"
 		FROM gatehouse_workspace_agents AS bindings
@@ -1724,8 +1733,9 @@ func (store *Store) WorkspaceAgentsGet(ctx context.Context, workspace model.Work
 			AND bindings.enabled = TRUE
 			AND models.enabled = TRUE
 			AND providers.enabled = TRUE
+			AND `+eligible+`
 		ORDER BY bindings.alias, bindings.id
-	`, workspace.Id)
+	`, workspace.Id, actor.Id)
 	if err != nil {
 		return fmt.Errorf("get workspace agents: %w", err), nil
 	}

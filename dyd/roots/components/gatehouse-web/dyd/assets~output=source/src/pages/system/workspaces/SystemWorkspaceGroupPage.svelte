@@ -7,19 +7,25 @@
     type SystemGroupMember,
     fetchAdminGroupAgents,
     type SystemGroupAgent,
+    type SystemGroupGrant,
   } from "../../../app/group-administration"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
-  import PrincipalPicker from "../principals/PrincipalPicker.svelte"
-  import WorkspaceAgentPicker from "../workspace-agent-bindings/WorkspaceAgentPicker.svelte"
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
   import { createSystemGroupController } from "./system-group-controller.svelte"
+  import SystemGroupDetailsDialog from "./SystemGroupDetailsDialog.svelte"
+  import SystemGroupMembershipDialog from "./SystemGroupMembershipDialog.svelte"
+  import SystemGroupGrantDialog from "./SystemGroupGrantDialog.svelte"
+
   let { workspaceID, groupID }: { workspaceID: string; groupID: string } =
     $props()
   const runtime = useRuntime()
+  let dialog = $state<
+    "details" | "members" | "bots" | "grant-create" | "grant-edit" | null
+  >(null)
   const members = createDirectoryController<SystemGroupMember>({
     onAuthenticationLost: runtime.requireLogin,
     onSystemAccessChange: runtime.access.setSystemAccess,
-    fetchPage: async (name, cursor, status, signal) => {
+    async fetchPage(name, cursor, status, signal) {
       const response = await fetchAdminGroupMembers(
         workspaceID,
         groupID,
@@ -28,19 +34,19 @@
         status,
         signal,
       )
-      const result = response.ok
+      const body = response.ok
         ? ((await response.json()) as {
             members: SystemGroupMember[]
             next_cursor?: string
           })
         : undefined
-      return { response, items: result?.members, next: result?.next_cursor }
+      return { response, items: body?.members, next: body?.next_cursor }
     },
   })
   const agents = createDirectoryController<SystemGroupAgent>({
     onAuthenticationLost: runtime.requireLogin,
     onSystemAccessChange: runtime.access.setSystemAccess,
-    fetchPage: async (name, cursor, status, signal) => {
+    async fetchPage(name, cursor, status, signal) {
       const response = await fetchAdminGroupAgents(
         workspaceID,
         groupID,
@@ -49,13 +55,13 @@
         status,
         signal,
       )
-      const result = response.ok
+      const body = response.ok
         ? ((await response.json()) as {
             agents: SystemGroupAgent[]
             next_cursor?: string
           })
         : undefined
-      return { response, items: result?.agents, next: result?.next_cursor }
+      return { response, items: body?.agents, next: body?.next_cursor }
     },
   })
   const controller = createSystemGroupController({
@@ -66,7 +72,7 @@
     onMembersChanged: () => members.reload(),
     onAgentsChanged: () => agents.reload(),
   })
-  const state = controller.state
+  const view = controller.state
   onMount(() => {
     void controller.load()
     void members.search()
@@ -77,6 +83,28 @@
       agents.stop()
     }
   })
+  function editDetails() {
+    controller.beginDetails()
+    dialog = "details"
+  }
+  function addMembership(kind: "members" | "bots") {
+    controller.clearFeedback(kind)
+    dialog = kind
+  }
+  function addGrant() {
+    controller.clearFeedback("grants")
+    view.newRole = "member"
+    dialog = "grant-create"
+  }
+  function editGrant(grant: SystemGroupGrant) {
+    controller.beginGrant(grant)
+    dialog = "grant-edit"
+  }
+  const roleLabels = {
+    member: "Member",
+    contributor: "Contributor",
+    manager: "Manager",
+  }
 </script>
 
 <SystemWorkspaceFrame
@@ -86,355 +114,310 @@
       label: "Groups",
       href: `/app/system/workspaces/${encodeURIComponent(workspaceID)}/groups`,
     },
-    { label: state.group?.name ?? state.group?.alias ?? "Group" },
+    { label: view.group?.name ?? view.group?.alias ?? "Group" },
   ]}
 >
-  <UI.AdminContent>
-    {#if state.loadError}<UI.Notice variant="destructive" role="alert"
-        >{state.loadError}<UI.Button
-          variant="outline"
-          onclick={() => void controller.load(false)}>Retry</UI.Button
-        ></UI.Notice
-      >{/if}
-    {#if state.error}<UI.Notice variant="destructive" role="alert"
-        >{state.error}</UI.Notice
-      >{/if}
-    {#if state.notice}<UI.Text role="status">{state.notice}</UI.Text>{/if}
-    {#if !state.group}<UI.Text
-        >{state.loading
+  {#if !view.group}
+    <UI.AdminContent mode="detail">
+      <UI.Text role="status"
+        >{view.loading
           ? "Loading group…"
           : "Group could not be loaded."}</UI.Text
-      >{:else}
-      <UI.AdminHeader
-        kind="Group"
-        title={state.group.name ?? state.group.alias ?? state.group.id}
-        id={state.group.id}
-        enabled={state.group.enabled}
-      />
-      <UI.Form
-        surface
-        onsubmit={(event) => {
-          event.preventDefault()
-          void controller.saveGroup()
-        }}
       >
-        <UI.FormSection title="Group settings">
-          <UI.Text size="small" tone="muted"
-            >Revision {state.group.revision}</UI.Text
-          >
-          <UI.Field
-            ><UI.Label for="group-alias">Alias</UI.Label><UI.Input
-              id="group-alias"
-              required
-              maxlength={256}
-              bind:value={state.form.alias}
-              disabled={state.saving}
-            /><UI.Text size="small" tone="muted"
-              >Unique in this workspace. Lowercase letters, numbers,
-              underscores, and hyphens; start with a letter.</UI.Text
-            ></UI.Field
-          >
-          <UI.Field
-            ><UI.Label for="group-name">Display name</UI.Label><UI.Input
-              id="group-name"
-              maxlength={256}
-              bind:value={state.form.name}
-              disabled={state.saving}
-            /></UI.Field
-          >
-          <UI.Label layout="choice"
-            ><UI.Checkbox
-              bind:checked={state.form.enabled}
-              disabled={state.saving}
-            />Enabled</UI.Label
-          >
-          <UI.Text size="small" tone="muted"
-            >Disabling the group suspends access inherited through it.
-            Memberships and grants are retained.</UI.Text
-          >
-        </UI.FormSection>
-        <UI.FormActions
-          >{#if state.groupConflict}<UI.Button
-              type="button"
+      {#if view.loadError}<UI.Notice variant="destructive" role="alert"
+          >{view.loadError}<UI.Button
+            variant="outline"
+            onclick={() => void controller.load()}>Retry</UI.Button
+          ></UI.Notice
+        >{/if}
+    </UI.AdminContent>
+  {:else}
+    {@const group = view.group}
+    <UI.ManagementLayout>
+      {#snippet header()}
+        <UI.AdminHeader
+          kind="Group"
+          title={group.name ?? group.alias ?? group.id}
+          enabled={group.enabled}
+        >
+          {#snippet actions()}<UI.Button
               variant="outline"
-              onclick={() => void controller.load(true)}
-              disabled={state.saving}>Reload group and replace draft</UI.Button
-            >{/if}<UI.Button
-            type="submit"
-            disabled={state.saving || state.groupConflict}
-            >{state.saving ? "Saving…" : "Save group"}</UI.Button
-          ></UI.FormActions
-        >
-      </UI.Form>
-      <UI.DetailSection title="Members">
-        <UI.Form
-          onsubmit={(event) => {
-            event.preventDefault()
-            void controller.addMember()
-          }}
-        >
-          <PrincipalPicker bind:value={state.principal} />
-          <UI.Button type="submit" disabled={state.saving || !state.principal}
-            >Add member</UI.Button
+              disabled={view.saving}
+              onclick={editDetails}>Edit details</UI.Button
+            >{/snippet}
+          {#snippet metadata()}
+            <UI.Row tone="muted">
+              {#if group.alias}<UI.Text size="small">@{group.alias}</UI.Text
+                >{/if}
+              <UI.Identifier value={group.id} />
+              <UI.Text size="small">Revision {group.revision}</UI.Text>
+            </UI.Row>
+          {/snippet}
+        </UI.AdminHeader>
+      {/snippet}
+
+      <UI.ManagementSection title="Members" loading={members.state.busy}>
+        {#snippet actions()}<UI.Button
+            size="sm"
+            variant="outline"
+            disabled={view.saving}
+            onclick={() => addMembership("members")}>Add member</UI.Button
+          >{/snippet}
+        {#snippet toolbar()}
+          <UI.SearchToolbar
+            framed={false}
+            label="Search members"
+            placeholder="Search members…"
+            bind:value={members.state.search}
+            loading={members.state.busy}
+            onsearch={() => void members.search()}
           >
-        </UI.Form>
-        <UI.SearchToolbar
-          label="Search members"
-          bind:value={members.state.search}
-          loading={members.state.busy}
-          onsearch={() => void members.search()}
-        />
-        <UI.Field
-          ><UI.Label for="members-status">Membership status</UI.Label><UI.Select
-            id="members-status"
-            bind:value={members.state.status}
-            onchange={(event) => {
-              members.state.status = event.currentTarget.value
-              void members.search()
-            }}
-            ><UI.Option value="">All memberships</UI.Option><UI.Option
-              value="enabled">Enabled</UI.Option
-            ><UI.Option value="disabled">Disabled</UI.Option></UI.Select
-          ></UI.Field
-        >
-        {#if members.state.error}<UI.Notice variant="destructive" role="alert"
-            >{members.state.error}<UI.Button
-              variant="outline"
-              onclick={() => void members.retry()}>Retry</UI.Button
-            ></UI.Notice
-          >{/if}
-        <UI.RecordTable
-          headers={[
-            "Principal",
-            "Membership",
-            "Account",
-            "Revision",
-            "Actions",
-          ]}
-        >
-          {#each members.state.items as member (member.principal)}<UI.RecordRow
-              ><UI.RecordCell primary
-                ><UI.RouterLink
-                  href={`/app/system/principals/${encodeURIComponent(member.principal)}`}
-                  >{member.name ??
-                    member.alias ??
-                    member.principal}</UI.RouterLink
-                ><UI.Identifier value={member.principal} /></UI.RecordCell
-              ><UI.RecordCell label="Membership"
-                ><UI.StatusBadge enabled={member.enabled} /></UI.RecordCell
-              ><UI.RecordCell label="Account"
-                ><UI.StatusBadge
-                  enabled={member.principal_enabled}
-                /></UI.RecordCell
-              ><UI.RecordCell label="Revision">{member.revision}</UI.RecordCell
-              ><UI.RecordCell actions
-                ><UI.Button
-                  variant="outline"
-                  disabled={state.saving}
-                  onclick={() => void controller.toggleMember(member)}
-                  >{member.enabled
-                    ? "Remove membership"
-                    : "Enable membership"}</UI.Button
-                ></UI.RecordCell
-              ></UI.RecordRow
-            >{:else}<UI.TableEmpty
-              columns={5}
-              message={members.state.busy
-                ? "Loading members…"
-                : "No memberships match your search."}
-            />{/each}
-        </UI.RecordTable>
-        <UI.PaginationFooter
-          count={members.state.items.length}
-          previous={!!members.state.history.length}
-          next={!!members.state.next}
-          loading={members.state.busy}
-          onprevious={() => void members.previous()}
-          onnext={() => void members.next()}
-        />
-      </UI.DetailSection>
-      <UI.DetailSection title="Bots">
-        <UI.Form
-          onsubmit={(event) => {
-            event.preventDefault()
-            void controller.addAgent()
-          }}
-        >
-          <WorkspaceAgentPicker {workspaceID} bind:value={state.agent} />
-          <UI.Button type="submit" disabled={state.saving || !state.agent}
-            >Add bot</UI.Button
-          >
-        </UI.Form>
-        <UI.SearchToolbar
-          label="Search bots"
-          bind:value={agents.state.search}
-          loading={agents.state.busy}
-          onsearch={() => void agents.search()}
-        />
-        <UI.Field>
-          <UI.Label for="bots-status">Membership status</UI.Label>
-          <UI.Select
-            id="bots-status"
-            bind:value={agents.state.status}
-            onchange={(event) => {
-              agents.state.status = event.currentTarget.value
-              void agents.search()
-            }}
-          >
-            <UI.Option value="">All memberships</UI.Option>
-            <UI.Option value="enabled">Enabled</UI.Option>
-            <UI.Option value="disabled">Disabled</UI.Option>
-          </UI.Select>
-        </UI.Field>
-        {#if agents.state.error}
-          <UI.Notice variant="destructive" role="alert"
-            >{agents.state.error}<UI.Button
-              variant="outline"
-              onclick={() => void agents.retry()}>Retry</UI.Button
-            ></UI.Notice
-          >
-        {/if}
-        <UI.RecordTable
-          headers={["Bot", "Membership", "Bot status", "Revision", "Actions"]}
-        >
-          {#each agents.state.items as agent (agent.agent)}
-            <UI.RecordRow>
-              <UI.RecordCell primary>
-                <UI.RouterLink
-                  href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(agent.agent)}`}
-                  >{agent.label ?? agent.alias}</UI.RouterLink
-                >
-                <UI.Identifier value={agent.agent} />
-              </UI.RecordCell>
-              <UI.RecordCell label="Membership"
-                ><UI.StatusBadge enabled={agent.enabled} /></UI.RecordCell
+            {#snippet filters()}
+              <UI.Select
+                aria-label="Membership status"
+                bind:value={members.state.status}
+                onchange={() => void members.search()}
               >
-              <UI.RecordCell label="Bot status"
-                ><UI.StatusBadge enabled={agent.agent_enabled} /></UI.RecordCell
-              >
-              <UI.RecordCell label="Revision">{agent.revision}</UI.RecordCell>
-              <UI.RecordCell actions
-                ><UI.Button
-                  variant="outline"
-                  disabled={state.saving}
-                  onclick={() => void controller.toggleAgent(agent)}
-                  >{agent.enabled
-                    ? "Remove membership"
-                    : "Enable membership"}</UI.Button
-                ></UI.RecordCell
-              >
-            </UI.RecordRow>
-          {:else}
-            <UI.TableEmpty
-              columns={5}
-              message={agents.state.busy
-                ? "Loading bots…"
-                : "No bot memberships match your search."}
-            />
-          {/each}
-        </UI.RecordTable>
-        <UI.PaginationFooter
-          count={agents.state.items.length}
-          previous={!!agents.state.history.length}
-          next={!!agents.state.next}
-          loading={agents.state.busy}
-          onprevious={() => void agents.previous()}
-          onnext={() => void agents.next()}
-        />
-      </UI.DetailSection>
-      <UI.DetailSection title="Workspace grants">
-        <UI.Text size="small" tone="muted"
-          >Each grant gives its role to this group's enabled human members.
-          Grants apply while the group and workspace are enabled.</UI.Text
+                <UI.Option value="">All memberships</UI.Option><UI.Option
+                  value="enabled">Enabled</UI.Option
+                ><UI.Option value="disabled">Disabled</UI.Option>
+              </UI.Select>
+            {/snippet}
+          </UI.SearchToolbar>
+        {/snippet}
+        <UI.RecordList
+          label="Group members"
+          framed={false}
+          scrollable={false}
+          items={members.state.items.map((member) => ({
+            ...member,
+            id: member.principal,
+            label: member.name ?? member.alias ?? member.principal,
+          }))}
+          href={(member) =>
+            `/app/system/principals/${encodeURIComponent(member.principal)}`}
+          emptyMessage={members.state.loading
+            ? "Loading members…"
+            : members.state.error
+              ? "Members could not be loaded."
+              : "No memberships match your search."}
         >
-        <UI.Form
-          layout="row"
-          onsubmit={(event) => {
-            event.preventDefault()
-            void controller.createGrant()
-          }}
-          ><UI.Field
-            ><UI.Label for="new-group-role">New grant role</UI.Label><UI.Select
-              id="new-group-role"
-              bind:value={state.newRole}
-              disabled={state.saving}
-              ><UI.Option value="member">Member</UI.Option><UI.Option
-                value="contributor">Contributor</UI.Option
-              ><UI.Option value="manager">Manager</UI.Option></UI.Select
-            ></UI.Field
-          ><UI.Button type="submit" disabled={state.saving}>Add grant</UI.Button
-          ></UI.Form
-        >
-        {#if state.editingGrant}
-          <UI.Form
-            surface
-            onsubmit={(event) => {
-              event.preventDefault()
-              void controller.saveGrant()
-            }}
-            ><UI.FormSection title="Edit workspace grant"
-              ><UI.Identifier value={state.editingGrant.id} /><UI.Field
-                ><UI.Label for="edit-group-role">Role</UI.Label><UI.Select
-                  id="edit-group-role"
-                  bind:value={state.grantRole}
-                  disabled={state.saving}
-                  ><UI.Option value="member">Member</UI.Option><UI.Option
-                    value="contributor">Contributor</UI.Option
-                  ><UI.Option value="manager">Manager</UI.Option></UI.Select
-                ></UI.Field
-              ><UI.Label layout="choice"
-                ><UI.Checkbox
-                  bind:checked={state.grantEnabled}
-                  disabled={state.saving}
-                />Enabled</UI.Label
-              ></UI.FormSection
-            ><UI.FormActions
+          {#snippet details(member)}{member.alias
+              ? `@${member.alias}`
+              : member.principal}{/snippet}
+          {#snippet badges(member)}{#if !member.enabled}<UI.Badge
+                >Membership disabled</UI.Badge
+              >{/if}{#if !member.principal_enabled}<UI.Badge
+                >Account disabled</UI.Badge
+              >{/if}{/snippet}
+          {#snippet actions(member)}
+            <UI.ActionButton
+              size="sm"
+              variant="ghost"
+              aria-label={`${member.enabled ? "Remove" : "Enable"} membership for ${member.label}`}
+              pending={view.pendingAction === `member:${member.principal}`}
+              disabled={view.saving}
+              onclick={() => void controller.toggleMember(member)}
+              >{member.enabled ? "Remove" : "Enable"}</UI.ActionButton
+            >
+          {/snippet}
+        </UI.RecordList>
+        {#snippet footer()}
+          <UI.ActionFeedback
+            error={view.feedback.members.error || members.state.error}
+            notice={view.feedback.members.notice}
+            pending={members.state.busy ||
+              view.pendingAction.startsWith("member")}
+            label={members.state.busy
+              ? "Refreshing members…"
+              : "Saving membership…"}
+          />
+          {#if members.state.error}<UI.Row
               ><UI.Button
-                type="button"
                 variant="outline"
-                disabled={state.saving}
-                onclick={controller.cancelGrant}>Cancel</UI.Button
-              ><UI.Button
-                type="submit"
-                disabled={state.saving || state.grantConflict}
-                >Save grant</UI.Button
-              ></UI.FormActions
-            ></UI.Form
+                size="sm"
+                onclick={() => void members.retry()}>Reload members</UI.Button
+              ></UI.Row
+            >{/if}
+          <UI.PaginationFooter
+            count={members.state.items.length}
+            noun="members"
+            previous={!!members.state.history.length && !members.state.busy}
+            next={!!members.state.next && !members.state.busy}
+            onprevious={() => void members.previous()}
+            onnext={() => void members.next()}
+          />
+        {/snippet}
+      </UI.ManagementSection>
+
+      <UI.ManagementSection title="Bots" loading={agents.state.busy}>
+        {#snippet actions()}<UI.Button
+            size="sm"
+            variant="outline"
+            disabled={view.saving}
+            onclick={() => addMembership("bots")}>Add bot</UI.Button
+          >{/snippet}
+        {#snippet toolbar()}
+          <UI.SearchToolbar
+            framed={false}
+            label="Search bots"
+            placeholder="Search bots…"
+            bind:value={agents.state.search}
+            loading={agents.state.busy}
+            onsearch={() => void agents.search()}
           >
-        {/if}
-        <UI.RecordTable
-          headers={["Grant", "Role", "Status", "Revision", "Actions"]}
+            {#snippet filters()}
+              <UI.Select
+                aria-label="Bot membership status"
+                bind:value={agents.state.status}
+                onchange={() => void agents.search()}
+              >
+                <UI.Option value="">All memberships</UI.Option><UI.Option
+                  value="enabled">Enabled</UI.Option
+                ><UI.Option value="disabled">Disabled</UI.Option>
+              </UI.Select>
+            {/snippet}
+          </UI.SearchToolbar>
+        {/snippet}
+        <UI.RecordList
+          label="Group bots"
+          framed={false}
+          scrollable={false}
+          items={agents.state.items.map((agent) => ({
+            ...agent,
+            id: agent.agent,
+            label: agent.label ?? agent.alias,
+          }))}
+          href={(agent) =>
+            `/app/system/workspaces/${encodeURIComponent(workspaceID)}/agent-bindings/${encodeURIComponent(agent.agent)}`}
+          emptyMessage={agents.state.loading
+            ? "Loading bots…"
+            : agents.state.error
+              ? "Bots could not be loaded."
+              : "No bot memberships match your search."}
         >
-          {#each state.grants as grant (grant.id)}<UI.RecordRow
-              ><UI.RecordCell primary
-                ><UI.Identifier value={grant.id} /></UI.RecordCell
-              ><UI.RecordCell label="Role">{grant.role}</UI.RecordCell
-              ><UI.RecordCell label="Status"
-                ><UI.StatusBadge enabled={grant.enabled} /></UI.RecordCell
-              ><UI.RecordCell label="Revision">{grant.revision}</UI.RecordCell
-              ><UI.RecordCell actions
-                ><UI.Row
-                  ><UI.Button
-                    variant="outline"
-                    disabled={state.saving}
-                    onclick={() => controller.beginGrant(grant)}
-                    >Edit role</UI.Button
-                  ><UI.Button
-                    variant="outline"
-                    disabled={state.saving}
-                    onclick={() => void controller.toggleGrant(grant)}
-                    >{grant.enabled
-                      ? "Revoke grant"
-                      : "Enable grant"}</UI.Button
-                  ></UI.Row
-                ></UI.RecordCell
-              ></UI.RecordRow
-            >{:else}<UI.TableEmpty
-              columns={5}
-              message="No workspace grants. Add a grant to give this group's members workspace access."
-            />{/each}
-        </UI.RecordTable>
-      </UI.DetailSection>
-    {/if}
-  </UI.AdminContent>
+          {#snippet details(agent)}@{agent.alias}{/snippet}
+          {#snippet badges(agent)}{#if !agent.enabled}<UI.Badge
+                >Membership disabled</UI.Badge
+              >{/if}{#if !agent.agent_enabled}<UI.Badge>Bot disabled</UI.Badge
+              >{/if}{/snippet}
+          {#snippet actions(agent)}
+            <UI.ActionButton
+              size="sm"
+              variant="ghost"
+              aria-label={`${agent.enabled ? "Remove" : "Enable"} membership for ${agent.label}`}
+              pending={view.pendingAction === `bot:${agent.agent}`}
+              disabled={view.saving}
+              onclick={() => void controller.toggleAgent(agent)}
+              >{agent.enabled ? "Remove" : "Enable"}</UI.ActionButton
+            >
+          {/snippet}
+        </UI.RecordList>
+        {#snippet footer()}
+          <UI.ActionFeedback
+            error={view.feedback.bots.error || agents.state.error}
+            notice={view.feedback.bots.notice}
+            pending={agents.state.busy || view.pendingAction.startsWith("bot")}
+            label={agents.state.busy
+              ? "Refreshing bots…"
+              : "Saving bot membership…"}
+          />
+          {#if agents.state.error}<UI.Row
+              ><UI.Button
+                variant="outline"
+                size="sm"
+                onclick={() => void agents.retry()}>Reload bots</UI.Button
+              ></UI.Row
+            >{/if}
+          <UI.PaginationFooter
+            count={agents.state.items.length}
+            noun="bots"
+            previous={!!agents.state.history.length && !agents.state.busy}
+            next={!!agents.state.next && !agents.state.busy}
+            onprevious={() => void agents.previous()}
+            onnext={() => void agents.next()}
+          />
+        {/snippet}
+      </UI.ManagementSection>
+
+      {#snippet aside()}
+        <UI.ManagementSection
+          title="Workspace access"
+          description="Roles granted to this group's enabled human members while the group and workspace are enabled."
+        >
+          {#snippet actions()}<UI.Button
+              size="sm"
+              variant="outline"
+              disabled={view.saving}
+              onclick={addGrant}>Add grant</UI.Button
+            >{/snippet}
+          <UI.RecordList
+            label="Workspace grants"
+            framed={false}
+            scrollable={false}
+            items={view.grants.map((grant) => ({
+              ...grant,
+              label: roleLabels[grant.role],
+            }))}
+            emptyMessage="No workspace grants. Add a grant to give members workspace access."
+          >
+            {#snippet badges(grant)}<UI.StatusBadge
+                enabled={grant.enabled}
+              />{/snippet}
+            {#snippet actions(grant)}
+              <UI.Row gap="small" wrap={false}>
+                <UI.Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={view.saving}
+                  aria-label={`Edit ${grant.label.toLowerCase()} grant`}
+                  onclick={() => editGrant(grant)}>Edit</UI.Button
+                >
+                <UI.ActionButton
+                  size="sm"
+                  variant="ghost"
+                  disabled={view.saving}
+                  pending={view.pendingAction === `grant:${grant.id}`}
+                  aria-label={`${grant.enabled ? "Revoke" : "Enable"} ${grant.label.toLowerCase()} grant`}
+                  onclick={() => void controller.toggleGrant(grant)}
+                  >{grant.enabled ? "Revoke" : "Enable"}</UI.ActionButton
+                >
+              </UI.Row>
+            {/snippet}
+          </UI.RecordList>
+          {#snippet footer()}
+            <UI.ActionFeedback
+              error={view.feedback.grants.error || view.grantsLoadError}
+              notice={view.feedback.grants.notice}
+              pending={view.pendingAction.startsWith("grant")}
+              label="Saving workspace access…"
+            />
+            {#if view.grantsLoadError}<UI.Row
+                ><UI.Button
+                  variant="outline"
+                  size="sm"
+                  onclick={() => void controller.refreshGrants()}
+                  >Reload workspace access</UI.Button
+                ></UI.Row
+              >{/if}
+          {/snippet}
+        </UI.ManagementSection>
+      {/snippet}
+    </UI.ManagementLayout>
+    {#if dialog === "details"}<SystemGroupDetailsDialog
+        {controller}
+        onClose={() => (dialog = null)}
+      />
+    {:else if dialog === "members" || dialog === "bots"}<SystemGroupMembershipDialog
+        {controller}
+        {workspaceID}
+        kind={dialog}
+        onClose={() => (dialog = null)}
+      />
+    {:else if dialog === "grant-create" || dialog === "grant-edit"}<SystemGroupGrantDialog
+        {controller}
+        editing={dialog === "grant-edit"}
+        onClose={() => (dialog = null)}
+      />{/if}
+  {/if}
 </SystemWorkspaceFrame>

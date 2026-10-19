@@ -43,12 +43,14 @@ func workspaceSessionRecipients(store *database.Store, tokens *auth.BearerTokens
 		if !ok {
 			return
 		}
-		err, targets, next := store.SessionMessageTargetsSearch(r.Context(), session, database.SessionParticipantSearch{
+		err, targets, next := store.SessionMessageTargetsSearch(r.Context(), session, claims.Principal.Ref, database.SessionParticipantSearch{
 			Kind: r.URL.Query().Get("kind"), Name: name, Cursor: cursor, Limit: limit, Outside: scope == "out",
 		})
 		if err != nil {
 			if errors.Is(err, database.ErrMessageTarget) {
 				http.Error(w, err.Error(), http.StatusBadRequest)
+			} else if errors.Is(err, database.ErrSessionParticipantNotFound) || errors.Is(err, database.ErrSessionParticipantForbidden) {
+				sessionParticipantError(w, r, err)
 			} else {
 				http.Error(w, "Recipients could not be loaded.", http.StatusInternalServerError)
 			}

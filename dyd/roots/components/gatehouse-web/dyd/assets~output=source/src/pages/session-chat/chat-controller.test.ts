@@ -34,7 +34,7 @@ function tree<K extends ChatEvent["kind"]>(
         session: { id: "ses_test", workspace: { id: "wsp_test" } },
       },
       ...(kind === "agent.success"
-        ? { author_agent: { id: "wag_test", workspace: { id: "wsp_test" } } }
+        ? { author_agent: { ref: { id: "wag_test", workspace: { id: "wsp_test" } }, enabled: true } }
         : {}),
     } as ChatEventTree<K>["event"],
     children,

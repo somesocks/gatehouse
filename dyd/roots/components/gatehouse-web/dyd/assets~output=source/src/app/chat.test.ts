@@ -4,7 +4,6 @@ import {
   chatFileDownloadPath,
   decodeChatEvent,
   decodeChatEventTrees,
-  fetchChatAgents,
   fetchChatRecipients,
   fetchChatFiles,
   fetchChatEvents,
@@ -102,7 +101,6 @@ describe("chat transport", () => {
     await updateChatSession("wsp/test", "ses/test", { name: "Renamed chat" })
     await fetchChatEvents("wsp/test", "ses/test")
     await fetchChatFiles("wsp/test", "ses/test")
-    await fetchChatAgents("wsp/test")
     await sendChatMessage("wsp/test", "ses/test", {
       text: "Hello",
       agents: ["agt/test"],
@@ -137,36 +135,31 @@ describe("chat transport", () => {
     )
     expect(fetch).toHaveBeenNthCalledWith(
       5,
-      "/api/v1/workspaces/wsp%2Ftest/agents",
-      { credentials: "same-origin" },
-    )
-    expect(fetch).toHaveBeenNthCalledWith(
-      6,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/messages",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      7,
+      6,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/messages/msg%2Ftest/cancel",
       { method: "POST", credentials: "same-origin" },
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      8,
+      7,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/approvals/apr%2Ftest",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      9,
+      8,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files",
       expect.objectContaining({ method: "POST", credentials: "same-origin" }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      10,
+      9,
       "https://uploads.example.test/file",
       expect.objectContaining({ method: "PUT", body: file }),
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      11,
+      10,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files/fil%2Ftest/finish",
       { method: "POST", credentials: "same-origin" },
     )
@@ -174,7 +167,7 @@ describe("chat transport", () => {
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/files/fil%2Ftest/download",
     )
     expect(fetch).toHaveBeenNthCalledWith(
-      12,
+      11,
       "/api/v1/workspaces/wsp%2Ftest/sessions/ses%2Ftest/inputs/sev%2Ftest/open",
       { credentials: "same-origin" },
     )

@@ -8,21 +8,25 @@ import {
   type SessionParticipantPage,
 } from "../app/session-participants"
 import { createDirectoryController } from "../utils/directory-controller.svelte"
+import type { ActivityClient } from "../app/activity"
 
 export function createSessionParticipantAddController({
   onAuthenticationLost,
   onAdded,
   onPermissionsChanged,
+  activity,
 }: {
   onAuthenticationLost: () => void
   onAdded: () => Promise<void>
   onPermissionsChanged: () => void
+  activity?: ActivityClient
 }) {
   let workspace = "",
     session = ""
   let kind: ParticipantKind = "principal"
   let generation = 0
   let operation: AbortController | undefined
+  let unsubscribe: (() => void) | undefined
   const state = $state({
     open: false,
     subject: "",
@@ -53,6 +57,8 @@ export function createSessionParticipantAddController({
     generation++
     operation?.abort()
     options.stop()
+    unsubscribe?.()
+    unsubscribe = undefined
     state.open = false
     state.saving = false
   }
@@ -74,6 +80,37 @@ export function createSessionParticipantAddController({
       error: "",
     })
     void options.search()
+    const value = generation
+    unsubscribe = activity?.subscribe(
+      [
+        {
+          name: "invitation-eligibility",
+          topic: workspace,
+          events: [
+            "group.*",
+            "group_member.*",
+            "group_agent.*",
+            "workspace_agent.*",
+          ],
+        },
+        {
+          name: "invitation-permissions",
+          topic: `${workspace}/${session}`,
+          events: ["session_grant.*"],
+        },
+      ],
+      async ({ signal }) => {
+        if (!state.open || value !== generation || signal.aborted) return
+        if (
+          !(await options.reload()) &&
+          state.open &&
+          value === generation &&
+          !signal.aborted
+        )
+          throw new Error("Chat invitation options could not be refreshed.")
+      },
+    )
+    void activity?.poll()
     return close
   }
   function select(id: string) {

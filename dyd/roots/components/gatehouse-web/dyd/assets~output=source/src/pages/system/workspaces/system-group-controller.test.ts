@@ -60,6 +60,128 @@ function transport() {
 }
 
 describe("system group administration", () => {
+  it("opens a fresh details draft and only marks metadata edits dirty", async () => {
+    vi.stubGlobal("fetch", transport())
+    const { controller } = fixture()
+    await controller.load()
+    expect(controller.state.dirty).toBe(false)
+    controller.state.form.name = "Cancelled draft"
+    expect(controller.state.dirty).toBe(true)
+    controller.beginDetails()
+    expect(controller.state.form.name).toBe(group.name)
+    expect(controller.state.form.revision).toBe(group.revision)
+    expect(controller.state.dirty).toBe(false)
+    controller.state.agent = "wag_assistant"
+    controller.state.newRole = "manager"
+    expect(controller.state.dirty).toBe(false)
+    controller.stop()
+  })
+
+  it("keeps bot-add progress and success scoped to the bot section", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller } = fixture()
+    await controller.load()
+    controller.state.feedback.members.notice = "Member added."
+    controller.state.agent = "wag_assistant"
+    let finish!: (response: Response) => void
+    fetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    const pending = controller.addAgent()
+    expect(controller.state.saving).toBe(true)
+    expect(controller.state.pendingAction).toBe("bots:add")
+    expect(controller.state.feedback.details).toEqual({ error: "", notice: "" })
+    finish(new Response(null, { status: 201 }))
+    expect(await pending).toBe(true)
+    expect(controller.state.pendingAction).toBe("")
+    expect(controller.state.feedback.bots.notice).toBe("Bot added.")
+    expect(controller.state.feedback.members.notice).toBe("Member added.")
+    expect(controller.state.feedback.details.notice).toBe("")
+    controller.stop()
+  })
+
+  it("keeps failed member additions in their dialog without changing other feedback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      transport().mockResolvedValueOnce(
+        new Response("Membership already exists.", { status: 409 }),
+      ),
+    )
+    const { controller } = fixture()
+    controller.state.principal = "prn_alice"
+    expect(await controller.addMember()).toBe(false)
+    expect(controller.state.principal).toBe("prn_alice")
+    expect(controller.state.feedback.members.error).toContain("already exists")
+    expect(controller.state.feedback.bots.error).toBe("")
+    expect(controller.state.feedback.details.error).toBe("")
+    controller.stop()
+  })
+
+  it("refreshes only grants after a grant write and retains a details draft", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller } = fixture()
+    await controller.load()
+    controller.state.form.name = "Unsaved details"
+    fetch.mockClear()
+    expect(await controller.createGrant()).toBe(true)
+    expect(fetch.mock.calls.map(([path]) => String(path))).toEqual([
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/grants",
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/grants",
+    ])
+    expect(controller.state.form.name).toBe("Unsaved details")
+    expect(controller.state.form.revision).toBe(1)
+    expect(controller.state.feedback.grants.notice).toBe(
+      "Workspace grant added.",
+    )
+    controller.stop()
+  })
+
+  it("distinguishes a saved grant from a failed list refresh", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller } = fixture()
+    await controller.load()
+    fetch
+      .mockResolvedValueOnce(Response.json(grant))
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+    expect(await controller.createGrant()).toBe(true)
+    expect(controller.state.grants).toEqual([grant])
+    expect(controller.state.grantsLoadError).toContain("could not be refreshed")
+    expect(controller.state.feedback.grants.error).toBe("")
+    expect(controller.state.feedback.grants.notice).toBe(
+      "Workspace grant added.",
+    )
+    controller.stop()
+  })
+
+  it("aborts a grant refresh and ignores a late decoded result after disposal", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller } = fixture()
+    await controller.load()
+    let decode!: (body: object) => void
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () =>
+        new Promise((resolve) => {
+          decode = resolve
+        }),
+    } as Response)
+    const pending = controller.refreshGrants()
+    await vi.waitFor(() => expect(decode).toBeTypeOf("function"))
+    controller.stop()
+    expect(fetch.mock.calls.at(-1)![1]?.signal?.aborted).toBe(true)
+    decode({ grants: [] })
+    await pending
+    expect(controller.state.grants).toEqual([grant])
+  })
+
   it("routes group lists and details under system workspace administration", () => {
     for (const path of [
       "/app/system/workspaces/wsp_team/groups",

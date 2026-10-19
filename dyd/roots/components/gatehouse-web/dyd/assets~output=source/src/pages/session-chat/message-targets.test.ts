@@ -1,14 +1,11 @@
 import { describe, expect, it } from "vitest"
-import { messageTargets, readSavedTargets, recipientStorageKey, saveTargets, targetLabel } from "./message-targets"
+import { readSavedTargets, recipientStorageKey, saveTargets, targetLabel } from "./message-targets"
 import type { MessageTargetRef } from "../../app/chat"
 
 describe("message recipient history and persistence", () => {
   it("keeps send-time labels even if the current bot has been renamed", () => {
     const targets = [{ ref: { kind: "agent" as const, id: "wag_one" }, alias: "original" }]
-    const agents = [{ id: "wag_one", alias: "renamed", default: true }]
-    expect(targetLabel(messageTargets({ targets }, agents)[0])).toBe("@original")
-    expect(targetLabel(messageTargets({ agents: ["wag_one"] }, agents)[0])).toBe("@renamed")
-    expect(targetLabel(messageTargets({ agents: ["wag_removed"] }, agents)[0])).toBe("@wag_removed")
+    expect(targetLabel(targets[0])).toBe("@original")
   })
 
   it("isolates saved recipients by user and conversation and preserves an explicit clear", () => {

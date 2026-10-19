@@ -30,6 +30,7 @@
   } = $props()
   const runtime = useRuntime()
   const controller = createSessionParticipantAddController({
+    activity: runtime.activity,
     onAuthenticationLost: runtime.requireLogin,
     onAdded: () => onAdded(),
     onPermissionsChanged: () => onPermissionsChanged(),
@@ -73,7 +74,7 @@
       emptyMessage={controller.options.state.loading
         ? "Loading…"
         : controller.options.state.hasLoaded
-            ? `No matching ${participantPlural(kind)}.`
+          ? `No matching ${participantPlural(kind)}.`
           : "Options could not be loaded."}
     >
       {#snippet toolbar()}<UI.SearchToolbar

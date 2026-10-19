@@ -35,7 +35,8 @@
   import InputRequestActivity from "./InputRequestActivity.svelte"
   import RecipientPicker from "./RecipientPicker.svelte"
   import { createRecipientController } from "./recipient-controller.svelte"
-  import { messageTargets, targetKey, targetLabel } from "./message-targets"
+  import { targetKey, targetLabel } from "./message-targets"
+  import { agentLabel } from "./agent-attribution"
   import { insertedMentionStart, shouldSubmitComposerKey } from "./composer-input"
   import * as SidebarPage from "../../ui/sidebar-page"
 
@@ -278,7 +279,6 @@
     } else
       await Promise.all([
         controller.refreshEvents(),
-        controller.refreshAgents(),
         recipients.refresh(),
       ])
     if (!isCurrent(value, workspaceID, sessionID, signal)) return
@@ -345,7 +345,7 @@
         {
           name: "session-chat-agent",
           topic: workspaceID,
-          events: ["workspace_agent.*", "group.*", "group_member.*"],
+          events: ["workspace_agent.*", "group.*", "group_member.*", "group_agent.*"],
         },
         {
           name: "session-recipients",
@@ -363,7 +363,7 @@
         const refreshed = await Promise.all([
           ...(names.has("session-chat-agent") || names.has("session-recipients")
             ? [recipients.refresh(signal)] : []),
-          ...(names.has("session-chat")
+          ...(names.has("session-chat") || names.has("session-chat-agent")
             ? [
                 controller.refreshEvents(signal),
                 loadSession(
@@ -374,9 +374,6 @@
                   false,
                 ),
               ]
-            : []),
-          ...(names.has("session-chat-agent")
-            ? [controller.refreshAgents(signal)]
             : []),
         ])
         if (
@@ -392,10 +389,6 @@
 
   async function copyMarkdown(text: string): Promise<void> {
     await navigator.clipboard.writeText(text)
-  }
-  function agentLabel(id: string): string {
-    const agent = controller.state.agents.find((agent) => agent.id === id)
-    return agent?.label ?? agent?.alias ?? "Agent"
   }
   function replyDuration(tree: ChatEventTree): string {
     const replies = finalReplies(tree)
@@ -445,18 +438,18 @@
   function activityAgentLabel(tree: ChatEventTree): string {
     const request = agentRequests(tree)[0]
     if (request?.event.payload.agent !== undefined)
-      return agentLabel(request.event.payload.agent)
+      return request.event.target_agent ? agentLabel(request.event.target_agent) : request.event.payload.agent
     if (tree.event.kind === "agent.request")
-      return agentLabel(tree.event.payload.agent)
+      return tree.event.target_agent ? agentLabel(tree.event.target_agent) : tree.event.payload.agent
     const activity = activityEvents(tree).find(
       (child) => child.event.author_agent !== undefined,
     )
     if (activity?.event.author_agent !== undefined)
-      return agentLabel(activity.event.author_agent.id)
+      return agentLabel(activity.event.author_agent)
     const reply = finalReplies(tree)[0]
     return reply?.event.author_agent === undefined
       ? "Agent"
-      : agentLabel(reply.event.author_agent.id)
+      : agentLabel(reply.event.author_agent)
   }
   function approvalDescription(
     approval: ChatEventTree<"approval.request">,
@@ -631,12 +624,10 @@
             aria-live="polite"
             onscroll={() => controller.trackScroll()}
           >
-            {#if sessionLoad.state.error || controller.state.reloadError || controller.state.agentsError}<UI.Notice
+            {#if sessionLoad.state.error || controller.state.reloadError}<UI.Notice
                 variant="destructive"
                 role="alert"
-                >{sessionLoad.state.error ||
-                  controller.state.reloadError ||
-                  controller.state.agentsError}<UI.Button
+                 >{sessionLoad.state.error || controller.state.reloadError}<UI.Button
                   variant="outline"
                   onclick={() =>
                     void loadRoute(
@@ -660,11 +651,11 @@
                     align="end"
                   >
                     {#snippet header()}
-                      {tree.event.author_principal?.name ?? "User"}
+                      {tree.event.author_principal?.name ?? tree.event.author_principal?.alias ?? (tree.event.author_agent ? agentLabel(tree.event.author_agent) : "User")}
                     {/snippet}
                     {#snippet metadata()}
                       {#if tree.event.kind === "message.text"}
-                        {@const addressed = messageTargets(tree.event.payload, controller.state.agents)}
+                        {@const addressed = tree.event.payload.targets ?? []}
                         {#if addressed.length > 0}
                           <UI.Text as="p" size="small" tone="muted" aria-label="Message recipients">To: {addressed.map(targetLabel).join(", ")}</UI.Text>
                         {/if}
@@ -972,7 +963,7 @@
                         {#snippet header()}
                           {reply.event.author_agent === undefined
                             ? "Gatehouse"
-                            : agentLabel(reply.event.author_agent.id)}
+                            : agentLabel(reply.event.author_agent)}
                         {/snippet}
                         {#snippet actions()}{#if reply.event.payload.text !== ""}<UI.Button
                               variant="ghost"

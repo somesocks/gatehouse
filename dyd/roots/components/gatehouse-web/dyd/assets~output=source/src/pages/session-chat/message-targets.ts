@@ -1,4 +1,4 @@
-import type { ChatAgent, MessageTarget, MessageTargetRef } from "../../app/chat"
+import type { MessageTarget, MessageTargetRef } from "../../app/chat"
 
 export function targetKey(ref: MessageTargetRef): string {
   return `${ref.kind}:${ref.id}`
@@ -10,17 +10,6 @@ export function targetLabel(target: MessageTarget): string {
 
 export function uniqueTargets(refs: MessageTargetRef[]): MessageTargetRef[] {
   return [...new Map(refs.map((ref) => [targetKey(ref), { ...ref }])).values()]
-}
-
-export function messageTargets(
-  payload: { targets?: MessageTarget[]; agents?: string[] },
-  agents: ChatAgent[],
-): MessageTarget[] {
-  if (payload.targets !== undefined) return payload.targets
-  return (payload.agents ?? []).map((id) => {
-    const agent = agents.find((candidate) => candidate.id === id)
-    return { ref: { kind: "agent", id }, alias: agent?.alias, name: agent?.label }
-  })
 }
 
 export function recipientStorageKey(principal: string, workspace: string, session: string): string {

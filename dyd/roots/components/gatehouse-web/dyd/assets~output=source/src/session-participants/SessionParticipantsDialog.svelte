@@ -4,6 +4,7 @@
     participantName,
     participantNoun,
     participantPlural,
+    participantRoles,
     type ParticipantKind,
     type SessionParticipantGrant,
   } from "../app/session-participants"
@@ -58,8 +59,7 @@
       return
     }
     if (action !== target) return
-    const directory =
-      controller.directory(target.kind)
+    const directory = controller.directory(target.kind)
     const latest = directory.state.items
       .flatMap((item) => item.grants)
       .find((grant) => grant.id === target.grant.id)
@@ -90,8 +90,7 @@
     <UI.Tabs label="Participant type" items={tabs} bind:value={tab}>
       {#snippet children(value)}
         {@const kind = value as ParticipantKind}
-        {@const directory =
-          controller.directory(kind)}
+        {@const directory = controller.directory(kind)}
         {@const noun = participantPlural(kind)}
         <UI.Stack>
           {#if directory.state.error}<UI.Notice
@@ -139,7 +138,9 @@
                         kind,
                         grant: { ...grant },
                         name: participantName(item, kind),
-                        multiple: item.grants.length > 1,
+                        multiple:
+                          item.grants.length > 1 ||
+                          !!item.inherited_from?.length,
                       }
                     }}
                     onRemove={() => {
@@ -149,10 +150,25 @@
                         kind,
                         grant: { ...grant },
                         name: participantName(item, kind),
-                        multiple: item.grants.length > 1,
+                        multiple:
+                          item.grants.length > 1 ||
+                          !!item.inherited_from?.length,
                       }
                     }}
                   />{/each}
+                {#each item.inherited_from ?? [] as source (`${source.group}:${source.role}`)}
+                  <UI.Row justify="end" wrap={false}>
+                    <UI.Text tone="muted"
+                      >{participantRoles.find(
+                        (role) => role.value === source.role,
+                      )?.label}</UI.Text
+                    >
+                    <UI.Text size="small" tone="muted"
+                      >Via group <UI.Identifier value={source.group} /> — manage
+                      under Groups</UI.Text
+                    >
+                  </UI.Row>
+                {/each}
               </UI.Stack>
             {/snippet}
           </UI.RecordList>

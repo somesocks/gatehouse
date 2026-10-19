@@ -10,6 +10,20 @@ const message = (id: string) => ({
 })
 
 describe("conversation request ownership", () => {
+  it("loads author attribution entirely from the transcript without a bot directory request", async () => {
+    const { createChatController } = await importClientModule(new URL("./chat-controller.svelte.ts", import.meta.url))
+    const agent = { ref: { id: "wag_archived", workspace: { id: "workspace" } }, enabled: false, alias: "archived", label: "Archived assistant" }
+    const request = vi.fn(async (_path: string) => Response.json([{ event: { ...message("reply"), kind: "agent.success", payload: { text: "Historical reply" }, author_agent: agent }, children: [] }]))
+    vi.stubGlobal("fetch", request)
+    const controller = createChatController({ isNearBottom: () => true, followLatest: vi.fn(async () => {}), focusComposer: vi.fn() })
+    controller.start("workspace", "session", new AbortController().signal)
+    await vi.waitFor(() => expect(controller.state.status).toBe("ready"))
+    expect(controller.state.events[0].event.author_agent).toEqual(agent)
+    expect(request).toHaveBeenCalledTimes(1)
+    expect(request.mock.calls[0][0]).toContain("/sessions/session/events?view=transcript")
+    controller.stop()
+  })
+
   it("preserves a new draft typed during submission and prevents a duplicate send", async () => {
     const { createChatController } = await importClientModule(new URL("./chat-controller.svelte.ts", import.meta.url))
     let finish!: (response: Response) => void

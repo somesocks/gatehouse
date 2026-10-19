@@ -29,7 +29,14 @@ const developers = {
     { ...grant, id: "group-grant", principal: undefined, group: "developers" },
   ],
 }
-const assistant = { id: "assistant", alias: "assistant", enabled: true, grants: [{ ...grant, id: "bot-grant", principal: undefined, agent: "assistant" }] }
+const assistant = {
+  id: "assistant",
+  alias: "assistant",
+  enabled: true,
+  grants: [
+    { ...grant, id: "bot-grant", principal: undefined, agent: "assistant" },
+  ],
+}
 
 async function setup(canManage = true) {
   let refresh!: ActivityRefresh
@@ -50,7 +57,12 @@ async function setup(canManage = true) {
     if (!path.includes("/participants")) return Response.json({ id: "chat" })
     const kind = new URL(path, "http://localhost").searchParams.get("kind")
     return Response.json({
-      participants: kind === "group" ? [developers] : kind === "agent" ? [assistant] : [alice],
+      participants:
+        kind === "group"
+          ? [developers]
+          : kind === "agent"
+            ? [assistant]
+            : [alice],
       can_manage_participants: canManage,
     })
   })
@@ -78,6 +90,27 @@ async function setup(canManage = true) {
 }
 
 describe("chat participant lifecycle", () => {
+  it("keeps inherited participation outside the editable bot grants", async () => {
+    const { controller, request } = await setup()
+    const inherited = {
+      ...assistant,
+      grants: [],
+      inherited_from: [{ group: "developers", role: "contributor" }],
+    }
+    request.mockImplementation(async (path: string) => {
+      const kind = new URL(path, "http://localhost").searchParams.get("kind")
+      return Response.json({
+        participants: kind === "agent" ? [inherited] : [],
+        can_manage_participants: true,
+      })
+    })
+    await controller.open()
+    expect(controller.state.canManage).toBe(true)
+    expect(controller.bots.state.items).toEqual([inherited])
+    expect(controller.bots.state.items.flatMap((bot) => bot.grants)).toEqual([])
+    controller.stop()
+  })
+
   it("loads explicit people, groups, and bots lazily and prevents read-only mutations", async () => {
     const { controller, request } = await setup(false)
     expect(request).not.toHaveBeenCalled()
@@ -214,7 +247,12 @@ describe("chat participant lifecycle", () => {
         }),
         expect.objectContaining({
           topic: "workspace",
-          events: ["group.*", "group_member.*", "workspace_agent.*"],
+          events: [
+            "group.*",
+            "group_member.*",
+            "group_agent.*",
+            "workspace_agent.*",
+          ],
         }),
       ]),
     )

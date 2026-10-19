@@ -11,12 +11,17 @@ export type SessionParticipantGrant = {
   enabled: boolean
   revision: number
 }
+export type SessionParticipantGroupSource = {
+  group: string
+  role: ParticipantRole
+}
 export type SessionParticipant = {
   id: string
   alias?: string
   name?: string
   enabled: boolean
   grants: SessionParticipantGrant[]
+  inherited_from?: SessionParticipantGroupSource[]
 }
 export type SessionParticipantPage = {
   participants: SessionParticipant[]
@@ -32,11 +37,7 @@ export function participantName(
   item: SessionParticipant,
   kind: ParticipantKind,
 ) {
-  return (
-    item.name ??
-    item.alias ??
-    `Unnamed ${participantNoun(kind)}`
-  )
+  return item.name ?? item.alias ?? `Unnamed ${participantNoun(kind)}`
 }
 export function participantNoun(kind: ParticipantKind): string {
   return kind === "principal" ? "person" : kind === "agent" ? "bot" : "group"

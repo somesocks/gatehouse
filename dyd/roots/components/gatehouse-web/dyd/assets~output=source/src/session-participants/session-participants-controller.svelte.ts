@@ -106,7 +106,12 @@ export function createSessionParticipantsController({
         {
           name: "chat-participant-groups",
           topic: workspace,
-          events: ["group.*", "group_member.*", "workspace_agent.*"],
+          events: [
+            "group.*",
+            "group_member.*",
+            "group_agent.*",
+            "workspace_agent.*",
+          ],
         },
       ],
       async ({ signal }) => {
@@ -121,12 +126,16 @@ export function createSessionParticipantsController({
   async function open() {
     state.open = true
     state.error = ""
-    await Promise.all(Object.values(directories).map((directory) => directory.retry()))
+    await Promise.all(
+      Object.values(directories).map((directory) => directory.retry()),
+    )
   }
   async function reload() {
-    return (await Promise.all(Object.values(directories).map((directory) => directory.reload()))).every(
-      Boolean,
-    )
+    return (
+      await Promise.all(
+        Object.values(directories).map((directory) => directory.reload()),
+      )
+    ).every(Boolean)
   }
   async function reconcile(signal: AbortSignal): Promise<boolean> {
     const value = generation

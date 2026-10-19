@@ -9,6 +9,7 @@
     id,
     enabled,
     actions,
+    metadata,
     compact = false,
   }: {
     title: string
@@ -17,12 +18,15 @@
     id?: string
     enabled?: boolean
     actions?: Snippet
+    metadata?: Snippet
     compact?: boolean
   } = $props()
 </script>
 
 <header
-  class={compact ? "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between" : "flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between"}
+  class={compact
+    ? "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+    : "flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-start sm:justify-between"}
 >
   <div class="min-w-0 flex-1 space-y-2">
     {#if kind}<p
@@ -32,7 +36,9 @@
       </p>{/if}
     <div class="flex flex-wrap items-center gap-3">
       <h1
-        class={compact ? "text-lg font-semibold [overflow-wrap:anywhere]" : "text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]"}
+        class={compact
+          ? "text-lg font-semibold [overflow-wrap:anywhere]"
+          : "text-2xl font-semibold tracking-tight [overflow-wrap:anywhere]"}
       >
         {title}
       </h1>
@@ -42,6 +48,7 @@
         {description}
       </p>{/if}
     {#if id}<Identifier value={id} />{/if}
+    {@render metadata?.()}
   </div>
   {#if actions}<div class="flex shrink-0 items-center gap-2">
       {@render actions()}

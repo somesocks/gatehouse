@@ -88,7 +88,7 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "test", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"done"}`, ResultInlineBytes: cutoff, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "test", Alias: "test", Revision: 1, ModelAlias: "test", Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "test", Alias: "test", Revision: 1, ModelAlias: "test", Default: true, Enabled: true}},
 	}
 	if endpoint != "" {
 		region, bucket, access := "us-east-1", "results", "test-access"

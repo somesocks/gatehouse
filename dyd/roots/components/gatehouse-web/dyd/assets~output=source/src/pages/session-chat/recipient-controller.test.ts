@@ -1,8 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 import { clientCode, importClientModule } from "../../testing/client-module"
 import { recipientStorageKey } from "./message-targets"
 
 afterEach(() => vi.unstubAllGlobals())
+
+// Cold-compiling the real rune module belongs to setup rather than the first
+// behavior test's timeout budget when the full suite is running concurrently.
+beforeAll(async () => {
+  await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
+}, 15000)
 
 function environment() {
   const saved = new Map<string, string>()

@@ -36,6 +36,16 @@ func TestSessionParticipantAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
+	contactsAlias := "chat-contacts"
+	err, contacts := store.SystemGroupCreate(ctx, workspace.Id, database.SystemGroupInput{Alias: &contactsAlias})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, principal := range []string{alice.Id, bob} {
+		if err := store.SystemGroupMemberCreate(ctx, workspace.Id, contacts.ID, principal); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil {
 		t.Fatal(err)
 	}

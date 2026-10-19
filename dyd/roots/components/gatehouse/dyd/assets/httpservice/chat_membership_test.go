@@ -40,6 +40,9 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
+	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, groupID(t, ctx, store, "engineering", "developers"), bob); err != nil {
+		t.Fatal(err)
+	}
 	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
 		t.Fatal(err)
 	}

@@ -75,14 +75,14 @@ func SessionMessageTargets(event model.SessionEvent) ([]model.MessageTarget, err
 
 // messageTargetSource uses the same eligibility rules for lookup and send-time
 // validation, including people whose access comes through a conversation group.
-func (store *Store) messageTargetSource(kind string, outside ...bool) (string, error) {
+func (store *Store) messageTargetSource(kind string, outside bool, actor string) (string, error) {
 	p := store.sessionParticipantPlaceholder
-	workspace := len(outside) > 0 && outside[0]
-	filter := store.messageTargetMembershipSQL(kind, "subjects.id")
-	if workspace {
-		filter = "TRUE"
-		if kind == "principal" {
-			filter = sessionWorkspacePrincipalEligibleSQL(p(1), "subjects.id")
+	filter := store.messageTargetMembershipSQL(kind, "subjects.id", p(1), p(2))
+	if outside {
+		var err error
+		filter, err = chatInvitationEligibilitySQL(kind, p(1), actor, "subjects.id")
+		if err != nil {
+			return "", err
 		}
 	}
 	switch kind {
@@ -141,7 +141,7 @@ func (store *Store) sessionMessageTargetsSnapshot(ctx context.Context, tx *sql.T
 	}
 	for _, index := range order {
 		target := targets[index]
-		query, err := store.messageTargetSource(target.Ref.Kind)
+		query, err := store.messageTargetSource(target.Ref.Kind, false, "")
 		if err != nil {
 			return err
 		}
@@ -155,11 +155,11 @@ func (store *Store) sessionMessageTargetsSnapshot(ctx context.Context, tx *sql.T
 			if !allowed {
 				return ErrSessionParticipantForbidden
 			}
-			query, err = store.messageTargetSource(target.Ref.Kind, true)
+			query, err = store.messageTargetSource(target.Ref.Kind, true, store.sessionParticipantPlaceholder(4))
 			if err != nil {
 				return err
 			}
-			targets[index], err = scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+store.sessionParticipantPlaceholder(3), event.Ref.Session.Workspace.Id, event.Ref.Session.Id, target.Ref.Id), target.Ref.Kind)
+			targets[index], err = scanMessageTarget(tx.QueryRowContext(ctx, query+` AND subjects.id = `+store.sessionParticipantPlaceholder(3), event.Ref.Session.Workspace.Id, event.Ref.Session.Id, target.Ref.Id, event.AuthorPrincipal.Ref.Id), target.Ref.Kind)
 			if err != nil {
 				return err
 			}
@@ -177,18 +177,30 @@ func (store *Store) sessionMessageTargetsSnapshot(ctx context.Context, tx *sql.T
 	return nil
 }
 
-func (store *Store) SessionMessageTargetsSearch(ctx context.Context, session model.SessionRef, search SessionParticipantSearch) (error, []model.MessageTarget, string) {
+func (store *Store) SessionMessageTargetsSearch(ctx context.Context, session model.SessionRef, actor model.PrincipalRef, search SessionParticipantSearch) (error, []model.MessageTarget, string) {
 	kind := messageTargetIDKind(search.Kind)
 	if kind == "" || search.Limit < 1 || search.Limit > 100 || len(strings.TrimSpace(search.Name)) > 256 || (search.Cursor != "" && !typed_id.Valid(kind, search.Cursor)) {
 		return ErrMessageTarget, nil, ""
 	}
-	query, err := store.messageTargetSource(search.Kind, search.Outside)
+	if err, available := store.SessionGet(ctx, session, actor); err != nil {
+		return err, nil, ""
+	} else if available == nil {
+		return ErrSessionParticipantNotFound, nil, ""
+	}
+	if search.Outside {
+		if err, roles := store.SessionRolesGet(ctx, session, actor); err != nil {
+			return err, nil, ""
+		} else if !authz.SessionAllows(roles, authz.SessionGrantManage) {
+			return ErrSessionParticipantForbidden, nil, ""
+		}
+	}
+	p := store.sessionParticipantPlaceholder
+	query, err := store.messageTargetSource(search.Kind, search.Outside, p(6))
 	if err != nil {
 		return err, nil, ""
 	}
-	p := store.sessionParticipantPlaceholder
 	if search.Outside {
-		query += ` AND NOT ` + store.messageTargetMembershipSQL(search.Kind, "subjects.id")
+		query += ` AND NOT ` + store.messageTargetMembershipSQL(search.Kind, "subjects.id", p(1), p(2))
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(strings.TrimSpace(search.Name)) + "%"
 	nameColumn := "subjects.name"
@@ -197,7 +209,11 @@ func (store *Store) SessionMessageTargetsSearch(ctx context.Context, session mod
 	}
 	query += ` AND (LOWER(COALESCE(subjects.alias, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\' OR LOWER(COALESCE(` + nameColumn + `, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\')
 		AND (` + p(4) + ` = '' OR subjects.id < ` + p(4) + `) ORDER BY subjects.id DESC LIMIT ` + p(5)
-	rows, err := store.QueryContext(ctx, query, session.Workspace.Id, session.Id, pattern, search.Cursor, search.Limit+1)
+	args := []any{session.Workspace.Id, session.Id, pattern, search.Cursor, search.Limit + 1}
+	if search.Outside {
+		args = append(args, actor.Id)
+	}
+	rows, err := store.QueryContext(ctx, query, args...)
 	if err != nil {
 		return err, nil, ""
 	}

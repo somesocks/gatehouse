@@ -804,7 +804,7 @@ func workspaceAgents(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		if !ok {
 			return
 		}
-		err, agents := store.WorkspaceAgentsGet(request.Context(), workspace)
+		err, agents := store.WorkspaceAgentsGet(request.Context(), workspace, claims.Principal.Ref)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -3572,7 +3572,12 @@ func workspaceSessionEvents(store *database.Store, tokens *auth.BearerTokens) ht
 		}
 		trees := sessionEventTrees(entries)
 		if view == "transcript" {
-			err, encoded := transcriptEventTrees(trees)
+			err, agents := store.SessionEventAgentsGet(request.Context(), session, hydrated)
+			if err != nil {
+				http.Error(response, "internal server error", http.StatusInternalServerError)
+				return
+			}
+			err, encoded := transcriptEventTrees(trees, agents)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
 				return

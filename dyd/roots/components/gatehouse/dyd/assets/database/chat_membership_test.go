@@ -73,10 +73,10 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 	state := config.State{
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}, {Alias: "other", Enabled: true}},
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}, {Alias: "carol", Enabled: true}},
-		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Members: []config.GroupMember{{PrincipalID: "bob", Enabled: true}}}, {WorkspaceID: "other", Alias: "other-team", Enabled: true}},
+		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "bob", Enabled: true}}}, {WorkspaceID: "engineering", Alias: "contacts", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "carol", Enabled: true}}}, {WorkspaceID: "other", Alias: "other-team", Enabled: true}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
-		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Enabled: true}},
+		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -130,11 +130,11 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 		return err
 	}
 	botRef := model.MessageTargetRef{Kind: "agent", Id: bot}
-	err, current, _ := store.SessionMessageTargetsSearch(ctx, session, database.SessionParticipantSearch{Kind: "agent", Limit: 50})
+	err, current, _ := store.SessionMessageTargetsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "agent", Limit: 50})
 	if err != nil || len(current) != 0 {
 		t.Fatalf("nonparticipant bot in chat lookup: %#v %v", current, err)
 	}
-	err, outside, _ := store.SessionMessageTargetsSearch(ctx, session, database.SessionParticipantSearch{Kind: "agent", Outside: true, Limit: 50})
+	err, outside, _ := store.SessionMessageTargetsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "agent", Outside: true, Limit: 50})
 	if err != nil || len(outside) != 1 {
 		t.Fatalf("outside bot lookup: %#v %v", outside, err)
 	}
@@ -174,7 +174,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 	if err := send(bob, []model.MessageTargetRef{botRef}, false); err != nil {
 		t.Fatalf("participant could not address joined bot: %v", err)
 	}
-	err, roster, _ := store.SessionParticipantsSearch(ctx, session, database.SessionParticipantSearch{Kind: "agent", Limit: 50}, false)
+	err, roster, _ := store.SessionParticipantsSearch(ctx, session, alice, database.SessionParticipantSearch{Kind: "agent", Limit: 50}, false)
 	if err != nil || len(roster) != 1 || roster[0].Grants[0].Agent == nil {
 		t.Fatalf("bot roster: %#v %v", roster, err)
 	}
@@ -261,7 +261,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 						t.Fatalf("existing direct grant changed: %s %d %t", role, revision, enabled)
 					}
 				}
-				err, groups, _ := store.SessionParticipantsSearch(ctx, chat, database.SessionParticipantSearch{Kind: "group", Limit: 50}, false)
+				err, groups, _ := store.SessionParticipantsSearch(ctx, chat, alice, database.SessionParticipantSearch{Kind: "group", Limit: 50}, false)
 				if err != nil || len(groups) != 1 {
 					t.Fatalf("group grant: %#v %v", groups, err)
 				}
