@@ -38,7 +38,8 @@ export function readSavedTargets(storage: Pick<Storage, "getItem">, key: string)
       const { kind, id } = ref as Record<string, unknown>
       return ["agent", "principal", "group"].includes(String(kind)) && typeof id === "string" && id !== ""
     })) return null
-    return uniqueTargets(saved.targets)
+    // The removed direct-mode fallback could persist this synthetic bot target.
+    return uniqueTargets(saved.targets).filter((ref) => ref.kind !== "agent" || ref.id !== "unavailable-default")
   } catch {
     return null
   }

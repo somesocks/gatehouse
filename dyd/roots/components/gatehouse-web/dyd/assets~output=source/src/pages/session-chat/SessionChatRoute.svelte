@@ -274,8 +274,7 @@
       controller.start(workspaceID, sessionID, signal)
       const principalID = auth.state.claims?.principal.ref.id
       if (principalID)
-        recipients.start(principalID, workspaceID, sessionID, signal,
-          currentRoute.mode === "direct" ? currentRoute.agent : undefined)
+        recipients.start(principalID, workspaceID, sessionID, signal)
     } else
       await Promise.all([
         controller.refreshEvents(),

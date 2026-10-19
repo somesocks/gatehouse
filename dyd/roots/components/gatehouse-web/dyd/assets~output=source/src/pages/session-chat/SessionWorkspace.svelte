@@ -28,8 +28,6 @@
             kind: "session-chat",
             workspaceID: currentRoute.workspaceID,
             sessionID: currentRoute.sessionID,
-            mode: "group",
-            agent: null,
           },
   )
   $effect.pre(() => {

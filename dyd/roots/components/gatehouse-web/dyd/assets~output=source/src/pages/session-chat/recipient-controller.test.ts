@@ -17,7 +17,7 @@ function environment() {
   ]
   const request = vi.fn(async (path: string) => {
     const url = new URL(path, "https://gatehouse.test")
-    if (url.pathname.endsWith("/agents")) return Response.json([{ id: "wag_one", alias: "assistant", default: true }])
+    if (url.pathname.endsWith("/agents")) throw new Error("Recipient initialization must not look up workspace defaults")
     return Response.json({ targets: options.filter((target) => target.ref.kind === url.searchParams.get("kind")) })
   })
   vi.stubGlobal("fetch", request)
@@ -25,6 +25,21 @@ function environment() {
 }
 
 describe("sticky conversation recipients", () => {
+  it("starts without selected recipients and only looks up chat recipient options", async () => {
+    const { options, request } = environment()
+    const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
+    const controller = createRecipientController()
+    controller.start("alice", "workspace", "chat", new AbortController().signal)
+    expect(controller.state.targets).toEqual([])
+    expect(controller.canSend).toBe(true)
+    await vi.waitFor(() => expect(controller.state.ready).toBe(true))
+    expect(controller.state.options).toEqual(expect.arrayContaining(options))
+    expect(controller.state.targets).toEqual([])
+    expect(request.mock.calls).toHaveLength(3)
+    expect(request.mock.calls.every(([path]) => new URL(path, "https://gatehouse.test").pathname.endsWith("/recipients"))).toBe(true)
+    controller.stop()
+  })
+
   it("reactively unlocks Send when the controller starts after its first disabled render", async () => {
     const { options } = environment()
     const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
@@ -172,16 +187,14 @@ describe("sticky conversation recipients", () => {
     controller.stop()
   })
 
-  it("allows clearing recipients during lookup failure without silently bypassing an unresolved default target", async () => {
-    const { options, request } = environment()
+  it("allows clearing recipients while lookup is pending and after it fails", async () => {
+    const { saved, options, request } = environment()
+    saved.set(recipientStorageKey("alice", "workspace", "chat"), JSON.stringify({ version: 1, targets: [options[0].ref] }))
     let finish!: (response: Response) => void
-    request.mockImplementation(async (path: string) => {
-      if (path.endsWith("/agents")) return new Promise((resolve) => { finish = resolve })
-      return Response.json({ targets: options.filter((target) => target.ref.kind === new URL(path, "https://gatehouse.test").searchParams.get("kind")) })
-    })
+    request.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
     const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
     const controller = createRecipientController()
-    controller.start("alice", "workspace", "chat", new AbortController().signal, null)
+    controller.start("alice", "workspace", "chat", new AbortController().signal)
     expect(controller.canSend).toBe(false)
     controller.select([])
     expect(controller.canSend).toBe(true)
@@ -254,20 +267,20 @@ describe("sticky conversation recipients", () => {
     expect(controller.canSend).toBe(false)
     controller.stop()
   })
-  it("restores personal selections, preserves clears over legacy defaults, and marks missing targets unavailable", async () => {
+  it("restores personal selections, preserves explicit clears, and marks missing targets unavailable", async () => {
     const { saved, options } = environment()
     const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
     const controller = createRecipientController()
     const signal = new AbortController().signal
-    controller.start("alice", "workspace", "chat", signal, null)
+    controller.start("alice", "workspace", "chat", signal)
     await vi.waitFor(() => expect(controller.state.ready).toBe(true))
-    expect(controller.state.targets).toEqual([options[0].ref])
+    expect(controller.state.targets).toEqual([])
     controller.select(options.map((target) => target.ref))
     controller.start("alice", "workspace", "chat", signal)
     await vi.waitFor(() => expect(controller.canSend).toBe(true))
     expect(controller.state.targets).toEqual(options.map((target) => target.ref))
     controller.select([])
-    controller.start("alice", "workspace", "chat", signal, "wag_one")
+    controller.start("alice", "workspace", "chat", signal)
     await vi.waitFor(() => expect(controller.state.ready).toBe(true))
     expect(controller.state.targets).toEqual([])
     controller.start("bob", "workspace", "chat", signal)

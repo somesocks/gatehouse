@@ -20,8 +20,6 @@ export function sessionToolBack(route: SessionWorkspaceRoute): {
     kind: "session-chat",
     workspaceID: route.workspaceID,
     sessionID: route.sessionID,
-    mode: "group",
-    agent: null,
   })
   switch (route.kind) {
     case "session-note-edit":

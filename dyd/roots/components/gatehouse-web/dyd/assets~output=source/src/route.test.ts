@@ -210,8 +210,6 @@ describe("routes", () => {
         kind: "session-chat",
         workspaceID: "wsp_a",
         sessionID: "ses_a",
-        mode: "group",
-        agent: null,
       },
     },
     {
@@ -220,9 +218,8 @@ describe("routes", () => {
         kind: "session-chat",
         workspaceID: "wsp_a",
         sessionID: "ses_a",
-        mode: "direct",
-        agent: "wag_a",
       },
+      canonical: "/app/wsp/wsp_a/ses/ses_a",
     },
     {
       path: "/app/wsp/wsp_a/ses/ses_a/files",
@@ -472,6 +469,12 @@ describe("routes", () => {
       expect(routePath(entry.route)).toBe(entry.canonical ?? entry.path)
     })
   }
+
+  it.each(["?mode=direct", "?agent=wag_a", "?mode=group&agent=wag_a"])("ignores retired chat delivery parameters %s", (query) => {
+    const route = parseRoute(url(`/app/wsp/wsp_a/ses/ses_a${query}`))
+    expect(route).toEqual({ kind: "session-chat", workspaceID: "wsp_a", sessionID: "ses_a" })
+    expect(routePath(route)).toBe("/app/wsp/wsp_a/ses/ses_a")
+  })
 
   it("redirects legacy binding collections to workspace selection", () => {
     expect(

@@ -24,6 +24,18 @@ describe("message recipient history and persistence", () => {
     expect(readSavedTargets(storage, key)).toEqual([])
   })
 
+  it("discards the retired default placeholder while preserving real saved recipients", () => {
+    const placeholder = { kind: "agent", id: "unavailable-default" }
+    const target = { kind: "agent" as const, id: "wag_one" }
+    for (const { targets, expected } of [
+      { targets: [placeholder], expected: [] },
+      { targets: [placeholder, target], expected: [target] },
+    ]) {
+      const storage = { getItem: () => JSON.stringify({ version: 1, targets }) }
+      expect(readSavedTargets(storage, "key")).toEqual(expected)
+    }
+  })
+
   it("ignores malformed or unsupported persisted data and tolerates denied storage", () => {
     for (const value of ["broken", "null", '{"version":2,"targets":[]}', '{"version":1,"targets":[{"kind":"unknown","id":"one"}]}'])
       expect(readSavedTargets({ getItem: () => value }, "key")).toBeNull()
