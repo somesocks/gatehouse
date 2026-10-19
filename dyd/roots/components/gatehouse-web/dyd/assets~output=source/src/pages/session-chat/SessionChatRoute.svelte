@@ -36,6 +36,7 @@
   import RecipientPicker from "./RecipientPicker.svelte"
   import { createRecipientController } from "./recipient-controller.svelte"
   import { messageTargets, targetKey, targetLabel } from "./message-targets"
+  import { insertedMentionStart, shouldSubmitComposerKey } from "./composer-input"
   import * as SidebarPage from "../../ui/sidebar-page"
 
   import type { Route } from "../../route"
@@ -83,7 +84,6 @@
   let fileInputElement = $state<HTMLInputElement | undefined>()
   let mentionOpen = $state(false)
   let mentionStart = -1
-  let pendingMentionStart: number | undefined
   let generation = 0
   let startedSessionKey = ""
   let abortController: AbortController | null = null
@@ -158,7 +158,8 @@
       isNearBottom,
       followLatest,
       focusComposer: () => {
-        if (runtime.state.route.kind === "session-chat") messageInputElement?.focus()
+        if (runtime.state.route.kind === "session-chat" && !mentionOpen && document.activeElement === messageInputElement)
+          messageInputElement?.focus({ preventScroll: true })
       },
     }),
   )
@@ -224,7 +225,6 @@
     recipients.stop()
     mentionOpen = false
     mentionStart = -1
-    pendingMentionStart = undefined
     session = null
     if (
       auth.state.status === "authenticated" &&
@@ -471,28 +471,19 @@
       `Run ${task.event.kind === "tool.request" ? (task.event.payload.name ?? "tool") : "tool"}`
     )
   }
-  function handleMentionKeydown(event: KeyboardEvent): void {
-    if (
-      event.key !== "@" ||
-      event.isComposing ||
-      messageInputElement === undefined
-    )
-      return
-    pendingMentionStart = messageInputElement.selectionStart
-  }
-  function openMentionAfterInput(): void {
-    if (pendingMentionStart === undefined) return
-    mentionStart = pendingMentionStart
-    pendingMentionStart = undefined
+  function openMentionAfterInput(event: Event, data: string | null, composing = false): void {
+    if (mentionOpen || !(event.currentTarget instanceof HTMLTextAreaElement)) return
+    const input = event.currentTarget
+    const start = insertedMentionStart(input.value, input.selectionStart, data, composing)
+    if (start === undefined) return
+    mentionStart = start
     mentionOpen = true
     void recipients.refresh()
   }
   function focusComposer(cursor?: number): void {
-    void tick().then(() => {
-      messageInputElement?.focus({ preventScroll: true })
-      if (cursor !== undefined)
-        messageInputElement?.setSelectionRange(cursor, cursor)
-    })
+    messageInputElement?.focus({ preventScroll: true })
+    if (cursor !== undefined)
+      messageInputElement?.setSelectionRange(cursor, cursor)
   }
   function selectRecipient(ref: MessageTargetRef | null): void {
     recipients.select(ref === null ? [] : [...recipients.state.targets, ref])
@@ -1052,8 +1043,9 @@
           </UI.Feed>
         {/if}
       </SidebarPage.Body>
-      {#if session !== null}<SidebarPage.Footer
+      {#if session !== null}<SidebarPage.Footer compact
           ><UI.InputBar
+            overlayOpen={mentionOpen}
             data-pending={controller.state.sendingMessage || undefined}
             aria-busy={controller.state.sendingMessage}
             autocomplete="off"
@@ -1063,7 +1055,7 @@
             }}
           >
             {#if recipients.state.targets.length > 0}
-              <UI.Row gap="small" aria-label="Message recipients">
+              <UI.InputBarAttachments label="Message recipients">
                 <UI.InlineButton type="button" disabled={controller.state.sendingMessage} onclick={openRecipients}>To:</UI.InlineButton>
                 {#each recipients.state.targets as ref (targetKey(ref))}
                   <UI.InputRecipient
@@ -1075,7 +1067,7 @@
                     onremove={() => recipients.select(recipients.state.targets.filter((target) => targetKey(target) !== targetKey(ref)))}
                   />
                 {/each}
-              </UI.Row>
+              </UI.InputBarAttachments>
             {/if}
             {#if recipients.state.error || (recipients.state.outsideError && recipients.state.targets.some((ref) => !recipients.inChat(ref)))}
               <UI.Row><UI.Text as="p" size="small" role="alert">{recipients.state.error || recipients.state.outsideError}</UI.Text>
@@ -1107,28 +1099,32 @@
                 {/each}
               </UI.InputBarAttachments>
             {/if}
-            <UI.Textarea
+            {#snippet input()}
+              <UI.Textarea
               mode="composer"
               id="message"
-              rows={3}
+              rows={1}
+              enterkeyhint="enter"
               autocomplete="off"
               placeholder="Write a message"
               aria-describedby={controller.state.messageError !== "" ? "message-error" : undefined}
               bind:ref={messageInputElement}
               bind:value={controller.state.messageText}
-              disabled={controller.state.sendingMessage}
               onkeydown={(event) => {
-                handleMentionKeydown(event)
-                if (event.isComposing) return
-                if (event.key === "Enter" && !event.shiftKey) {
+                const mobile = window.matchMedia("(max-width: 767px), (pointer: coarse)").matches
+                if (shouldSubmitComposerKey(event, mobile)) {
                   event.preventDefault()
                   void sendMessage()
                 }
               }}
-              oninput={openMentionAfterInput}
+              oninput={(event) => {
+                if (event instanceof InputEvent)
+                  openMentionAfterInput(event, event.data, event.isComposing)
+              }}
+              oncompositionend={(event) => openMentionAfterInput(event, event.data)}
             />
-            <UI.Row wrap={false} align="center" justify="between" gap="small">
-              <UI.Row wrap={false} gap="small">
+            {/snippet}
+            {#snippet leading()}
                 <UI.Button
                   variant="ghost"
                   size="icon"
@@ -1157,7 +1153,8 @@
                     aria-hidden="true"
                   /></UI.Button
                 >
-              </UI.Row>
+            {/snippet}
+            {#snippet trailing()}
               <UI.Button
                 variant="default"
                 size="icon"
@@ -1174,7 +1171,8 @@
                   <Send size={20} strokeWidth={2.25} aria-hidden="true" />
                 {/if}</UI.Button
               >
-            </UI.Row>
+            {/snippet}
+            {#snippet feedback()}
             {#if controller.state.messageError !== ""}<UI.Text
                 id="message-error"
                 as="p"
@@ -1184,6 +1182,7 @@
               >
                 {controller.state.messageError}
               </UI.Text>{/if}
+            {/snippet}
             <RecipientPicker
               bind:open={mentionOpen}
               inChat={recipients.state.inChat}

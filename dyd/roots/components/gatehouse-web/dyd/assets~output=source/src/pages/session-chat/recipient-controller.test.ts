@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { importClientModule } from "../../testing/client-module"
+import { clientCode, importClientModule } from "../../testing/client-module"
 import { recipientStorageKey } from "./message-targets"
 
 afterEach(() => vi.unstubAllGlobals())
@@ -25,6 +25,100 @@ function environment() {
 }
 
 describe("sticky conversation recipients", () => {
+  it("reactively unlocks Send when the controller starts after its first disabled render", async () => {
+    const { options } = environment()
+    const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
+    const code = clientCode(`
+      import { flushSync } from "svelte";
+      export { flushSync };
+      export function observe(controller) {
+        const draft = $state({ text: "", sending: false });
+        const disabled = [];
+        const dispose = $effect.root(() => {
+          $effect(() => {
+            disabled.push(draft.sending || !controller.canSend || draft.text.trim() === "");
+          });
+        });
+        return { draft, disabled, dispose };
+      }
+    `)
+    const { observe, flushSync } = await import(
+      /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(code).toString("base64")}`
+    )
+    const controller = createRecipientController()
+    const binding = observe(controller)
+    try {
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(true)
+      controller.start("alice", "workspace", "chat", new AbortController().signal)
+      binding.draft.text = "Hello"
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(false)
+      await vi.waitFor(() => expect(controller.state.ready).toBe(true))
+      controller.select([{ kind: "principal", id: "prn_unknown" }])
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(true)
+      controller.select([options[0].ref])
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(false)
+      binding.draft.sending = true
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(true)
+      binding.draft.sending = false
+      binding.draft.text = ""
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(true)
+      binding.draft.text = "Follow-up"
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(false)
+      controller.stop()
+      flushSync()
+      expect(binding.disabled.at(-1)).toBe(true)
+    } finally {
+      binding.dispose()
+      controller.stop()
+    }
+  })
+
+  it("keeps a validated target sendable during background refresh and rejects it if the refreshed directory removes it", async () => {
+    const { options, request } = environment()
+    let delayed = false
+    let removed = false
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => { finish = resolve })
+    request.mockImplementation(async (path: string) => {
+      const url = new URL(path, "https://gatehouse.test")
+      const outside = url.searchParams.get("scope") === "out"
+      if (outside && delayed) await pending
+      const source = outside ? options.slice(1).filter((target) => !removed || target.ref.id !== options[1].ref.id) : options.slice(0, 1)
+      return Response.json({ targets: source.filter((target) => target.ref.kind === url.searchParams.get("kind")), can_manage_participants: true })
+    })
+    const { createRecipientController } = await importClientModule(new URL("./recipient-controller.svelte.ts", import.meta.url))
+    const controller = createRecipientController()
+    controller.start("alice", "workspace", "chat", new AbortController().signal)
+    await vi.waitFor(() => expect(controller.state.outsideReady).toBe(true))
+    controller.select([options[1].ref])
+    expect(controller.canSend).toBe(true)
+    delayed = true
+    request.mockClear()
+    const refreshing = controller.refresh()
+    await vi.waitFor(() => expect(request.mock.calls.some(([path]) => path.includes("scope=out"))).toBe(true))
+    expect(controller.state.outsideReady).toBe(true)
+    expect(controller.canSend).toBe(true)
+    controller.select([{ kind: "principal", id: "prn_unknown" }])
+    expect(controller.canSend).toBe(false)
+    controller.select([options[1].ref])
+    expect(controller.canSend).toBe(true)
+    removed = true
+    finish()
+    expect(await refreshing).toBe(true)
+    expect(controller.state.targets).toEqual([options[1].ref])
+    expect(controller.available(options[1].ref)).toBe(false)
+    expect(controller.canSend).toBe(false)
+    controller.stop()
+    expect(controller.state.outsideReady).toBe(false)
+  })
+
   it("keeps ordinary messages sendable while outside lookup is pending or failing", async () => {
     const { options, request } = environment()
     let phase: "pending" | "failed" | "healthy" = "pending"

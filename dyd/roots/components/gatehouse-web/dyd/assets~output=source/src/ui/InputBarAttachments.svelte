@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte"
-  let { children }: { children: Snippet } = $props()
+  let { children, label = "Selected files" }: { children: Snippet; label?: string } = $props()
 </script>
 
 <div
   role="group"
-  aria-label="Selected files"
-  class="flex max-h-32 min-w-0 flex-wrap gap-2 overflow-y-auto overscroll-contain p-1"
+  aria-label={label}
+  class="flex max-h-32 min-w-0 items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-contain p-1 [&>*]:shrink-0 md:flex-wrap md:overflow-y-auto"
 >
   {@render children()}
 </div>

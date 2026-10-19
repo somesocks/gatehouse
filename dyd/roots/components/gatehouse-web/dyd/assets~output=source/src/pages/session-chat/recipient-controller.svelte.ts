@@ -15,8 +15,8 @@ export function createRecipientController() {
   })
   let generation = 0
   let request: AbortController | undefined
-  let context: { workspace: string; session: string; key: string; signal: AbortSignal } | undefined
-  let seed: string | null | undefined
+  let context = $state<{ workspace: string; session: string; key: string; signal: AbortSignal }>()
+  let seed = $state<string | null>()
   let revision = 0
 
   function storage(): Storage | undefined {
@@ -66,7 +66,6 @@ export function createRecipientController() {
     request?.abort()
     request = new AbortController()
     const combined = AbortSignal.any([signal, request.signal, ...(parent ? [parent] : [])])
-    state.outsideReady = false
     state.outsideError = ""
     try {
       const kinds = ["agent", "principal", "group"] as const
@@ -104,6 +103,7 @@ export function createRecipientController() {
         state.outsideReady = true
       } catch {
         if (value !== generation || combined.aborted) return false
+        state.outsideReady = false
         state.outsideError = "Recipients outside this chat could not be loaded. Try again."
       }
       return true

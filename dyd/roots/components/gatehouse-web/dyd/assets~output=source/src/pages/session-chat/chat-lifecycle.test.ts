@@ -10,6 +10,33 @@ const message = (id: string) => ({
 })
 
 describe("conversation request ownership", () => {
+  it("preserves a new draft typed during submission and prevents a duplicate send", async () => {
+    const { createChatController } = await importClientModule(new URL("./chat-controller.svelte.ts", import.meta.url))
+    let finish!: (response: Response) => void
+    const submitted: unknown[] = []
+    const request = vi.fn(async (path: string, init?: RequestInit) => {
+      if (!path.endsWith("/messages")) return Response.json([])
+      submitted.push(JSON.parse(String(init?.body)))
+      return new Promise<Response>((resolve) => { finish = resolve })
+    })
+    vi.stubGlobal("fetch", request)
+    const controller = createChatController({ isNearBottom: () => true, followLatest: vi.fn(async () => {}), focusComposer: vi.fn() })
+    controller.start("workspace", "session", new AbortController().signal)
+    await vi.waitFor(() => expect(controller.state.status).toBe("ready"))
+    controller.state.messageText = "First message"
+    const sending = controller.sendMessage()
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"))
+    controller.state.messageText = "Next message\nStill editing"
+    await controller.sendMessage()
+    expect(submitted).toEqual([{ text: "First message", targets: [] }])
+    expect(controller.state.sendingMessage).toBe(true)
+    finish(Response.json({ ...message("sent"), payload: { text: "First message" } }))
+    await sending
+    expect(controller.state.messageText).toBe("Next message\nStill editing")
+    expect(controller.state.sendingMessage).toBe(false)
+    controller.stop()
+  })
+
   it("sends a stable mixed target set on successive messages without interpreting text as delivery", async () => {
     const { createChatController } = await importClientModule(new URL("./chat-controller.svelte.ts", import.meta.url))
     const sent: unknown[] = []
