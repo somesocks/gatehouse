@@ -9,7 +9,7 @@ function createRuntime(systemAccess: "available" | "denied") {
         systemAccess,
         workspaces: [
           { id: "wsp_one", name: "Workspace One" },
-          { id: "wsp_two", name: "Workspace Two" },
+          { id: "wsp/two", name: "Workspace Two" },
         ],
       },
     },
@@ -42,8 +42,7 @@ describe("sidebar navigation", () => {
       "groups",
     ]);
     expect(navigation.workspaceSwitcher?.administration?.active).toBe(false);
-    navigation.workspaceSwitcher?.administration?.onSelect();
-    expect(runtime.navigate).toHaveBeenCalledWith("/app/system");
+    expect(navigation.workspaceSwitcher?.administration?.href).toBe("/app/system");
   });
 
   it("adds the workspace selector to system navigation", () => {
@@ -60,8 +59,9 @@ describe("sidebar navigation", () => {
       navigation.sections[0]?.items.some((item) => item.icon === "workspaces"),
     ).toBe(true);
 
-    navigation.workspaceSwitcher?.onSelect("wsp/two");
-    expect(runtime.navigate).toHaveBeenCalledWith("/app/wsp/wsp%2Ftwo");
+    expect(navigation.workspaceSwitcher?.workspaces[1]?.href).toBe(
+      "/app/wsp/wsp%2Ftwo",
+    );
   });
 
   it("omits the system destination without system access", () => {

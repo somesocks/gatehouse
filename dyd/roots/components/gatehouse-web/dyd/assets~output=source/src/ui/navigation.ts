@@ -38,8 +38,7 @@ export type NavigationSection = {
 export type WorkspaceSwitcherOptions = {
   currentID: string | null;
   currentName: string;
-  workspaces: { id: string; name: string }[];
-  onSelect: (workspaceID: string) => void;
-  administration?: { active: boolean; onSelect: () => void };
+  workspaces: { id: string; name: string; href: string }[];
+  administration?: { active: boolean; href: string };
 };
 export type BreadcrumbItem = { label: string; href?: string };

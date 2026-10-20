@@ -8,13 +8,13 @@
   import * as Menu from "./dropdown-menu"
   import DropdownTrigger from "../lib/vendor/shadcn/dropdown-menu/dropdown-menu-trigger.svelte"
   import * as Sidebar from "../lib/vendor/shadcn/sidebar"
+  import RouterLink from "./RouterLink.svelte"
   import type { WorkspaceSwitcherOptions } from "./navigation"
 
   let {
     currentID,
     currentName,
     workspaces,
-    onSelect,
     administration,
   }: WorkspaceSwitcherOptions = $props()
 </script>
@@ -50,23 +50,31 @@
       </DropdownTrigger>
       <Menu.Content align="start">
         {#each workspaces as workspace (workspace.id)}
-          <Menu.Item onSelect={() => onSelect(workspace.id)}>
-            <span class="min-w-0 flex-1 truncate">{workspace.name}</span>
-            {#if workspace.id === currentID}<Check
-                size={16}
-                aria-hidden="true"
-              />{/if}
+          <Menu.Item>
+            {#snippet child({ props })}
+              <RouterLink {...props} href={workspace.href} variant="navigation">
+                <span class="min-w-0 flex-1 truncate">{workspace.name}</span>
+                {#if workspace.id === currentID}<Check
+                    size={16}
+                    aria-hidden="true"
+                  />{/if}
+              </RouterLink>
+            {/snippet}
           </Menu.Item>
         {/each}
         {#if administration}
           <Menu.Separator />
-          <Menu.Item onSelect={administration.onSelect}>
-            <Settings2 size={16} aria-hidden="true" />
-            <span class="min-w-0 flex-1 truncate">System administration</span>
-            {#if administration.active}<Check
-                size={16}
-                aria-hidden="true"
-              />{/if}
+          <Menu.Item>
+            {#snippet child({ props })}
+              <RouterLink {...props} href={administration.href} variant="navigation">
+                <Settings2 size={16} aria-hidden="true" />
+                <span class="min-w-0 flex-1 truncate">System administration</span>
+                {#if administration.active}<Check
+                    size={16}
+                    aria-hidden="true"
+                  />{/if}
+              </RouterLink>
+            {/snippet}
           </Menu.Item>
         {/if}
       </Menu.Content>

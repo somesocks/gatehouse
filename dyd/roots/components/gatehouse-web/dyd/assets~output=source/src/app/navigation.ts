@@ -16,14 +16,13 @@ function workspaceSwitcher(
     workspaces: runtime.access.state.workspaces.map((item) => ({
       id: item.id,
       name: item.name ?? "Workspace",
+      href: `/app/wsp/${encodeURIComponent(item.id)}`,
     })),
-    onSelect: (workspaceID: string) =>
-      runtime.navigate(`/app/wsp/${encodeURIComponent(workspaceID)}`),
     administration:
       runtime.access.state.systemAccess === "available"
         ? {
             active: administrationActive,
-            onSelect: () => runtime.navigate("/app/system"),
+            href: "/app/system",
           }
         : undefined,
   };
