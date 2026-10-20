@@ -25,7 +25,7 @@ config: |-
           revision: 1
           enabled: true
         - role: contributor
-          group: operators
+          principal: alice
           revision: 2
           enabled: true
       agents:

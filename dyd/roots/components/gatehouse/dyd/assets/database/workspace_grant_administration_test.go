@@ -21,21 +21,17 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 	defer store.Close()
 	principalAlias, groupAlias := "alice", "developers"
 	state := config.State{
-		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}, {Alias: "other", Enabled: true}},
-		Principals:      []config.Principal{{Alias: principalAlias, Enabled: true}},
-		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: groupAlias, Enabled: true}},
-		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "engineering", GroupID: &groupAlias, Role: "manager", Revision: 1, Enabled: true}},
+		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}, {Alias: "other", Enabled: true}},
+		Principals: []config.Principal{{Alias: principalAlias, Enabled: true}},
+		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: groupAlias, Enabled: true}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
 	otherWorkspace := workspaceRef(t, ctx, store, "other")
-	var principal, groupGrantID, groupID string
+	var principal string
 	if err := store.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&principal); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.QueryRow(`SELECT id, "group" FROM gatehouse_workspace_grants WHERE workspace = ? AND "group" IS NOT NULL`, workspace.Id).Scan(&groupGrantID, &groupID); err != nil {
 		t.Fatal(err)
 	}
 	err, member := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Member)
@@ -47,7 +43,7 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, updated := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Contributor, member.Revision)
-	if err != nil || updated == nil || updated.ID != member.ID || updated.Workspace != workspace.Id || updated.Principal == nil || *updated.Principal != principal || updated.Group != nil || !updated.Enabled || updated.Role != authz.Contributor || updated.Revision != 2 {
+	if err != nil || updated == nil || updated.ID != member.ID || updated.Workspace != workspace.Id || updated.Principal == nil || *updated.Principal != principal || !updated.Enabled || updated.Role != authz.Contributor || updated.Revision != 2 {
 		t.Fatalf("role update = (%#v, %v)", updated, err)
 	}
 	err, page, _ := store.SystemWorkspacePrincipalsSearch(ctx, database.SystemWorkspacePrincipalSearch{WorkspaceID: workspace.Id, Limit: 1})
@@ -96,11 +92,6 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 	err, disabledGrant := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, manager.ID, authz.Member, 2)
 	if err != nil || disabledGrant == nil || disabledGrant.ID != manager.ID || disabledGrant.Enabled || disabledGrant.Role != authz.Member || disabledGrant.Revision != 3 {
 		t.Fatalf("disabled grant update = (%#v, %v)", disabledGrant, err)
-	}
-	// The grant-level operation also preserves group recipients.
-	err, groupGrant := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, groupGrantID, authz.Contributor, 1)
-	if err != nil || groupGrant == nil || groupGrant.ID != groupGrantID || groupGrant.Principal != nil || groupGrant.Group == nil || *groupGrant.Group != groupID || groupGrant.Role != authz.Contributor || groupGrant.Revision != 2 {
-		t.Fatalf("group grant update = (%#v, %v)", groupGrant, err)
 	}
 }
 

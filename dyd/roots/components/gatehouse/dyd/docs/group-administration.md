@@ -12,17 +12,34 @@ Edits retain the group's `grp_…` ID and therefore its memberships and grants.
 
 ## Members
 
-Add existing principals using the principal picker. A membership has no role;
+Add already-admitted workspace principals using the workspace-scoped picker.
+An enabled direct workspace grant is required to add or restore a human
+membership. A membership has no role;
 roles belong to grants. **Remove membership** disables that membership while
 retaining its identity. Use **Enable membership** to restore it. Adding an
 already-present membership, including a disabled one, returns a conflict.
 
-## Workspace grants
+## Workspace admission
 
-Each workspace grant gives one role—Member, Contributor, or Manager—to the
-group's enabled human members. Create grants, edit their roles, or revoke/re-enable
-them individually. Revocation disables a grant; it does not delete it. Another
-grant for the same group and role, even disabled, is a duplicate.
+Workspace membership and roles are assigned directly to principals. Groups
+organize people and bots within a workspace; they never admit people or assign
+workspace roles. A direct workspace grant is required for all chat and project
+access, including resources with retained direct or group grants. Removing the
+last enabled workspace grant suspends that access without deleting resource
+grants or group memberships. Restoring admission makes retained paths effective
+again.
+Issued upload/download capabilities carry their principal and workspace, and
+the storage proxy rechecks admission on each transfer request. Background replies
+and generated chat titles also revalidate the requesting human before publishing.
+
+Migration V063 preserves currently effective group-derived workspace roles as
+direct principal grants, deduplicating overlapping paths and preserving existing
+direct grant identities. Disabled access paths do not acquire admission. Legacy
+group workspace grants are disabled and immutable; they remain solely because
+activity history references their identities. New group workspace grants and
+restoration of retired grants are prohibited by the database and administration.
+The default root bootstrap also preserves prior revocation or role downgrades;
+its new direct Manager default cannot silently restore old authority.
 
 Disabling a group suspends all access inherited through it, including access to
 projects and chats. Re-enabling it restores access through enabled memberships
@@ -63,11 +80,10 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
 - `POST /groups/{group}/agents` accepts `{"agent":"wag_…"}`.
 - `PATCH /groups/{group}/agents/{agent}` accepts `enabled` and
   `expected_revision`, returning `204` on success.
-- `GET /groups/{group}/grants` returns all of the group's workspace `grants`,
-  including disabled ones. There can be at most one per role.
-- `POST /groups/{group}/grants` accepts `{"role":"contributor"}`.
-- `PATCH /grants/{grant}` accepts `role` and/or `enabled`, plus
-  `expected_revision`. Omitted fields are preserved.
+- `GET /groups/{group}/member-options` searches enabled, directly admitted
+  workspace principals and returns `principals` and optional `next_cursor`.
+- Group workspace-grant endpoints have been removed. Workspace role changes
+  are performed through direct principal grants.
 
 Groups and membership changes use revisions, as grants already do. Changes and
 activity recording are atomic. Stale revisions and duplicate aliases,
@@ -85,6 +101,9 @@ Each config declaration has an optional positive `revision`, defaulting to `1`:
 ```yaml
 workspaces:
   - alias: engineering
+    grants:
+      - principal: alice
+        role: contributor
     groups:
       - alias: developers
         name: Developers
@@ -132,3 +151,11 @@ transaction. It briefly blocks writes to the group and membership tables while
 resolving identities and applying changes; ordinary reads remain available.
 Memberships and activity records therefore use the actual group identity even
 if an admin created or renamed a group after the migration SQL was prepared.
+
+Human memberships reconcile after direct workspace grants (R016 after R007).
+The default root principal is admitted directly. Default configuration does not
+synthesize a root group or membership; groups are created explicitly. Workspace grants
+must name a `principal`; the former `group` recipient is no longer accepted.
+When upgrading an existing configuration, remove group-targeted workspace-grant
+declarations; V063 preserves the access already effective in the database. Use
+explicit principal grants for subsequent configuration-managed role changes.

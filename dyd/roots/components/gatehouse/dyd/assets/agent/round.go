@@ -179,6 +179,11 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 		} else if !active {
 			return model.SessionEventRef{}, fmt.Errorf("bot is not a participant in this chat")
 		}
+		if err, authorized := runtime.store.SessionRequestAuthorizedGetInTransaction(step, tx, root.Ref); err != nil {
+			return model.SessionEventRef{}, err
+		} else if !authorized {
+			return model.SessionEventRef{}, fmt.Errorf("requesting principal is no longer authorized")
+		}
 		round, _, err := agentRoundHistory(input, selected.Ref, get)
 		if err != nil {
 			return model.SessionEventRef{}, err

@@ -51,7 +51,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ring.Close()
-	err, registry := migrations.Build(databaseConfig, state, ring)
+	err, registry := migrations.Build(databaseConfig, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}

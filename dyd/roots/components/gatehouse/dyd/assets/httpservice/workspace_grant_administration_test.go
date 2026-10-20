@@ -67,7 +67,7 @@ func TestSystemWorkspaceGrantRoleAPI(t *testing.T) {
 	request("PATCH", strings.Replace(path, grant.ID, "wgr_00000000000000000000000000", 1), body, admin, 404)
 	response := request("PATCH", path, body, admin, 200)
 	var updated database.SystemWorkspaceGrant
-	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil || updated.ID != grant.ID || updated.Principal == nil || *updated.Principal != bob || updated.Group != nil || updated.Role != authz.Contributor || updated.Revision != 2 || !updated.Enabled {
+	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil || updated.ID != grant.ID || updated.Principal == nil || *updated.Principal != bob || updated.Role != authz.Contributor || updated.Revision != 2 || !updated.Enabled {
 		t.Fatalf("updated grant = (%#v, %v)", updated, err)
 	}
 	request("PATCH", path, body, admin, 409)

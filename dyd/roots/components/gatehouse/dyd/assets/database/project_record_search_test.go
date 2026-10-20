@@ -20,7 +20,7 @@ func TestRecordSearchUsesVisibleValuesAndReferences(t *testing.T) {
 	}
 	defer store.Close()
 	state := config.State{Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}}, Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}}, StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}}, WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}}}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")

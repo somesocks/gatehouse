@@ -1,5 +1,7 @@
 # Chat discovery, invitations, and group participation
 
+Workspace admission requires an enabled direct principal workspace grant. Group
+membership and direct chat/project grants cannot substitute for admission.
 Workspace-facing chat invitations require both chat-manager access and an
 enabled relationship to the invitation target:
 

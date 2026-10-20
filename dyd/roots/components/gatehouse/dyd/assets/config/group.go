@@ -32,15 +32,6 @@ type GroupAgent struct {
 
 func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 	if document.Workspaces == nil {
-		if document.Principals == nil {
-			return nil, []Group{{
-				WorkspaceID: defaultWorkspaceAlias,
-				Alias:       "root",
-				Enabled:     true,
-				Revision:    1,
-				Members:     []GroupMember{{PrincipalID: defaultPrincipalAlias, Enabled: true, Revision: 1}},
-			}}
-		}
 		return nil, nil
 	}
 

@@ -166,7 +166,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/members/{principal}", systemGroupMember(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents", systemGroupAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents/{agent}", systemGroupAgent(store, tokens[0]))
-		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/grants", systemGroupGrants(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/member-options", systemGroupMemberOptions(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{binding}", systemWorkspaceAgent(store, tokens[0]))
@@ -237,7 +237,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/finish", workspaceSessionFileFinish(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}/download", workspaceSessionFileDownload(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/files/{file}", workspaceSessionFile(store, tokens[0]))
-		mux.HandleFunc("/api/v1/storage", storageProxy(tokens[0]))
+		mux.HandleFunc("/api/v1/storage", storageProxy(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages/{event}/cancel", workspaceSessionMessageCancel(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/messages", workspaceSessionMessages(store, tokens[0], dispatcher))
 	}
@@ -776,7 +776,9 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 			return
 		}
 		pages, ok := collectionPageParameters(response, request, typed_id.Group)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -967,7 +969,9 @@ func workspaceProjectRecordSchemas(store *database.Store, tokens *auth.BearerTok
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.ProjectRecordSchema)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, schemas := store.ProjectRecordSchemasGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1095,7 +1099,9 @@ func workspaceProjectRecordAttributes(store *database.Store, tokens *auth.Bearer
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.ProjectRecordAttribute)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, attributes := store.ProjectRecordAttributesGet(request.Context(), schema.Ref, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1215,7 +1221,10 @@ func workspaceProjectRecords(store *database.Store, tokens *auth.BearerTokens) h
 				return
 			}
 			name := strings.TrimSpace(request.URL.Query().Get("name"))
-			if len(name) > 256 { http.Error(response, "invalid record search", http.StatusBadRequest); return }
+			if len(name) > 256 {
+				http.Error(response, "invalid record search", http.StatusBadRequest)
+				return
+			}
 			err, cards := store.ProjectRecordCardsGet(request.Context(), schema.Ref, claims.Principal.Ref, limit, cursor, name)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -1903,7 +1912,9 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 		}
 		if request.Method == http.MethodGet {
 			pages, ok := collectionPageParameters(response, request, typed_id.SessionFile)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			author := request.URL.Query().Get("author")
 			if author != "" && author != "principal" && author != "agent" && author != "all" {
 				http.Error(response, "invalid file author filter", http.StatusBadRequest)
@@ -1947,7 +1958,7 @@ func workspaceSessionFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute)
+		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute, claims.Principal.Ref, stored.Ref.Session.Workspace)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -2008,7 +2019,7 @@ func workspaceSessionFileDownload(store *database.Store, tokens *auth.BearerToke
 			http.Error(response, "storage object is not ready", http.StatusConflict)
 			return
 		}
-		err, token := storageToken(request.Context(), tokens, object.ID, "get", 5*time.Minute)
+		err, token := storageToken(request.Context(), tokens, object.ID, "get", 5*time.Minute, claims.Principal.Ref, file.Ref.Session.Workspace)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -2088,7 +2099,9 @@ func workspaceProjectFiles(store *database.Store, tokens *auth.BearerTokens) htt
 			return
 		}
 		pages, ok := collectionPageParameters(response, request, typed_id.ProjectFile)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		err, files := store.ProjectFilesGet(request.Context(), project, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2124,7 +2137,9 @@ func workspaceProjectNotes(store *database.Store, tokens *auth.BearerTokens) htt
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.ProjectNote)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, notes := store.ProjectNotesGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2266,7 +2281,9 @@ func workspaceProjectTasks(store *database.Store, tokens *auth.BearerTokens) htt
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.ProjectTask)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, tasks := store.ProjectTasksGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2404,10 +2421,18 @@ func workspaceProjectNoteRevisions(store *database.Store, tokens *auth.BearerTok
 			return
 		}
 		pages, ok := collectionPageParameters(response, request, "")
-		if !ok { return }
+		if !ok {
+			return
+		}
 		err, current := store.ProjectNoteGet(request.Context(), note, claims.Principal.Ref)
-		if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
-		if current == nil { http.NotFound(response, request); return }
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
 		err, revisions := store.ProjectNoteRevisionsGet(request.Context(), note, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2467,7 +2492,9 @@ func workspaceProjectSecrets(store *database.Store, tokens *auth.BearerTokens) h
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.ProjectSecret)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, secrets := store.ProjectSecretsGet(request.Context(), project, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2607,7 +2634,9 @@ func workspaceSessionNotes(store *database.Store, tokens *auth.BearerTokens) htt
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.SessionNote)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, notes := store.SessionNotesGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2749,7 +2778,9 @@ func workspaceSessionTasks(store *database.Store, tokens *auth.BearerTokens) htt
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.SessionTask)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, tasks := store.SessionTasksGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2887,10 +2918,18 @@ func workspaceSessionNoteRevisions(store *database.Store, tokens *auth.BearerTok
 			return
 		}
 		pages, ok := collectionPageParameters(response, request, "")
-		if !ok { return }
+		if !ok {
+			return
+		}
 		err, current := store.SessionNoteGet(request.Context(), note, claims.Principal.Ref)
-		if err != nil { http.Error(response, "internal server error", http.StatusInternalServerError); return }
-		if current == nil { http.NotFound(response, request); return }
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if current == nil {
+			http.NotFound(response, request)
+			return
+		}
 		err, revisions := store.SessionNoteRevisionsGet(request.Context(), note, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -2950,7 +2989,9 @@ func workspaceSessionSecrets(store *database.Store, tokens *auth.BearerTokens) h
 		switch request.Method {
 		case http.MethodGet:
 			pages, ok := collectionPageParameters(response, request, typed_id.SessionSecret)
-			if !ok { return }
+			if !ok {
+				return
+			}
 			err, secrets := store.SessionSecretsGet(request.Context(), session, claims.Principal.Ref, pages...)
 			if err != nil {
 				http.Error(response, "internal server error", http.StatusInternalServerError)
@@ -3121,7 +3162,7 @@ func workspaceProjectFileStart(store *database.Store, tokens *auth.BearerTokens)
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute)
+		err, token := storageToken(request.Context(), tokens, objectID, "put", 15*time.Minute, claims.Principal.Ref, stored.Ref.Project.Workspace)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
@@ -3265,7 +3306,7 @@ func workspaceProjectFile(store *database.Store, tokens *auth.BearerTokens) http
 	}
 }
 
-func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
+func storageProxy(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	objects := tokens.StorageClient()
 	return func(response http.ResponseWriter, request *http.Request) {
 		encoded := request.URL.Query().Get("token")
@@ -3275,6 +3316,17 @@ func storageProxy(tokens *auth.BearerTokens) http.HandlerFunc {
 		}
 		err, token := tokens.AuthenticateStorageToken(request.Context(), encoded)
 		if err != nil || !validStorageToken(token) {
+			http.NotFound(response, request)
+			return
+		}
+		// A pre-issued capability is not an alternative admission path. Check the
+		// sealed issuing principal and workspace again on every transfer request.
+		err, admitted := store.WorkspaceAdmissionGet(request.Context(), token.Workspace, token.Principal)
+		if err != nil {
+			http.Error(response, "internal server error", http.StatusInternalServerError)
+			return
+		}
+		if !admitted {
 			http.NotFound(response, request)
 			return
 		}
@@ -4438,9 +4490,9 @@ func authorizedSessionFile(response http.ResponseWriter, request *http.Request, 
 	return stored, object, true
 }
 
-func storageToken(ctx context.Context, tokens *auth.BearerTokens, id, action string, lifetime time.Duration) (error, string) {
+func storageToken(ctx context.Context, tokens *auth.BearerTokens, id, action string, lifetime time.Duration, principal model.PrincipalRef, workspace model.WorkspaceRef) (error, string) {
 	expiresAt := time.Now().UTC().Add(lifetime).Truncate(time.Millisecond).Format("2006-01-02T15:04:05.000Z")
-	return tokens.MintStorageToken(ctx, auth.StorageToken{ID: id, Action: action, ExpiresAt: expiresAt})
+	return tokens.MintStorageToken(ctx, auth.StorageToken{ID: id, Action: action, ExpiresAt: expiresAt, Principal: principal, Workspace: workspace})
 }
 
 func validStorageToken(token auth.StorageToken) bool {

@@ -101,7 +101,7 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 			{WorkspaceID: "test", ProviderAlias: "local", Revision: 1, Priority: 1, Enabled: true},
 		}
 	}
-	err, set := migrations.Build(configuration, state, ring)
+	err, set := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}

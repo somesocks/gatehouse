@@ -252,6 +252,7 @@ describe("chat participant lifecycle", () => {
             "group_member.*",
             "group_agent.*",
             "workspace_agent.*",
+            "workspace_grant.*",
           ],
         }),
       ]),

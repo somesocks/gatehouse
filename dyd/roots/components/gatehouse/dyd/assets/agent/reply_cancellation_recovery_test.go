@@ -39,7 +39,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer ring.Close()
-	err, migrationsSet := migrations.Build(configuration, state, ring)
+	err, migrationsSet := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}

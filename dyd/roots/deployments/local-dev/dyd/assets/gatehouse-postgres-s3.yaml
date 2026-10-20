@@ -105,7 +105,7 @@ workspaces:
           - principal: root
     grants:
       - role: manager
-        group: admins
+        principal: root
 services:
   http:
     listen: 0.0.0.0:4283

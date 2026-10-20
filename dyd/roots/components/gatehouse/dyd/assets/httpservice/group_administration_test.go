@@ -137,19 +137,8 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	request("GET", agentsPath+"?status=invalid", "", admin, 400)
 	request("GET", agentsPath+"?cursor="+bob, "", admin, 400)
 	request("DELETE", botPath, "", admin, 405)
-	request("POST", path+"/grants", `{"role":"owner"}`, admin, 400)
-	request("POST", path+"/grants", `{"role":"member"}`, ordinary, 403)
-	grantResponse := request("POST", path+"/grants", `{"role":"member"}`, admin, 201)
-	var grant database.SystemWorkspaceGrant
-	if err := json.Unmarshal(grantResponse.Body.Bytes(), &grant); err != nil || grant.Group == nil || *grant.Group != group.ID || grant.Principal != nil {
-		t.Fatalf("group grant = %#v %v", grant, err)
-	}
-	grantPath := "/api/v1/system/workspaces/" + workspace.Id + "/grants/" + grant.ID
-	request("PATCH", grantPath, `{"enabled":false,"expected_revision":1}`, admin, 200)
-	request("POST", path+"/grants", `{"role":"member"}`, admin, 409)
-	request("PATCH", grantPath, `{"enabled":true,"role":"contributor","expected_revision":2}`, admin, 200)
-	request("PATCH", grantPath, `{"enabled":false,"expected_revision":2}`, admin, 409)
-	request("GET", path+"/grants", "", admin, 200)
+	request("POST", path+"/grants", `{"role":"member"}`, admin, 404)
+	request("GET", path+"/grants", "", admin, 404)
 	for i := 0; i < 3; i++ {
 		request("POST", base, fmt.Sprintf(`{"alias":"page-%d","enabled":false}`, i), admin, 201)
 	}
@@ -178,4 +167,68 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	}
 	request("GET", base+"?status=invalid", "", admin, 400)
 	request("GET", base+"?cursor="+bob, "", admin, 400)
+}
+
+func TestGroupMemberOptionsRequireCurrentWorkspaceAdmission(t *testing.T) {
+	tokens, store, workspaces := testBearerTokens(t)
+	ctx := context.Background()
+	alice, identity := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
+	err, token := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: alice, Enabled: true}, Identity: identity})
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaces["private"]
+	alias := "admission-test"
+	err, group := store.SystemGroupCreate(ctx, workspace.Id, database.SystemGroupInput{Alias: &alias})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bob string
+	if err := store.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob); err != nil {
+		t.Fatal(err)
+	}
+	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	base := "/api/v1/system/workspaces/" + workspace.Id + "/groups/" + group.ID
+	request := func(method, suffix, body string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, base+suffix, strings.NewReader(body))
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != status {
+			t.Fatalf("%s %s: %d %s", method, suffix, w.Code, w.Body.String())
+		}
+		return w
+	}
+	options := func(want int) {
+		t.Helper()
+		var page struct {
+			Principals []database.SystemWorkspacePrincipalOption `json:"principals"`
+		}
+		if err := json.Unmarshal(request("GET", "/member-options?name=bob&limit=1", "", 200).Body.Bytes(), &page); err != nil || len(page.Principals) != want {
+			t.Fatalf("options: %#v %v", page, err)
+		}
+		if want == 1 && page.Principals[0].ID != bob {
+			t.Fatalf("wrong workspace principal: %#v", page)
+		}
+	}
+	options(0)
+	request("POST", "/members", `{"principal":"`+bob+`"}`, 400)
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+		t.Fatal(err)
+	}
+	options(1)
+	request("POST", "/members", `{"principal":"`+bob+`"}`, 201)
+	if err, removed := store.SystemWorkspacePrincipalGrantsRemove(ctx, workspace.Id, bob); err != nil || !removed {
+		t.Fatalf("revoke admission: %t %v", removed, err)
+	}
+	options(0)
+	request("PATCH", "/members/"+bob, `{"enabled":false,"expected_revision":1}`, 204)
+	request("PATCH", "/members/"+bob, `{"enabled":true,"expected_revision":2}`, 400)
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+		t.Fatal(err)
+	}
+	options(1)
+	request("PATCH", "/members/"+bob, `{"enabled":true,"expected_revision":2}`, 204)
+	request("POST", "/grants", `{"role":"manager"}`, 404)
 }

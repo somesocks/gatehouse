@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"gatehouse/auth"
-	"gatehouse/authz"
 	"gatehouse/database"
 )
 
@@ -213,38 +212,27 @@ func systemGroupMember(store *database.Store, tokens *auth.BearerTokens) http.Ha
 	}
 }
 
-func systemGroupGrants(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+func systemGroupMemberOptions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		if r.Method != http.MethodGet {
 			w.WriteHeader(405)
 			return
 		}
 		if !systemGroupScope(w, r, store, tokens, true) {
 			return
 		}
-		workspace, group := r.PathValue("workspace"), r.PathValue("group")
-		if r.Method == http.MethodGet {
-			err, grants := store.SystemGroupGrantsGet(r.Context(), workspace, group)
-			if err != nil {
-				groupAdminError(w, r, err)
-				return
-			}
-			writeJSON(w, struct {
-				Grants []database.SystemWorkspaceGrant `json:"grants"`
-			}{grants})
+		name, cursor, limit, ok := catalogSearchParameters(w, r)
+		if !ok {
 			return
 		}
-		var input struct {
-			Role string `json:"role"`
-		}
-		if !principalDecode(w, r, &input) {
-			return
-		}
-		err, grant := store.SystemGroupGrantCreate(r.Context(), workspace, group, authz.Role(input.Role))
+		err, people, next := store.SystemWorkspacePrincipalOptionsSearch(r.Context(), database.SystemWorkspacePrincipalSearch{WorkspaceID: r.PathValue("workspace"), Name: name, Cursor: cursor, Limit: limit, AdmittedOnly: true})
 		if err != nil {
 			groupAdminError(w, r, err)
 			return
 		}
-		writeJSONStatus(w, http.StatusCreated, grant)
+		writeJSON(w, struct {
+			Principals []database.SystemWorkspacePrincipalOption `json:"principals"`
+			Next       string                                    `json:"next_cursor,omitempty"`
+		}{people, next})
 	}
 }

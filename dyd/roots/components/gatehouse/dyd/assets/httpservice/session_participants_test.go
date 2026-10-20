@@ -36,6 +36,9 @@ func TestSessionParticipantAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil {
+		t.Fatal(err)
+	}
 	contactsAlias := "chat-contacts"
 	err, contacts := store.SystemGroupCreate(ctx, workspace.Id, database.SystemGroupInput{Alias: &contactsAlias})
 	if err != nil {
@@ -45,9 +48,6 @@ func TestSessionParticipantAPI(t *testing.T) {
 		if err := store.SystemGroupMemberCreate(ctx, workspace.Id, contacts.ID, principal); err != nil {
 			t.Fatal(err)
 		}
-	}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil {
-		t.Fatal(err)
 	}
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
 	request := func(method, path, body, token string, status int) *httptest.ResponseRecorder {

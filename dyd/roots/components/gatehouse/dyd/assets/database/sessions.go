@@ -105,6 +105,9 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 }
 
 func (store *Store) SessionRolesGet(ctx context.Context, session model.SessionRef, principal model.PrincipalRef) (error, []authz.Role) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, session.Workspace, principal); err != nil || !admitted {
+		return err, []authz.Role{}
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
 		WITH input AS (
@@ -246,6 +249,7 @@ func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session m
 		JOIN gatehouse_principals AS principals ON principals.id = grants.principal
 		WHERE grants.workspace = `+placeholder(1)+` AND grants.session = `+placeholder(2)+`
 			AND grants.principal IS NOT NULL AND grants.enabled = TRUE AND principals.enabled = TRUE
+			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "principals.id")+`
 
 		UNION
 
@@ -258,6 +262,7 @@ func (store *Store) sessionProjectGrantCompatible(ctx context.Context, session m
 		JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
 		WHERE grants.workspace = `+placeholder(3)+` AND grants.session = `+placeholder(4)+`
 			AND grants.enabled = TRUE AND groups.enabled = TRUE AND members.enabled = TRUE AND principals.enabled = TRUE
+			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "members.principal_id")+`
 	`, session.Workspace.Id, session.Id, session.Workspace.Id, session.Id)
 	if err != nil {
 		return fmt.Errorf("get session grantees: %w", err)
@@ -1589,7 +1594,7 @@ func (store *Store) SessionNameGet(ctx context.Context, session model.SessionRef
 	return nil, &name.String
 }
 
-func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef, name string) (error, bool) {
+func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef, name string, actors ...model.PrincipalRef) (error, bool) {
 	name = strings.Join(strings.Fields(name), " ")
 	if name == "" {
 		return fmt.Errorf("set session name: name must not be blank"), false
@@ -1600,13 +1605,19 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 	}
 	defer transaction.Rollback()
 
-	placeholder := keychainPlaceholder(store.kind)
+	placeholder := store.sessionParticipantPlaceholder
+	filter := ""
+	args := []any{name, session.Workspace.Id, session.Id}
+	if len(actors) > 0 {
+		filter = ` AND ` + sessionPrincipalAccessSQL(placeholder(2), placeholder(3), placeholder(4), "'contributor', 'manager'")
+		args = append(args, actors[0].Id)
+	}
 	row := transaction.QueryRowContext(ctx, `
 		UPDATE gatehouse_sessions
 		SET name = `+placeholder(1)+`
 		WHERE workspace = `+placeholder(2)+` AND id = `+placeholder(3)+` AND name IS NULL
-		RETURNING id, project
-	`, name, session.Workspace.Id, session.Id)
+		`+filter+` RETURNING id, project
+	`, args...)
 	var updated string
 	var project sql.NullString
 	if err := row.Scan(&updated, &project); err != nil {
@@ -1939,6 +1950,9 @@ func sessionEventAuthorsFromValues(workspace model.WorkspaceRef, principalID, pr
 }
 
 func (store *Store) SessionsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Session) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Session{}
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
 		SELECT
@@ -2061,6 +2075,9 @@ func (store *Store) SessionsSearch(ctx context.Context, workspace model.Workspac
 }
 
 func (store *Store) sessionsSearch(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, search SessionSearch, id string) (error, []model.Session, string) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Session{}, ""
+	}
 	if search.Limit < 1 || search.Limit > 100 {
 		return fmt.Errorf("search sessions: limit must be between 1 and 100"), nil, ""
 	}

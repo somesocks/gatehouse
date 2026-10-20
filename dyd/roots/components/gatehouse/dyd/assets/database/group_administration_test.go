@@ -13,7 +13,7 @@ import (
 	"gatehouse/typed_id"
 )
 
-func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
+func TestGroupAdministrationRequiresExplicitWorkspaceAdmission(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -43,15 +43,18 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 	if err := store.SystemGroupMemberCreate(ctx, other.Id, group.ID, principal); !errors.Is(err, database.ErrGroupNotFound) {
 		t.Fatalf("cross-workspace membership = %v", err)
 	}
+	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, group.ID, principal); !errors.Is(err, database.ErrGroupInput) {
+		t.Fatalf("unadmitted member = %v", err)
+	}
+	err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Contributor)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, group.ID, principal); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, group.ID, principal); !errors.Is(err, database.ErrGroupMemberExists) {
 		t.Fatalf("duplicate membership = %v", err)
-	}
-	err, grant := store.SystemGroupGrantCreate(ctx, workspace.Id, group.ID, authz.Contributor)
-	if err != nil || grant == nil || grant.Principal != nil || grant.Group == nil || *grant.Group != group.ID {
-		t.Fatalf("create group grant = %#v %v", grant, err)
 	}
 	assertAccess := func(expected bool) {
 		t.Helper()
@@ -66,7 +69,7 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 	if err != nil || changed.Revision != 2 {
 		t.Fatalf("disable group = %#v %v", changed, err)
 	}
-	assertAccess(false)
+	assertAccess(true)
 	if err, _ := store.SystemGroupUpdate(ctx, workspace.Id, group.ID, 1, database.SystemGroupInput{Enabled: &enabled}); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale group update = %v", err)
 	}
@@ -77,7 +80,7 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, group.ID, principal, false, 1); err != nil {
 		t.Fatal(err)
 	}
-	assertAccess(false)
+	assertAccess(true)
 	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, group.ID, principal, true, 1); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale membership = %v", err)
 	}
@@ -90,10 +93,16 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 		t.Fatalf("revoke grant = %#v %v", updatedGrant, err)
 	}
 	assertAccess(false)
-	if err, _ := store.SystemGroupGrantCreate(ctx, workspace.Id, group.ID, authz.Contributor); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
-		t.Fatalf("disabled grant collision = %v", err)
+	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, group.ID, principal, false, 3); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, group.ID, principal, true, 4); !errors.Is(err, database.ErrGroupInput) {
+		t.Fatalf("restoration without admission = %v", err)
 	}
 	if err, _ := store.SystemWorkspaceGrantUpdate(ctx, workspace.Id, grant.ID, nil, &enabled, 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, group.ID, principal, true, 4); err != nil {
 		t.Fatal(err)
 	}
 	assertAccess(true)
@@ -104,7 +113,7 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 	}
 	assertAccess(true)
 	err, members, _ := store.SystemGroupMembersSearch(ctx, database.SystemGroupSearch{Workspace: workspace.Id, Group: group.ID, Limit: 1})
-	if err != nil || len(members) != 1 || members[0].Revision != 3 || !members[0].Enabled {
+	if err != nil || len(members) != 1 || members[0].Revision != 5 || !members[0].Enabled {
 		t.Fatalf("members = %#v %v", members, err)
 	}
 	// Notifications are rooted at the principal, so losing workspace access does
@@ -126,6 +135,52 @@ func TestGroupAdministrationAndInheritedAccess(t *testing.T) {
 
 func TestGroupReconciliationHonorsIndependentRevisions(t *testing.T) {
 	verifyGroupReconciliationRevisions(t, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+}
+
+func TestConfiguredGroupMembershipRequiresExplicitAdmission(t *testing.T) {
+	ctx := context.Background()
+	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
+	err, store := database.Open(ctx, configuration)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	alias := "alice"
+	state := config.State{
+		Workspaces: []config.Workspace{{Alias: "team", Enabled: true}},
+		Principals: []config.Principal{{Alias: alias, Enabled: true}},
+		Groups:     []config.Group{{WorkspaceID: "team", Alias: "members", Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: alias, Enabled: true, Revision: 1}}}},
+	}
+	if err := migrateState(ctx, store, configuration, state); err == nil {
+		t.Fatal("configuration admitted a person through group membership")
+	}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "team", PrincipalID: &alias, Role: "member", Enabled: true, Revision: 1}}
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	workspace := workspaceRef(t, ctx, store, "team")
+	principal := principalRef(t, ctx, store, alias)
+	if err, _ := store.SystemWorkspacePrincipalGrantsRemove(ctx, workspace.Id, principal.Id); err != nil {
+		t.Fatal(err)
+	}
+	state.Groups[0].Members[0].Enabled = false
+	state.Groups[0].Members[0].Revision = 2
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	state.Groups[0].Members[0].Enabled = true
+	state.Groups[0].Members[0].Revision = 3
+	if err := migrateState(ctx, store, configuration, state); err == nil {
+		t.Fatal("configuration restored membership without admission")
+	}
+	state.WorkspaceGrants[0].Revision = 3
+	if err := migrateState(ctx, store, configuration, state); err != nil {
+		t.Fatal(err)
+	}
+	err, groups := store.WorkspaceGroupsGet(ctx, workspace, principal)
+	if err != nil || len(groups) != 1 {
+		t.Fatalf("restored configured membership: %#v %v", groups, err)
+	}
 }
 
 func TestPostgresGroupReconciliationHonorsIndependentRevisions(t *testing.T) {
@@ -151,6 +206,7 @@ func verifyGroupReconciliationRevisions(t *testing.T, configuration config.Datab
 	principalAlias := "group-test-" + newTypedID(t, typed_id.Principal)
 	name := "Configured group"
 	state := config.State{Workspaces: []config.Workspace{{Alias: workspaceAlias, Enabled: true}}, Principals: []config.Principal{{Alias: principalAlias, Enabled: true}}, Groups: []config.Group{{WorkspaceID: workspaceAlias, Alias: "developers", Name: &name, Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: principalAlias, Enabled: true, Revision: 1}}}}}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: workspaceAlias, PrincipalID: &principalAlias, Role: "member", Revision: 1, Enabled: true}}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -212,6 +268,7 @@ func verifyGroupReconciliationRevisions(t *testing.T, configuration config.Datab
 	// A new membership still gets created when group metadata has a newer DB revision.
 	newPrincipalAlias := "group-test-" + newTypedID(t, typed_id.Principal)
 	state.Principals = append(state.Principals, config.Principal{Alias: newPrincipalAlias, Enabled: true})
+	state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspaceAlias, PrincipalID: &newPrincipalAlias, Role: "member", Revision: 1, Enabled: true})
 	state.Groups[0].Members = append(state.Groups[0].Members, config.GroupMember{PrincipalID: newPrincipalAlias, Enabled: true, Revision: 9})
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)

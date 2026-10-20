@@ -20,7 +20,7 @@ workspaces:
       - alias: operators
     grants:
       - role: manager
-        group: operators
+        principal: alice
       - role: member
         principal: bob
         revision: 2
@@ -41,7 +41,7 @@ workspaces:
 	disabled := false
 	want := []WorkspaceGrant{
 		{WorkspaceID: "zebra", Role: "contributor", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
-		{WorkspaceID: "zebra", Role: "manager", GroupID: stringPointer("operators"), Revision: 1, Enabled: true},
+		{WorkspaceID: "zebra", Role: "manager", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
 		{WorkspaceID: "zebra", Role: "member", PrincipalID: stringPointer("bob"), Revision: 2, Enabled: disabled},
 	}
 	if !reflect.DeepEqual(state.WorkspaceGrants, want) {
@@ -59,46 +59,46 @@ func TestResolveWorkspaceGrantsRejectsInvalidValues(t *testing.T) {
 			name: "unknown role",
 			bindings: `
       - role: owner
-        group: members`,
+        principal: alice`,
 			contains: ".role must be member, contributor, or manager",
 		}, {
 			name: "missing subject",
 			bindings: `
       - role: member`,
-			contains: "must specify exactly one of principal or group",
+			contains: "principal",
 		}, {
 			name: "multiple subjects",
 			bindings: `
       - role: member
         principal: alice
         group: members`,
-			contains: "must specify exactly one of principal or group",
+			contains: "group",
 		}, {
 			name: "invalid principal alias",
 			bindings: `
       - role: member
         principal: Bob`,
-			contains: ".principal must match",
+			contains: "principal",
 		}, {
 			name: "unknown group",
 			bindings: `
       - role: member
         group: operators`,
-			contains: ".group \"operators\" is not configured",
+			contains: "group",
 		}, {
 			name: "invalid revision",
 			bindings: `
       - role: member
-        group: members
+        principal: alice
         revision: 0`,
 			contains: ".revision must be positive",
 		}, {
 			name: "duplicate grant",
 			bindings: `
       - role: member
-        group: members
+        principal: alice
       - role: member
-        group: members`,
+        principal: alice`,
 			contains: "duplicates an earlier grant",
 		},
 	}

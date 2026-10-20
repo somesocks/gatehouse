@@ -22,7 +22,11 @@ func TestGroupDerivedBotRemovalCancelsQueuedReplyBeforeExecution(t *testing.T) {
 	testBotRemovalCancelsQueuedReply(t, true)
 }
 
-func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool) {
+func TestWorkspaceAdmissionRemovalCancelsQueuedReplyBeforeExecution(t *testing.T) {
+	testBotRemovalCancelsQueuedReply(t, true, true)
+}
+
+func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool, removeAuthor ...bool) {
 	t.Helper()
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -47,7 +51,7 @@ func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool) {
 		state.WorkspaceAgents[0].Default = false
 		state.Groups = []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true, Revision: 1}}, Agents: []config.GroupAgent{{AgentID: "assistant", Enabled: true, Revision: 1}}}}
 	}
-	err, registry := migrations.Build(configuration, state, ring)
+	err, registry := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +90,14 @@ func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool) {
 		t.Fatalf("roster = %#v %v", roster, err)
 	}
 	disabled := false
-	if inherited {
+	if len(removeAuthor) > 0 && removeAuthor[0] {
+		if err, removed := store.SystemWorkspacePrincipalGrantsRemove(ctx, workspace.Id, alice.Id); err != nil || !removed {
+			t.Fatalf("revoke author admission: %t %v", removed, err)
+		}
+		if err, active := store.SessionAgentParticipantGet(ctx, session, model.WorkspaceAgentRef{Workspace: workspace, Id: bot}); err != nil || !active {
+			t.Fatalf("author revocation changed bot participation: %t %v", active, err)
+		}
+	} else if inherited {
 		if len(roster[0].Grants) != 0 || len(roster[0].InheritedFrom) != 1 || roster[0].InheritedFrom[0].Group != group {
 			t.Fatalf("group-derived bot was copied to a direct grant: %#v", roster[0])
 		}
@@ -163,7 +174,7 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 		},
 		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "engineering", PrincipalID: &bobAlias, Role: "member", Revision: 1, Enabled: true}},
 	}
-	err, registry := migrations.Build(configuration, state, ring)
+	err, registry := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}

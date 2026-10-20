@@ -23,12 +23,12 @@ func TestMessageTargetsSnapshotEffectiveParticipantsAndDispatchOnlyBots(t *testi
 	state := config.State{
 		Workspaces:      []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals:      []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}, {Alias: "outsider", Enabled: true}, {Alias: "disabled", Enabled: false}},
-		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "bob", Enabled: true}, {PrincipalID: "disabled", Enabled: true}}}},
+		Groups:          []config.Group{{WorkspaceID: "engineering", Alias: "team", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "bob", Enabled: true}, {PrincipalID: "disabled", Enabled: false}}}},
 		AgentProviders:  []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}, {WorkspaceID: "engineering", Alias: "second", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")

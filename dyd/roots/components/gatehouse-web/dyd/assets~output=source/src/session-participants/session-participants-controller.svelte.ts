@@ -111,6 +111,7 @@ export function createSessionParticipantsController({
             "group_member.*",
             "group_agent.*",
             "workspace_agent.*",
+            "workspace_grant.*",
           ],
         },
       ],

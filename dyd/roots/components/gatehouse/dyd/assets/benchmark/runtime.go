@@ -86,13 +86,15 @@ func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[str
 	if err != nil {
 		return err, nil
 	}
+	principalAlias := "benchmark"
 	state := config.State{
-		Principals:       []config.Principal{{Alias: "benchmark", Enabled: true}},
+		Principals:       []config.Principal{{Alias: principalAlias, Enabled: true}},
 		StorageProviders: []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 	}
 	for index := range selections {
 		alias := fmt.Sprintf("benchmark-%d", index+1)
 		state.Workspaces = append(state.Workspaces, config.Workspace{Alias: alias, Enabled: true})
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: alias, PrincipalID: &principalAlias, Role: "contributor", Revision: 1, Enabled: true})
 		state.WorkspaceStorageProviders = append(state.WorkspaceStorageProviders, config.WorkspaceStorageProvider{WorkspaceID: alias, ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true})
 	}
 	err, set := migrations.Build(configuration, state, native.keyring)
@@ -160,7 +162,7 @@ func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[str
 			return err, nil
 		}
 		prompt := prompts[selection.prompt]
-		input := database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: modelIDs[selection.model], Prelude: environments[selection.environment].Prelude, Enabled: true}
+		input := database.SystemWorkspaceAgentInput{Alias: "assistant", ModelID: modelIDs[selection.model], Prelude: environments[selection.environment].Prelude, Default: true, Enabled: true}
 		if prompt.Mode == "append" {
 			input.SystemPrompt = prompt.Text
 		}

@@ -299,7 +299,7 @@ func sessionInputFieldFiles(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			return
 		}
-		err, token := storageToken(r.Context(), tokens, object, "put", 15*time.Minute)
+		err, token := storageToken(r.Context(), tokens, object, "put", 15*time.Minute, claims.Principal.Ref, file.Ref.Session.Workspace)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return
@@ -381,7 +381,7 @@ func sessionInputFieldFileDownload(store *database.Store, tokens *auth.BearerTok
 			http.Error(w, "storage object is not ready", http.StatusConflict)
 			return
 		}
-		err, token := storageToken(r.Context(), tokens, object.ID, "get", 5*time.Minute)
+		err, token := storageToken(r.Context(), tokens, object.ID, "get", 5*time.Minute, claims.Principal.Ref, file.Ref.Session.Workspace)
 		if err != nil {
 			http.Error(w, "internal server error", http.StatusInternalServerError)
 			return

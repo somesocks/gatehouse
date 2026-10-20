@@ -15,13 +15,29 @@ import (
 
 type rejectGroupSnapshotQueryer struct{}
 
+// Exercise the metadata and post-admission membership phases together, in the
+// same order as the registered reconciliation plan.
+func postgresGroupReconciliationPlan(state config.State) RepeatableMigration {
+	metadata := postgresMigrationR006ReconcileGroupsAndMemberships(state)
+	members := postgresMigrationR016ReconcileGroupMembers(state.Groups)
+	metadata.Builder = func(ctx context.Context, session *MigrationSession) (error, string) {
+		err, groups := postgresMigrationR006ReconcileGroupsAndMembershipsBuilder(state.Groups)(ctx, session)
+		if err != nil {
+			return err, ""
+		}
+		err, memberships := members.Builder(ctx, session)
+		return err, groups + "\n" + memberships
+	}
+	return metadata
+}
+
 func (rejectGroupSnapshotQueryer) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
 	return nil, errors.New("group reconciliation must resolve database state during execution")
 }
 
 func TestPostgresGroupReconciliationBuildIsSnapshotIndependent(t *testing.T) {
 	ctx := context.Background()
-	migration := postgresMigrationR006ReconcileGroupsAndMemberships(config.State{Groups: []config.Group{{
+	migration := postgresGroupReconciliationPlan(config.State{Groups: []config.Group{{
 		WorkspaceID: "team", Alias: "developers", Enabled: true, Revision: 3,
 		Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true, Revision: 4}},
 	}}})
@@ -73,6 +89,9 @@ func TestPostgresGroupReconciliationExecutionTimeIdentity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.ID, principal.ID, "member"); err != nil {
+				t.Fatal(err)
+			}
 			alias, adminName, configuredName := "configured", "Admin group", "Configured group"
 			var original, target *database.SystemGroup
 			if scenario != "create after build" {
@@ -81,7 +100,7 @@ func TestPostgresGroupReconciliationExecutionTimeIdentity(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			migration := postgresMigrationR006ReconcileGroupsAndMemberships(config.State{Groups: []config.Group{{
+			migration := postgresGroupReconciliationPlan(config.State{Groups: []config.Group{{
 				WorkspaceID: workspaceAlias, Alias: alias, Name: &configuredName, Enabled: true, Revision: 3,
 				Members: []config.GroupMember{{PrincipalID: principalAlias, Enabled: true, Revision: 4}},
 			}}})
@@ -197,7 +216,10 @@ func TestPostgresGroupReconciliationWaitsForConcurrentCreation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	migration := postgresMigrationR006ReconcileGroupsAndMemberships(config.State{Groups: []config.Group{{
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.ID, principal.ID, "member"); err != nil {
+		t.Fatal(err)
+	}
+	migration := postgresGroupReconciliationPlan(config.State{Groups: []config.Group{{
 		WorkspaceID: workspaceAlias, Alias: "configured", Enabled: true, Revision: 3,
 		Members: []config.GroupMember{{PrincipalID: principalAlias, Enabled: true, Revision: 1}},
 	}}})

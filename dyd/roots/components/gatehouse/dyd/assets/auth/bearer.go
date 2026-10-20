@@ -28,9 +28,11 @@ type Claims struct {
 }
 
 type StorageToken struct {
-	ID        string `json:"id"`
-	Action    string `json:"action"`
-	ExpiresAt string `json:"expires_at"`
+	ID        string             `json:"id"`
+	Action    string             `json:"action"`
+	ExpiresAt string             `json:"expires_at"`
+	Principal model.PrincipalRef `json:"principal"`
+	Workspace model.WorkspaceRef `json:"workspace"`
 }
 
 type BearerTokens struct {
@@ -178,7 +180,7 @@ func (tokens *BearerTokens) open(ctx context.Context, associatedData []byte, enc
 }
 
 func (tokens *BearerTokens) MintStorageToken(ctx context.Context, token StorageToken) (error, string) {
-	if !typed_id.Valid(typed_id.StorageObject, token.ID) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+	if !typed_id.Valid(typed_id.StorageObject, token.ID) || !typed_id.Valid(typed_id.Principal, token.Principal.Id) || !typed_id.Valid(typed_id.Workspace, token.Workspace.Id) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
 		return fmt.Errorf("storage token is invalid"), ""
 	}
 	return tokens.seal(ctx, storageTokenAssociatedData, token)
@@ -211,7 +213,7 @@ func (tokens *BearerTokens) AuthenticateStorageToken(ctx context.Context, encode
 		return fmt.Errorf("open storage token: %w", decryptedErr), StorageToken{}
 	}
 	var token StorageToken
-	if err := json.Unmarshal(payload, &token); err != nil || !typed_id.Valid(typed_id.StorageObject, token.ID) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
+	if err := json.Unmarshal(payload, &token); err != nil || !typed_id.Valid(typed_id.StorageObject, token.ID) || !typed_id.Valid(typed_id.Principal, token.Principal.Id) || !typed_id.Valid(typed_id.Workspace, token.Workspace.Id) || (token.Action != "put" && token.Action != "get") || token.ExpiresAt == "" {
 		return fmt.Errorf("decode storage token: invalid payload"), StorageToken{}
 	}
 	return nil, token

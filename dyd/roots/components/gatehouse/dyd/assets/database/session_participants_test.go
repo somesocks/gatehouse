@@ -24,10 +24,11 @@ func TestSessionParticipantsPreserveExplicitPeopleAndGroups(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}, {Alias: "elsewhere", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}, {Alias: "outsider", Enabled: true}, {Alias: "disabled", Enabled: false}},
 		Groups: []config.Group{
-			{WorkspaceID: "engineering", Alias: "developers", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "bob", Enabled: true}, {PrincipalID: "disabled", Enabled: true}}},
+			{WorkspaceID: "engineering", Alias: "developers", Enabled: true, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: "bob", Enabled: true}, {PrincipalID: "disabled", Enabled: false}}},
 			{WorkspaceID: "elsewhere", Alias: "other", Enabled: true},
 		},
 	}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "engineering", PrincipalID: stringPointer("alice"), Role: "member", Enabled: true, Revision: 1}, {WorkspaceID: "engineering", PrincipalID: stringPointer("bob"), Role: "member", Enabled: true, Revision: 1}}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -36,9 +37,6 @@ func TestSessionParticipantsPreserveExplicitPeopleAndGroups(t *testing.T) {
 	outsider := principalRef(t, ctx, store, "outsider")
 	group := groupID(t, ctx, store, "engineering", "developers")
 	otherGroup := groupID(t, ctx, store, "elsewhere", "other")
-	if err, _ := store.SystemGroupGrantCreate(ctx, workspace.Id, group, authz.Member); err != nil {
-		t.Fatal(err)
-	}
 	id, _ := typed_id.New(typed_id.Session)
 	session := model.SessionRef{Workspace: workspace, Id: id}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {

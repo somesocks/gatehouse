@@ -1,14 +1,13 @@
 import {
   groupAdminPath,
   type SystemGroup,
-  type SystemGroupGrant,
   type SystemGroupMember,
   type SystemGroupAgent,
 } from "../../../app/group-administration"
-import { systemAdministration, type WorkspaceRole } from "../../../app/system"
+import { systemAdministration } from "../../../app/system"
 import { createLoadState } from "../../../utils/load-state.svelte"
 
-type FeedbackScope = "details" | "members" | "bots" | "grants"
+type FeedbackScope = "details" | "members" | "bots"
 export type SystemGroupController = ReturnType<
   typeof createSystemGroupController
 >
@@ -29,30 +28,21 @@ export function createSystemGroupController({
   onAgentsChanged?: () => Promise<unknown>
 }) {
   const resource = createLoadState(),
-    mutation = createLoadState(),
-    grantsResource = createLoadState()
+    mutation = createLoadState()
   let disposed = false
   const state = $state({
     group: null as SystemGroup | null,
-    grants: [] as SystemGroupGrant[],
     form: { alias: "", name: "", enabled: true, revision: 0 },
     principal: "",
     agent: "",
-    newRole: "member" as WorkspaceRole,
-    editingGrant: null as SystemGroupGrant | null,
-    grantRole: "member" as WorkspaceRole,
-    grantEnabled: true,
     groupConflict: false,
-    grantConflict: false,
     error: "",
     notice: "",
-    grantsLoadError: "",
     pendingAction: "",
     feedback: {
       details: { error: "", notice: "" },
       members: { error: "", notice: "" },
       bots: { error: "", notice: "" },
-      grants: { error: "", notice: "" },
     },
     get dirty(): boolean {
       return (
@@ -76,9 +66,9 @@ export function createSystemGroupController({
     },
   })
   function acceptGroup(group: SystemGroup, resetDraft: boolean) {
-    const replaceDraft = resetDraft || state.group === null
+    const reset = resetDraft || state.group === null
     state.group = group
-    if (replaceDraft) {
+    if (reset) {
       state.form = {
         alias: group.alias ?? "",
         name: group.name ?? "",
@@ -111,28 +101,16 @@ export function createSystemGroupController({
     if (disposed) return
     const request = resource.begin()
     try {
-      const path = groupAdminPath(workspaceID(), groupID())
-      const [groupResponse, grantsResponse] = await Promise.all([
-        systemAdministration(path, "GET", undefined, request.signal),
-        systemAdministration(
-          `${path}/grants`,
-          "GET",
-          undefined,
-          request.signal,
-        ),
-      ])
-      if (!request.current() || denied(groupResponse) || denied(grantsResponse))
-        return
-      if (!groupResponse.ok || !grantsResponse.ok)
-        throw new Error("Group could not be loaded. Try again.")
-      const [group, grants] = await Promise.all([
-        groupResponse.json() as Promise<SystemGroup>,
-        grantsResponse.json() as Promise<{ grants: SystemGroupGrant[] }>,
-      ])
-      request.commit(() => {
-        acceptGroup(group, resetDraft)
-        state.grants = grants.grants
-      })
+      const response = await systemAdministration(
+        groupAdminPath(workspaceID(), groupID()),
+        "GET",
+        undefined,
+        request.signal,
+      )
+      if (!request.current() || denied(response)) return
+      if (!response.ok) throw new Error("Group could not be loaded. Try again.")
+      const group = (await response.json()) as SystemGroup
+      request.commit(() => acceptGroup(group, resetDraft))
     } catch (error) {
       request.fail(error)
     } finally {
@@ -148,12 +126,8 @@ export function createSystemGroupController({
       scope = "details",
       action = scope,
       notice = "Changes saved.",
-    }: {
-      scope?: FeedbackScope
-      action?: string
-      notice?: string
-    } = {},
-  ): Promise<{ ok: boolean; conflict: boolean }> {
+    }: { scope?: FeedbackScope; action?: string; notice?: string } = {},
+  ) {
     if (disposed || state.saving) return { ok: false, conflict: false }
     const request = mutation.begin()
     state.pendingAction = action
@@ -162,7 +136,6 @@ export function createSystemGroupController({
     const fail = (message: string) => {
       state.error = state.feedback[scope].error = message
     }
-    let conflict = false
     try {
       const response = await systemAdministration(
         path,
@@ -175,10 +148,12 @@ export function createSystemGroupController({
       if (!response.ok) {
         const message = await response.text()
         if (!request.current()) return { ok: false, conflict: false }
-        conflict =
-          response.status === 409 && message.includes("changed elsewhere")
         fail(message.trim() || "Change could not be saved.")
-        return { ok: false, conflict }
+        return {
+          ok: false,
+          conflict:
+            response.status === 409 && message.includes("changed elsewhere"),
+        }
       }
       await commit(response, request.current)
       if (!request.current()) return { ok: false, conflict: false }
@@ -191,7 +166,7 @@ export function createSystemGroupController({
       if (request.current()) state.pendingAction = ""
       request.finish()
     }
-    return { ok: false, conflict }
+    return { ok: false, conflict: false }
   }
   async function create() {
     let created: SystemGroup | null = null
@@ -230,223 +205,93 @@ export function createSystemGroupController({
     if (result.conflict && !disposed) state.groupConflict = true
     return result.ok
   }
-  async function addMember() {
-    if (!state.principal) {
-      state.error = state.feedback.members.error = "Choose a person."
+  async function addMembership(kind: "members" | "bots") {
+    const subject = kind === "members" ? state.principal : state.agent
+    if (!subject) {
+      state.error = state.feedback[kind].error =
+        kind === "members" ? "Choose a person." : "Choose a bot."
       return false
     }
-    const principal = state.principal
-    const result = await mutate(
-      groupAdminPath(workspaceID(), groupID(), "/members"),
-      "POST",
-      { principal },
-      async (_response, current) => {
-        if (current()) {
-          if (state.principal === principal) state.principal = ""
-          if ((await onMembersChanged()) === false && current())
-            state.feedback.members.error =
-              "Membership saved, but the list could not be refreshed. Reload the list."
-        }
-      },
-      { scope: "members", action: "members:add", notice: "Member added." },
-    )
-    return result.ok
-  }
-  async function toggleMember(member: SystemGroupMember) {
     const result = await mutate(
       groupAdminPath(
         workspaceID(),
         groupID(),
-        `/members/${encodeURIComponent(member.principal)}`,
+        kind === "members" ? "/members" : "/agents",
       ),
-      "PATCH",
-      { enabled: !member.enabled, expected_revision: member.revision },
+      "POST",
+      { [kind === "members" ? "principal" : "agent"]: subject },
       async (_response, current) => {
-        if ((await onMembersChanged()) === false && current())
-          state.feedback.members.error =
+        if (!current()) return
+        if (kind === "members" && state.principal === subject)
+          state.principal = ""
+        if (kind === "bots" && state.agent === subject) state.agent = ""
+        const refreshed = await (kind === "members"
+          ? onMembersChanged()
+          : onAgentsChanged())
+        if (refreshed === false && current())
+          state.feedback[kind].error =
             "Membership saved, but the list could not be refreshed. Reload the list."
       },
       {
-        scope: "members",
-        action: `member:${member.principal}`,
-        notice: member.enabled ? "Membership removed." : "Membership enabled.",
+        scope: kind,
+        action: `${kind}:add`,
+        notice: kind === "members" ? "Member added." : "Bot added.",
       },
-    )
-    if (result.conflict && !disposed) await onMembersChanged()
-  }
-  async function addAgent() {
-    if (!state.agent) {
-      state.error = state.feedback.bots.error = "Choose a bot."
-      return false
-    }
-    const agent = state.agent
-    const result = await mutate(
-      groupAdminPath(workspaceID(), groupID(), "/agents"),
-      "POST",
-      { agent },
-      async (_response, current) => {
-        if (current()) {
-          if (state.agent === agent) state.agent = ""
-          if ((await onAgentsChanged()) === false && current())
-            state.feedback.bots.error =
-              "Membership saved, but the list could not be refreshed. Reload the list."
-        }
-      },
-      { scope: "bots", action: "bots:add", notice: "Bot added." },
     )
     return result.ok
   }
-  async function toggleAgent(agent: SystemGroupAgent) {
+  async function toggleMembership(
+    kind: "members" | "bots",
+    subject: string,
+    enabled: boolean,
+    revision: number,
+  ) {
+    const refresh = kind === "members" ? onMembersChanged : onAgentsChanged
     const result = await mutate(
       groupAdminPath(
         workspaceID(),
         groupID(),
-        `/agents/${encodeURIComponent(agent.agent)}`,
+        `/${kind === "members" ? "members" : "agents"}/${encodeURIComponent(subject)}`,
       ),
       "PATCH",
-      { enabled: !agent.enabled, expected_revision: agent.revision },
+      { enabled: !enabled, expected_revision: revision },
       async (_response, current) => {
-        if ((await onAgentsChanged()) === false && current())
-          state.feedback.bots.error =
+        if ((await refresh()) === false && current())
+          state.feedback[kind].error =
             "Membership saved, but the list could not be refreshed. Reload the list."
       },
       {
-        scope: "bots",
-        action: `bot:${agent.agent}`,
-        notice: agent.enabled
-          ? "Bot membership removed."
-          : "Bot membership enabled.",
+        scope: kind,
+        action: `${kind === "members" ? "member" : "bot"}:${subject}`,
+        notice: enabled ? "Membership removed." : "Membership enabled.",
       },
     )
-    if (result.conflict && !disposed) await onAgentsChanged()
-  }
-  async function createGrant() {
-    const result = await mutate(
-      groupAdminPath(workspaceID(), groupID(), "/grants"),
-      "POST",
-      { role: state.newRole },
-      async () => {
-        await refreshGrants()
-      },
-      {
-        scope: "grants",
-        action: "grants:add",
-        notice: "Workspace grant added.",
-      },
-    )
-    return result.ok
-  }
-  async function refreshGrants() {
-    if (disposed) return
-    const request = grantsResource.begin()
-    try {
-      const response = await systemAdministration(
-        groupAdminPath(workspaceID(), groupID(), "/grants"),
-        "GET",
-        undefined,
-        request.signal,
-      )
-      if (!request.current() || denied(response)) return
-      if (!response.ok)
-        throw new Error("Workspace access could not be refreshed.")
-      const body = (await response.json()) as { grants: SystemGroupGrant[] }
-      request.commit(() => {
-        state.grants = body.grants
-        state.grantsLoadError = ""
-      })
-    } catch {
-      if (request.current())
-        state.grantsLoadError =
-          "Workspace access could not be refreshed. Reload the list."
-    } finally {
-      request.finish()
-    }
-  }
-  function beginGrant(grant: SystemGroupGrant) {
-    if (disposed || state.saving) return
-    state.editingGrant = { ...grant }
-    state.grantRole = grant.role
-    state.grantEnabled = grant.enabled
-    state.grantConflict = false
-    state.error = state.notice = ""
-    clearFeedback("grants")
-  }
-  function cancelGrant() {
-    if (!state.saving) state.editingGrant = null
-  }
-  async function saveGrant() {
-    if (!state.editingGrant || state.grantConflict) return false
-    const grant = state.editingGrant
-    const result = await mutate(
-      `workspaces/${encodeURIComponent(workspaceID())}/grants/${encodeURIComponent(grant.id)}`,
-      "PATCH",
-      {
-        role: state.grantRole,
-        enabled: state.grantEnabled,
-        expected_revision: grant.revision,
-      },
-      async (_response, current) => {
-        if (current()) state.editingGrant = null
-        await refreshGrants()
-      },
-      {
-        scope: "grants",
-        action: `grant:${grant.id}`,
-        notice: "Workspace grant saved.",
-      },
-    )
-    if (result.conflict && !disposed) {
-      state.grantConflict = true
-      state.error = state.feedback.grants.error =
-        "This grant changed elsewhere. Cancel and reopen it to use the latest revision."
-      await refreshGrants()
-    }
-    return result.ok
-  }
-  async function toggleGrant(grant: SystemGroupGrant) {
-    const result = await mutate(
-      `workspaces/${encodeURIComponent(workspaceID())}/grants/${encodeURIComponent(grant.id)}`,
-      "PATCH",
-      { enabled: !grant.enabled, expected_revision: grant.revision },
-      async (_response, current) => {
-        if (current() && state.editingGrant?.id === grant.id)
-          state.editingGrant = null
-        await refreshGrants()
-      },
-      {
-        scope: "grants",
-        action: `grant:${grant.id}`,
-        notice: grant.enabled
-          ? "Workspace grant revoked."
-          : "Workspace grant enabled.",
-      },
-    )
-    if (result.conflict && !disposed) await refreshGrants()
+    if (result.conflict && !disposed) await refresh()
   }
   function stop() {
     disposed = true
     resource.stop()
     mutation.stop()
-    grantsResource.stop()
     state.pendingAction = ""
   }
   return {
     state,
     clearFeedback,
     beginDetails,
-    refreshGrants,
     load,
     create,
     saveGroup,
-    addMember,
-    toggleMember,
-    addAgent,
-    toggleAgent,
-    createGrant,
-    beginGrant,
-    cancelGrant,
-    saveGrant,
-    toggleGrant,
+    addMember: () => addMembership("members"),
+    addAgent: () => addMembership("bots"),
+    toggleMember: (member: SystemGroupMember) =>
+      toggleMembership(
+        "members",
+        member.principal,
+        member.enabled,
+        member.revision,
+      ),
+    toggleAgent: (agent: SystemGroupAgent) =>
+      toggleMembership("bots", agent.agent, agent.enabled, agent.revision),
     stop,
   }
 }

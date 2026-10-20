@@ -14,7 +14,6 @@ type SystemWorkspaceGrant struct {
 	ID        string     `json:"id"`
 	Workspace string     `json:"workspace"`
 	Principal *string    `json:"principal,omitempty"`
-	Group     *string    `json:"group,omitempty"`
 	Role      authz.Role `json:"role"`
 	Enabled   bool       `json:"enabled"`
 	Revision  int        `json:"revision"`
@@ -55,12 +54,10 @@ func (store *Store) SystemWorkspaceGrantUpdate(ctx context.Context, workspaceID,
 	if err != nil {
 		return fmt.Errorf("get workspace grant for role update: %w", err), nil
 	}
-	if principal.Valid {
-		grant.Principal = &principal.String
+	if !principal.Valid || group.Valid {
+		return nil, nil
 	}
-	if group.Valid {
-		grant.Group = &group.String
-	}
+	grant.Principal = &principal.String
 	if grant.Revision != expectedRevision {
 		return ErrRevisionConflict, nil
 	}
@@ -107,13 +104,6 @@ func (store *Store) workspaceGrantActivity(ctx context.Context, tx *sql.Tx, gran
 	topics := []string{ActivityTopicWorkspaceGrant(workspace, grant.ID)}
 	if grant.Principal != nil {
 		topics = append(topics, ActivityTopicPrincipalGrant(model.PrincipalRef{Id: *grant.Principal}, grant.ID))
-	} else {
-		topics = append(topics, ActivityTopicGroupGrant(workspace, model.GroupRef{Id: *grant.Group}, grant.ID))
-		members, err := groupPrincipalTopics(ctx, tx, keychainPlaceholder(store.kind), grant.Workspace, *grant.Group, grant.ID)
-		if err != nil {
-			return err
-		}
-		topics = append(topics, members...)
 	}
 	err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindWorkspaceGrant, ResourceWorkspaceGrant: &grant.ID}, topics)
 	return err

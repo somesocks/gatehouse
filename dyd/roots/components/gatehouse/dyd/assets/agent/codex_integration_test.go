@@ -83,7 +83,7 @@ func newCodexAgentFixture(t *testing.T, named bool) *codexAgentFixture {
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true,
 			RateLimits: &config.WorkspaceAgentRateLimits{WorkspaceOutput: &config.TokenBucket{MinimumBalance: 0, MaximumBalance: 1000, RefillPerMinute: 1}}}},
 	}
-	err, registry := migrations.Build(configuration, state, ring)
+	err, registry := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"gatehouse/auth"
+	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/configschema"
 	"gatehouse/database"
@@ -427,6 +428,9 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	fixture := newInputTestFixture(t)
 	var bob model.PrincipalRef
 	if err := fixture.store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob.Id); err != nil {
+		t.Fatal(err)
+	}
+	if err, _ := fixture.store.SystemWorkspacePrincipalGrantCreate(ctx, fixture.input.Session.Workspace.Id, bob.Id, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	identity, err := typed_id.New(typed_id.Identity)

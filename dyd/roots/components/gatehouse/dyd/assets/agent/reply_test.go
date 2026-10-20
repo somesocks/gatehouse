@@ -51,7 +51,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		t.Fatal(keyringErr)
 	}
 	defer keyring.Close()
-	buildErr, set := migrations.Build(configuration, state, keyring)
+	buildErr, set := migrations.Build(configuration, admittedAgentTestState(state), keyring)
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}
@@ -230,7 +230,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		t.Fatal(keyringErr)
 	}
 	defer keyring.Close()
-	buildErr, set := migrations.Build(configuration, state, keyring)
+	buildErr, set := migrations.Build(configuration, admittedAgentTestState(state), keyring)
 	if buildErr != nil {
 		t.Fatal(buildErr)
 	}

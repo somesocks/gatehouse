@@ -3,21 +3,23 @@
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
-    searchSystemPrincipals,
     fetchSystemWorkspaceAgents,
     type SystemPrincipal,
     type SystemWorkspaceAgent,
   } from "../../../app/system"
+  import { fetchAdminGroupMemberOptions } from "../../../app/group-administration"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import type { SystemGroupController } from "./system-group-controller.svelte"
   let {
     controller,
     workspaceID,
+    groupID,
     kind,
     onClose,
   }: {
     controller: SystemGroupController
     workspaceID: string
+    groupID: string
     kind: "members" | "bots"
     onClose: () => void
   } = $props()
@@ -36,7 +38,13 @@
     async fetchPage(name, cursor, _status, signal) {
       const response =
         kind === "members"
-          ? await searchSystemPrincipals(name, cursor, "enabled", signal)
+          ? await fetchAdminGroupMemberOptions(
+              workspaceID,
+              groupID,
+              name,
+              cursor,
+              signal,
+            )
           : await fetchSystemWorkspaceAgents(workspaceID, name, cursor, signal)
       if (!response.ok) return { response }
       const body = (await response.json()) as {

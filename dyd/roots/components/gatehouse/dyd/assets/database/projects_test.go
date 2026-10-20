@@ -28,7 +28,7 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -225,7 +225,7 @@ func TestProjectNotesUseProjectAuthorizationAndActivity(t *testing.T) {
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -370,7 +370,7 @@ func TestProjectTasksUseProjectAuthorizationAndActivity(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -455,7 +455,7 @@ func TestProjectRecordsUseTypedValuesAndHardDeletion(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -711,7 +711,7 @@ func TestProjectRecordFileValuesRequirePublishedFiles(t *testing.T) {
 		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -943,7 +943,7 @@ func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")

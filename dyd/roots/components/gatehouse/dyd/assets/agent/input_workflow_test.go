@@ -42,7 +42,7 @@ func inputDeliveryFixture(t *testing.T, configuration config.DatabaseConfig) (*d
 		t.Fatal(err)
 	}
 	defer keyring.Close()
-	err, registry := migrations.Build(configuration, state, keyring)
+	err, registry := migrations.Build(configuration, admittedAgentTestState(state), keyring)
 	if err != nil {
 		t.Fatal(err)
 	}

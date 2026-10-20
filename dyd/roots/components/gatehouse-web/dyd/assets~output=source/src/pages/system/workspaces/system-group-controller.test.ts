@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { clearAccessToken } from "../../../app/api"
-import {
-  type SystemGroup,
-  type SystemGroupGrant,
-} from "../../../app/group-administration"
+import { type SystemGroup } from "../../../app/group-administration"
 import { createSystemGroupController } from "./system-group-controller.svelte"
 import { parseRoute, routePath } from "../../../route"
 import { routeOwner } from "../../../route-owner"
@@ -19,14 +16,6 @@ const group: SystemGroup = {
   name: "Developers",
   enabled: true,
   revision: 1,
-}
-const grant: SystemGroupGrant = {
-  id: "wgr_team",
-  workspace: group.workspace,
-  group: group.id,
-  role: "contributor",
-  enabled: true,
-  revision: 3,
 }
 function fixture() {
   const onAuthenticationLost = vi.fn(),
@@ -51,10 +40,6 @@ function fixture() {
 }
 function transport() {
   return vi.fn<typeof globalThis.fetch>(async (input, init) => {
-    if (!init?.method || init.method === "GET")
-      return String(input).endsWith("/grants")
-        ? Response.json({ grants: [grant] })
-        : Response.json(group)
     return Response.json(group)
   })
 }
@@ -72,7 +57,6 @@ describe("system group administration", () => {
     expect(controller.state.form.revision).toBe(group.revision)
     expect(controller.state.dirty).toBe(false)
     controller.state.agent = "wag_assistant"
-    controller.state.newRole = "manager"
     expect(controller.state.dirty).toBe(false)
     controller.stop()
   })
@@ -121,45 +105,18 @@ describe("system group administration", () => {
     controller.stop()
   })
 
-  it("refreshes only grants after a grant write and retains a details draft", async () => {
+  it("loads group details without requesting group workspace grants", async () => {
     const fetch = transport()
     vi.stubGlobal("fetch", fetch)
     const { controller } = fixture()
     await controller.load()
-    controller.state.form.name = "Unsaved details"
-    fetch.mockClear()
-    expect(await controller.createGrant()).toBe(true)
     expect(fetch.mock.calls.map(([path]) => String(path))).toEqual([
-      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/grants",
-      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/grants",
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers",
     ])
-    expect(controller.state.form.name).toBe("Unsaved details")
-    expect(controller.state.form.revision).toBe(1)
-    expect(controller.state.feedback.grants.notice).toBe(
-      "Workspace grant added.",
-    )
     controller.stop()
   })
 
-  it("distinguishes a saved grant from a failed list refresh", async () => {
-    const fetch = transport()
-    vi.stubGlobal("fetch", fetch)
-    const { controller } = fixture()
-    await controller.load()
-    fetch
-      .mockResolvedValueOnce(Response.json(grant))
-      .mockResolvedValueOnce(new Response(null, { status: 503 }))
-    expect(await controller.createGrant()).toBe(true)
-    expect(controller.state.grants).toEqual([grant])
-    expect(controller.state.grantsLoadError).toContain("could not be refreshed")
-    expect(controller.state.feedback.grants.error).toBe("")
-    expect(controller.state.feedback.grants.notice).toBe(
-      "Workspace grant added.",
-    )
-    controller.stop()
-  })
-
-  it("aborts a grant refresh and ignores a late decoded result after disposal", async () => {
+  it("aborts a details refresh and ignores a late decoded result after disposal", async () => {
     const fetch = transport()
     vi.stubGlobal("fetch", fetch)
     const { controller } = fixture()
@@ -173,13 +130,13 @@ describe("system group administration", () => {
           decode = resolve
         }),
     } as Response)
-    const pending = controller.refreshGrants()
+    const pending = controller.load(false)
     await vi.waitFor(() => expect(decode).toBeTypeOf("function"))
     controller.stop()
     expect(fetch.mock.calls.at(-1)![1]?.signal?.aborted).toBe(true)
-    decode({ grants: [] })
+    decode({ ...group, name: "Obsolete response" })
     await pending
-    expect(controller.state.grants).toEqual([grant])
+    expect(controller.state.group).toEqual(group)
   })
 
   it("routes group lists and details under system workspace administration", () => {
@@ -238,17 +195,22 @@ describe("system group administration", () => {
     )
     controller.stop()
   })
-  it("preserves metadata drafts and their revision while refreshing grants", async () => {
+  it("preserves metadata drafts and their revision while changing membership", async () => {
     const fetch = transport()
     vi.stubGlobal("fetch", fetch)
     const { controller } = fixture()
     await controller.load()
     controller.state.form.name = "Unsaved draft"
-    await controller.toggleGrant(grant)
+    await controller.toggleMember({
+      principal: "prn_alice",
+      enabled: true,
+      principal_enabled: true,
+      revision: 3,
+    })
     expect(controller.state.form.name).toBe("Unsaved draft")
     expect(controller.state.form.revision).toBe(1)
     expect(fetch).toHaveBeenCalledWith(
-      "/api/v1/system/workspaces/wsp_team/grants/wgr_team",
+      "/api/v1/system/workspaces/wsp_team/groups/grp_developers/members/prn_alice",
       expect.objectContaining({
         method: "PATCH",
         body: JSON.stringify({ enabled: false, expected_revision: 3 }),
@@ -397,29 +359,6 @@ describe("system group administration", () => {
     await pending
     expect(onAgentsChanged).not.toHaveBeenCalled()
     expect(controller.state.notice).toBe("")
-  })
-  it("edits the selected grant's role and enabled status using its revision", async () => {
-    const fetch = transport()
-    vi.stubGlobal("fetch", fetch)
-    const { controller } = fixture()
-    await controller.load()
-    controller.beginGrant(grant)
-    controller.state.grantRole = "manager"
-    controller.state.grantEnabled = false
-    await controller.saveGrant()
-    expect(fetch).toHaveBeenCalledWith(
-      "/api/v1/system/workspaces/wsp_team/grants/wgr_team",
-      expect.objectContaining({
-        method: "PATCH",
-        body: JSON.stringify({
-          role: "manager",
-          enabled: false,
-          expected_revision: 3,
-        }),
-      }),
-    )
-    expect(controller.state.editingGrant).toBeNull()
-    controller.stop()
   })
   it("initializes the form when retrying a failed initial load", async () => {
     const fetch = transport().mockRejectedValueOnce(new Error("offline"))

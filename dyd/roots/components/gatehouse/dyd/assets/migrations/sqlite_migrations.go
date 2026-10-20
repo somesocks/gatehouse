@@ -71,6 +71,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			sqliteMigrationV060ChatBotParticipants(),
 			sqliteMigrationV061GroupAgents(),
 			sqliteMigrationV062MultipleWorkspaceAgentDefaults(),
+			sqliteMigrationV063ExplicitWorkspaceAdmission(),
 		},
 		Repeatable: []RepeatableMigration{
 			sqliteMigrationR001PrepareKeychains(keyring),
@@ -87,6 +88,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			sqliteMigrationR013ReconcileWorkspaceStorageProviders(state),
 			sqliteMigrationR014ReconcileSystemGrants(state),
 			sqliteMigrationR015ReconcileGroupAgents(state.Groups),
+			sqliteMigrationR016ReconcileGroupMembers(state.Groups),
 		},
 	}
 }

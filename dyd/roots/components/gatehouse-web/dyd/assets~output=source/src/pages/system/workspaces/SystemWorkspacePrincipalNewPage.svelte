@@ -61,7 +61,7 @@
               value="contributor">Contributor</UI.Option
             ><UI.Option value="manager">Manager</UI.Option></UI.Select
           ><UI.Text tone="muted" size="small"
-            >Adds the selected direct role. Any existing direct or group-derived
+            >Adds the selected workspace role. Any existing direct
             roles remain.</UI.Text
           ></UI.Field
         ></UI.FormSection

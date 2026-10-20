@@ -277,7 +277,7 @@ func sessionInputFileCreate(store *database.Store, tokens *auth.BearerTokens) ht
 			}
 			return
 		}
-		err, token := storageToken(request.Context(), tokens, object, "put", 15*time.Minute)
+		err, token := storageToken(request.Context(), tokens, object, "put", 15*time.Minute, claims.Principal.Ref, stored.Ref.Session.Workspace)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return

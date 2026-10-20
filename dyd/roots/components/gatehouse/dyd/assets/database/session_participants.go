@@ -202,9 +202,7 @@ func (store *Store) SessionParticipantsSearch(ctx context.Context, session model
 }
 
 func sessionWorkspacePrincipalEligibleSQL(workspace, principal string) string {
-	return `EXISTS (SELECT 1 FROM gatehouse_workspace_grants wg WHERE wg.workspace = ` + workspace + ` AND wg.enabled = TRUE AND (
-		wg.principal = ` + principal + ` OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
-		WHERE g.workspace_id = wg.workspace AND g.id = wg."group" AND g.enabled = TRUE AND gm.enabled = TRUE AND gm.principal_id = ` + principal + `)))`
+	return workspacePrincipalAdmissionSQL(workspace, principal)
 }
 
 // Lock the session row before checking roles or modifying grants. This serializes
@@ -388,7 +386,9 @@ func (store *Store) SessionParticipantGrantUpdate(ctx context.Context, session m
 			EXISTS (SELECT 1 FROM gatehouse_principals pr WHERE pr.id = grants.principal AND pr.enabled = TRUE)
 			OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
 			JOIN gatehouse_principals pr ON pr.id = gm.principal_id AND pr.enabled = TRUE
-			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE)))`, session.Workspace.Id, session.Id).Scan(&manager)
+			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE
+			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "gm.principal_id")+`))
+			AND (grants.principal IS NULL OR `+workspacePrincipalAdmissionSQL("grants.workspace", "grants.principal")+`))`, session.Workspace.Id, session.Id).Scan(&manager)
 		if err != nil {
 			return err, nil
 		}

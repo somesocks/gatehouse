@@ -83,7 +83,7 @@
         />
         <UI.NavigationCard
           title="Groups"
-          description="Manage groups, memberships, and group workspace grants."
+          description="Organize workspace members and bots into groups."
           href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/groups`}
         />
         <UI.NavigationCard

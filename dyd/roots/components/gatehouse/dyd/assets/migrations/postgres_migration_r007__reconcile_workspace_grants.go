@@ -5,217 +5,86 @@ import (
 	"fmt"
 
 	"gatehouse/config"
-	"gatehouse/typed_id"
 )
 
 func postgresMigrationR007ReconcileWorkspaceGrants(state config.State) RepeatableMigration {
-	return RepeatableMigration{
-		Index:       7,
-		Description: "reconcile_workspace_grants",
-		Builder:     postgresMigrationR007ReconcileWorkspaceGrantsBuilder(state.WorkspaceGrants),
-	}
-}
-
-type postgresMigrationR007WorkspaceGrantValue struct {
-	ID          string
-	WorkspaceID string
-	Role        string
-	SubjectID   string
-	Revision    int
-	Enabled     bool
-}
-
-type postgresMigrationR007WorkspaceGrantValues struct {
-	Principals []postgresMigrationR007WorkspaceGrantValue
-	Groups     []postgresMigrationR007WorkspaceGrantValue
+	return RepeatableMigration{Index: 7, Description: "reconcile_workspace_grants", Builder: postgresMigrationR007ReconcileWorkspaceGrantsBuilder(state.WorkspaceGrants)}
 }
 
 func postgresMigrationR007ReconcileWorkspaceGrantsBuilder(grants []config.WorkspaceGrant) MigrationBuilder {
-	return func(ctx context.Context, session *MigrationSession) (error, string) {
-		existing, err := postgresMigrationR007WorkspaceGrantIDs(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		workspaceIDs, err := workspaceIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		principalIDs, err := principalIDsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		groups, err := groupsByAlias(ctx, session)
-		if err != nil {
-			return err, ""
-		}
-		values := postgresMigrationR007WorkspaceGrantValues{
-			Principals: make([]postgresMigrationR007WorkspaceGrantValue, 0, len(grants)),
-			Groups:     make([]postgresMigrationR007WorkspaceGrantValue, 0, len(grants)),
-		}
-		events := make([]activityMigrationEvent, 0, len(grants))
+	return func(_ context.Context, session *MigrationSession) (error, string) {
 		for _, grant := range grants {
-			value := postgresMigrationR007WorkspaceGrantValue{WorkspaceID: grant.WorkspaceID, Role: grant.Role, Revision: grant.Revision, Enabled: grant.Enabled}
-			kind := "principal"
-			if grant.PrincipalID != nil {
-				value.SubjectID = *grant.PrincipalID
-			} else {
-				kind = "group"
-				value.SubjectID = *grant.GroupID
-			}
-			key := postgresMigrationR007WorkspaceGrantKey{WorkspaceID: value.WorkspaceID, Role: value.Role, SubjectKind: kind, SubjectID: value.SubjectID}
-			stored, exists := existing[key]
-			value.ID = stored.ID
-			if !exists {
-				value.ID, err = typed_id.New(typed_id.WorkspaceGrant)
-				if err != nil {
-					return err, ""
-				}
-			}
-			if !exists || stored.Revision < value.Revision {
-				workspaceID := workspaceIDs[value.WorkspaceID]
-				if workspaceID == "" {
-					return fmt.Errorf("workspace %q is unavailable", value.WorkspaceID), ""
-				}
-				topics := []string{workspaceID + "/" + value.ID}
-				if kind == "principal" {
-					principalID := principalIDs[value.SubjectID]
-					if principalID == "" {
-						return fmt.Errorf("principal %q is unavailable", value.SubjectID), ""
-					}
-					topics = append(topics, principalID+"/"+value.ID)
-				} else {
-					group := groups[groupAliasKey{Workspace: value.WorkspaceID, Alias: value.SubjectID}]
-					if group.ID == "" {
-						return fmt.Errorf("group %q is unavailable in workspace %q", value.SubjectID, value.WorkspaceID), ""
-					}
-					topics[0] = workspaceID + "/" + group.ID + "/" + value.ID
-					memberTopics, err := postgresGroupMemberActivityTopics(ctx, session, workspaceID, group.ID, value.ID)
-					if err != nil {
-						return err, ""
-					}
-					topics = append(topics, memberTopics...)
-				}
-				eventName := "workspace_grant.create"
-				if exists {
-					eventName = "workspace_grant.update"
-				}
-				event, err := newActivityMigrationEvent(value.WorkspaceID, eventName, "workspace_grant", "", "", "", topics...)
-				if err != nil {
-					return err, ""
-				}
-				event.WorkspaceGrantID = value.ID
-				events = append(events, event)
-			}
-			if kind == "principal" {
-				values.Principals = append(values.Principals, value)
-			} else {
-				values.Groups = append(values.Groups, value)
+			if grant.PrincipalID == nil {
+				return fmt.Errorf("workspace grants require a principal"), ""
 			}
 		}
+		// Only configuration contributes to the checksum. Identities, revisions,
+		// and audit decisions are resolved after the execution transaction locks
+		// the affected tables, never from a pre-lock builder snapshot.
 		return session.RenderTemplate(`
-		SELECT 1;
-		{{ range .Principals }}
-		INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
-		VALUES (
-			{{ sqlLiteral .ID }},
-			(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Role }},
-			(SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .SubjectID }}), NULL,
-			{{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }}
-		)
-		ON CONFLICT (workspace, role, principal) WHERE principal IS NOT NULL DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
-		WHERE gatehouse_workspace_grants.revision < excluded.revision;
+		LOCK TABLE gatehouse_workspaces, gatehouse_principals, gatehouse_workspace_grants IN SHARE ROW EXCLUSIVE MODE;
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_desired (
+			workspace_alias TEXT NOT NULL, role TEXT NOT NULL, principal_alias TEXT NOT NULL,
+			revision BIGINT NOT NULL, enabled BOOLEAN NOT NULL,
+			PRIMARY KEY (workspace_alias, role, principal_alias)
+		) ON COMMIT DROP;
+		{{ range . }}
+		INSERT INTO gatehouse_migration_workspace_grant_desired VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Role }}, {{ sqlOptionalString .PrincipalID }}, {{ .Revision }}, {{ sqlBool .Enabled }});
 		{{ end }}
-		{{ range .Groups }}
-		INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
-		VALUES (
-			{{ sqlLiteral .ID }},
-			(SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}), {{ sqlLiteral .Role }}, NULL,
-			(SELECT id FROM gatehouse_groups WHERE workspace_id = (SELECT id FROM gatehouse_workspaces WHERE alias = {{ sqlLiteral .WorkspaceID }}) AND alias = {{ sqlLiteral .SubjectID }}),
-			{{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }}
+		DO $$ DECLARE missing RECORD; BEGIN
+			SELECT desired.workspace_alias, desired.principal_alias INTO missing
+			FROM gatehouse_migration_workspace_grant_desired desired
+			LEFT JOIN gatehouse_workspaces workspace ON workspace.alias = desired.workspace_alias
+			LEFT JOIN gatehouse_principals principal ON principal.alias = desired.principal_alias
+			WHERE workspace.id IS NULL OR principal.id IS NULL LIMIT 1;
+			IF FOUND THEN RAISE EXCEPTION 'workspace % or principal % is unavailable', missing.workspace_alias, missing.principal_alias; END IF;
+		END $$;
+		CREATE FUNCTION pg_temp.gatehouse_workspace_grant_id(kind TEXT, at_time TIMESTAMPTZ) RETURNS TEXT AS $$
+		DECLARE
+			alphabet CONSTANT TEXT := '0123456789abcdefghjkmnpqrstvwxyz';
+			milliseconds BIGINT := floor(extract(epoch FROM at_time) * 1000)::BIGINT;
+			encoded TEXT := ''; position INTEGER;
+		BEGIN
+			FOR position IN REVERSE 9..0 LOOP
+				encoded := substr(alphabet, (milliseconds % 32)::INTEGER + 1, 1) || encoded;
+				milliseconds := milliseconds / 32;
+			END LOOP;
+			FOR position IN 1..16 LOOP encoded := encoded || substr(alphabet, floor(random() * 32)::INTEGER + 1, 1); END LOOP;
+			RETURN kind || '_' || encoded;
+		END; $$ LANGUAGE plpgsql VOLATILE;
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_state ON COMMIT DROP AS
+		SELECT workspace.id AS workspace, desired.role, principal.id AS principal,
+			COALESCE(grants.id, pg_temp.gatehouse_workspace_grant_id('wgr', clock_timestamp())) AS id,
+			desired.revision, desired.enabled,
+			CASE WHEN grants.id IS NULL THEN 'workspace_grant.create' ELSE 'workspace_grant.update' END AS event,
+			date_trunc('milliseconds', clock_timestamp()) AS created_at
+		FROM gatehouse_migration_workspace_grant_desired desired
+		JOIN gatehouse_workspaces workspace ON workspace.alias = desired.workspace_alias
+		JOIN gatehouse_principals principal ON principal.alias = desired.principal_alias
+		LEFT JOIN gatehouse_workspace_grants grants ON grants.workspace = workspace.id AND grants.role = desired.role AND grants.principal = principal.id
+		WHERE grants.id IS NULL OR grants.revision < desired.revision;
+		CREATE TEMP TABLE gatehouse_migration_workspace_grant_applied (
+			id TEXT NOT NULL, workspace TEXT NOT NULL, principal TEXT NOT NULL,
+			event TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL, activity TEXT
+		) ON COMMIT DROP;
+		WITH changed AS (
+			INSERT INTO gatehouse_workspace_grants (id, workspace, role, principal, "group", enabled, revision)
+			SELECT id, workspace, role, principal, NULL, enabled, revision FROM gatehouse_migration_workspace_grant_state
+			ON CONFLICT (workspace, role, principal) WHERE principal IS NOT NULL DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
+			WHERE gatehouse_workspace_grants.revision < excluded.revision
+			RETURNING id, workspace, principal, role
 		)
-		ON CONFLICT (workspace, role, "group") WHERE "group" IS NOT NULL DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
-		WHERE gatehouse_workspace_grants.revision < excluded.revision;
-		{{ end }}
-		{{ range .Events }}
-		{{ $event := . }}
-		INSERT INTO gatehouse_activity_events (
-			id, event, resource_kind, resource_workspace_grant, created_at
-		) VALUES (
-			{{ sqlLiteral .ID }}, {{ sqlLiteral .Event }}, {{ sqlLiteral .ResourceKind }}, {{ sqlLiteral .WorkspaceGrantID }}, {{ sqlLiteral .CreatedAt }}
-		);
-		{{ range .Topics }}
+		INSERT INTO gatehouse_migration_workspace_grant_applied (id, workspace, principal, event, created_at)
+		SELECT changed.id, changed.workspace, changed.principal, state.event, state.created_at
+		FROM changed JOIN gatehouse_migration_workspace_grant_state state
+		ON state.workspace = changed.workspace AND state.principal = changed.principal AND state.role = changed.role;
+		UPDATE gatehouse_migration_workspace_grant_applied SET activity = pg_temp.gatehouse_workspace_grant_id('act', created_at);
+		INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_workspace_grant, created_at)
+		SELECT activity, event, 'workspace_grant', id, created_at FROM gatehouse_migration_workspace_grant_applied;
 		INSERT INTO gatehouse_activity_event_topics (activity, topic)
-		VALUES ({{ sqlLiteral $event.ID }}, {{ sqlLiteral . }});
-		{{ end }}
-		{{ end }}
-		`, struct {
-			Principals []postgresMigrationR007WorkspaceGrantValue
-			Groups     []postgresMigrationR007WorkspaceGrantValue
-			Events     []activityMigrationEvent
-		}{Principals: values.Principals, Groups: values.Groups, Events: events})
+		SELECT activity, workspace || '/' || id FROM gatehouse_migration_workspace_grant_applied
+		UNION ALL SELECT activity, principal || '/' || id FROM gatehouse_migration_workspace_grant_applied;
+		DROP FUNCTION pg_temp.gatehouse_workspace_grant_id(TEXT, TIMESTAMPTZ);
+		`, grants)
 	}
-}
-
-type postgresMigrationR007WorkspaceGrantKey struct {
-	WorkspaceID string
-	Role        string
-	SubjectKind string
-	SubjectID   string
-}
-
-// Principal-rooted topics remain readable after the change revokes workspace access.
-func postgresGroupMemberActivityTopics(ctx context.Context, session *MigrationSession, workspace, group, suffix string) ([]string, error) {
-	rows, err := session.QueryContext(ctx, `SELECT principal_id FROM gatehouse_group_members WHERE workspace_id = $1 AND group_id = $2`, workspace, group)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	topics := []string{}
-	for rows.Next() {
-		var principal string
-		if err := rows.Scan(&principal); err != nil {
-			return nil, err
-		}
-		topics = append(topics, principal+"/"+suffix)
-	}
-	return topics, rows.Err()
-}
-
-type postgresMigrationR007WorkspaceGrant struct {
-	ID       string
-	Revision int
-}
-
-func postgresMigrationR007WorkspaceGrantIDs(ctx context.Context, session *MigrationSession) (map[postgresMigrationR007WorkspaceGrantKey]postgresMigrationR007WorkspaceGrant, error) {
-	rows, err := session.QueryContext(ctx, `
-		SELECT workspaces.alias, grants.role, 'principal', principals.alias, grants.id, grants.revision
-		FROM gatehouse_workspace_grants AS grants
-		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = grants.workspace
-		JOIN gatehouse_principals AS principals ON principals.id = grants.principal
-		WHERE grants.principal IS NOT NULL
-		UNION ALL
-		SELECT workspaces.alias, grants.role, 'group', groups.alias, grants.id, grants.revision
-		FROM gatehouse_workspace_grants AS grants
-		JOIN gatehouse_workspaces AS workspaces ON workspaces.id = grants.workspace
-		JOIN gatehouse_groups AS groups ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
-		WHERE grants."group" IS NOT NULL
-	`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	grants := map[postgresMigrationR007WorkspaceGrantKey]postgresMigrationR007WorkspaceGrant{}
-	for rows.Next() {
-		var key postgresMigrationR007WorkspaceGrantKey
-		var grant postgresMigrationR007WorkspaceGrant
-		if err := rows.Scan(&key.WorkspaceID, &key.Role, &key.SubjectKind, &key.SubjectID, &grant.ID, &grant.Revision); err != nil {
-			return nil, err
-		}
-		grants[key] = grant
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return grants, nil
 }

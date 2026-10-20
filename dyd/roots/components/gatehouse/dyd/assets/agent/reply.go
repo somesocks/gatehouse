@@ -89,8 +89,10 @@ type agentProviderTurn struct {
 }
 
 type sessionNamePreparation struct {
-	Selected *database.WorkspaceAgentModel
-	Text     string
+	Selected  *database.WorkspaceAgentModel
+	Text      string
+	Principal model.PrincipalRef
+	Message   model.SessionEventRef
 }
 
 type sessionReplyCancelled struct{}
@@ -552,7 +554,7 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 		if preferred == "" {
 			continue
 		}
-		if err := runtime.requireAgentParticipant(ctx, input.Session, model.WorkspaceAgentRef{Workspace: input.Session.Workspace, Id: preferred}); err != nil {
+		if err := runtime.requireAgentParticipant(ctx, input.Session, model.WorkspaceAgentRef{Workspace: input.Session.Workspace, Id: preferred}, event.Ref); err != nil {
 			continue
 		}
 		err, selected := runtime.store.WorkspaceAgentModelGet(ctx, input.Session.Workspace, preferred)
@@ -562,21 +564,28 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 		if selected == nil {
 			return false, nil
 		}
-		preparation = sessionNamePreparation{Selected: selected, Text: text}
+		preparation = sessionNamePreparation{Selected: selected, Text: text, Principal: event.AuthorPrincipal.Ref, Message: event.Ref}
 		break
 	}
 	if preparation.Selected == nil {
 		return false, nil
 	}
-	err, name := runtime.sessionNameCompletion(ctx, preparation.Selected, preparation.Text)
+	callContext, cancel := context.WithCancel(ctx)
+	stopWatch := watchCancellation(func(check context.Context) bool {
+		err, authorized := runtime.store.SessionRequestAuthorizedGet(check, preparation.Message)
+		return err == nil && !authorized
+	}, cancel)
+	defer stopWatch()
+	defer cancel()
+	err, name := runtime.sessionNameCompletion(callContext, preparation.Selected, preparation.Text)
 	if err != nil {
 		return false, err
 	}
-	err, updated := runtime.store.SessionNameSet(ctx, input.Session, name)
+	err, updated := runtime.store.SessionNameSet(ctx, input.Session, name, preparation.Principal)
 	return updated, err
 }
 
-func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx dbos.Context, selected *database.WorkspaceAgentModel, text string) (error, string) {
+func (runtime *SessionEventReplyRuntime) sessionNameCompletion(ctx context.Context, selected *database.WorkspaceAgentModel, text string) (error, string) {
 	switch selected.Protocol {
 	case "builtin":
 		return BuiltinReply(selected.Model, selected.Parameters)
@@ -814,7 +823,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 	}
 }
 
-func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleCompletion, error) {
+func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx context.Context, selected *database.WorkspaceAgentModel, request openAICompatibleRequest) (openAICompatibleCompletion, error) {
 	err, apiKey := runtime.openAIAPIKey(ctx, selected)
 	if err != nil {
 		return openAICompatibleCompletion{}, err
@@ -824,7 +833,7 @@ func (runtime *SessionEventReplyRuntime) openAICompatibleComplete(ctx dbos.Conte
 	return reply, replyErr
 }
 
-func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx dbos.Context, selected *database.WorkspaceAgentModel, request openAIResponsesRequest) (openAIResponsesResponse, error) {
+func (runtime *SessionEventReplyRuntime) openAIResponsesComplete(ctx context.Context, selected *database.WorkspaceAgentModel, request openAIResponsesRequest) (openAIResponsesResponse, error) {
 	if selected.Protocol == config.AgentProviderProtocolOpenAICodex {
 		return runtime.codexComplete(ctx, selected, request)
 	}
@@ -943,7 +952,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 	if selected == nil || selected.Ref != *request.AuthorAgent {
 		return model.SessionEventRef{}, fmt.Errorf("session tool call agent is unavailable")
 	}
-	if err := runtime.requireAgentParticipant(ctx, request.Ref.Session, selected.Ref); err != nil {
+	if err := runtime.requireAgentParticipant(ctx, request.Ref.Session, selected.Ref, request.Ref); err != nil {
 		return model.SessionEventRef{}, err
 	}
 	agent := *request.AuthorAgent
@@ -1006,6 +1015,9 @@ func (runtime *SessionEventReplyRuntime) watchReplyCancellation(parent *model.Se
 		err, root := runtime.store.SessionEventGet(ctx, *parent)
 		if err != nil || root == nil {
 			return false
+		}
+		if err, authorized := runtime.store.SessionRequestAuthorizedGet(ctx, *parent); err == nil && !authorized {
+			return true
 		}
 		id, _ := root.Payload["agent"].(string)
 		err, active := runtime.store.SessionAgentParticipantGet(ctx, parent.Session, model.WorkspaceAgentRef{Workspace: parent.Session.Workspace, Id: id})
@@ -1916,7 +1928,7 @@ func projectRecordValueFromModel(value model.ProjectRecordValue) ProjectRecordVa
 }
 
 func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, description string) error {
-	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent, tool.Ref); err != nil {
 		return err
 	}
 	payload, err := database.SessionEventPayloadFrom(model.ApprovalRequestPayload{Description: description})
@@ -1940,7 +1952,7 @@ func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool mo
 	if err != nil {
 		return fmt.Errorf("await approval %q: %w", request.Id, err)
 	}
-	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent, tool.Ref); err != nil {
 		return err
 	}
 	if outcome == ApprovalGranted {
@@ -1977,7 +1989,7 @@ func (runtime *SessionEventReplyRuntime) approval(ctx dbos.Context, input Sessio
 }
 
 func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model.SessionEvent, agent model.WorkspaceAgentRef, form inputform.Form) (error, string) {
-	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent, tool.Ref); err != nil {
 		return err, ""
 	}
 	if err := form.Validate(); err != nil {
@@ -2000,7 +2012,7 @@ func (runtime *SessionEventReplyRuntime) awaitInput(ctx dbos.Context, tool model
 	if err != nil {
 		return fmt.Errorf("await input %q: %w", request.Id, err), ""
 	}
-	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent); err != nil {
+	if err := runtime.requireAgentParticipant(ctx, tool.Ref.Session, agent, tool.Ref); err != nil {
 		return err, ""
 	}
 	err, event := runtime.inputResponseEventGet(ctx, request, response)
@@ -2263,7 +2275,7 @@ func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context
 			return fmt.Errorf("reply request is unavailable")
 		}
 		id, _ := request.Payload["agent"].(string)
-		return runtime.requireAgentParticipant(ctx, parent.Session, model.WorkspaceAgentRef{Workspace: parent.Session.Workspace, Id: id})
+		return runtime.requireAgentParticipant(ctx, parent.Session, model.WorkspaceAgentRef{Workspace: parent.Session.Workspace, Id: id}, parent)
 	}
 	return sessionReplyCancelled{}
 }

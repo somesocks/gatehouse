@@ -37,7 +37,7 @@ func chatInvitationEligibilitySQL(kind, workspace, actor, subject string) (strin
 	default:
 		return "", ErrMessageTarget
 	}
-	return `(EXISTS (SELECT 1 FROM gatehouse_principals inviter WHERE inviter.id = ` + actor + ` AND inviter.enabled = TRUE)
+	return `(` + workspacePrincipalAdmissionSQL(workspace, actor) + `
 		AND EXISTS (SELECT 1 FROM gatehouse_workspaces invitation_workspace WHERE invitation_workspace.id = ` + workspace + ` AND invitation_workspace.enabled = TRUE)
 		AND (` + eligible + `))`, nil
 }

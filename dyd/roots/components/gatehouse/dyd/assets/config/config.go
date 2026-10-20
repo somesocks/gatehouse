@@ -26,16 +26,16 @@ var compiledSchema struct {
 }
 
 type State struct {
-	Workspaces            []Workspace
-	Principals            []Principal
-	Keychains             []Keychain
-	Groups                []Group
-	WorkspaceGrants      []WorkspaceGrant
-	SystemGrants         []SystemGrant
-	AgentProviders []AgentProvider
-	AgentModels []AgentModel
-	WorkspaceAgents []WorkspaceAgent
-	StorageProviders []StorageProvider
+	Workspaces                []Workspace
+	Principals                []Principal
+	Keychains                 []Keychain
+	Groups                    []Group
+	WorkspaceGrants           []WorkspaceGrant
+	SystemGrants              []SystemGrant
+	AgentProviders            []AgentProvider
+	AgentModels               []AgentModel
+	WorkspaceAgents           []WorkspaceAgent
+	StorageProviders          []StorageProvider
 	WorkspaceStorageProviders []WorkspaceStorageProvider
 }
 
@@ -93,7 +93,7 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 	if err != nil {
 		return err, State{}
 	}
-	err, workspaceGrants := ResolveWorkspaceGrants(document, principals, groups)
+	err, workspaceGrants := ResolveWorkspaceGrants(document)
 	if err != nil {
 		return err, State{}
 	}
@@ -102,15 +102,25 @@ func ResolveState(document configschema.GatehouseConfig) (error, State) {
 		return err, State{}
 	}
 	err, providers := ResolveAgentProviders(document)
-	if err != nil { return err, State{} }
+	if err != nil {
+		return err, State{}
+	}
 	err, models := ResolveAgentModels(document, providers)
-	if err != nil { return err, State{} }
+	if err != nil {
+		return err, State{}
+	}
 	err, agents := ResolveWorkspaceAgents(document, models)
-	if err != nil { return err, State{} }
+	if err != nil {
+		return err, State{}
+	}
 	err, storageProviders := ResolveStorageProviders(document)
-	if err != nil { return err, State{} }
+	if err != nil {
+		return err, State{}
+	}
 	err, workspaceStorageProviders := ResolveWorkspaceStorageProviders(document, storageProviders)
-	if err != nil { return err, State{} }
+	if err != nil {
+		return err, State{}
+	}
 	return nil, State{Workspaces: workspaces, Principals: principals, Keychains: keychains, Groups: groups, WorkspaceGrants: workspaceGrants, SystemGrants: systemGrants, AgentProviders: providers, AgentModels: models, WorkspaceAgents: agents, StorageProviders: storageProviders, WorkspaceStorageProviders: workspaceStorageProviders}
 }
 

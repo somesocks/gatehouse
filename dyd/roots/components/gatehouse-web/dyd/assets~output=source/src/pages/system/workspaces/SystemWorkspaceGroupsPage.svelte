@@ -58,7 +58,7 @@
   <UI.AdminContent>
     <UI.AdminHeader
       title="Groups"
-      description="Manage workspace groups, their members, and workspace grants."
+      description="Organize workspace members and bots into collaboration groups."
     >
       {#snippet actions()}<UI.Button
           onclick={() => (creating = !creating)}

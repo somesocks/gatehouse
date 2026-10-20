@@ -1,4 +1,4 @@
-import { systemAdministration, type WorkspaceRole } from "./system"
+import { systemAdministration } from "./system"
 
 export type SystemGroup = {
   id: string
@@ -18,15 +18,6 @@ export type SystemGroupMember = {
   revision: number
 }
 
-export type SystemGroupGrant = {
-  id: string
-  workspace: string
-  group: string
-  role: WorkspaceRole
-  enabled: boolean
-  revision: number
-}
-
 export type SystemGroupAgent = {
   agent: string
   alias: string
@@ -38,6 +29,21 @@ export type SystemGroupAgent = {
 
 export function groupAdminPath(workspace: string, group?: string, suffix = "") {
   return `workspaces/${encodeURIComponent(workspace)}/groups${group ? `/${encodeURIComponent(group)}` : ""}${suffix}`
+}
+
+export function fetchAdminGroupMemberOptions(
+  workspace: string,
+  group: string,
+  name: string,
+  cursor: string,
+  signal: AbortSignal,
+) {
+  return systemAdministration(
+    `${groupAdminPath(workspace, group, "/member-options")}?${new URLSearchParams({ limit: "50", name, cursor })}`,
+    "GET",
+    undefined,
+    signal,
+  )
 }
 
 export function fetchAdminGroups(

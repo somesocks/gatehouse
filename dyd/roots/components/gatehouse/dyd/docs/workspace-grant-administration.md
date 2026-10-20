@@ -3,8 +3,8 @@
 Under **System → Workspaces → [workspace] → Principals**, each enabled direct
 grant has an **Edit role** action. Select Member, Contributor, or Manager and
 save. The operation edits that specific grant; it preserves its `wgr_…` ID,
-workspace, recipient, and enabled state. Other direct grants and group-derived
-permissions still apply.
+workspace, principal, and enabled state. Other direct workspace grants still
+apply. Group membership never assigns workspace admission or roles.
 
 The principal roster remains grouped by principal. Its API response includes
 both the existing `roles` summary and a `grants` array with each enabled direct
@@ -19,14 +19,14 @@ grant's ID, workspace, principal, role, enabled status, and revision.
 {"role":"contributor","expected_revision":3}
 ```
 
-The response is the updated grant, including its recipient (`principal` or
-`group`), role, enabled status, and revision. This endpoint supports both direct
-principal grants and group grants. The principal roster exposes direct grants.
+The response is the updated principal grant, including its role, enabled status,
+and revision. Retired historical group grants cannot be edited or re-enabled and
+return `404` through this endpoint.
 
 The endpoint also accepts `enabled` to revoke or restore a single grant, with or
-without a role change. Omitted fields are preserved. Workspace groups expose
-these controls under **System → Workspaces → [workspace] → Groups**; see
-[Group administration](group-administration.md).
+without a role change. Omitted fields are preserved. Removing the last enabled
+workspace grant suspends all chat/project access, even through retained resource
+grants or group memberships; see [Group administration](group-administration.md).
 
 Actual role changes atomically increment the revision and append a
 `workspace_grant.update` activity event. Saving the same role with the current
@@ -40,7 +40,7 @@ revision leaves the grant and activity unchanged.
 
 ## Configuration reconciliation
 
-Configuration matches workspace grants by workspace, recipient, and role.
+Configuration matches workspace grants by workspace, principal, and role.
 Changing a configured grant's role in the panel does not update its configuration
 declaration. A subsequent reconciliation can recreate a grant for the old role.
 Keep the configuration declaration in sync when editing configuration-managed

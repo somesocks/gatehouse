@@ -88,7 +88,7 @@
   <UI.AdminContent
     ><UI.AdminHeader
       title="Direct principals"
-      description="Direct workspace grants. Access inherited through groups is managed separately."
+      description="Workspace membership and roles are assigned directly to each person."
       >{#snippet actions()}<UI.RouterLink
           variant="default"
           href={`/app/system/workspaces/${encodeURIComponent(workspaceID)}/principals/new`}
@@ -132,7 +132,7 @@
             </UI.Select>
           </UI.Field>
           <UI.Text size="small" tone="muted"
-            >Changes this direct grant only. Other direct and group-derived
+            >Changes this grant only. Other direct
             grants still apply.</UI.Text
           >
         </UI.FormSection>

@@ -57,9 +57,9 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 		return fmt.Errorf("bind project creator role: %w", err), model.Project{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project_grant.create",
-		ResourceKind: ActivityResourceKindProjectGrant,
+		Ref:                  model.ActivityEventRef{},
+		Event:                "project_grant.create",
+		ResourceKind:         ActivityResourceKindProjectGrant,
 		ResourceProjectGrant: &grantID,
 	}, []string{ActivityTopicProjectGrant(project.Ref, grantID), ActivityTopicPrincipalGrant(creator, grantID)}); err != nil {
 		return fmt.Errorf("append project creator grant activity: %w", err), model.Project{}
@@ -76,18 +76,18 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 			return fmt.Errorf("bind project group role: %w", err), model.Project{}
 		}
 		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-			Ref:          model.ActivityEventRef{},
-			Event:        "project_grant.create",
-			ResourceKind: ActivityResourceKindProjectGrant,
+			Ref:                  model.ActivityEventRef{},
+			Event:                "project_grant.create",
+			ResourceKind:         ActivityResourceKindProjectGrant,
 			ResourceProjectGrant: &grantID,
 		}, []string{ActivityTopicProjectGrant(project.Ref, grantID), ActivityTopicGroupGrant(project.Ref.Workspace, group, grantID)}); err != nil {
 			return fmt.Errorf("append project group grant activity: %w", err), model.Project{}
 		}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project.create",
-		ResourceKind: ActivityResourceKindProject,
+		Ref:             model.ActivityEventRef{},
+		Event:           "project.create",
+		ResourceKind:    ActivityResourceKindProject,
 		ResourceProject: &project.Ref.Id,
 	}, []string{ActivityTopicProject(project.Ref)}); err != nil {
 		return fmt.Errorf("append project creation activity: %w", err), model.Project{}
@@ -99,6 +99,9 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 }
 
 func (store *Store) ProjectRolesGet(ctx context.Context, project model.ProjectRef, principal model.PrincipalRef) (error, []authz.Role) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, project.Workspace, principal); err != nil || !admitted {
+		return err, []authz.Role{}
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
 		WITH input AS (
@@ -163,6 +166,9 @@ func (store *Store) ProjectRolesGet(ctx context.Context, project model.ProjectRe
 }
 
 func (store *Store) ProjectsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef) (error, []model.Project) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Project{}
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	rows, err := store.QueryContext(ctx, `
 		SELECT projects.workspace, projects.id, projects.name, projects.description, projects.enabled, projects.created_at
@@ -229,6 +235,9 @@ func (store *Store) ProjectGet(ctx context.Context, project model.ProjectRef, pr
 }
 
 func (store *Store) ProjectsGetByRefs(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, refs []model.ProjectRef) (error, []model.Project) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Project{}
+	}
 	if len(refs) == 0 {
 		return nil, []model.Project{}
 	}
@@ -343,9 +352,9 @@ func (store *Store) ProjectDetailsSet(ctx context.Context, project model.Project
 	stored.Name = name
 	stored.Description = description
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
-		Ref:          model.ActivityEventRef{},
-		Event:        "project.update",
-		ResourceKind: ActivityResourceKindProject,
+		Ref:             model.ActivityEventRef{},
+		Event:           "project.update",
+		ResourceKind:    ActivityResourceKindProject,
 		ResourceProject: &project.Id,
 	}, []string{ActivityTopicProject(project)}); err != nil {
 		return fmt.Errorf("append project update activity: %w", err), nil
@@ -367,6 +376,9 @@ func (store *Store) ProjectsSearch(ctx context.Context, workspace model.Workspac
 }
 
 func (store *Store) projectsSearch(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, search ProjectSearch, id string) (error, []model.Project, string) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Project{}, ""
+	}
 	if search.Limit < 1 || search.Limit > 100 {
 		return fmt.Errorf("search projects: limit must be between 1 and 100"), nil, ""
 	}

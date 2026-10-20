@@ -17,10 +17,11 @@ func groupAgentTestState(t *testing.T) config.State {
 	suffix := newTypedID(t, typed_id.Workspace)
 	workspace, other, principal, provider, model := "bots-"+suffix, "other-"+suffix, "member-"+suffix, "provider-"+suffix, "model-"+suffix
 	return config.State{
-		Workspaces:     []config.Workspace{{Alias: workspace, Enabled: true}, {Alias: other, Enabled: true}},
-		Principals:     []config.Principal{{Alias: principal, Enabled: true}},
-		AgentProviders: []config.AgentProvider{{Alias: provider, Revision: 1, Protocol: "builtin", Enabled: true}},
-		AgentModels:    []config.AgentModel{{Alias: model, ProviderAlias: provider, Revision: 1, Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
+		Workspaces:      []config.Workspace{{Alias: workspace, Enabled: true}, {Alias: other, Enabled: true}},
+		Principals:      []config.Principal{{Alias: principal, Enabled: true}},
+		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: workspace, PrincipalID: &principal, Role: "member", Enabled: true, Revision: 1}},
+		AgentProviders:  []config.AgentProvider{{Alias: provider, Revision: 1, Protocol: "builtin", Enabled: true}},
+		AgentModels:     []config.AgentModel{{Alias: model, ProviderAlias: provider, Revision: 1, Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{
 			{WorkspaceID: workspace, Alias: "assistant", ModelAlias: model, Revision: 1, Enabled: true},
 			{WorkspaceID: workspace, Alias: "helper", ModelAlias: model, Revision: 1, Enabled: true},

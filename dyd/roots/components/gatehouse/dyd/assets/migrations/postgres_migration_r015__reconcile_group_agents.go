@@ -96,7 +96,10 @@ func postgresMigrationR015ReconcileGroupAgentsBuilder(groups []config.Group) Mig
 			UNION ALL
 			SELECT activities.id, members.principal_id || '/' || activities.group_id
 			FROM gatehouse_migration_group_agent_activities activities
-			JOIN gatehouse_group_members members ON members.workspace_id = activities.workspace_id AND members.group_id = activities.group_id;
+			JOIN gatehouse_group_members members ON members.workspace_id = activities.workspace_id AND members.group_id = activities.group_id AND members.enabled = TRUE
+			JOIN gatehouse_principals principal ON principal.id = members.principal_id AND principal.enabled = TRUE
+			JOIN gatehouse_workspaces workspace ON workspace.id = members.workspace_id AND workspace.enabled = TRUE
+			WHERE EXISTS (SELECT 1 FROM gatehouse_workspace_grants grants WHERE grants.workspace = members.workspace_id AND grants.principal = members.principal_id AND grants.enabled = TRUE);
 			DROP FUNCTION pg_temp.gatehouse_group_agent_migration_id(TIMESTAMPTZ);
 		`, groups)
 	}

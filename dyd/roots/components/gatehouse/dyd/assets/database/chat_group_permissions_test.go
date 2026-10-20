@@ -46,7 +46,7 @@ func newChatGroupFixture(t *testing.T, configuration config.DatabaseConfig) *cha
 	members := func(names ...string) []config.GroupMember {
 		result := []config.GroupMember{}
 		for _, name := range names {
-			result = append(result, config.GroupMember{PrincipalID: aliases[name], Enabled: true, Revision: 1})
+			result = append(result, config.GroupMember{PrincipalID: aliases[name], Enabled: name != "disabled", Revision: 1})
 		}
 		return result
 	}
@@ -76,6 +76,12 @@ func newChatGroupFixture(t *testing.T, configuration config.DatabaseConfig) *cha
 		state.WorkspaceAgents = append(state.WorkspaceAgents, config.WorkspaceAgent{WorkspaceID: workspace, Alias: name, ModelAlias: agentModel, Revision: 1, Default: name == "general", Enabled: name != "disabled"})
 	}
 	state.WorkspaceAgents = append(state.WorkspaceAgents, config.WorkspaceAgent{WorkspaceID: foreign, Alias: "foreign", ModelAlias: agentModel, Revision: 1, Enabled: true})
+	for _, alias := range aliases {
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace, PrincipalID: stringPointer(alias), Role: "contributor", Enabled: true, Revision: 1})
+	}
+	for _, name := range []string{"alice", "bob"} {
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: foreign, PrincipalID: stringPointer(aliases[name]), Role: "member", Enabled: true, Revision: 1})
+	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -92,9 +98,6 @@ func newChatGroupFixture(t *testing.T, configuration config.DatabaseConfig) *cha
 			t.Fatal(err)
 		}
 		f.people[name] = principal
-		if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, f.workspace.Id, f.people[name].Id, authz.Contributor); err != nil {
-			t.Fatal(err)
-		}
 	}
 	for _, group := range state.Groups {
 		ref := f.workspace

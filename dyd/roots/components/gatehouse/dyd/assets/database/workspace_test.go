@@ -10,7 +10,7 @@ import (
 	"gatehouse/database"
 )
 
-func TestWorkspaceRolesGetUsesDirectAndGroupGrants(t *testing.T) {
+func TestWorkspaceRolesAreIndependentOfGroupMembership(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -34,7 +34,7 @@ func TestWorkspaceRolesGetUsesDirectAndGroupGrants(t *testing.T) {
 		}},
 		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: &alice, Revision: 1, Enabled: true},
-			{WorkspaceID: "engineering", Role: string(authz.Contributor), GroupID: &developers, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: string(authz.Contributor), PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -83,14 +83,14 @@ func TestWorkspaceRolesGetUsesDirectAndGroupGrants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(roles) != 0 {
-		t.Fatalf("WorkspaceRolesGet() after membership revocation = %#v, want no roles", roles)
+	if !reflect.DeepEqual(roles, []authz.Role{authz.Contributor}) {
+		t.Fatalf("group membership changed explicit workspace roles: %#v", roles)
 	}
 	err, workspaces = store.WorkspacesGet(ctx, bob)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(workspaces) != 0 {
-		t.Fatalf("WorkspacesGet() after membership revocation = %#v, want no workspaces", workspaces)
+	if len(workspaces) != 1 {
+		t.Fatalf("group membership changed explicit workspace admission: %#v", workspaces)
 	}
 }

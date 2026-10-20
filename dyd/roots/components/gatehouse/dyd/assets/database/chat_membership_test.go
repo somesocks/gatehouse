@@ -78,7 +78,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -99,11 +99,6 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 		return id
 	}
 	alice, bob, carol := person("alice"), person("bob"), person("carol")
-	for _, person := range []model.PrincipalRef{alice, bob, carol} {
-		if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, person.Id, authz.Member); err != nil {
-			t.Fatal(err)
-		}
-	}
 	group := groupFor("engineering", "team")
 	var bot string
 	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE alias = 'assistant'`).Scan(&bot); err != nil {

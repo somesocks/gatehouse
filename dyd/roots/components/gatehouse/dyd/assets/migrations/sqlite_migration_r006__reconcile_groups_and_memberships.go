@@ -1,162 +1,44 @@
 package migrations
 
-import (
-	"context"
-	"gatehouse/config"
-)
+import "gatehouse/config"
 
+// R006 retains its historical identity; human memberships now follow admission
+// in R016. Group metadata must exist before workspace bots are reconciled.
 func sqliteMigrationR006ReconcileGroupsAndMemberships(groups []config.Group) RepeatableMigration {
-	return RepeatableMigration{
-		Index:       6,
-		Description: "reconcile_groups_and_memberships",
-		Builder:     sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups),
-	}
+	return RepeatableMigration{Index: 6, Description: "reconcile_groups_and_memberships", Builder: sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups)}
 }
 
 func sqliteMigrationR006ReconcileGroupsAndMembershipsBuilder(groups []config.Group) MigrationBuilder {
-	return func(_ context.Context, session *MigrationSession) (error, string) {
-		return session.RenderTemplate(`
-			DROP TABLE IF EXISTS gatehouse_migration_group_desired;
-			DROP TABLE IF EXISTS gatehouse_migration_group_members_desired;
-			DROP TABLE IF EXISTS gatehouse_migration_group_state;
-			DROP TABLE IF EXISTS gatehouse_migration_group_member_state;
-			DROP TABLE IF EXISTS gatehouse_migration_group_activities;
-
-			CREATE TEMP TABLE gatehouse_migration_group_desired (
-				workspace_alias TEXT NOT NULL,
-				alias TEXT NOT NULL,
-				name TEXT,
-				enabled INTEGER NOT NULL,
-				revision INTEGER NOT NULL,
-				PRIMARY KEY (workspace_alias, alias)
-			) STRICT;
-			{{ range . }}
-			INSERT INTO gatehouse_migration_group_desired (workspace_alias, alias, name, enabled, revision)
-			VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlOptionalString .Name }}, {{ sqlBool .Enabled }}, {{ if .Revision }}{{ .Revision }}{{ else }}1{{ end }});
-			{{ end }}
-
-			CREATE TEMP TABLE gatehouse_migration_group_members_desired (
-				workspace_alias TEXT NOT NULL,
-				group_alias TEXT NOT NULL,
-				principal_alias TEXT NOT NULL,
-				enabled INTEGER NOT NULL,
-				revision INTEGER NOT NULL,
-				PRIMARY KEY (workspace_alias, group_alias, principal_alias)
-			) STRICT;
-			{{ range . }}
-			{{ $group := . }}
-			{{ range .Members }}
-			INSERT INTO gatehouse_migration_group_members_desired (workspace_alias, group_alias, principal_alias, enabled, revision)
-			VALUES ({{ sqlLiteral $group.WorkspaceID }}, {{ sqlLiteral $group.Alias }}, {{ sqlLiteral .PrincipalID }}, {{ sqlBool .Enabled }}, {{ if .Revision }}{{ .Revision }}{{ else }}1{{ end }});
-			{{ end }}
-			{{ end }}
-
-			CREATE TEMP TABLE gatehouse_migration_group_state AS
-			SELECT
-				desired.workspace_alias,
-				desired.alias,
-				workspaces.id AS workspace_id,
-				COALESCE(groups.id, gh_id_new('grp')) AS group_id,
-				groups.id AS existing_group_id,
-				desired.name,
-				desired.enabled,
-				desired.revision,
-				groups.revision AS existing_revision
-			FROM gatehouse_migration_group_desired AS desired
-			LEFT JOIN gatehouse_workspaces AS workspaces ON workspaces.alias = desired.workspace_alias
-			LEFT JOIN gatehouse_groups AS groups ON groups.workspace_id = workspaces.id AND groups.alias = desired.alias;
-
-			CREATE TEMP TABLE gatehouse_migration_group_member_state AS
-			SELECT
-				desired.workspace_alias,
-				desired.group_alias,
-				desired.principal_alias,
-				groups.workspace_id,
-				groups.group_id,
-				principals.id AS principal_id,
-				members.principal_id AS existing_principal_id,
-				desired.enabled,
-				desired.revision,
-				members.revision AS existing_revision
-			FROM gatehouse_migration_group_members_desired AS desired
-			JOIN gatehouse_migration_group_state AS groups ON groups.workspace_alias = desired.workspace_alias AND groups.alias = desired.group_alias
-			LEFT JOIN gatehouse_principals AS principals ON principals.alias = desired.principal_alias
-			LEFT JOIN gatehouse_group_members AS members ON members.workspace_id = groups.workspace_id AND members.group_id = groups.group_id AND members.principal_id = principals.id;
-
-			CREATE TEMP TABLE gatehouse_migration_group_activities (
-				workspace_id TEXT NOT NULL,
-				id TEXT NOT NULL,
-				event TEXT NOT NULL,
-				resource_kind TEXT NOT NULL,
-				group_id TEXT NOT NULL,
-				principal_id TEXT
-			) STRICT;
-			INSERT INTO gatehouse_migration_group_activities (workspace_id, id, event, resource_kind, group_id, principal_id)
-			SELECT
-				workspace_id,
-				gh_id_new('act'),
-				CASE WHEN existing_group_id IS NULL THEN 'group.create' ELSE 'group.update' END,
-				'group',
-				group_id,
-				NULL
-			FROM gatehouse_migration_group_state
-			WHERE existing_group_id IS NULL OR existing_revision < revision;
-			INSERT INTO gatehouse_migration_group_activities (workspace_id, id, event, resource_kind, group_id, principal_id)
-			SELECT
-				workspace_id,
-				gh_id_new('act'),
-				CASE WHEN existing_principal_id IS NULL THEN 'group_member.create' ELSE 'group_member.update' END,
-				'group_member',
-				group_id,
-				principal_id
-			FROM gatehouse_migration_group_member_state
-			WHERE existing_principal_id IS NULL OR existing_revision < revision;
-
-			INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled, revision)
-			SELECT workspace_id, group_id, alias, name, enabled, revision
-			FROM gatehouse_migration_group_state
-			WHERE TRUE
-			ON CONFLICT (workspace_id, alias) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, revision = excluded.revision
-			WHERE gatehouse_groups.revision < excluded.revision;
-			INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision)
-			SELECT workspace_id, group_id, principal_id, enabled, revision
-			FROM gatehouse_migration_group_member_state
-			WHERE TRUE
-			ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
-			WHERE gatehouse_group_members.revision < excluded.revision;
-
-			INSERT INTO gatehouse_activity_events (
-				id, event, resource_kind, resource_group, resource_group_member_group, resource_group_member_principal, created_at
-			)
-			SELECT id, event, resource_kind,
-				CASE WHEN resource_kind = 'group' THEN group_id END,
-				CASE WHEN resource_kind = 'group_member' THEN group_id END,
-				CASE WHEN resource_kind = 'group_member' THEN principal_id END,
-				gh_id_timestamp(id)
-			FROM gatehouse_migration_group_activities;
-			INSERT INTO gatehouse_activity_event_topics (activity, topic)
-			SELECT id, workspace_id || '/' || group_id
-			FROM gatehouse_migration_group_activities
-			WHERE resource_kind = 'group'
-			UNION ALL
-			SELECT activities.id, members.principal_id || '/' || activities.group_id
-			FROM gatehouse_migration_group_activities AS activities
-			JOIN gatehouse_group_members AS members ON members.workspace_id = activities.workspace_id AND members.group_id = activities.group_id
-			WHERE activities.resource_kind = 'group'
-			UNION ALL
-			SELECT id, principal_id || '/' || group_id
-			FROM gatehouse_migration_group_activities
-			WHERE resource_kind = 'group_member'
-			UNION ALL
-			SELECT id, workspace_id || '/' || group_id
-			FROM gatehouse_migration_group_activities
-			WHERE resource_kind = 'group_member';
-
-			DROP TABLE gatehouse_migration_group_activities;
-			DROP TABLE gatehouse_migration_group_member_state;
-			DROP TABLE gatehouse_migration_group_state;
-			DROP TABLE gatehouse_migration_group_members_desired;
-			DROP TABLE gatehouse_migration_group_desired;
-		`, groups)
-	}
+	return templateMigrationBuilder(`
+		CREATE TEMP TABLE gatehouse_migration_group_desired (
+			workspace_alias TEXT NOT NULL, alias TEXT NOT NULL, name TEXT, enabled INTEGER NOT NULL, revision INTEGER NOT NULL,
+			PRIMARY KEY (workspace_alias, alias)
+		) STRICT;
+		{{ range . }}
+		INSERT INTO gatehouse_migration_group_desired VALUES ({{ sqlLiteral .WorkspaceID }}, {{ sqlLiteral .Alias }}, {{ sqlOptionalString .Name }}, {{ sqlBool .Enabled }}, {{ if .Revision }}{{ .Revision }}{{ else }}1{{ end }});
+		{{ end }}
+		CREATE TEMP TABLE gatehouse_migration_group_state AS
+		SELECT desired.*, workspace.id AS workspace, COALESCE(groups.id, gh_id_new('grp')) AS id,
+			CASE WHEN groups.id IS NULL THEN 'group.create' ELSE 'group.update' END AS event, gh_id_new('act') AS activity
+		FROM gatehouse_migration_group_desired desired
+		LEFT JOIN gatehouse_workspaces workspace ON workspace.alias = desired.workspace_alias
+		LEFT JOIN gatehouse_groups groups ON groups.workspace_id = workspace.id AND groups.alias = desired.alias
+		WHERE groups.id IS NULL OR groups.revision < desired.revision;
+		INSERT INTO gatehouse_groups (workspace_id, id, alias, name, enabled, revision)
+		SELECT workspace, id, alias, name, enabled, revision FROM gatehouse_migration_group_state WHERE TRUE
+		ON CONFLICT (workspace_id, alias) DO UPDATE SET name = excluded.name, enabled = excluded.enabled, revision = excluded.revision
+		WHERE gatehouse_groups.revision < excluded.revision;
+		INSERT INTO gatehouse_activity_events (id, event, resource_kind, resource_group, created_at)
+		SELECT activity, event, 'group', id, gh_id_timestamp(activity) FROM gatehouse_migration_group_state;
+		INSERT INTO gatehouse_activity_event_topics (activity, topic)
+		SELECT activity, workspace || '/' || id FROM gatehouse_migration_group_state
+		UNION
+		SELECT state.activity, members.principal_id || '/' || state.id FROM gatehouse_migration_group_state state
+		JOIN gatehouse_group_members members ON members.workspace_id = state.workspace AND members.group_id = state.id AND members.enabled = TRUE
+		JOIN gatehouse_principals principal ON principal.id = members.principal_id AND principal.enabled = TRUE
+		JOIN gatehouse_workspaces admitted_workspace ON admitted_workspace.id = members.workspace_id AND admitted_workspace.enabled = TRUE
+		JOIN gatehouse_workspace_grants grants ON grants.workspace = members.workspace_id AND grants.principal = members.principal_id AND grants.enabled = TRUE;
+		DROP TABLE gatehouse_migration_group_state;
+		DROP TABLE gatehouse_migration_group_desired;
+	`, groups)
 }

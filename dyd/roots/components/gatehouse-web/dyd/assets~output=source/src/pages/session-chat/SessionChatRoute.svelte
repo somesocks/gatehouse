@@ -345,7 +345,7 @@
         {
           name: "session-chat-agent",
           topic: workspaceID,
-          events: ["workspace_agent.*", "group.*", "group_member.*", "group_agent.*"],
+          events: ["workspace_agent.*", "workspace_grant.*", "group.*", "group_member.*", "group_agent.*"],
         },
         {
           name: "session-recipients",

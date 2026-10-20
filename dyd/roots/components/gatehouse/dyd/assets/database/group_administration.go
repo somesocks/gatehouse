@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"gatehouse/authz"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -334,11 +333,17 @@ func (store *Store) SystemGroupMemberCreate(ctx context.Context, workspace, grou
 		return err
 	}
 	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_principals WHERE id = `+p(1)+`)`, principal).Scan(&exists); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_principals WHERE id = `+p(1)+`)`, principal).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
 		return ErrGroupPrincipalNotFound
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT `+workspacePrincipalAdmissionSQL(p(1), p(2)), workspace, principal).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("%w: enabled workspace membership is required", ErrGroupInput)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1)`, workspace, group, principal); err != nil {
 		if uniquePrincipalConstraint(err) {
@@ -378,6 +383,15 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 		return ErrRevisionConflict
 	}
 	if enabled != current {
+		if enabled {
+			var admitted bool
+			if err := tx.QueryRowContext(ctx, `SELECT `+workspacePrincipalAdmissionSQL(p(1), p(2)), workspace, principal).Scan(&admitted); err != nil {
+				return err
+			}
+			if !admitted {
+				return fmt.Errorf("%w: enabled workspace membership is required", ErrGroupInput)
+			}
+		}
 		result, err := tx.ExecContext(ctx, `UPDATE gatehouse_group_members SET enabled = `+p(1)+`, revision = revision + 1 WHERE workspace_id = `+p(2)+` AND group_id = `+p(3)+` AND principal_id = `+p(4)+` AND revision = `+p(5), enabled, workspace, group, principal, revision)
 		if err != nil {
 			return err
@@ -393,7 +407,7 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 }
 
 func groupPrincipalTopics(ctx context.Context, tx *sql.Tx, p func(int) string, workspace, group, suffix string) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `SELECT principal_id FROM gatehouse_group_members WHERE workspace_id = `+p(1)+` AND group_id = `+p(2), workspace, group)
+	rows, err := tx.QueryContext(ctx, `SELECT principal_id FROM gatehouse_group_members members WHERE workspace_id = `+p(1)+` AND group_id = `+p(2)+` AND members.enabled = TRUE AND `+workspacePrincipalAdmissionSQL("members.workspace_id", "members.principal_id"), workspace, group)
 	if err != nil {
 		return nil, err
 	}
@@ -422,58 +436,4 @@ func (store *Store) systemGroupActivity(ctx context.Context, tx *sql.Tx, workspa
 func (store *Store) systemGroupMemberActivity(ctx context.Context, tx *sql.Tx, workspace, group, principal, event string) error {
 	err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindGroupMember, ResourceGroupMemberGroup: &group, ResourceGroupMemberPrincipal: &principal}, []string{workspace + "/" + group, principal + "/" + group})
 	return err
-}
-
-func (store *Store) SystemGroupGrantsGet(ctx context.Context, workspace, group string) (error, []SystemWorkspaceGrant) {
-	p := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `SELECT id, workspace, role, enabled, revision FROM gatehouse_workspace_grants WHERE workspace = `+p(1)+` AND "group" = `+p(2)+` ORDER BY id DESC`, workspace, group)
-	if err != nil {
-		return err, nil
-	}
-	defer rows.Close()
-	grants := []SystemWorkspaceGrant{}
-	for rows.Next() {
-		grant := SystemWorkspaceGrant{Group: &group}
-		if err := rows.Scan(&grant.ID, &grant.Workspace, &grant.Role, &grant.Enabled, &grant.Revision); err != nil {
-			return err, nil
-		}
-		grants = append(grants, grant)
-	}
-	return rows.Err(), grants
-}
-
-func (store *Store) SystemGroupGrantCreate(ctx context.Context, workspace, group string, role authz.Role) (error, *SystemWorkspaceGrant) {
-	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) {
-		return ErrGroupNotFound, nil
-	}
-	if !authz.ValidRole(string(role)) {
-		return ErrWorkspaceGrantRoleInvalid, nil
-	}
-	id, err := typed_id.New(typed_id.WorkspaceGrant)
-	if err != nil {
-		return err, nil
-	}
-	tx, err := store.BeginTx(ctx, nil)
-	if err != nil {
-		return err, nil
-	}
-	defer tx.Rollback()
-	p := keychainPlaceholder(store.kind)
-	if err := systemGroupExists(ctx, tx, p, workspace, group); err != nil {
-		return err, nil
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_workspace_grants (id, workspace, "group", role, enabled, revision) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, `+p(4)+`, TRUE, 1)`, id, workspace, group, role); err != nil {
-		if uniquePrincipalConstraint(err) {
-			return ErrWorkspaceGrantAlreadyExists, nil
-		}
-		return err, nil
-	}
-	grant := &SystemWorkspaceGrant{ID: id, Workspace: workspace, Group: &group, Role: role, Enabled: true, Revision: 1}
-	if err := store.workspaceGrantActivity(ctx, tx, *grant, "workspace_grant.create"); err != nil {
-		return err, nil
-	}
-	if err := tx.Commit(); err != nil {
-		return err, nil
-	}
-	return nil, grant
 }

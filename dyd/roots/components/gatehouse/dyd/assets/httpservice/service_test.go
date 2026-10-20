@@ -400,7 +400,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 }
 
-func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
+func TestHandlerRequiresWorkspaceAdmissionDespiteDirectResourceGrants(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
 	principal, identityID := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
@@ -422,6 +422,11 @@ func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
 	if err := json.Unmarshal(created.Body.Bytes(), &project); err != nil || created.Code != http.StatusCreated {
 		t.Fatalf("POST project = (%d, %#v, %v)", created.Code, project, err)
 	}
+	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", `{"project":"`+project.ID+`"}`)
+	var session sessionResponse
+	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated {
+		t.Fatalf("create linked session: %d %s %v", createdSession.Code, createdSession.Body.String(), err)
+	}
 	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_workspace_grants SET enabled = FALSE WHERE workspace = ?`, engineering.Id); err != nil {
 		t.Fatal(err)
 	}
@@ -431,35 +436,39 @@ func TestHandlerAllowsDirectProjectGrantWithoutWorkspaceGrant(t *testing.T) {
 	}
 
 	projects := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects", "")
-	if projects.Code != http.StatusOK || !strings.Contains(projects.Body.String(), project.ID) {
-		t.Fatalf("GET projects with direct grant = (%d, %q)", projects.Code, projects.Body.String())
+	if projects.Code != http.StatusOK || strings.Contains(projects.Body.String(), project.ID) {
+		t.Fatalf("revoked member discovered direct project: %d %s", projects.Code, projects.Body.String())
 	}
-	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, ""); response.Code != http.StatusOK {
-		t.Fatalf("GET project with direct grant = %d, want %d", response.Code, http.StatusOK)
+	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, ""); response.Code != http.StatusNotFound {
+		t.Fatalf("revoked member read direct project: %d", response.Code)
 	}
-	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{"description":"Available directly"}`); response.Code != http.StatusOK {
-		t.Fatalf("PATCH project with direct grant = %d, want %d", response.Code, http.StatusOK)
+	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, `{"description":"Unavailable"}`); response.Code != http.StatusNotFound {
+		t.Fatalf("revoked member updated direct project: %d", response.Code)
 	}
-	createdSession := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", `{"project":"`+project.ID+`"}`)
-	var session sessionResponse
-	if err := json.Unmarshal(createdSession.Body.Bytes(), &session); err != nil || createdSession.Code != http.StatusCreated {
-		t.Fatalf("POST linked session with direct project grant = (%d, %#v, %v)", createdSession.Code, session, err)
+	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions", `{"project":"`+project.ID+`"}`); response.Code != http.StatusNotFound {
+		t.Fatalf("revoked member created project chat: %d", response.Code)
 	}
 	err, sessionRoles := store.SessionRolesGet(context.Background(), model.SessionRef{Workspace: engineering, Id: session.ID}, principal)
-	if err != nil || !reflect.DeepEqual(sessionRoles, []authz.Role{authz.Manager}) {
-		t.Fatalf("SessionRolesGet() after linked creation = (%#v, %v), want manager", sessionRoles, err)
+	if err != nil || len(sessionRoles) != 0 {
+		t.Fatalf("revoked member retained chat roles: %#v %v", sessionRoles, err)
 	}
 	if response := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/project", `{"project":null}`); response.Code != http.StatusNotFound {
 		t.Fatalf("PATCH linked session without workspace grant = %d, want %d", response.Code, http.StatusNotFound)
-	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_projects SET enabled = FALSE WHERE workspace = ? AND id = ?`, engineering.Id, project.ID); err != nil {
-		t.Fatal(err)
 	}
 	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, ""); response.Code != http.StatusNotFound {
 		t.Fatalf("GET session with disabled project = %d, want %d", response.Code, http.StatusNotFound)
 	}
 	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/notes", `{"title":"Unavailable"}`); response.Code != http.StatusNotFound {
 		t.Fatalf("POST session note with disabled project = %d, want %d", response.Code, http.StatusNotFound)
+	}
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(context.Background(), engineering.Id, principal.Id, authz.Member); err != nil {
+		t.Fatal(err)
+	}
+	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, ""); response.Code != http.StatusOK {
+		t.Fatalf("restored member cannot read retained project: %d", response.Code)
+	}
+	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID, ""); response.Code != http.StatusOK {
+		t.Fatalf("restored member cannot read retained chat: %d", response.Code)
 	}
 }
 
@@ -2050,11 +2059,10 @@ func TestSystemWorkspacePrincipalAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Alice has group-derived workspace access but no direct grant, so she is
-	// intentionally absent from this direct-principal roster.
+	// Workspace admission is explicit; Alice's manager grant is visible here.
 	initial := request(http.MethodGet, workspacePrincipalsPath, "")
 	var page systemWorkspacePrincipalPage
-	if err := json.Unmarshal(initial.Body.Bytes(), &page); err != nil || initial.Code != http.StatusOK || len(page.Principals) != 0 {
+	if err := json.Unmarshal(initial.Body.Bytes(), &page); err != nil || initial.Code != http.StatusOK || len(page.Principals) != 1 || page.Principals[0].ID != alice.Id {
 		t.Fatalf("GET initial workspace principals = (%d, %#v, %v)", initial.Code, page, err)
 	}
 
@@ -2129,8 +2137,8 @@ func TestSystemWorkspacePrincipalAPI(t *testing.T) {
 		t.Fatalf("DELETE direct workspace principal grant = (%d, %q)", removedAlice.Code, removedAlice.Body.String())
 	}
 	err, aliceRoles := store.WorkspaceRolesGet(ctx, workspaces["engineering"], alice)
-	if err != nil || len(aliceRoles) != 1 || aliceRoles[0] != authz.Manager {
-		t.Fatalf("Alice's group-derived workspace roles after direct removal = (%#v, %v)", aliceRoles, err)
+	if err != nil || len(aliceRoles) != 0 {
+		t.Fatalf("Alice retained workspace roles through her group: (%#v, %v)", aliceRoles, err)
 	}
 	removedBob := request(http.MethodDelete, workspacePrincipalsPath+"/"+bob, "")
 	if removedBob.Code != http.StatusNoContent {
@@ -2166,6 +2174,7 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	developers := "Developers"
 	developersGroup := "developers"
 	operatorsGroup := "operators"
+	aliceAlias := "alice"
 	state := config.State{
 		Keychains: configured,
 		Workspaces: []config.Workspace{
@@ -2191,8 +2200,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
 		},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "engineering", Role: string(authz.Manager), GroupID: &developersGroup, Revision: 1, Enabled: true},
-			{WorkspaceID: "operations", Role: string(authz.Member), GroupID: &operatorsGroup, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: string(authz.Manager), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
+			{WorkspaceID: "operations", Role: string(authz.Member), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
 		},
 		SystemGrants:     []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}},
 		AgentProviders:   []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},

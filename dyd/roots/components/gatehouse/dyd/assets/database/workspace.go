@@ -27,21 +27,6 @@ func (store *Store) WorkspacesGet(ctx context.Context, principal model.Principal
 						AND grants.enabled = TRUE
 						AND principals.enabled = TRUE
 				)
-				OR EXISTS (
-					SELECT 1
-					FROM gatehouse_workspace_grants AS grants
-					JOIN gatehouse_groups AS groups
-						ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
-					JOIN gatehouse_group_members AS members
-						ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-					JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-					WHERE grants.workspace = workspaces.id
-						AND members.principal_id = input.principal
-						AND grants.enabled = TRUE
-						AND groups.enabled = TRUE
-						AND members.enabled = TRUE
-						AND principals.enabled = TRUE
-				)
 			)
 		ORDER BY workspaces.name IS NULL, workspaces.name, workspaces.id
 	`, principal.Id)
@@ -87,23 +72,6 @@ func (store *Store) WorkspaceRolesGet(ctx context.Context, workspace model.Works
 				AND grants.principal = input.principal
 				AND workspaces.enabled = TRUE
 				AND grants.enabled = TRUE
-				AND principals.enabled = TRUE
-			UNION
-			SELECT grants.role
-			FROM gatehouse_workspace_grants AS grants
-			CROSS JOIN input
-			JOIN gatehouse_workspaces AS workspaces ON workspaces.id = grants.workspace
-			JOIN gatehouse_groups AS groups
-				ON groups.workspace_id = grants.workspace AND groups.id = grants."group"
-			JOIN gatehouse_group_members AS members
-				ON members.workspace_id = groups.workspace_id AND members.group_id = groups.id
-			JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
-			WHERE grants.workspace = input.workspace
-				AND members.principal_id = input.principal
-				AND workspaces.enabled = TRUE
-				AND grants.enabled = TRUE
-				AND groups.enabled = TRUE
-				AND members.enabled = TRUE
 				AND principals.enabled = TRUE
 		)
 		ORDER BY role
@@ -155,6 +123,9 @@ func (store *Store) WorkspaceRefGetByAlias(ctx context.Context, alias string) (e
 }
 
 func (store *Store) WorkspaceGroupsGet(ctx context.Context, workspace model.WorkspaceRef, principal model.PrincipalRef, pages ...CollectionPage) (error, []model.Group) {
+	if err, admitted := store.WorkspaceAdmissionGet(ctx, workspace, principal); err != nil || !admitted {
+		return err, []model.Group{}
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	suffix, args, err := store.collectionPageSQL(pages, "groups.id", []string{"groups.name", "groups.alias"}, []any{workspace.Id, principal.Id}, "groups.id")
 	if err != nil {

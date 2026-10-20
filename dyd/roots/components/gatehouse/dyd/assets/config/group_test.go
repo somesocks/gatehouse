@@ -65,6 +65,19 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 	}
 }
 
+func TestDefaultBootstrapDoesNotCreateGroups(t *testing.T) {
+	err, state := ResolveState(configschema.GatehouseConfig{ApiVersion: "v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Groups) != 0 {
+		t.Fatalf("default configuration synthesized groups: %#v", state.Groups)
+	}
+	if len(state.WorkspaceGrants) != 1 || state.WorkspaceGrants[0].WorkspaceID != defaultWorkspaceAlias || state.WorkspaceGrants[0].PrincipalID == nil || *state.WorkspaceGrants[0].PrincipalID != defaultPrincipalAlias || state.WorkspaceGrants[0].Role != "manager" {
+		t.Fatalf("bootstrap must use a direct principal grant: %#v", state.WorkspaceGrants)
+	}
+}
+
 func TestValidateGroupAgentConfigurationFiles(t *testing.T) {
 	for _, test := range []struct {
 		name, yaml, json, contains string

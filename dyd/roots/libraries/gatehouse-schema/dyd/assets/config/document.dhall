@@ -144,18 +144,14 @@ let WorkspaceGrant =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "workspace role granted by this grant" }
-              }
-        , optional =
-            toMap
-              { principal =
+              , principal =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
                     s.text.meta::{ description = Some "principal reconciliation alias" }
-              , group =
-                  s.text.from
-                    s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace-local group reconciliation alias" }
-              , revision =
+              }
+        , optional =
+            toMap
+              { revision =
                   s.number.from
                     s.number.props::{ variant = s.number.variants.integer }
                     s.number.meta::{ description = Some "monotonic grant configuration revision" }

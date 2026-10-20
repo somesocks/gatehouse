@@ -277,7 +277,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			defer func() { store.Close() }()
 			chains := []config.Keychain{{ID: config.SystemKeychainID, Sources: []config.KeychainPassphraseSource{"env:GATEHOUSE_TEST_REPLAY_KEYCHAIN"}}}
-			endpoint := server.URL+"/custom/inference?deployment=test"
+			endpoint := server.URL + "/custom/inference?deployment=test"
 			err, ring := keychain.NewKeyring(store, chains, keychain.NewPassphraseSourceResolver())
 			if err != nil {
 				t.Fatal(err)
@@ -299,7 +299,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					WorkspaceOutput: &config.TokenBucket{MinimumBalance: -1_000_000, MaximumBalance: 1_000_000, RefillPerMinute: 1_000_000},
 				}
 			}
-			err, registry := migrations.Build(configuration, state, ring)
+			err, registry := migrations.Build(configuration, admittedAgentTestState(state), ring)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -458,7 +458,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 							}
 						}
 					}
-					err, upgrade := migrations.Build(configuration, state, ring)
+					err, upgrade := migrations.Build(configuration, admittedAgentTestState(state), ring)
 					if err != nil {
 						t.Fatal(err)
 					}

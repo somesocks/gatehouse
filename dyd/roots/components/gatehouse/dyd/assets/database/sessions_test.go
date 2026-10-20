@@ -35,7 +35,7 @@ func TestSessionFileUpdateChangesOnlyName(t *testing.T) {
 		StorageProviders:          []config.StorageProvider{{Alias: "embedded", Revision: 1, Protocol: "embedded", Enabled: true}},
 		WorkspaceStorageProviders: []config.WorkspaceStorageProvider{{WorkspaceID: "engineering", ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -141,7 +141,7 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 			},
 		}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -247,7 +247,7 @@ func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Enabled: true},
 		},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -294,7 +294,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 			{Alias: "bob", Enabled: true},
 		},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -500,7 +500,7 @@ func TestSessionNotesUseSessionAuthorizationAndActivity(t *testing.T) {
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Hello"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Label: stringPointer("Assistant"), Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -642,7 +642,7 @@ func TestSessionTasksUseSessionAuthorizationAndActivity(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -737,10 +737,10 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 			Members:     []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
 		WorkspaceGrants: []config.WorkspaceGrant{{
-			WorkspaceID: "engineering", Role: "member", GroupID: stringPointer("developers"), Revision: 1, Enabled: true,
-		}},
+			WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true,
+		}, {WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("carol"), Revision: 1, Enabled: false}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -748,8 +748,8 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 	var workspaceGrantID string
 	if err := store.QueryRowContext(ctx, `
 		SELECT id FROM gatehouse_workspace_grants
-		WHERE workspace = ? AND "group" = ?
-	`, workspace.Id, developersID).Scan(&workspaceGrantID); err != nil {
+		WHERE workspace = ? AND principal = (SELECT id FROM gatehouse_principals WHERE alias = 'bob')
+	`, workspace.Id).Scan(&workspaceGrantID); err != nil {
 		t.Fatal(err)
 	}
 	alice := principalRef(t, ctx, store, "alice")
@@ -898,7 +898,7 @@ func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesK
 			{WorkspaceID: "engineering", Alias: "assistant-two", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true},
 		},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -989,7 +989,7 @@ func TestSessionAgentRequestEventsGetUsesRequestSnapshot(t *testing.T) {
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -1139,7 +1139,7 @@ func TestAgentContextLatestGetSelectsCompatibleCheckpoint(t *testing.T) {
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: 100, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -1205,7 +1205,7 @@ func TestWorkspaceAgentModelGetUsesRequestedBinding(t *testing.T) {
 			{WorkspaceID: "engineering", Alias: "lower", ModelAlias: "lower", Revision: 1, Enabled: true},
 		},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -1252,7 +1252,7 @@ func TestWorkspaceAgentModelGetRequiresEligibleRequestedAgent(t *testing.T) {
 			{WorkspaceID: "engineering", Alias: "requested", ModelAlias: "requested", Revision: 1, Enabled: true},
 		},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -1270,7 +1270,7 @@ func TestWorkspaceAgentModelGetRequiresEligibleRequestedAgent(t *testing.T) {
 	}
 	state.WorkspaceAgents[1].Enabled = false
 	state.WorkspaceAgents[1].Revision = 2
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	err, selected = store.WorkspaceAgentModelGet(ctx, workspace, requestedID)
@@ -1291,7 +1291,7 @@ func TestSessionEventsPersistParentsAndLoadTreePages(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	alice := principalRef(t, ctx, store, "alice")
@@ -1422,7 +1422,7 @@ func TestSessionEventsCreateBatchRequiresExistingOrEarlierParents(t *testing.T) 
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	alice := principalRef(t, ctx, store, "alice")
@@ -1482,7 +1482,7 @@ func TestSessionEventsSearch(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	workspace := workspaceRef(t, ctx, store, "engineering")
@@ -1558,7 +1558,7 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 		AgentModels:     []config.AgentModel{{Alias: "assistant", Revision: 1, ProviderAlias: "builtin", Model: "test", Parameters: `{}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: "engineering", Alias: "assistant", ModelAlias: "assistant", Revision: 1, Default: true, Enabled: true}},
 	}
-	if err := migrateState(ctx, store, configuration, state); err != nil {
+	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
 	}
 	alice := principalRef(t, ctx, store, "alice")

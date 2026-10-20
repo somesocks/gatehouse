@@ -52,10 +52,11 @@ type SystemWorkspacePrincipalOption struct {
 }
 
 type SystemWorkspacePrincipalSearch struct {
-	WorkspaceID string
-	Name        string
-	Cursor      string
-	Limit       int
+	WorkspaceID  string
+	Name         string
+	Cursor       string
+	Limit        int
+	AdmittedOnly bool
 }
 
 type SystemWorkspacePrincipalGrant struct {
@@ -166,7 +167,13 @@ func (store *Store) SystemWorkspacePrincipalOptionsSearch(ctx context.Context, s
 		return fmt.Errorf("search system workspace principal options: query is too long"), nil, ""
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
-	placeholder := keychainPlaceholder(store.kind)
+	placeholder := store.sessionParticipantPlaceholder
+	filter := ""
+	args := []any{pattern, pattern, pattern, search.Cursor, search.Cursor, search.Limit + 1}
+	if search.AdmittedOnly {
+		filter = ` AND ` + workspacePrincipalAdmissionSQL(placeholder(7), "principals.id")
+		args = append(args, search.WorkspaceID)
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT principals.id, principals.alias, principals.name, principals.enabled
 		FROM gatehouse_principals AS principals
@@ -176,9 +183,9 @@ func (store *Store) SystemWorkspacePrincipalOptionsSearch(ctx context.Context, s
 			OR LOWER(principals.id) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'
 		)
 			AND (`+placeholder(4)+` = '' OR principals.id < `+placeholder(5)+`)
-		ORDER BY principals.id DESC
+		`+filter+` ORDER BY principals.id DESC
 		LIMIT `+placeholder(6)+`
-	`, pattern, pattern, pattern, search.Cursor, search.Cursor, search.Limit+1)
+	`, args...)
 	if err != nil {
 		return fmt.Errorf("search system workspace principal options: %w", err), nil, ""
 	}

@@ -842,6 +842,7 @@ func TestMigrateSQLiteReconcilesGroupsWithRuntimePrincipal(t *testing.T) {
 		Workspaces: []config.Workspace{{Alias: "engineering", Enabled: true}},
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}},
 	}
+	state = withTestWorkspaceMembers(state)
 	if err := migrateState(context.Background(), database, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -974,6 +975,7 @@ func TestMigrateSQLiteCoordinatesConfiguredGroupReconciliation(t *testing.T) {
 		}},
 	}
 	err, first := database.Open(ctx, configuration)
+	state = withTestWorkspaceMembers(state)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1115,7 +1117,7 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
 		WorkspaceGrants: []config.WorkspaceGrant{
 			{WorkspaceID: "engineering", Role: "member", PrincipalID: &alice, Revision: 1, Enabled: true},
-			{WorkspaceID: "engineering", Role: "manager", GroupID: &members, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: "manager", PrincipalID: &alice, Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -1126,7 +1128,6 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&principalID); err != nil {
 		t.Fatal(err)
 	}
-	group := groupID(t, ctx, store, "engineering", "members")
 	var principalGrantID string
 	if err := store.QueryRowContext(ctx, `
 		SELECT id FROM gatehouse_workspace_grants
@@ -1141,9 +1142,9 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 		FROM gatehouse_workspace_grants
 		WHERE workspace = ? AND (
 			(role = 'member' AND principal = ?)
-			OR (role = 'manager' AND "group" = ?)
+			OR (role = 'manager' AND principal = ?)
 		)
-	`, workspace.Id, principalID, group).Scan(&grants); err != nil {
+	`, workspace.Id, principalID, principalID).Scan(&grants); err != nil {
 		t.Fatal(err)
 	}
 	if grants != 2 {

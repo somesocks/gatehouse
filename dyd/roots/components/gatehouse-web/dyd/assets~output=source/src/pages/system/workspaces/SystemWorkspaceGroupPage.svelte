@@ -7,21 +7,17 @@
     type SystemGroupMember,
     fetchAdminGroupAgents,
     type SystemGroupAgent,
-    type SystemGroupGrant,
   } from "../../../app/group-administration"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
   import { createSystemGroupController } from "./system-group-controller.svelte"
   import SystemGroupDetailsDialog from "./SystemGroupDetailsDialog.svelte"
   import SystemGroupMembershipDialog from "./SystemGroupMembershipDialog.svelte"
-  import SystemGroupGrantDialog from "./SystemGroupGrantDialog.svelte"
 
   let { workspaceID, groupID }: { workspaceID: string; groupID: string } =
     $props()
   const runtime = useRuntime()
-  let dialog = $state<
-    "details" | "members" | "bots" | "grant-create" | "grant-edit" | null
-  >(null)
+  let dialog = $state<"details" | "members" | "bots" | null>(null)
   const members = createDirectoryController<SystemGroupMember>({
     onAuthenticationLost: runtime.requireLogin,
     onSystemAccessChange: runtime.access.setSystemAccess,
@@ -90,20 +86,6 @@
   function addMembership(kind: "members" | "bots") {
     controller.clearFeedback(kind)
     dialog = kind
-  }
-  function addGrant() {
-    controller.clearFeedback("grants")
-    view.newRole = "member"
-    dialog = "grant-create"
-  }
-  function editGrant(grant: SystemGroupGrant) {
-    controller.beginGrant(grant)
-    dialog = "grant-edit"
-  }
-  const roleLabels = {
-    member: "Member",
-    contributor: "Contributor",
-    manager: "Manager",
   }
 </script>
 
@@ -339,70 +321,6 @@
           />
         {/snippet}
       </UI.ManagementSection>
-
-      {#snippet aside()}
-        <UI.ManagementSection
-          title="Workspace access"
-          description="Roles granted to this group's enabled human members while the group and workspace are enabled."
-        >
-          {#snippet actions()}<UI.Button
-              size="sm"
-              variant="outline"
-              disabled={view.saving}
-              onclick={addGrant}>Add grant</UI.Button
-            >{/snippet}
-          <UI.RecordList
-            label="Workspace grants"
-            framed={false}
-            scrollable={false}
-            items={view.grants.map((grant) => ({
-              ...grant,
-              label: roleLabels[grant.role],
-            }))}
-            emptyMessage="No workspace grants. Add a grant to give members workspace access."
-          >
-            {#snippet badges(grant)}<UI.StatusBadge
-                enabled={grant.enabled}
-              />{/snippet}
-            {#snippet actions(grant)}
-              <UI.Row gap="small" wrap={false}>
-                <UI.Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={view.saving}
-                  aria-label={`Edit ${grant.label.toLowerCase()} grant`}
-                  onclick={() => editGrant(grant)}>Edit</UI.Button
-                >
-                <UI.ActionButton
-                  size="sm"
-                  variant="ghost"
-                  disabled={view.saving}
-                  pending={view.pendingAction === `grant:${grant.id}`}
-                  aria-label={`${grant.enabled ? "Revoke" : "Enable"} ${grant.label.toLowerCase()} grant`}
-                  onclick={() => void controller.toggleGrant(grant)}
-                  >{grant.enabled ? "Revoke" : "Enable"}</UI.ActionButton
-                >
-              </UI.Row>
-            {/snippet}
-          </UI.RecordList>
-          {#snippet footer()}
-            <UI.ActionFeedback
-              error={view.feedback.grants.error || view.grantsLoadError}
-              notice={view.feedback.grants.notice}
-              pending={view.pendingAction.startsWith("grant")}
-              label="Saving workspace access…"
-            />
-            {#if view.grantsLoadError}<UI.Row
-                ><UI.Button
-                  variant="outline"
-                  size="sm"
-                  onclick={() => void controller.refreshGrants()}
-                  >Reload workspace access</UI.Button
-                ></UI.Row
-              >{/if}
-          {/snippet}
-        </UI.ManagementSection>
-      {/snippet}
     </UI.ManagementLayout>
     {#if dialog === "details"}<SystemGroupDetailsDialog
         {controller}
@@ -411,13 +329,10 @@
     {:else if dialog === "members" || dialog === "bots"}<SystemGroupMembershipDialog
         {controller}
         {workspaceID}
+        {groupID}
         kind={dialog}
         onClose={() => (dialog = null)}
       />
-    {:else if dialog === "grant-create" || dialog === "grant-edit"}<SystemGroupGrantDialog
-        {controller}
-        editing={dialog === "grant-edit"}
-        onClose={() => (dialog = null)}
-      />{/if}
+    {/if}
   {/if}
 </SystemWorkspaceFrame>

@@ -7,16 +7,22 @@
   }: {
     header: Snippet
     children: Snippet
-    aside: Snippet
+    aside?: Snippet
   } = $props()
 </script>
 
 <div class="@container w-full min-w-0 space-y-6">
   {@render header()}
   <div
-    class="grid min-w-0 items-start gap-6 @min-[56rem]:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]"
+    class={aside
+      ? "grid min-w-0 items-start gap-6 @min-[56rem]:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]"
+      : "grid min-w-0 items-start gap-6 @min-[56rem]:grid-cols-2"}
   >
-    <div class="min-w-0 space-y-6">{@render children()}</div>
-    <aside class="min-w-0 space-y-6">{@render aside()}</aside>
+    {#if aside}
+      <div class="min-w-0 space-y-6">{@render children()}</div>
+      <aside class="min-w-0 space-y-6">{@render aside()}</aside>
+    {:else}
+      {@render children()}
+    {/if}
   </div>
 </div>
