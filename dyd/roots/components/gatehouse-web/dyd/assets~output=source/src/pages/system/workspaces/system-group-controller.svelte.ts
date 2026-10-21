@@ -1,10 +1,12 @@
 import {
   groupAdminPath,
+  groupAdministration,
+  type GroupScope,
+  type GroupRole,
   type SystemGroup,
   type SystemGroupMember,
   type SystemGroupAgent,
 } from "../../../app/group-administration"
-import { systemAdministration } from "../../../app/system"
 import { createLoadState } from "../../../utils/load-state.svelte"
 
 type FeedbackScope = "details" | "members" | "bots"
@@ -19,6 +21,7 @@ export function createSystemGroupController({
   onSystemAccessChange,
   onMembersChanged = async () => {},
   onAgentsChanged = async () => {},
+  scope = "system",
 }: {
   workspaceID: () => string
   groupID: () => string
@@ -26,6 +29,7 @@ export function createSystemGroupController({
   onSystemAccessChange: (next: "available" | "denied" | "unavailable") => void
   onMembersChanged?: () => Promise<unknown>
   onAgentsChanged?: () => Promise<unknown>
+  scope?: GroupScope
 }) {
   const resource = createLoadState(),
     mutation = createLoadState()
@@ -34,6 +38,7 @@ export function createSystemGroupController({
     group: null as SystemGroup | null,
     form: { alias: "", name: "", enabled: true, revision: 0 },
     principal: "",
+    memberRole: "member" as GroupRole,
     agent: "",
     groupConflict: false,
     error: "",
@@ -48,8 +53,7 @@ export function createSystemGroupController({
       return (
         state.group !== null &&
         (state.form.alias !== (state.group.alias ?? "") ||
-          state.form.name !== (state.group.name ?? "") ||
-          state.form.enabled !== state.group.enabled)
+          state.form.name !== (state.group.name ?? ""))
       )
     },
     get reloading() {
@@ -91,28 +95,47 @@ export function createSystemGroupController({
       onAuthenticationLost()
       return true
     }
-    if (response.status === 403) {
+    if (response.status === 403 && scope === "system") {
       onSystemAccessChange("denied")
       return true
     }
     return false
   }
-  async function load(resetDraft = true) {
-    if (disposed) return
-    const request = resource.begin()
+  async function load(
+    resetDraft = true,
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    if (disposed) return false
+    const request = resource.begin(signal)
     try {
-      const response = await systemAdministration(
+      const response = await groupAdministration(
         groupAdminPath(workspaceID(), groupID()),
         "GET",
         undefined,
         request.signal,
+        scope,
       )
-      if (!request.current() || denied(response)) return
+      if (!request.current()) return false
+      if ([401, 403, 404].includes(response.status)) {
+        request.commit(() => {
+          state.group = null
+        })
+        request.fail(
+          new Error(
+            response.status === 401
+              ? "Sign in is required."
+              : "This group is no longer available to you.",
+          ),
+        )
+        denied(response)
+        return true
+      }
       if (!response.ok) throw new Error("Group could not be loaded. Try again.")
       const group = (await response.json()) as SystemGroup
-      request.commit(() => acceptGroup(group, resetDraft))
+      return request.commit(() => acceptGroup(group, resetDraft))
     } catch (error) {
       request.fail(error)
+      return false
     } finally {
       request.finish()
     }
@@ -123,25 +146,26 @@ export function createSystemGroupController({
     body: Record<string, unknown>,
     commit: (response: Response, current: () => boolean) => Promise<void>,
     {
-      scope = "details",
-      action = scope,
+      scope: feedbackScope = "details",
+      action = feedbackScope,
       notice = "Changes saved.",
     }: { scope?: FeedbackScope; action?: string; notice?: string } = {},
   ) {
     if (disposed || state.saving) return { ok: false, conflict: false }
     const request = mutation.begin()
     state.pendingAction = action
-    clearFeedback(scope)
+    clearFeedback(feedbackScope)
     state.error = state.notice = ""
     const fail = (message: string) => {
-      state.error = state.feedback[scope].error = message
+      state.error = state.feedback[feedbackScope].error = message
     }
     try {
-      const response = await systemAdministration(
+      const response = await groupAdministration(
         path,
         method,
         body,
         request.signal,
+        scope,
       )
       if (!request.current() || denied(response))
         return { ok: false, conflict: false }
@@ -149,6 +173,11 @@ export function createSystemGroupController({
         const message = await response.text()
         if (!request.current()) return { ok: false, conflict: false }
         fail(message.trim() || "Change could not be saved.")
+        if (
+          scope === "workspace" &&
+          (response.status === 403 || response.status === 404)
+        )
+          await load(false)
         return {
           ok: false,
           conflict:
@@ -157,8 +186,8 @@ export function createSystemGroupController({
       }
       await commit(response, request.current)
       if (!request.current()) return { ok: false, conflict: false }
-      if (!state.feedback[scope].error)
-        state.notice = state.feedback[scope].notice = notice
+      if (!state.feedback[feedbackScope].error)
+        state.notice = state.feedback[feedbackScope].notice = notice
       return { ok: true, conflict: false }
     } catch {
       if (request.current()) fail("Change could not be saved. Try again.")
@@ -193,7 +222,6 @@ export function createSystemGroupController({
       {
         alias: state.form.alias,
         name: state.form.name,
-        enabled: state.form.enabled,
         expected_revision: state.form.revision,
       },
       async (response, current) => {
@@ -203,6 +231,20 @@ export function createSystemGroupController({
       { action: "details:save", notice: "Group details saved." },
     )
     if (result.conflict && !disposed) state.groupConflict = true
+    return result.ok
+  }
+  async function deleteGroup() {
+    if (!state.group) return false
+    const result = await mutate(
+      groupAdminPath(workspaceID(), groupID()),
+      "PATCH",
+      { enabled: false, expected_revision: state.group.revision },
+      async (_response, current) => {
+        if (current()) state.group = null
+      },
+      { action: "details:delete", notice: "Group deleted." },
+    )
+    if (result.conflict && !disposed) await load(false)
     return result.ok
   }
   async function addMembership(kind: "members" | "bots") {
@@ -219,7 +261,10 @@ export function createSystemGroupController({
         kind === "members" ? "/members" : "/agents",
       ),
       "POST",
-      { [kind === "members" ? "principal" : "agent"]: subject },
+      {
+        [kind === "members" ? "principal" : "agent"]: subject,
+        ...(kind === "members" ? { role: state.memberRole } : {}),
+      },
       async (_response, current) => {
         if (!current()) return
         if (kind === "members" && state.principal === subject)
@@ -259,6 +304,7 @@ export function createSystemGroupController({
         if ((await refresh()) === false && current())
           state.feedback[kind].error =
             "Membership saved, but the list could not be refreshed. Reload the list."
+        if (current() && scope === "workspace") await load(false)
       },
       {
         scope: kind,
@@ -274,6 +320,30 @@ export function createSystemGroupController({
     mutation.stop()
     state.pendingAction = ""
   }
+  async function changeMemberRole(member: SystemGroupMember, role: GroupRole) {
+    const result = await mutate(
+      groupAdminPath(
+        workspaceID(),
+        groupID(),
+        `/members/${encodeURIComponent(member.principal)}`,
+      ),
+      "PATCH",
+      { role, expected_revision: member.revision },
+      async (_response, current) => {
+        if ((await onMembersChanged()) === false && current())
+          state.feedback.members.error =
+            "Role saved, but the list could not be refreshed. Reload the list."
+        if (current() && scope === "workspace") await load(false)
+      },
+      {
+        scope: "members",
+        action: `member:${member.principal}`,
+        notice: "Member role updated.",
+      },
+    )
+    if (result.conflict && !disposed) await onMembersChanged()
+    return result.ok
+  }
   return {
     state,
     clearFeedback,
@@ -281,8 +351,10 @@ export function createSystemGroupController({
     load,
     create,
     saveGroup,
+    deleteGroup,
     addMember: () => addMembership("members"),
     addAgent: () => addMembership("bots"),
+    changeMemberRole,
     toggleMember: (member: SystemGroupMember) =>
       toggleMembership(
         "members",

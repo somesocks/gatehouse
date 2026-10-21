@@ -261,10 +261,14 @@ func verifyGroupReconciliationRevisions(t *testing.T, configuration config.Datab
 	state.Groups[0].Revision = 1
 	state.Groups[0].Name = &name
 	state.Groups[0].Members[0].Revision = 4
+	state.Groups[0].Members[0].Role = "manager"
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	assertRecords(5, 4, true, true, reconfiguredName)
+	if err, role := store.GroupRoleGet(ctx, workspace.Id, id, model.PrincipalRef{Id: principal}); err != nil || role != authz.Manager {
+		t.Fatalf("configured manager role: %s %v", role, err)
+	}
 	// A new membership still gets created when group metadata has a newer DB revision.
 	newPrincipalAlias := "group-test-" + newTypedID(t, typed_id.Principal)
 	state.Principals = append(state.Principals, config.Principal{Alias: newPrincipalAlias, Enabled: true})

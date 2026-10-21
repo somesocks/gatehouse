@@ -28,7 +28,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 						Revision: &groupRevision,
 						Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
 							{Principal: "zebra"},
-							{Principal: "alpha", Enabled: &disabled, Revision: &memberRevision},
+							{Principal: "alpha", Role: stringPointer("manager"), Enabled: &disabled, Revision: &memberRevision},
 						},
 					},
 				},
@@ -48,8 +48,8 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 			Enabled:     false,
 			Revision:    7,
 			Members: []GroupMember{
-				{PrincipalID: "alpha", Enabled: false, Revision: 4},
-				{PrincipalID: "zebra", Enabled: true, Revision: 1},
+				{PrincipalID: "alpha", Role: "manager", Enabled: false, Revision: 4},
+				{PrincipalID: "zebra", Role: "member", Enabled: true, Revision: 1},
 			},
 		},
 		{
@@ -133,6 +133,11 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		workspaces []configschema.GatehouseConfigWorkspacesValues
 		contains   string
 	}{
+		{
+			name:       "invalid membership role",
+			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{Alias: "admins", Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{{Principal: "alice", Role: stringPointer("contributor")}}}}}},
+			contains:   "role must be member or manager",
+		},
 		{
 			name:       "nonpositive group revision",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{Alias: "admins", Revision: &zero}}}},

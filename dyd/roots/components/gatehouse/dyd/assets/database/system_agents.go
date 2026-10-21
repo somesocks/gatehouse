@@ -112,6 +112,7 @@ type SystemWorkspaceAgentSearch struct {
 	Name        string
 	Cursor      string
 	Limit       int
+	ActiveOnly  bool
 }
 
 func (store *Store) SystemWorkspaceAgentsSearch(ctx context.Context, search SystemWorkspaceAgentSearch) (error, []SystemWorkspaceAgent, string) {
@@ -130,11 +131,15 @@ func (store *Store) SystemWorkspaceAgentsSearch(ctx context.Context, search Syst
 	}
 	pattern := "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query) + "%"
 	placeholder := keychainPlaceholder(store.kind)
+	activeFilter := ""
+	if search.ActiveOnly {
+		activeFilter = " AND agents.enabled = TRUE"
+	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT agents.id, workspace_id, agents.alias, model_id, agents.revision, label, system_prompt, prelude, rate_limits, "default", agents.enabled, models.alias
 		FROM gatehouse_workspace_agents AS agents
 		JOIN gatehouse_agent_models AS models ON models.id = agents.model_id
-		WHERE workspace_id = `+placeholder(1)+`
+		WHERE workspace_id = `+placeholder(1)+activeFilter+`
 			AND (
 				LOWER(agents.alias) LIKE LOWER(`+placeholder(2)+`) ESCAPE '\'
 				OR LOWER(COALESCE(label, '')) LIKE LOWER(`+placeholder(3)+`) ESCAPE '\'

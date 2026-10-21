@@ -8,8 +8,9 @@
 
   import type { Route } from "../../route"
   import GroupsPage from "./GroupsPage.svelte"
+  import GroupPage from "./GroupPage.svelte"
 
-  type GroupsRoute = Extract<Route, { kind: "group-collection" }>
+  type GroupsRoute = Extract<Route, { kind: "group-collection" | "group" }>
 
   const runtime = useRuntime()
   const { access, activity, auth } = runtime
@@ -124,7 +125,7 @@
   <StatusPage
     eyebrow="Gatehouse"
     title="No workspace access"
-    description="Ask an administrator to add you to a workspace group."
+    description="Ask an administrator to grant you workspace access."
   >
     {#snippet children()}<UI.Group
         ><UI.Button
@@ -150,19 +151,31 @@
               ><RouterLink href={workspacePath(workspace.id)}
                 >{workspace.name ?? workspace.id}</RouterLink
               ></UI.Breadcrumb.Item
-            ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item aria-current="page"
-              ><UI.Breadcrumb.Page>Groups</UI.Breadcrumb.Page
+            ><UI.Breadcrumb.Separator /><UI.Breadcrumb.Item
+              aria-current={currentRoute.kind === "group-collection"
+                ? "page"
+                : undefined}
+              >{#if currentRoute.kind === "group"}<RouterLink
+                  href={`${workspacePath(workspace.id)}/grp`}>Groups</RouterLink
+                >{:else}<UI.Breadcrumb.Page>Groups</UI.Breadcrumb.Page>{/if}
               ></UI.Breadcrumb.Item
-            ></UI.Breadcrumb.List
+            >{#if currentRoute.kind === "group"}<UI.Breadcrumb.Separator
+              /><UI.Breadcrumb.Item aria-current="page"
+                ><UI.Breadcrumb.Page>Group</UI.Breadcrumb.Page
+                ></UI.Breadcrumb.Item
+              >{/if}</UI.Breadcrumb.List
           ></UI.Breadcrumb.Root
         ></SidebarPage.Header
       ><SidebarPage.Body
-        >{#if routeSignal !== null}<GroupsPage
-            {workspace}
-            signal={routeSignal}
-            {activity}
-            onAuthenticationLost={() => runtime.requireLogin()}
-          />{/if}</SidebarPage.Body
+        >{#if routeSignal !== null}{#key currentRoute.kind === "group" ? currentRoute.groupID : "collection"}{#if currentRoute.kind === "group"}<GroupPage
+                workspaceID={workspace.id}
+                groupID={currentRoute.groupID}
+              />{:else}<GroupsPage
+                {workspace}
+                signal={routeSignal}
+                {activity}
+                onAuthenticationLost={() => runtime.requireLogin()}
+              />{/if}{/key}{/if}</SidebarPage.Body
       ></SidebarPage.Page
     ></SidebarPage.Root
   >

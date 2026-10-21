@@ -251,7 +251,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 	}
 	groups := request("/api/v1/workspaces/" + engineering.Id + "/groups")
 	developersID := groupID(t, context.Background(), store, "engineering", "developers")
-	if groups.Code != http.StatusOK || groups.Body.String() != "[{\"id\":\""+developersID+"\",\"name\":\"Developers\"}]\n" {
+	var groupDirectory []database.SystemGroup
+	if err := json.Unmarshal(groups.Body.Bytes(), &groupDirectory); err != nil || groups.Code != http.StatusOK || len(groupDirectory) != 1 || groupDirectory[0].ID != developersID || groupDirectory[0].Role != authz.Member {
 		t.Fatalf("GET groups = status %d body %q", groups.Code, groups.Body.String())
 	}
 	sessions := request("/api/v1/workspaces/" + engineering.Id + "/sessions")

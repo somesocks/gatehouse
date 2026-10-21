@@ -1,5 +1,9 @@
 import type { ActivityClient } from "../../app/activity"
-import { fetchWorkspaceGroups, type Group } from "../../app/groups"
+import {
+  fetchWorkspaceGroups,
+  fetchGroupCapabilities,
+  type Group,
+} from "../../app/groups"
 import { createCollectionPage } from "../../utils/collection-page.svelte"
 import { createLoadState } from "../../utils/load-state.svelte"
 
@@ -15,6 +19,7 @@ export function createGroupsController({
   const resource = createLoadState()
   const state = $state({
     groups: [] as Group[],
+    canCreate: false,
     search: "",
     get loading() {
       return resource.loading
@@ -45,15 +50,14 @@ export function createGroupsController({
     signal = request.signal
     try {
       const requested = page.key()
-      const response = await fetchWorkspaceGroups(
-        workspaceID,
-        signal,
-        page.params(),
-      )
+      const [response, capabilities] = await Promise.all([
+        fetchWorkspaceGroups(workspaceID, signal, page.params()),
+        fetchGroupCapabilities(workspaceID, signal),
+      ])
       if (currentGeneration !== generation || !request.current()) {
         return false
       }
-      if (response.status === 401) {
+      if (response.status === 401 || capabilities.status === 401) {
         onAuthenticationLost()
         return false
       }
@@ -61,12 +65,16 @@ export function createGroupsController({
         throw new Error("groups could not be refreshed")
       }
       const groups = (await response.json()) as Group[]
+      const canCreate =
+        capabilities.ok &&
+        ((await capabilities.json()) as { create: boolean }).create === true
       if (currentGeneration !== generation || !request.current()) {
         return false
       }
       if (requested !== page.key()) return false
       return request.commit(() => {
         state.groups = groups
+        state.canCreate = canCreate
         page.accept(response)
       })
     } catch (cause) {
@@ -84,13 +92,14 @@ export function createGroupsController({
     resource.reset()
     const currentGeneration = ++generation
     state.groups = []
+    state.canCreate = false
     void load(workspaceID, routeSignal, currentGeneration)
     unsubscribe = activity.subscribe(
       [
         {
           name: "group",
           topic: workspaceID,
-          events: ["group.*", "group_member.*"],
+          events: ["group.*", "group_member.*", "workspace_grant.*"],
         },
       ],
       async ({ signal }) => {

@@ -4,6 +4,7 @@ import { routeOwner } from "./route-owner"
 
 describe("workspace page-purpose routes", () => {
   it.each([
+    ["/app/wsp/wsp_a/grp/grp_a", "group", "groups"],
     ["/app/wsp/wsp_a/prj/new", "project-new", "project-form"],
     ["/app/wsp/wsp_a/prj/prj_a/edit", "project-edit", "project-form"],
     [

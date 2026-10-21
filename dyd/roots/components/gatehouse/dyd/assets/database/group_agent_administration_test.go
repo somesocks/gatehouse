@@ -108,9 +108,6 @@ func testGroupAgentAdministration(t *testing.T, configuration config.DatabaseCon
 	if err := store.SystemGroupAgentUpdate(ctx, workspace.Id, group, bot, true, 1); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale membership = %v", err)
 	}
-	if err := store.SystemGroupAgentCreate(ctx, workspace.Id, group, bot); !errors.Is(err, database.ErrGroupMemberExists) {
-		t.Fatalf("disabled duplicate = %v", err)
-	}
 	if err := store.SystemGroupAgentUpdate(ctx, workspace.Id, group, bot, true, 0); !errors.Is(err, database.ErrGroupInput) {
 		t.Fatalf("invalid revision = %v", err)
 	}
@@ -122,7 +119,7 @@ func testGroupAgentAdministration(t *testing.T, configuration config.DatabaseCon
 	if err != nil || len(members) != 1 || members[0].Agent != bot || members[0].Revision != 2 || members[0].Enabled || !members[0].AgentEnabled {
 		t.Fatalf("disabled membership = %#v %v", members, err)
 	}
-	if err := store.SystemGroupAgentUpdate(ctx, workspace.Id, group, bot, true, 2); err != nil {
+	if err := store.SystemGroupAgentCreate(ctx, workspace.Id, group, bot); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SystemGroupAgentUpdate(ctx, workspace.Id, group, bot, true, 3); err != nil {
@@ -177,6 +174,14 @@ func testGroupAgentAdministration(t *testing.T, configuration config.DatabaseCon
 	err, members, _ = store.SystemGroupAgentsSearch(ctx, search)
 	if err != nil || len(members) != 1 || members[0].AgentEnabled || !members[0].Enabled || members[0].Label == nil || *members[0].Label != label {
 		t.Fatalf("label search/independent availability = %#v %v", members, err)
+	}
+	search.Name, search.Status, search.Cursor, search.ActiveOnly = "", "", "", true
+	err, visible, next := store.SystemGroupAgentsSearch(ctx, search)
+	if err != nil || len(visible) != 1 || visible[0].Agent != bot || next != "" {
+		t.Fatalf("active roster pagination = %#v %q %v", visible, next, err)
+	}
+	if err, options, next := store.SystemWorkspaceAgentsSearch(ctx, database.SystemWorkspaceAgentSearch{WorkspaceID: workspace.Id, Limit: 1, ActiveOnly: true}); err != nil || len(options) != 1 || options[0].ID != bot || next != "" {
+		t.Fatalf("active bot options = %#v %q %v", options, next, err)
 	}
 	if err, record := store.SystemGroupGet(ctx, workspace.Id, group); err != nil || record.Revision != 1 {
 		t.Fatalf("membership changed group revision: %#v %v", record, err)

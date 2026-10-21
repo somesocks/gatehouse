@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 
+	"gatehouse/authz"
+	"gatehouse/config"
 	"gatehouse/model"
 	"gatehouse/typed_id"
 )
@@ -14,27 +16,30 @@ import (
 var (
 	ErrGroupInput             = errors.New("invalid group administration input")
 	ErrGroupAliasExists       = errors.New("group alias is already in use in this workspace")
-	ErrGroupMemberExists      = errors.New("membership already exists; enable the existing membership instead")
+	ErrGroupMemberExists      = errors.New("membership already exists")
 	ErrGroupNotFound          = errors.New("group not found")
 	ErrGroupPrincipalNotFound = errors.New("principal not found")
+	ErrGroupLastManager       = errors.New("A group must retain at least one enabled manager. Promote another member to manager before demoting or removing this manager.")
 )
 
 type SystemGroup struct {
-	ID        string  `json:"id"`
-	Workspace string  `json:"workspace"`
-	Alias     *string `json:"alias,omitempty"`
-	Name      *string `json:"name,omitempty"`
-	Enabled   bool    `json:"enabled"`
-	Revision  int     `json:"revision"`
+	ID        string     `json:"id"`
+	Workspace string     `json:"workspace"`
+	Alias     *string    `json:"alias,omitempty"`
+	Name      *string    `json:"name,omitempty"`
+	Enabled   bool       `json:"enabled"`
+	Revision  int        `json:"revision"`
+	Role      authz.Role `json:"role,omitempty"`
 }
 
 type SystemGroupMember struct {
-	Principal        string  `json:"principal"`
-	Alias            *string `json:"alias,omitempty"`
-	Name             *string `json:"name,omitempty"`
-	PrincipalEnabled bool    `json:"principal_enabled"`
-	Enabled          bool    `json:"enabled"`
-	Revision         int     `json:"revision"`
+	Principal        string     `json:"principal"`
+	Alias            *string    `json:"alias,omitempty"`
+	Name             *string    `json:"name,omitempty"`
+	PrincipalEnabled bool       `json:"principal_enabled"`
+	Enabled          bool       `json:"enabled"`
+	Revision         int        `json:"revision"`
+	Role             authz.Role `json:"role"`
 }
 
 type SystemGroupInput struct {
@@ -44,12 +49,13 @@ type SystemGroupInput struct {
 }
 
 type SystemGroupSearch struct {
-	Workspace string
-	Group     string
-	Name      string
-	Status    string
-	Cursor    string
-	Limit     int
+	Workspace  string
+	Group      string
+	Name       string
+	Status     string
+	Cursor     string
+	Limit      int
+	ActiveOnly bool
 }
 
 func groupSearchValues(search SystemGroupSearch, kind string) (string, error) {
@@ -140,6 +146,10 @@ func validateSystemGroupInput(input SystemGroupInput, creating bool) error {
 }
 
 func (store *Store) SystemGroupCreate(ctx context.Context, workspace string, input SystemGroupInput) (error, *SystemGroup) {
+	return store.GroupCreate(ctx, workspace, input, nil)
+}
+
+func (store *Store) GroupCreate(ctx context.Context, workspace string, input SystemGroupInput, actor *model.PrincipalRef) (error, *SystemGroup) {
 	if !typed_id.Valid(typed_id.Workspace, workspace) {
 		return nil, nil
 	}
@@ -155,6 +165,9 @@ func (store *Store) SystemGroupCreate(ctx context.Context, workspace string, inp
 		return err, nil
 	}
 	defer tx.Rollback()
+	if err := store.groupMutationAllowed(ctx, tx, workspace, "", actor); err != nil {
+		return err, nil
+	}
 	p := keychainPlaceholder(store.kind)
 	var exists bool
 	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_workspaces WHERE id = `+p(1)+`)`, workspace).Scan(&exists); err != nil {
@@ -173,6 +186,14 @@ func (store *Store) SystemGroupCreate(ctx context.Context, workspace string, inp
 	if err := store.systemGroupActivity(ctx, tx, workspace, id, "group.create"); err != nil {
 		return err, nil
 	}
+	if actor != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision, role) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1, 'manager')`, workspace, id, actor.Id); err != nil {
+			return err, nil
+		}
+		if err := store.systemGroupMemberActivity(ctx, tx, workspace, id, actor.Id, "group_member.create"); err != nil {
+			return err, nil
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err, nil
 	}
@@ -180,6 +201,10 @@ func (store *Store) SystemGroupCreate(ctx context.Context, workspace string, inp
 }
 
 func (store *Store) SystemGroupUpdate(ctx context.Context, workspace, id string, revision int, input SystemGroupInput) (error, *SystemGroup) {
+	return store.GroupUpdate(ctx, workspace, id, revision, input, nil)
+}
+
+func (store *Store) GroupUpdate(ctx context.Context, workspace, id string, revision int, input SystemGroupInput, actor *model.PrincipalRef) (error, *SystemGroup) {
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, id) {
 		return nil, nil
 	}
@@ -194,6 +219,9 @@ func (store *Store) SystemGroupUpdate(ctx context.Context, workspace, id string,
 		return err, nil
 	}
 	defer tx.Rollback()
+	if err := store.groupMutationAllowed(ctx, tx, workspace, id, actor); err != nil {
+		return err, nil
+	}
 	p := keychainPlaceholder(store.kind)
 	group, err := scanSystemGroup(tx.QueryRowContext(ctx, `SELECT id, workspace_id, alias, name, enabled, revision FROM gatehouse_groups WHERE workspace_id = `+p(1)+` AND id = `+p(2), workspace, id))
 	if err == sql.ErrNoRows {
@@ -256,13 +284,15 @@ func (store *Store) SystemGroupMembersSearch(ctx context.Context, search SystemG
 		return err, nil, ""
 	}
 	p := keychainPlaceholder(store.kind)
-	query := `SELECT principals.id, principals.alias, principals.name, principals.enabled, members.enabled, members.revision
+	query := `SELECT principals.id, principals.alias, principals.name, principals.enabled, members.enabled, members.revision, members.role
 		FROM gatehouse_group_members AS members JOIN gatehouse_principals AS principals ON principals.id = members.principal_id
 		WHERE members.workspace_id = ` + p(1) + ` AND members.group_id = ` + p(2) + `
 		AND (LOWER(COALESCE(principals.alias, '')) LIKE LOWER(` + p(3) + `) ESCAPE '\' OR LOWER(COALESCE(principals.name, '')) LIKE LOWER(` + p(4) + `) ESCAPE '\' OR principals.id LIKE ` + p(5) + ` ESCAPE '\')
 		AND (` + p(6) + ` = '' OR principals.id < ` + p(7) + `)`
 	args := []any{search.Workspace, search.Group, pattern, pattern, pattern, search.Cursor, search.Cursor}
-	if search.Status != "" {
+	if search.ActiveOnly {
+		query += ` AND members.enabled = TRUE AND principals.enabled = TRUE`
+	} else if search.Status != "" {
 		query += ` AND members.enabled = ` + p(len(args)+1)
 		args = append(args, search.Status == "enabled")
 	}
@@ -293,7 +323,7 @@ func (store *Store) SystemGroupMembersSearch(ctx context.Context, search SystemG
 func scanSystemGroupMember(row interface{ Scan(...any) error }) (*SystemGroupMember, error) {
 	var member SystemGroupMember
 	var alias, name sql.NullString
-	if err := row.Scan(&member.Principal, &alias, &name, &member.PrincipalEnabled, &member.Enabled, &member.Revision); err != nil {
+	if err := row.Scan(&member.Principal, &alias, &name, &member.PrincipalEnabled, &member.Enabled, &member.Revision, &member.Role); err != nil {
 		return nil, err
 	}
 	if alias.Valid {
@@ -317,6 +347,13 @@ func systemGroupExists(ctx context.Context, tx *sql.Tx, p func(int) string, work
 }
 
 func (store *Store) SystemGroupMemberCreate(ctx context.Context, workspace, group, principal string) error {
+	return store.GroupMemberCreate(ctx, workspace, group, principal, authz.Member, nil)
+}
+
+func (store *Store) GroupMemberCreate(ctx context.Context, workspace, group, principal string, role authz.Role, actor *model.PrincipalRef) error {
+	if !authz.ValidGroupRole(string(role)) {
+		return fmt.Errorf("%w: role must be member or manager", ErrGroupInput)
+	}
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) {
 		return ErrGroupNotFound
 	}
@@ -328,6 +365,9 @@ func (store *Store) SystemGroupMemberCreate(ctx context.Context, workspace, grou
 		return err
 	}
 	defer tx.Rollback()
+	if err := store.groupMutationAllowed(ctx, tx, workspace, group, actor); err != nil {
+		return err
+	}
 	p := keychainPlaceholder(store.kind)
 	if err := systemGroupExists(ctx, tx, p, workspace, group); err != nil {
 		return err
@@ -345,19 +385,34 @@ func (store *Store) SystemGroupMemberCreate(ctx context.Context, workspace, grou
 	if !exists {
 		return fmt.Errorf("%w: enabled workspace membership is required", ErrGroupInput)
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1)`, workspace, group, principal); err != nil {
-		if uniquePrincipalConstraint(err) {
-			return ErrGroupMemberExists
-		}
+	var memberRevision int
+	err = tx.QueryRowContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision, role) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1, `+p(4)+`)
+		ON CONFLICT (workspace_id, group_id, principal_id) DO UPDATE SET enabled = TRUE, role = excluded.role, revision = gatehouse_group_members.revision + 1
+		WHERE gatehouse_group_members.enabled = FALSE RETURNING revision`, workspace, group, principal, role).Scan(&memberRevision)
+	if err == sql.ErrNoRows {
+		return ErrGroupMemberExists
+	}
+	if err != nil {
 		return err
 	}
-	if err := store.systemGroupMemberActivity(ctx, tx, workspace, group, principal, "group_member.create"); err != nil {
+	event := "group_member.create"
+	if memberRevision > 1 {
+		event = "group_member.update"
+	}
+	if err := store.systemGroupMemberActivity(ctx, tx, workspace, group, principal, event); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, group, principal string, enabled bool, revision int) error {
+	return store.GroupMemberUpdate(ctx, workspace, group, principal, &enabled, nil, revision, nil)
+}
+
+func (store *Store) GroupMemberUpdate(ctx context.Context, workspace, group, principal string, enabled *bool, role *authz.Role, revision int, actor *model.PrincipalRef) error {
+	if (enabled == nil && role == nil) || (role != nil && !authz.ValidGroupRole(string(*role))) {
+		return fmt.Errorf("%w: enabled or a member/manager role is required", ErrGroupInput)
+	}
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) || !typed_id.Valid(typed_id.Principal, principal) {
 		return ErrGroupNotFound
 	}
@@ -369,10 +424,17 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 		return err
 	}
 	defer tx.Rollback()
+	if err := store.lockGroupMembershipUpdate(ctx, tx, workspace, group); err != nil {
+		return err
+	}
+	if err := store.groupMutationAllowed(ctx, tx, workspace, group, actor); err != nil {
+		return err
+	}
 	p := keychainPlaceholder(store.kind)
 	var current bool
 	var currentRevision int
-	err = tx.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_group_members WHERE workspace_id = `+p(1)+` AND group_id = `+p(2)+` AND principal_id = `+p(3), workspace, group, principal).Scan(&current, &currentRevision)
+	var currentRole authz.Role
+	err = tx.QueryRowContext(ctx, `SELECT enabled, revision, role FROM gatehouse_group_members WHERE workspace_id = `+p(1)+` AND group_id = `+p(2)+` AND principal_id = `+p(3), workspace, group, principal).Scan(&current, &currentRevision, &currentRole)
 	if err == sql.ErrNoRows {
 		return ErrGroupNotFound
 	}
@@ -382,8 +444,33 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 	if currentRevision != revision {
 		return ErrRevisionConflict
 	}
-	if enabled != current {
-		if enabled {
+	nextEnabled, nextRole := current, currentRole
+	if enabled != nil {
+		nextEnabled = *enabled
+	}
+	if role != nil {
+		nextRole = *role
+	}
+	if nextEnabled != current || nextRole != currentRole {
+		if current && currentRole == authz.Manager && (!nextEnabled || nextRole != authz.Manager) {
+			var losesLastManager bool
+			if err := tx.QueryRowContext(ctx, `WITH input AS (
+				SELECT `+p(1)+` AS workspace, `+p(2)+` AS "group", `+p(3)+` AS principal
+			) SELECT `+workspacePrincipalAdmissionSQL("input.workspace", "input.principal")+`
+				AND EXISTS (SELECT 1 FROM gatehouse_groups groups
+					WHERE groups.workspace_id = input.workspace AND groups.id = input."group" AND groups.enabled = TRUE)
+				AND NOT EXISTS (SELECT 1 FROM gatehouse_group_members remaining
+					WHERE remaining.workspace_id = input.workspace AND remaining.group_id = input."group" AND remaining.principal_id <> input.principal
+					AND remaining.enabled = TRUE AND remaining.role = 'manager'
+					AND `+workspacePrincipalAdmissionSQL("remaining.workspace_id", "remaining.principal_id")+`)
+				FROM input`, workspace, group, principal).Scan(&losesLastManager); err != nil {
+				return err
+			}
+			if losesLastManager {
+				return ErrGroupLastManager
+			}
+		}
+		if nextEnabled && (!current || (nextRole == authz.Manager && currentRole != authz.Manager)) {
 			var admitted bool
 			if err := tx.QueryRowContext(ctx, `SELECT `+workspacePrincipalAdmissionSQL(p(1), p(2)), workspace, principal).Scan(&admitted); err != nil {
 				return err
@@ -392,7 +479,7 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 				return fmt.Errorf("%w: enabled workspace membership is required", ErrGroupInput)
 			}
 		}
-		result, err := tx.ExecContext(ctx, `UPDATE gatehouse_group_members SET enabled = `+p(1)+`, revision = revision + 1 WHERE workspace_id = `+p(2)+` AND group_id = `+p(3)+` AND principal_id = `+p(4)+` AND revision = `+p(5), enabled, workspace, group, principal, revision)
+		result, err := tx.ExecContext(ctx, `UPDATE gatehouse_group_members SET enabled = `+p(1)+`, role = `+p(2)+`, revision = revision + 1 WHERE workspace_id = `+p(3)+` AND group_id = `+p(4)+` AND principal_id = `+p(5)+` AND revision = `+p(6), nextEnabled, nextRole, workspace, group, principal, revision)
 		if err != nil {
 			return err
 		}
@@ -404,6 +491,31 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 		}
 	}
 	return tx.Commit()
+}
+
+// Serialize membership edits on the group before reading the actor or roster.
+// PostgreSQL's table lock also coordinates with configuration reconciliation;
+// the no-op row write serializes separate group edits and SQLite connections
+// without changing the group's revision or emitting a metadata activity event.
+func (store *Store) lockGroupMembershipUpdate(ctx context.Context, tx *sql.Tx, workspace, group string) error {
+	if store.kind == config.DatabaseKindPostgres {
+		if _, err := tx.ExecContext(ctx, `LOCK TABLE gatehouse_groups, gatehouse_group_members IN ROW EXCLUSIVE MODE`); err != nil {
+			return err
+		}
+	}
+	p := keychainPlaceholder(store.kind)
+	result, err := tx.ExecContext(ctx, `UPDATE gatehouse_groups SET revision = revision WHERE workspace_id = `+p(1)+` AND id = `+p(2), workspace, group)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrGroupNotFound
+	}
+	return nil
 }
 
 func groupPrincipalTopics(ctx context.Context, tx *sql.Tx, p func(int) string, workspace, group, suffix string) ([]string, error) {
@@ -434,6 +546,22 @@ func (store *Store) systemGroupActivity(ctx context.Context, tx *sql.Tx, workspa
 }
 
 func (store *Store) systemGroupMemberActivity(ctx context.Context, tx *sql.Tx, workspace, group, principal, event string) error {
-	err, _ := store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindGroupMember, ResourceGroupMemberGroup: &group, ResourceGroupMemberPrincipal: &principal}, []string{workspace + "/" + group, principal + "/" + group})
+	topics, err := groupPrincipalTopics(ctx, tx, keychainPlaceholder(store.kind), workspace, group, group)
+	if err != nil {
+		return err
+	}
+	topics = append(topics, workspace+"/"+group)
+	affected := principal + "/" + group
+	found := false
+	for _, topic := range topics {
+		if topic == affected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		topics = append(topics, affected)
+	}
+	err, _ = store.ActivityEventAppend(ctx, tx, model.ActivityEvent{Event: event, ResourceKind: ActivityResourceKindGroupMember, ResourceGroupMemberGroup: &group, ResourceGroupMemberPrincipal: &principal}, topics)
 	return err
 }

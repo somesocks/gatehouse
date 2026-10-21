@@ -1,4 +1,27 @@
 import { systemAdministration } from "./system"
+import { fetchGatehouse } from "./api"
+
+export type GroupScope = "system" | "workspace"
+export type GroupRole = "member" | "manager"
+
+export function groupAdministration(
+  path: string,
+  method = "GET",
+  body?: unknown,
+  signal?: AbortSignal,
+  scope: GroupScope = "system",
+): Promise<Response> {
+  if (scope === "system")
+    return systemAdministration(path, method, body, signal)
+  return fetchGatehouse(`/api/v1/${path}`, {
+    method,
+    credentials: "same-origin",
+    headers:
+      body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  })
+}
 
 export type SystemGroup = {
   id: string
@@ -7,10 +30,12 @@ export type SystemGroup = {
   name?: string
   enabled: boolean
   revision: number
+  role?: GroupRole
 }
 
 export type SystemGroupMember = {
   principal: string
+  role: GroupRole
   alias?: string
   name?: string
   principal_enabled: boolean
@@ -37,12 +62,14 @@ export function fetchAdminGroupMemberOptions(
   name: string,
   cursor: string,
   signal: AbortSignal,
+  scope: GroupScope = "system",
 ) {
-  return systemAdministration(
+  return groupAdministration(
     `${groupAdminPath(workspace, group, "/member-options")}?${new URLSearchParams({ limit: "50", name, cursor })}`,
     "GET",
     undefined,
     signal,
+    scope,
   )
 }
 
@@ -68,12 +95,14 @@ export function fetchAdminGroupMembers(
   cursor: string,
   status: string,
   signal?: AbortSignal,
+  scope: GroupScope = "system",
 ) {
-  return systemAdministration(
-    `${groupAdminPath(workspace, group, "/members")}?${new URLSearchParams({ limit: "50", name, cursor, status })}`,
+  return groupAdministration(
+    `${groupAdminPath(workspace, group, "/members")}?${new URLSearchParams({ limit: "50", name, cursor, status, active: "true" })}`,
     "GET",
     undefined,
     signal,
+    scope,
   )
 }
 
@@ -84,11 +113,13 @@ export function fetchAdminGroupAgents(
   cursor: string,
   status: string,
   signal?: AbortSignal,
+  scope: GroupScope = "system",
 ) {
-  return systemAdministration(
-    `${groupAdminPath(workspace, group, "/agents")}?${new URLSearchParams({ limit: "50", name, cursor, status })}`,
+  return groupAdministration(
+    `${groupAdminPath(workspace, group, "/agents")}?${new URLSearchParams({ limit: "50", name, cursor, status, active: "true" })}`,
     "GET",
     undefined,
     signal,
+    scope,
   )
 }

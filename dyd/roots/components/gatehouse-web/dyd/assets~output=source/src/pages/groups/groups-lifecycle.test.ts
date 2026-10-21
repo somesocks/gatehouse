@@ -34,9 +34,12 @@ describe("Groups lifecycle", () => {
     const runtime = await import(
       /* @vite-ignore */ `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
     )
+    let canCreate = true
     vi.stubGlobal(
       "fetch",
       vi.fn(async (path: string) => {
+        if (path.endsWith("/group-capabilities"))
+          return Response.json({ create: canCreate })
         const params = new URL(path, "http://localhost").searchParams
         const name = params.get("name") ?? ""
         const cursor = params.get("cursor") ?? ""
@@ -45,7 +48,15 @@ describe("Groups lifecycle", () => {
         })
       }),
     )
-    const activity = { subscribe: vi.fn(() => () => {}) }
+    const activity = {
+      subscribe: vi.fn(
+        (
+          _topics: unknown,
+          _refresh: (event: { signal: AbortSignal }) => Promise<void>,
+        ) =>
+          () => {},
+      ),
+    }
     const controller = module.createGroupsController({
       activity,
       onAuthenticationLost: vi.fn(),
@@ -55,6 +66,7 @@ describe("Groups lifecycle", () => {
     try {
       runtime.flushSync()
       await vi.waitFor(() => expect(controller.state.groups.length).toBe(1))
+      expect(controller.state.canCreate).toBe(true)
       controller.page.state.search = "members"
       await controller.page.search(() => controller.load("workspace", signal))
       runtime.flushSync()
@@ -65,6 +77,18 @@ describe("Groups lifecycle", () => {
       expect(controller.state.groups[0].id).toBe("second")
       expect(controller.page.state.history).toEqual([""])
       expect(activity.subscribe).toHaveBeenCalledTimes(1)
+      expect(activity.subscribe.mock.calls[0][0]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            events: expect.arrayContaining(["workspace_grant.*"]),
+          }),
+        ]),
+      )
+      canCreate = false
+      await activity.subscribe.mock.calls[0][1]({ signal })
+      runtime.flushSync()
+      expect(controller.state.canCreate).toBe(false)
+      expect(controller.page.state.query).toBe("members")
     } finally {
       dispose()
       controller.stop()

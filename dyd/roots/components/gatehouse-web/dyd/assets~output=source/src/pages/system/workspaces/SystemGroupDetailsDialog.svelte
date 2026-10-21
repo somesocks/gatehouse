@@ -58,18 +58,6 @@
           disabled={state.saving || state.reloading}
         />
       </UI.Field>
-      <UI.Stack gap="small">
-        <UI.Label layout="choice"
-          ><UI.Checkbox
-            bind:checked={state.form.enabled}
-            disabled={state.saving || state.reloading}
-          />Enabled</UI.Label
-        >
-        <UI.Text size="small" tone="muted"
-          >Disabling the group suspends access inherited through it. Memberships
-          and grants are retained.</UI.Text
-        >
-      </UI.Stack>
     </UI.FormSection>
     <UI.ActionFeedback
       error={state.feedback.details.error || state.loadError}

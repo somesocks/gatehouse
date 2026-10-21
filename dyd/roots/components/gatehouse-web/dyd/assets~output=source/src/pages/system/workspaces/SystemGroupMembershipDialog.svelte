@@ -3,11 +3,15 @@
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
-    fetchSystemWorkspaceAgents,
     type SystemPrincipal,
     type SystemWorkspaceAgent,
   } from "../../../app/system"
-  import { fetchAdminGroupMemberOptions } from "../../../app/group-administration"
+  import {
+    fetchAdminGroupMemberOptions,
+    groupAdministration,
+    groupAdminPath,
+    type GroupScope,
+  } from "../../../app/group-administration"
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import type { SystemGroupController } from "./system-group-controller.svelte"
   let {
@@ -16,12 +20,14 @@
     groupID,
     kind,
     onClose,
+    scope = "system",
   }: {
     controller: SystemGroupController
     workspaceID: string
     groupID: string
     kind: "members" | "bots"
     onClose: () => void
+    scope?: GroupScope
   } = $props()
   let view = $derived(controller.state)
   const runtime = useRuntime()
@@ -34,7 +40,9 @@
     disabled: boolean
   }>({
     onAuthenticationLost: runtime.requireLogin,
-    onSystemAccessChange: runtime.access.setSystemAccess,
+    onSystemAccessChange: (next) => {
+      if (scope === "system") runtime.access.setSystemAccess(next)
+    },
     async fetchPage(name, cursor, _status, signal) {
       const response =
         kind === "members"
@@ -44,8 +52,15 @@
               name,
               cursor,
               signal,
+              scope,
             )
-          : await fetchSystemWorkspaceAgents(workspaceID, name, cursor, signal)
+          : await groupAdministration(
+              `${groupAdminPath(workspaceID, groupID, "/agent-options")}?${new URLSearchParams({ name, cursor, limit: "50" })}`,
+              "GET",
+              undefined,
+              signal,
+              scope,
+            )
       if (!response.ok) return { response }
       const body = (await response.json()) as {
         principals?: SystemPrincipal[]
@@ -56,7 +71,7 @@
         kind === "members"
           ? (body.principals ?? []).map((person) => ({
               id: person.id,
-              label: person.name ?? person.alias ?? person.id,
+              label: person.name ?? person.alias ?? "Unnamed person",
               alias: person.alias,
               disabled: !person.enabled,
             }))
@@ -119,16 +134,31 @@
         onsearch={() => void directory.search()}
       />
     {/snippet}
-    {#snippet details(item)}{item.alias ?? item.id}{/snippet}
+    {#snippet details(item)}{#if item.alias}@{item.alias}{/if}{/snippet}
   </UI.RecordList>
   <UI.PaginationFooter
-    count={directory.state.items.length}
-    noun={`${noun}s`}
-    previous={!!directory.state.history.length && !directory.state.busy}
-    next={!!directory.state.next && !directory.state.busy}
+    previous={!!directory.state.history.length}
+    next={!!directory.state.next}
+    loading={directory.state.busy}
     onprevious={() => void directory.previous()}
     onnext={() => void directory.next()}
   />
+  {#if kind === "members"}
+    <UI.Field>
+      <UI.Label for="group-member-role">Role</UI.Label>
+      <UI.Select
+        id="group-member-role"
+        bind:value={view.memberRole}
+        disabled={view.saving}
+      >
+        <UI.Option value="member">Member</UI.Option>
+        <UI.Option value="manager">Manager</UI.Option>
+      </UI.Select>
+      <UI.Text size="small" tone="muted"
+        >Managers can edit the group and manage its people, roles, and bots.</UI.Text
+      >
+    </UI.Field>
+  {/if}
   <UI.ActionFeedback
     error={view.feedback[kind].error || directory.state.error}
     pending={view.pendingAction === `${kind}:add`}

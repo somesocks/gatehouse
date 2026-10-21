@@ -62,6 +62,7 @@ export type Route =
     } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
   | ({ kind: "group-collection" } & WorkspaceRoute)
+  | ({ kind: "group"; groupID: string } & WorkspaceRoute)
   | ({ kind: "session-chat" } & SessionRoute)
   | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
@@ -483,6 +484,8 @@ export function parseRoute(url: URL): Route {
   if (resourceID === "") {
     return notFound()
   }
+  if (collection === "grp" && segments.length === 5)
+    return { kind: "group", workspaceID, groupID: resourceID }
   if (collection === "ses") {
     if (segments.length === 5) {
       return {
@@ -938,6 +941,8 @@ export function routePath(route: NavigableRoute): string {
       )
     case "group-collection":
       return `/app/wsp/${segment(route.workspaceID)}/grp`
+    case "group":
+      return `/app/wsp/${segment(route.workspaceID)}/grp/${segment(route.groupID)}`
     case "session-chat":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
     case "session-files":

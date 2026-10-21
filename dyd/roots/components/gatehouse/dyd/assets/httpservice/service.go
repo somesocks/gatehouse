@@ -167,6 +167,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents", systemGroupAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agents/{agent}", systemGroupAgent(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/member-options", systemGroupMemberOptions(store, tokens[0]))
+		mux.HandleFunc("/api/v1/system/workspaces/{workspace}/groups/{group}/agent-options", groupAgentOptions(store, tokens[0], true))
 		mux.HandleFunc("/api/v1/system/workspace-agents", systemWorkspaceAgents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}", systemWorkspaceAgentCreate(store, tokens[0]))
 		mux.HandleFunc("/api/v1/system/workspace-agents/{workspace}/{binding}", systemWorkspaceAgent(store, tokens[0]))
@@ -174,6 +175,14 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/system/workspace-storage-providers/{workspace}/{provider}", systemWorkspaceStorageProvider(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces", workspaces(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups", workspaceGroups(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/group-capabilities", workspaceGroupCapabilities(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}", groupDetail(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/members", groupMembers(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/members/{principal}", groupMember(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/agents", groupAgents(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/agents/{agent}", groupAgent(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/member-options", groupMemberOptions(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/agent-options", groupAgentOptions(store, tokens[0], false))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/notes", workspaceProjectNotes(store, tokens[0]))
@@ -313,11 +322,6 @@ type workspaceResponse struct {
 	ID    string  `json:"id"`
 	Alias *string `json:"alias,omitempty"`
 	Name  *string `json:"name,omitempty"`
-}
-
-type groupResponse struct {
-	ID   string  `json:"id"`
-	Name *string `json:"name,omitempty"`
 }
 
 type workspaceAgentResponse struct {
@@ -763,6 +767,10 @@ func workspaces(store *database.Store, tokens *auth.BearerTokens) http.HandlerFu
 
 func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		if request.Method == http.MethodPost {
+			workspaceGroupCreate(response, request, store, tokens)
+			return
+		}
 		if request.Method != http.MethodGet {
 			response.WriteHeader(http.StatusMethodNotAllowed)
 			return
@@ -779,16 +787,12 @@ func workspaceGroups(store *database.Store, tokens *auth.BearerTokens) http.Hand
 		if !ok {
 			return
 		}
-		err, groups := store.WorkspaceGroupsGet(request.Context(), workspace, claims.Principal.Ref, pages...)
+		err, groups := store.WorkspaceGroupDirectoryGet(request.Context(), workspace, claims.Principal.Ref, pages...)
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
 		}
-		result := make([]groupResponse, 0, len(groups))
-		for _, group := range groups {
-			result = append(result, groupResponse{ID: group.Ref.Id, Name: group.Name})
-		}
-		writeCollectionPage(response, result, pages, func(group groupResponse) string { return group.ID })
+		writeCollectionPage(response, groups, pages, func(group database.SystemGroup) string { return group.ID })
 	}
 }
 

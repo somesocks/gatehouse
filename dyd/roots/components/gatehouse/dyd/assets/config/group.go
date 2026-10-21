@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"gatehouse/authz"
 	"gatehouse/configschema"
 )
 
@@ -20,6 +21,7 @@ type Group struct {
 
 type GroupMember struct {
 	PrincipalID string
+	Role        string
 	Enabled     bool
 	Revision    int
 }
@@ -78,6 +80,13 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].principal %q is duplicated", workspaceIndex, groupIndex, memberIndex, configuredMember.Principal), nil
 					}
 					memberEnabled := true
+					role := string(authz.Member)
+					if configuredMember.Role != nil {
+						role = *configuredMember.Role
+					}
+					if !authz.ValidGroupRole(role) {
+						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].role must be member or manager", workspaceIndex, groupIndex, memberIndex), nil
+					}
 					memberRevision := 1
 					if configuredMember.Revision != nil {
 						memberRevision = *configuredMember.Revision
@@ -89,7 +98,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						memberEnabled = *configuredMember.Enabled
 					}
 					memberIDs[configuredMember.Principal] = struct{}{}
-					members = append(members, GroupMember{PrincipalID: configuredMember.Principal, Enabled: memberEnabled, Revision: memberRevision})
+					members = append(members, GroupMember{PrincipalID: configuredMember.Principal, Role: role, Enabled: memberEnabled, Revision: memberRevision})
 				}
 			}
 			sort.Slice(members, func(left, right int) bool {

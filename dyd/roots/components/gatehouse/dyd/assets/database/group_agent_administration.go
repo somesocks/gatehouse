@@ -34,7 +34,9 @@ func (store *Store) SystemGroupAgentsSearch(ctx context.Context, search SystemGr
 		AND (LOWER(agents.alias) LIKE LOWER(` + p(3) + `) ESCAPE '\' OR LOWER(COALESCE(agents.label, '')) LIKE LOWER(` + p(4) + `) ESCAPE '\' OR agents.id LIKE ` + p(5) + ` ESCAPE '\')
 		AND (` + p(6) + ` = '' OR agents.id < ` + p(7) + `)`
 	args := []any{search.Workspace, search.Group, pattern, pattern, pattern, search.Cursor, search.Cursor}
-	if search.Status != "" {
+	if search.ActiveOnly {
+		query += ` AND members.enabled = TRUE AND agents.enabled = TRUE`
+	} else if search.Status != "" {
 		query += ` AND members.enabled = ` + p(len(args)+1)
 		args = append(args, search.Status == "enabled")
 	}
@@ -67,6 +69,10 @@ func (store *Store) SystemGroupAgentsSearch(ctx context.Context, search SystemGr
 }
 
 func (store *Store) SystemGroupAgentCreate(ctx context.Context, workspace, group, agent string) error {
+	return store.GroupAgentCreate(ctx, workspace, group, agent, nil)
+}
+
+func (store *Store) GroupAgentCreate(ctx context.Context, workspace, group, agent string, actor *model.PrincipalRef) error {
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) {
 		return ErrGroupNotFound
 	}
@@ -78,30 +84,49 @@ func (store *Store) SystemGroupAgentCreate(ctx context.Context, workspace, group
 		return err
 	}
 	defer tx.Rollback()
+	if err := store.groupMutationAllowed(ctx, tx, workspace, group, actor); err != nil {
+		return err
+	}
 	p := keychainPlaceholder(store.kind)
 	if err := systemGroupExists(ctx, tx, p, workspace, group); err != nil {
 		return err
 	}
 	var exists bool
-	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_workspace_agents WHERE workspace_id = `+p(1)+` AND id = `+p(2)+`)`, workspace, agent).Scan(&exists); err != nil {
+	activeFilter := ""
+	if actor != nil {
+		activeFilter = " AND enabled = TRUE"
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM gatehouse_workspace_agents WHERE workspace_id = `+p(1)+` AND id = `+p(2)+activeFilter+`)`, workspace, agent).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
 		return ErrGroupAgentNotFound
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_agents (workspace_id, group_id, agent_id, enabled, revision) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1)`, workspace, group, agent); err != nil {
-		if uniquePrincipalConstraint(err) {
-			return ErrGroupMemberExists
-		}
+	var memberRevision int
+	err = tx.QueryRowContext(ctx, `INSERT INTO gatehouse_group_agents (workspace_id, group_id, agent_id, enabled, revision) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1)
+		ON CONFLICT (workspace_id, group_id, agent_id) DO UPDATE SET enabled = TRUE, revision = gatehouse_group_agents.revision + 1
+		WHERE gatehouse_group_agents.enabled = FALSE RETURNING revision`, workspace, group, agent).Scan(&memberRevision)
+	if err == sql.ErrNoRows {
+		return ErrGroupMemberExists
+	}
+	if err != nil {
 		return err
 	}
-	if err := store.systemGroupAgentActivity(ctx, tx, workspace, group, agent, "group_agent.create"); err != nil {
+	event := "group_agent.create"
+	if memberRevision > 1 {
+		event = "group_agent.update"
+	}
+	if err := store.systemGroupAgentActivity(ctx, tx, workspace, group, agent, event); err != nil {
 		return err
 	}
 	return tx.Commit()
 }
 
 func (store *Store) SystemGroupAgentUpdate(ctx context.Context, workspace, group, agent string, enabled bool, revision int) error {
+	return store.GroupAgentUpdate(ctx, workspace, group, agent, enabled, revision, nil)
+}
+
+func (store *Store) GroupAgentUpdate(ctx context.Context, workspace, group, agent string, enabled bool, revision int, actor *model.PrincipalRef) error {
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) || !typed_id.Valid(typed_id.WorkspaceAgent, agent) {
 		return ErrGroupNotFound
 	}
@@ -113,6 +138,9 @@ func (store *Store) SystemGroupAgentUpdate(ctx context.Context, workspace, group
 		return err
 	}
 	defer tx.Rollback()
+	if err := store.groupMutationAllowed(ctx, tx, workspace, group, actor); err != nil {
+		return err
+	}
 	p := keychainPlaceholder(store.kind)
 	var current bool
 	var currentRevision int

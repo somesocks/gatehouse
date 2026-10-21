@@ -86,7 +86,7 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	memberPath := path + "/members/" + bob
 	request("PATCH", memberPath, `{"enabled":false,"expected_revision":1}`, admin, 204)
 	request("PATCH", memberPath, `{"enabled":true,"expected_revision":1}`, admin, 409)
-	request("PATCH", memberPath, `{"enabled":true,"expected_revision":2}`, admin, 204)
+	request("POST", path+"/members", `{"principal":"`+bob+`"}`, admin, 201)
 	listed := request("GET", path+"/members", "", admin, 200)
 	var roster struct {
 		Members []database.SystemGroupMember `json:"members"`
@@ -122,11 +122,11 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 	request("PATCH", botPath, `{"enabled":false}`, admin, 400)
 	request("PATCH", botPath, `{"enabled":false,"expected_revision":0}`, admin, 400)
 	request("PATCH", botPath, `{"enabled":false,"expected_revision":1}`, admin, 204)
-	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, admin, 409)
+	request("POST", agentsPath, `{"agent":"`+bot.ID+`"}`, admin, 201)
 	request("PATCH", botPath, `{"enabled":true,"expected_revision":1}`, admin, 409)
 	request("PATCH", agentsPath+"/"+foreignBot, `{"enabled":false,"expected_revision":1}`, admin, 404)
 	request("PATCH", strings.Replace(botPath, workspace.Id, workspaces["engineering"].Id, 1), `{"enabled":true,"expected_revision":2}`, admin, 404)
-	request("PATCH", botPath, `{"enabled":true,"expected_revision":2}`, admin, 204)
+	request("PATCH", botPath, `{"enabled":true,"expected_revision":2}`, admin, 409)
 	request("PATCH", botPath, `{"enabled":true,"expected_revision":3}`, admin, 204)
 	var botRoster struct {
 		Agents []database.SystemGroupAgent `json:"agents"`

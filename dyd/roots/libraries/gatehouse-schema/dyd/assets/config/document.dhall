@@ -75,6 +75,10 @@ let GroupMember =
                   s.boolean.from
                     s.boolean.props::{=}
                     s.boolean.meta::{ description = Some "whether the group assignment is enabled" }
+              , role =
+                  s.text.from
+                    s.text.props::{ variant = s.text.variants.none }
+                    s.text.meta::{ description = Some "group membership role: member (default) or manager" }
               , revision =
                   s.number.from
                     s.number.props::{ variant = s.number.variants.integer }

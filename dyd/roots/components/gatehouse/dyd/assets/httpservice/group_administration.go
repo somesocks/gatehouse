@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"gatehouse/auth"
+	"gatehouse/authz"
 	"gatehouse/database"
 )
 
@@ -37,8 +38,12 @@ func systemGroupScope(w http.ResponseWriter, r *http.Request, store *database.St
 
 func groupAdminError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
+	case errors.Is(err, database.ErrGroupForbidden):
+		http.Error(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, database.ErrRevisionConflict):
 		http.Error(w, "This record changed elsewhere. Reload before retrying.", http.StatusConflict)
+	case errors.Is(err, database.ErrGroupLastManager):
+		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrGroupAliasExists), errors.Is(err, database.ErrGroupMemberExists), errors.Is(err, database.ErrWorkspaceGrantAlreadyExists):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrGroupInput), errors.Is(err, database.ErrWorkspaceGrantRoleInvalid):
@@ -105,12 +110,17 @@ func systemGroups(store *database.Store, tokens *auth.BearerTokens) http.Handler
 }
 
 func systemGroup(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return groupDetail(store, tokens, true)
+}
+
+func groupDetail(store *database.Store, tokens *auth.BearerTokens, system bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPatch {
 			w.WriteHeader(405)
 			return
 		}
-		if !systemGroupScope(w, r, store, tokens, true) {
+		actor, ok := groupRequestScope(w, r, store, tokens, system, r.Method != http.MethodGet)
+		if !ok {
 			return
 		}
 		workspace, id := r.PathValue("workspace"), r.PathValue("group")
@@ -119,6 +129,21 @@ func systemGroup(store *database.Store, tokens *auth.BearerTokens) http.HandlerF
 			if err != nil {
 				groupAdminError(w, r, err)
 				return
+			}
+			if group == nil {
+				http.NotFound(w, r)
+				return
+			}
+			if actor != nil {
+				err, group.Role = store.GroupRoleGet(r.Context(), workspace, id, *actor)
+				if err != nil {
+					groupAdminError(w, r, err)
+					return
+				}
+				if group.Role == "" {
+					http.NotFound(w, r)
+					return
+				}
 			}
 			writeJSON(w, group)
 			return
@@ -131,7 +156,7 @@ func systemGroup(store *database.Store, tokens *auth.BearerTokens) http.HandlerF
 			http.Error(w, "expected revision is required", 400)
 			return
 		}
-		err, group := store.SystemGroupUpdate(r.Context(), workspace, id, *input.ExpectedRevision, database.SystemGroupInput{Alias: input.Alias, Name: input.Name, Enabled: input.Enabled})
+		err, group := store.GroupUpdate(r.Context(), workspace, id, *input.ExpectedRevision, database.SystemGroupInput{Alias: input.Alias, Name: input.Name, Enabled: input.Enabled}, actor)
 		if err != nil {
 			groupAdminError(w, r, err)
 			return
@@ -140,17 +165,25 @@ func systemGroup(store *database.Store, tokens *auth.BearerTokens) http.HandlerF
 			http.NotFound(w, r)
 			return
 		}
+		if actor != nil {
+			group.Role = authz.Manager
+		}
 		writeJSON(w, group)
 	}
 }
 
 func systemGroupMembers(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return groupMembers(store, tokens, true)
+}
+
+func groupMembers(store *database.Store, tokens *auth.BearerTokens, system bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodPost {
 			w.WriteHeader(405)
 			return
 		}
-		if !systemGroupScope(w, r, store, tokens, true) {
+		actor, ok := groupRequestScope(w, r, store, tokens, system, r.Method != http.MethodGet)
+		if !ok {
 			return
 		}
 		workspace, group := r.PathValue("workspace"), r.PathValue("group")
@@ -159,7 +192,7 @@ func systemGroupMembers(store *database.Store, tokens *auth.BearerTokens) http.H
 			if !ok {
 				return
 			}
-			err, members, next := store.SystemGroupMembersSearch(r.Context(), database.SystemGroupSearch{Workspace: workspace, Group: group, Name: name, Cursor: cursor, Limit: limit, Status: r.URL.Query().Get("status")})
+			err, members, next := store.SystemGroupMembersSearch(r.Context(), database.SystemGroupSearch{Workspace: workspace, Group: group, Name: name, Cursor: cursor, Limit: limit, Status: r.URL.Query().Get("status"), ActiveOnly: !system || r.URL.Query().Get("active") == "true"})
 			if err != nil {
 				groupAdminError(w, r, err)
 				return
@@ -171,12 +204,16 @@ func systemGroupMembers(store *database.Store, tokens *auth.BearerTokens) http.H
 			return
 		}
 		var input struct {
-			Principal string `json:"principal"`
+			Principal string     `json:"principal"`
+			Role      authz.Role `json:"role"`
 		}
 		if !principalDecode(w, r, &input) {
 			return
 		}
-		if err := store.SystemGroupMemberCreate(r.Context(), workspace, group, input.Principal); err != nil {
+		if input.Role == "" {
+			input.Role = authz.Member
+		}
+		if err := store.GroupMemberCreate(r.Context(), workspace, group, input.Principal, input.Role, actor); err != nil {
 			groupAdminError(w, r, err)
 			return
 		}
@@ -185,26 +222,32 @@ func systemGroupMembers(store *database.Store, tokens *auth.BearerTokens) http.H
 }
 
 func systemGroupMember(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return groupMember(store, tokens, true)
+}
+
+func groupMember(store *database.Store, tokens *auth.BearerTokens, system bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPatch {
 			w.WriteHeader(405)
 			return
 		}
-		if !systemGroupScope(w, r, store, tokens, true) {
+		actor, ok := groupRequestScope(w, r, store, tokens, system, true)
+		if !ok {
 			return
 		}
 		var input struct {
-			Enabled          *bool `json:"enabled"`
-			ExpectedRevision *int  `json:"expected_revision"`
+			Enabled          *bool       `json:"enabled"`
+			Role             *authz.Role `json:"role"`
+			ExpectedRevision *int        `json:"expected_revision"`
 		}
 		if !principalDecode(w, r, &input) {
 			return
 		}
-		if input.Enabled == nil || input.ExpectedRevision == nil {
-			http.Error(w, "enabled and expected revision are required", 400)
+		if (input.Enabled == nil && input.Role == nil) || input.ExpectedRevision == nil {
+			http.Error(w, "enabled or role, and expected revision are required", 400)
 			return
 		}
-		if err := store.SystemGroupMemberUpdate(r.Context(), r.PathValue("workspace"), r.PathValue("group"), r.PathValue("principal"), *input.Enabled, *input.ExpectedRevision); err != nil {
+		if err := store.GroupMemberUpdate(r.Context(), r.PathValue("workspace"), r.PathValue("group"), r.PathValue("principal"), input.Enabled, input.Role, *input.ExpectedRevision, actor); err != nil {
 			groupAdminError(w, r, err)
 			return
 		}
@@ -213,12 +256,16 @@ func systemGroupMember(store *database.Store, tokens *auth.BearerTokens) http.Ha
 }
 
 func systemGroupMemberOptions(store *database.Store, tokens *auth.BearerTokens) http.HandlerFunc {
+	return groupMemberOptions(store, tokens, true)
+}
+
+func groupMemberOptions(store *database.Store, tokens *auth.BearerTokens, system bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			w.WriteHeader(405)
 			return
 		}
-		if !systemGroupScope(w, r, store, tokens, true) {
+		if _, ok := groupRequestScope(w, r, store, tokens, system, true); !ok {
 			return
 		}
 		name, cursor, limit, ok := catalogSearchParameters(w, r)

@@ -1,23 +1,47 @@
 # Workspace group administration
 
-Sysadmins manage groups under **System → Workspaces → [workspace] → Groups**.
-This area requires `system.manage`; workspace manager status alone does not
-grant access. The workspace-facing Groups page continues to show the user's
-enabled memberships.
+Workspace managers can create groups from **Workspace → Groups**. Creation
+atomically adds the creator as a group manager. Group members can open a group
+to view its people and bots; group managers can edit details, manage people and
+bots, and appoint or demote other managers.
 
-The groups directory supports name/alias search, pagination, and enabled or
-disabled filtering. Create a group with a workspace-unique alias and optional
-display name. Edit its alias, display name, or availability from its detail page.
+Sysadmins retain full control under **System → Workspaces → [workspace] → Groups**.
+This area requires `system.manage`; workspace manager status alone does not
+grant access. Workspace managers do not automatically manage every group.
+
+The workspace groups directory supports name/alias search and pagination. Create
+a group with a workspace-unique alias and optional display name. Edit its alias
+or display name from its detail page. **Delete group** soft-deletes the group and
+returns to the directory. Deleted groups are hidden from all workspace users,
+including their managers, and their workspace detail URLs return `404`.
 Edits retain the group's `grp_…` ID and therefore its memberships and grants.
 
 ## Members
 
 Add already-admitted workspace principals using the workspace-scoped picker.
 An enabled direct workspace grant is required to add or restore a human
-membership. A membership has no role;
-roles belong to grants. **Remove membership** disables that membership while
-retaining its identity. Use **Enable membership** to restore it. Adding an
-already-present membership, including a disabled one, returns a conflict.
+membership. Each human membership has one role: `member` or `manager`. Managers
+have all membership benefits plus group administration rights. The group role
+does not change workspace roles or the project/chat roles inherited through
+resource grants. Bots have no group management role.
+
+Membership edits cannot take an active group from one functioning manager to
+zero, including through system administration. A functioning manager has an
+enabled manager membership, an enabled account, and current workspace access.
+Promote another active workspace member before stepping down or removing that
+last manager. Rejected changes return `409` and leave the membership, revision,
+and activity history intact. Membership edits are serialized per group so
+simultaneous demotions cannot remove every functioning manager.
+
+Account disabling and workspace-access revocation remain available even when
+they leave a group without a functioning manager. Already-inactive managers can
+be demoted or removed, and system administrators can appoint a new manager to
+repair a group.
+
+**Remove** soft-deletes the membership and removes it from the roster. Adding
+the same person again restores the existing membership with the chosen role and
+an incremented revision. Adding a current member returns a conflict. Rosters and
+pickers show current, enabled people; status filters are not exposed in the UI.
 
 ## Workspace admission
 
@@ -44,18 +68,20 @@ its new direct Manager default cannot silently restore old authority.
 Disabling a group suspends all access inherited through it, including access to
 projects and chats. Re-enabling it restores access through enabled memberships
 and grants. Other direct or group-derived permissions continue to apply.
+Restoring a deleted group is a system-administration operation.
 
 ## Bots
 
-The **Bots** section lists workspace bot bindings assigned to the group, with
-search, pagination, and enabled/disabled membership filters. Add a bot using the
+The **Bots** section lists current workspace bot bindings assigned to the group,
+with search and pagination. Add a bot using the
 workspace-scoped bot picker. A bot can belong to multiple groups, and several
 bots backed by the same model can have different memberships.
 
-**Remove membership** disables the association; **Enable membership** restores
-it. Membership and bot availability have separate enabled states. Membership
+**Remove** soft-deletes the association; adding the bot again restores it.
+Membership and bot availability have separate enabled states. Membership
 changes use independent revisions, and no-op updates retain the current revision.
-Adding an existing association, including a disabled one, returns a conflict.
+Adding a current association returns a conflict. Deleted bots and removed
+memberships are excluded before pagination.
 Bots from another workspace cannot be assigned to the group.
 
 ## API
@@ -70,9 +96,10 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
   plus `expected_revision`. An empty name clears the display name.
 - `GET /groups/{group}/members` supports the same search/filter/pagination
   parameters and returns `members` and optional `next_cursor`.
-- `POST /groups/{group}/members` accepts `{"principal":"prn_…"}`.
-- `PATCH /groups/{group}/members/{principal}` accepts `enabled` and
-  `expected_revision`.
+- `POST /groups/{group}/members` accepts `principal` and optional `role`, which
+  defaults to `member` and must be `member` or `manager`.
+- `PATCH /groups/{group}/members/{principal}` accepts `enabled` and/or `role`,
+  plus `expected_revision`. Member entries include their current `role`.
 - `GET /groups/{group}/agents` supports the same search/filter/pagination
   parameters, with bot-binding ID cursors, and returns `agents` and optional
   `next_cursor`. Each entry includes `agent`, `alias`, optional `label`,
@@ -82,8 +109,23 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
   `expected_revision`, returning `204` on success.
 - `GET /groups/{group}/member-options` searches enabled, directly admitted
   workspace principals and returns `principals` and optional `next_cursor`.
+- `GET /groups/{group}/agent-options` searches enabled workspace bot bindings.
+- Roster searches accept `active=true` to exclude removed memberships and
+  disabled principals or bots before applying pagination.
 - Group workspace-grant endpoints have been removed. Workspace role changes
   are performed through direct principal grants.
+
+The same detail and membership operations are available under
+`/api/v1/workspaces/{workspace}/groups/{group}` to enabled, admitted group
+members. Writes and the member/bot option pickers require the group's `manager`
+role; the database rechecks authority inside each mutation transaction.
+`GET /groups/{group}/agent-options` returns paginated workspace bot identities
+and display data. `GET /group-capabilities` reports whether the caller may
+create a group. Workspace `GET /groups` returns the caller's memberships,
+including `role`, using collection pagination; deleted groups are excluded.
+Workspace rosters always exclude removed memberships and disabled accounts or
+bots, regardless of query filters. Workspace `POST /groups` requires workspace manager
+permission and returns the created group with the creator's `manager` role.
 
 Groups and membership changes use revisions, as grants already do. Changes and
 activity recording are atomic. Stale revisions and duplicate aliases,
@@ -110,6 +152,7 @@ workspaces:
         revision: 3
         members:
           - principal: alice
+            role: manager
             revision: 2
             enabled: true
         agents:
@@ -131,6 +174,16 @@ Existing groups and memberships start at revision `1` when upgrading. Renaming a
 configured group requires updating its workspace/alias declaration too;
 otherwise reconciliation can recreate the old alias. Grant reconciliation keeps
 its existing revision-based behavior.
+
+V064 adds membership roles with a default of `member`, preserving existing
+resource access without appointing managers automatically. Configuration can
+declare `role: manager`; it follows the membership's higher-revision-wins policy.
+For an existing membership, increment its configured revision to apply a role
+change, or appoint its manager through system administration.
+Configuration membership reconciliation uses the same one-to-zero rule. It
+evaluates the final roster using current accounts, workspace access, and
+membership revisions, so a single update can hand management to another
+functioning manager without blocking account disabling or workspace revocation.
 
 Bot membership declarations identify the bot by its workspace-local binding
 alias. Their revisions follow the same higher-revision-wins policy, independently

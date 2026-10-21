@@ -118,6 +118,7 @@ export function routeOwner(route: Route): RouteOwner {
     case "project-collection":
       return "project-collection"
     case "group-collection":
+    case "group":
       return "groups"
     case "system":
       return "system-overview"

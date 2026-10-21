@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { clearAccessToken } from "../../../app/api"
-import { type SystemGroup } from "../../../app/group-administration"
+import {
+  type SystemGroup,
+  type GroupScope,
+} from "../../../app/group-administration"
 import { createSystemGroupController } from "./system-group-controller.svelte"
 import { parseRoute, routePath } from "../../../route"
 import { routeOwner } from "../../../route-owner"
@@ -17,7 +20,7 @@ const group: SystemGroup = {
   enabled: true,
   revision: 1,
 }
-function fixture() {
+function fixture(scope: GroupScope = "system") {
   const onAuthenticationLost = vi.fn(),
     onSystemAccessChange = vi.fn(),
     onMembersChanged = vi.fn(async () => true),
@@ -25,6 +28,7 @@ function fixture() {
   const controller = createSystemGroupController({
     workspaceID: () => group.workspace,
     groupID: () => group.id,
+    scope,
     onAuthenticationLost,
     onSystemAccessChange,
     onMembersChanged,
@@ -45,6 +49,89 @@ function transport() {
 }
 
 describe("system group administration", () => {
+  it("keeps manager access and shows the error when the last manager cannot step down", async () => {
+    const fetch = transport()
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onMembersChanged } = fixture("workspace")
+    await controller.load()
+    fetch.mockResolvedValueOnce(
+      new Response(
+        "A group must retain at least one enabled manager. Promote another member to manager before demoting or removing this manager.",
+        { status: 409 },
+      ),
+    )
+    expect(
+      await controller.changeMemberRole(
+        {
+          principal: "prn_alice",
+          role: "manager",
+          enabled: true,
+          principal_enabled: true,
+          revision: 1,
+        },
+        "member",
+      ),
+    ).toBe(false)
+    expect(controller.state.group?.role).toBe("manager")
+    expect(controller.state.feedback.members.error).toContain(
+      "at least one enabled manager",
+    )
+    expect(controller.state.groupConflict).toBe(false)
+    expect(onMembersChanged).not.toHaveBeenCalled()
+    controller.stop()
+  })
+  it("rechecks workspace group authority after a role change without overwriting a details draft", async () => {
+    const fetch = transport()
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onMembersChanged } = fixture("workspace")
+    await controller.load()
+    controller.state.form.name = "Unsaved draft"
+    fetch.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "member" }))
+    expect(
+      await controller.changeMemberRole(
+        {
+          principal: "prn_alice",
+          role: "manager",
+          enabled: true,
+          principal_enabled: true,
+          revision: 3,
+        },
+        "member",
+      ),
+    ).toBe(true)
+    expect(controller.state.group?.role).toBe("member")
+    expect(controller.state.form.name).toBe("Unsaved draft")
+    expect(onMembersChanged).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/v1/workspaces/wsp_team/groups/grp_developers/members/prn_alice",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ role: "member", expected_revision: 3 }),
+      }),
+    )
+    controller.stop()
+  })
+
+  it("refreshes lost group permissions without marking system access denied", async () => {
+    const fetch = transport()
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    vi.stubGlobal("fetch", fetch)
+    const { controller, onSystemAccessChange } = fixture("workspace")
+    await controller.load()
+    controller.state.form.name = "Denied"
+    fetch.mockResolvedValueOnce(
+      new Response("group management permission is required", { status: 403 }),
+    )
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "member" }))
+    expect(await controller.saveGroup()).toBe(false)
+    expect(controller.state.group?.role).toBe("member")
+    expect(controller.state.feedback.details.error).toContain("permission")
+    expect(onSystemAccessChange).not.toHaveBeenCalled()
+    controller.stop()
+  })
   it("opens a fresh details draft and only marks metadata edits dirty", async () => {
     vi.stubGlobal("fetch", transport())
     const { controller } = fixture()
@@ -179,7 +266,6 @@ describe("system group administration", () => {
     const { controller } = fixture()
     await controller.load()
     controller.state.form.name = "Renamed"
-    controller.state.form.enabled = false
     await controller.saveGroup()
     expect(fetch).toHaveBeenCalledWith(
       "/api/v1/system/workspaces/wsp_team/groups/grp_developers",
@@ -188,9 +274,24 @@ describe("system group administration", () => {
         body: JSON.stringify({
           alias: "developers",
           name: "Renamed",
-          enabled: false,
           expected_revision: 1,
         }),
+      }),
+    )
+    controller.stop()
+  })
+  it("soft-deletes a group using its current revision and clears the loaded group", async () => {
+    const fetch = transport()
+    vi.stubGlobal("fetch", fetch)
+    const { controller } = fixture("workspace")
+    await controller.load()
+    expect(await controller.deleteGroup()).toBe(true)
+    expect(controller.state.group).toBeNull()
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/v1/workspaces/wsp_team/groups/grp_developers",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ enabled: false, expected_revision: 1 }),
       }),
     )
     controller.stop()
@@ -203,6 +304,7 @@ describe("system group administration", () => {
     controller.state.form.name = "Unsaved draft"
     await controller.toggleMember({
       principal: "prn_alice",
+      role: "member",
       enabled: true,
       principal_enabled: true,
       revision: 3,
@@ -249,6 +351,7 @@ describe("system group administration", () => {
     expect(controller.state.principal).toBe("")
     await controller.toggleMember({
       principal: "prn_alice",
+      role: "member",
       principal_enabled: true,
       enabled: true,
       revision: 2,
