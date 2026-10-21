@@ -7,6 +7,7 @@ describe("workspace page-purpose routes", () => {
     ["/app/wsp/wsp_a/grp/grp_a", "group", "groups"],
     ["/app/wsp/wsp_a/prj/new", "project-new", "project-form"],
     ["/app/wsp/wsp_a/prj/prj_a/edit", "project-edit", "project-form"],
+    ["/app/wsp/wsp_a/prj/prj_a/members", "project-members", "project-members"],
     [
       "/app/wsp/wsp_a/prj/prj_a/pnt/pnt_a/edit",
       "project-note-edit",
@@ -76,6 +77,8 @@ describe("workspace page-purpose routes", () => {
     "/app/wsp/wsp_a/prj/prj_a/pnt/new/edit",
     "/app/wsp/wsp_a/prj/prj_a/pnt/pnt_a/revisions/0",
     "/app/wsp/wsp_a/prj/prj_a/records/prs_a/fields/new/edit",
+    "/app/wsp/wsp_a/prj/prj_a/members/new",
+    "/app/wsp/wsp_a/prj/prj_a/members/person/edit",
   ])("rejects malformed page-purpose path %s", (path) => {
     expect(parseRoute(new URL(path, "http://localhost"))).toEqual({
       kind: "not-found",

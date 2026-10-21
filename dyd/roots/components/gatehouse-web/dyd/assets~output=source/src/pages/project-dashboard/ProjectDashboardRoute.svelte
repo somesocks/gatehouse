@@ -156,7 +156,12 @@
         {
           name: "project-dashboard",
           topic: `${workspaceID}/${projectID}`,
-          events: ["project.*"],
+          events: ["project.*", "project_grant.*"],
+        },
+        {
+          name: "project-dashboard-access",
+          topic: workspaceID,
+          events: ["group.*", "group_member.*", "workspace_grant.*"],
         },
       ],
       async ({ signal }) => {
@@ -307,6 +312,11 @@
                 title="Records"
                 description="Browse structured records and configure their types."
                 href={`${base}/records`}
+              />
+              <UI.NavigationCard
+                title="Members"
+                description="Manage people, groups, and their project roles."
+                href={`${base}/members`}
               />
             </UI.NavigationGrid>
           {/if}

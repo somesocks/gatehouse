@@ -4,14 +4,18 @@ import {
   type ProjectSummary,
 } from "../../app/projects"
 import { createDirectoryController } from "../../utils/directory-controller.svelte"
+import type { ActivityClient } from "../../app/activity"
 
 export function createProjectCollectionController({
   onAuthenticationLost,
+  activity,
 }: {
   onAuthenticationLost: () => void
+  activity?: ActivityClient
 }) {
   let owner = ""
   let parent: AbortSignal | undefined
+  let unsubscribe: (() => void) | undefined
   const directory = createDirectoryController<ProjectSummary>({
     onAuthenticationLost,
     async fetchPage(name, cursor, _status, signal) {
@@ -62,18 +66,31 @@ export function createProjectCollectionController({
     },
   })
   function start(workspaceID: string, search: string, signal: AbortSignal) {
-    directory.stop()
+    stop()
     if (owner !== workspaceID) directory.reset()
     owner = workspaceID
     parent = signal
     state.search = search
     void directory.search()
-    return directory.stop
+    unsubscribe = activity?.subscribe([
+      { name: "project-directory-access", topic: workspaceID, events: ["project.*", "project_grant.*", "group.*", "group_member.*", "workspace_grant.*"] },
+    ], async ({ signal: eventSignal }) => {
+      if (parent !== signal || signal.aborted || eventSignal.aborted) return
+      if (!(await directory.reload()) && !signal.aborted && !eventSignal.aborted)
+        throw new Error("Projects could not be refreshed.")
+    })
+    void activity?.poll()
+    return stop
+  }
+  function stop() {
+    directory.stop()
+    unsubscribe?.()
+    unsubscribe = undefined
   }
   return {
     state,
     start,
-    stop: directory.stop,
+    stop,
     reload: directory.reload,
     retry: directory.retry,
     search: directory.search,

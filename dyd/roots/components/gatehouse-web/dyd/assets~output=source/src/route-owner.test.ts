@@ -11,6 +11,10 @@ describe("route owner", () => {
     ).toBe("project-dashboard");
   });
 
+  it("assigns project membership its own page owner", () => {
+    expect(routeOwner({ kind: "project-members", workspaceID: "wsp_a", projectID: "prj_a" })).toBe("project-members")
+  })
+
   it("assigns the Project Files URL to its route owner", () => {
     expect(
       routeOwner({

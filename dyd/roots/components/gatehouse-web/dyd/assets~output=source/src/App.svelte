@@ -39,6 +39,7 @@
   import WorkspaceStorageBindingNewRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingNewRoute.svelte"
   import WorkspaceStorageBindingEditRoute from "./pages/system/workspace-storage-bindings/WorkspaceStorageBindingEditRoute.svelte"
   import ProjectDashboardRoute from "./pages/project-dashboard/ProjectDashboardRoute.svelte"
+  import ProjectMembersRoute from "./pages/project-members/ProjectMembersRoute.svelte"
   import ProjectFormRoute from "./pages/projects/ProjectFormRoute.svelte"
   import ProjectFilesRoute from "./pages/project-files/ProjectFilesRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
@@ -84,6 +85,8 @@
 {#key JSON.stringify( [runtime.auth.state.claims?.principal.ref.id, "workspaceID" in runtime.state.route ? runtime.state.route.workspaceID : ""], )}
   {#if owner === "project-dashboard"}
     <ProjectDashboardRoute />
+  {:else if owner === "project-members"}
+    <ProjectMembersRoute />
   {:else if owner === "project-form"}
     <ProjectFormRoute />
   {:else if owner === "project-notes"}

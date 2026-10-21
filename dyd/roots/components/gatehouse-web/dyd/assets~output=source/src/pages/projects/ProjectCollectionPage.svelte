@@ -4,6 +4,7 @@
   import { untrack } from "svelte"
   import type { Workspace } from "../../app/access"
   import { createProjectCollectionController } from "./project-collection-controller.svelte"
+  import type { ActivityClient } from "../../app/activity"
 
   let {
     workspace,
@@ -13,6 +14,7 @@
     onAuthenticationLost,
     onCreate,
     onNavigate,
+    activity,
   }: {
     workspace: Workspace
     search: string
@@ -21,9 +23,10 @@
     onAuthenticationLost: () => void
     onCreate: () => void | Promise<void>
     onNavigate: (path: string) => void
+    activity?: ActivityClient
   } = $props()
   const controller = untrack(() =>
-    createProjectCollectionController({ onAuthenticationLost }),
+    createProjectCollectionController({ onAuthenticationLost, activity }),
   )
 
   $effect(() => {

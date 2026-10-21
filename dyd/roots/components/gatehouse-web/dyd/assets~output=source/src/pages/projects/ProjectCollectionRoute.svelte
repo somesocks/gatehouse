@@ -199,6 +199,7 @@
                 `/app/wsp/${encodeURIComponent(workspace.id)}/prj/new`,
               )}
             onNavigate={runtime.navigate}
+            activity={runtime.activity}
           />{/if}</SidebarPage.Body
       ></SidebarPage.Page
     ></SidebarPage.Root

@@ -414,6 +414,15 @@ describe("routes", () => {
       },
     },
     {
+      path: "/app/wsp/work%20space/prj/project%2Fname/members/",
+      route: {
+        kind: "project-members",
+        workspaceID: "work space",
+        projectID: "project/name",
+      },
+      canonical: "/app/wsp/work%20space/prj/project%2Fname/members",
+    },
+    {
       path: "/app/wsp/wsp_a/prj/prj_a/files/pfl_a",
       route: {
         kind: "project-file",

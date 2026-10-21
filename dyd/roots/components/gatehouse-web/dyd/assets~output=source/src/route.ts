@@ -86,6 +86,7 @@ export type Route =
   | ({ kind: "project" } & ProjectRoute)
   | ({ kind: "project-new" } & WorkspaceRoute)
   | ({ kind: "project-edit" } & ProjectRoute)
+  | ({ kind: "project-members" } & ProjectRoute)
   | ({ kind: "project-files" } & ProjectRoute)
   | ({ kind: "project-file"; fileID: string } & ProjectRoute)
   | ({ kind: "project-notes" } & ProjectRoute)
@@ -656,6 +657,9 @@ export function parseRoute(url: URL): Route {
     if (segments.length === 6 && section === "files") {
       return { kind: "project-files", workspaceID, projectID: resourceID }
     }
+    if (segments.length === 6 && section === "members") {
+      return { kind: "project-members", workspaceID, projectID: resourceID }
+    }
     if (segments.length === 7 && section === "files") {
       return {
         kind: "project-file",
@@ -957,6 +961,8 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/prj/new`
     case "project-edit":
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/edit`
+    case "project-members":
+      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/members`
     case "project-files":
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/files`
     case "project-file":
