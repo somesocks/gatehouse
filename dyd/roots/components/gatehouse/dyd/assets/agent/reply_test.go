@@ -12,6 +12,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -88,11 +89,11 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+	runtimeErr, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, keyring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if runtimeErr != nil {
 		t.Fatal(runtimeErr)
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -135,7 +136,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("session events = %#v, want human-only message, targeted message, agent request, thinking lifecycle, and agent.success", events)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	for {
 		err, name := store.SessionNameGet(ctx, session)
@@ -151,7 +152,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatal("session name was not generated")
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT function_name, length(COALESCE(output, ''))
@@ -263,11 +264,11 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runtimeErr, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+	runtimeErr, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, keyring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if runtimeErr != nil {
 		t.Fatal(runtimeErr)
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -295,7 +296,7 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 		if time.Now().After(deadline) {
 			t.Fatalf("session events = %#v, want message, agent request, cancellation request, agent failure, and cancellation success", events)
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 }
 

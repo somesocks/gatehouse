@@ -38,7 +38,7 @@ type nativeRuntime struct {
 	shutdown  func() error
 }
 
-func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[string]benchmarkmodel.Provider, models map[string]benchmarkmodel.Model, prompts map[string]benchmarkmodel.SystemPrompt, environments map[string]benchmarkmodel.LispEnvironment, credentials map[string][]byte, progress io.Writer) (resultErr error, result *nativeRuntime) {
+func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[string]benchmarkmodel.Provider, models map[string]benchmarkmodel.Model, prompts map[string]benchmarkmodel.SystemPrompt, environments map[string]benchmarkmodel.LispEnvironment, credentials map[string][]byte, progress io.Writer, pollingInterval time.Duration) (resultErr error, result *nativeRuntime) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
 	if err != nil {
@@ -153,7 +153,7 @@ func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[str
 		}
 		modelIDs[selected.Id] = stored.ID
 	}
-	options := agent.SessionEventReplyOptions{SystemPromptReplacements: map[model.WorkspaceAgentRef]string{}}
+	options := agent.SessionEventReplyOptions{SystemPromptReplacements: map[model.WorkspaceAgentRef]string{}, PollingInterval: pollingInterval}
 	for index, selection := range selections {
 		binding := nativeBinding{}
 		if err := store.QueryRowContext(ctx, `SELECT id FROM gatehouse_workspaces WHERE alias = ?`, state.Workspaces[index].Alias).Scan(&binding.workspace.Id); err != nil {

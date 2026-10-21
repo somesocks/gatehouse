@@ -13,6 +13,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -69,7 +70,7 @@ func testTransactionalDelivery(t *testing.T, configuration config.DatabaseConfig
 			if err != nil {
 				t.Fatal(err)
 			}
-			if _, err := handle.GetResult(dbos.WithHandleTimeout(15 * time.Second)); err != nil {
+			if _, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(15*time.Second)); err != nil {
 				t.Fatalf("durably enqueued reply did not execute: %v", err)
 			}
 		}
@@ -146,7 +147,7 @@ func testTransactionalDelivery(t *testing.T, configuration config.DatabaseConfig
 		if !((results[0] == nil && errors.Is(results[1], database.ErrSessionApprovalResolved)) || (results[1] == nil && errors.Is(results[0], database.ErrSessionApprovalResolved))) {
 			t.Fatalf("concurrent approval outcomes = %v", results)
 		}
-		got, err := handle.GetResult(dbos.WithHandleTimeout(10 * time.Second))
+		got, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(10*time.Second))
 		if err != nil || (got != response.Ref && got != other.Ref) {
 			t.Fatalf("approval message was not delivered: %#v (%v)", got, err)
 		}
@@ -240,7 +241,7 @@ func newDeliveryFixture(t *testing.T, configuration config.DatabaseConfig) *deli
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, f.runtime = agent.NewSessionEventReplyRuntime(f.ctx, store, ring)
+	err, f.runtime = agent.NewSessionEventReplyRuntimeWithOptions(f.ctx, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +251,7 @@ func newDeliveryFixture(t *testing.T, configuration config.DatabaseConfig) *deli
 
 func (f *deliveryFixture) launch(t *testing.T) {
 	t.Helper()
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err := testdbos.Launch(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 }

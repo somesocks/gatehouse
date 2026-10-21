@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/model"
 )
 
@@ -45,7 +46,7 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 		return dbos.Recv[model.SessionEventRef](ctx, "input:restart-test", time.Hour)
 	}
 	dbos.RegisterWorkflow(first, wait, dbos.WithWorkflowName("test.serve-input-wait"))
-	if err := dbos.Launch(first); err != nil {
+	if err := testdbos.Launch(first); err != nil {
 		t.Fatal(err)
 	}
 	const workflowID = "session-tool-call:restart-test"
@@ -92,7 +93,7 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 		}
 	})
 	dbos.RegisterWorkflow(second, wait, dbos.WithWorkflowName("test.serve-input-wait"))
-	if err := dbos.Launch(second); err != nil {
+	if err := testdbos.Launch(second); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -114,7 +115,7 @@ func TestServeDBOSRecoversWaitingInputAfterShutdown(t *testing.T) {
 	}
 	completed := make(chan outcome, 1)
 	go func() {
-		result, err := handle.GetResult()
+		result, err := testdbos.GetResult(handle)
 		completed <- outcome{result, err}
 	}()
 	select {

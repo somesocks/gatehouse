@@ -15,6 +15,7 @@ import (
 	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/migrations"
@@ -137,7 +138,7 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, f.runtime = agent.NewSessionEventReplyRuntime(f.ctx, store, ring)
+	err, f.runtime = agent.NewSessionEventReplyRuntimeWithOptions(f.ctx, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +170,7 @@ func TestLargeResultPublicationAndRetrieval(t *testing.T) {
 	f := newResultFileFixture(t, 0, "") // Default cutoff; no configured storage or bindings.
 	work := agent.ResultFileTestToolCall(f.runtime)
 	dbos.RegisterWorkflow(f.ctx, work, dbos.WithWorkflowName("test.result-tool"))
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err := testdbos.Launch(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(f.ctx, time.Second)
@@ -199,7 +200,7 @@ func TestLargeResultPublicationAndRetrieval(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ref, err := handle.GetResult()
+			ref, err := testdbos.GetResult(handle)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -277,7 +278,7 @@ func TestResultProviderWriteFailureDoesNotFailOver(t *testing.T) {
 	f := newResultFileFixture(t, 4096, server.URL)
 	work := agent.ResultFileTestToolCall(f.runtime)
 	dbos.RegisterWorkflow(f.ctx, work, dbos.WithWorkflowName("test.result-write-failure"))
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err := testdbos.Launch(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(f.ctx, time.Second)
@@ -286,7 +287,7 @@ func TestResultProviderWriteFailureDoesNotFailOver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := handle.GetResult(); err == nil {
+	if _, err := testdbos.GetResult(handle); err == nil {
 		t.Fatal("storage write failure became a successful workflow")
 	}
 	if err, success := f.store.SessionEventChildGet(f.ctx, request.Ref, "tool.success"); err != nil || success != nil {
@@ -324,7 +325,7 @@ func TestResultPublicationLeavesUnreferencedUpload(t *testing.T) {
 	// Simulate a completed upload whose terminal event transaction never committed.
 	work := agent.ResultFileTestToolCall(f.runtime)
 	dbos.RegisterWorkflow(f.ctx, work, dbos.WithWorkflowName("test.result-publication-recovery"))
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err := testdbos.Launch(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(f.ctx, time.Second)
@@ -332,7 +333,7 @@ func TestResultPublicationLeavesUnreferencedUpload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := handle.GetResult()
+	ref, err := testdbos.GetResult(handle)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +370,7 @@ func TestLargeProviderDiagnosticsUseResultFile(t *testing.T) {
 	request := f.request(t, "thinking.request", "")
 	work := agent.ResultFileTestDiagnostic(f.runtime, diagnostic)
 	dbos.RegisterWorkflow(f.ctx, work, dbos.WithWorkflowName("test.result-provider-diagnostic"))
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err := testdbos.Launch(f.ctx); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(f.ctx, time.Second)
@@ -377,7 +378,7 @@ func TestLargeProviderDiagnosticsUseResultFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ref, err := handle.GetResult()
+	ref, err := testdbos.GetResult(handle)
 	if err != nil {
 		t.Fatal(err)
 	}

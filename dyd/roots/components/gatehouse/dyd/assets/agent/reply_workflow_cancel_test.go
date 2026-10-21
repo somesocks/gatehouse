@@ -11,6 +11,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/model"
 )
 
@@ -62,7 +63,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 			return false, err
 		}
 		started <- index
-		return child.GetResult()
+		return testdbos.GetResult(child)
 	}
 	parent := func(workflowContext dbos.Context, _ struct{}) (bool, error) {
 		var first dbos.WorkflowHandle[bool]
@@ -82,7 +83,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 			dbos.WithWorkflowID(sessionToolCallWorkflowID(tools[2])), dbos.WithQueue(queue)); err != nil {
 			return false, err
 		}
-		return first.GetResult()
+		return testdbos.GetResult(first)
 	}
 	register := func(workflowContext dbos.Context) {
 		dbos.RegisterWorkflow(workflowContext, wait, dbos.WithWorkflowName("test.reply-cancel-input-wait"))
@@ -90,7 +91,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 		dbos.RegisterWorkflow(workflowContext, parent, dbos.WithWorkflowName("test.reply-cancel-parent"))
 	}
 	register(dbosContext)
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := dbos.RunWorkflow(dbosContext, parent, struct{}{}, dbos.WithWorkflowID(sessionEventReplyWorkflowID(reply))); err != nil {
@@ -139,7 +140,7 @@ func TestCancelReplyWorkflowTree(t *testing.T) {
 		t.Fatal(err)
 	}
 	register(restarted)
-	if err := dbos.Launch(restarted); err != nil {
+	if err := testdbos.Launch(restarted); err != nil {
 		t.Fatal(err)
 	}
 	checkWorkflowStatuses(t, reopened, statuses, 10*time.Second)
@@ -169,6 +170,6 @@ func checkWorkflowStatuses(t *testing.T, store *database.Store, statuses map[str
 		if matches {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 }

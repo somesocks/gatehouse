@@ -19,6 +19,7 @@ import (
 	"gatehouse/database"
 	"gatehouse/httpservice"
 	"gatehouse/inputform"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/migrations"
@@ -97,7 +98,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +148,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 		})
 	}
 	dbos.RegisterWorkflow(dbosContext, workflow, dbos.WithWorkflowName("test.input-http-roundtrip"))
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -166,7 +167,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 			request = event.Ref
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	if request.Id == "" {
 		t.Fatal("Lisp input/ask did not persist an input.request")
@@ -208,7 +209,7 @@ func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	if submitted := call(http.MethodPost, "/api/v1/input/submit", launch.Capability, ""); submitted.Code != http.StatusAccepted {
 		t.Fatalf("submit input = %d %s", submitted.Code, submitted.Body.String())
 	}
-	result, err := handle.GetResult()
+	result, err := testdbos.GetResult(handle)
 	if err != nil {
 		t.Fatal(err)
 	}

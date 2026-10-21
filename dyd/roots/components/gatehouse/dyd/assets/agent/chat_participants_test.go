@@ -8,6 +8,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -81,7 +82,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 			t.Fatal(err)
 		}
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -146,7 +147,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 		if failed {
 			return
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	t.Fatal("unauthorized queued request did not fail at the round boundary")
 }
@@ -211,11 +212,11 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -243,7 +244,7 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 				return
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	t.Fatal("group-derived bot did not reply to a chat outsider")
 }

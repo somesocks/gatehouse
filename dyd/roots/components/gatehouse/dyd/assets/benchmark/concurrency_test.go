@@ -15,6 +15,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gatehouse/internal/testdbos"
 )
 
 func finalResponse(w http.ResponseWriter) {
@@ -69,9 +71,9 @@ func TestExecuteConcurrencyAndRuntimeReuse(t *testing.T) {
 				var err error
 				var capture *sql.DB
 				if limit == DefaultParallel {
-					err, capture = Execute(ctx, configuration, path, "test", "build", &progress)
+					err, capture = executeTest(ctx, configuration, path, "test", "build", &progress)
 				} else {
-					err, capture = ExecuteWithOptions(ctx, configuration, path, "test", "build", &progress, ExecutionOptions{Parallel: limit})
+					err, capture = ExecuteWithOptions(ctx, configuration, path, "test", "build", &progress, ExecutionOptions{Parallel: limit, WorkflowPollingInterval: testdbos.PollInterval})
 				}
 				done <- result{err, capture}
 			}()
@@ -184,7 +186,7 @@ func TestExecuteConcurrentPromptsEnvironmentsAndArtifacts(t *testing.T) {
 	configuration.RunCount = 16
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	err, capture := Execute(ctx, configuration, path, "test", "build", io.Discard)
+	err, capture := executeTest(ctx, configuration, path, "test", "build", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}
@@ -247,7 +249,7 @@ func TestExecuteCancellationDrainsConcurrentRuns(t *testing.T) {
 		}
 		cancel()
 	}()
-	err, capture := Execute(ctx, configuration, path, "test", "build", io.Discard)
+	err, capture := executeTest(ctx, configuration, path, "test", "build", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}

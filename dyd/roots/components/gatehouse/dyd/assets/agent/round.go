@@ -37,7 +37,7 @@ func (runtime *SessionEventReplyRuntime) runAgentRounds(ctx dbos.Context, reques
 		if err != nil {
 			return model.SessionEventRef{}, fmt.Errorf("start agent round: %w", err)
 		}
-		reference, err := handle.GetResult()
+		reference, err := handle.GetResult(dbos.WithHandlePollingInterval(runtime.pollingInterval))
 		if err != nil {
 			return model.SessionEventRef{}, fmt.Errorf("await agent round: %w", err)
 		}

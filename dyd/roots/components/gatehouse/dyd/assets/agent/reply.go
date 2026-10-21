@@ -107,6 +107,7 @@ type SessionEventReplyRuntime struct {
 	dataSource               *dbos.DataSource
 	queue                    dbos.Queue
 	toolQueue                dbos.Queue
+	pollingInterval          time.Duration
 	systemPromptReplacement  *string
 	systemPromptReplacements map[model.WorkspaceAgentRef]string
 }
@@ -117,6 +118,9 @@ func NewSessionEventReplyRuntime(ctx dbos.Context, store *database.Store, keyrin
 
 // SessionEventReplyOptions applies immutable invocation-local execution settings.
 type SessionEventReplyOptions struct {
+	// PollingInterval controls queues, child-workflow waits and cancellation checks.
+	// Zero preserves the existing defaults.
+	PollingInterval         time.Duration
 	SystemPromptReplacement *string
 	// Per-binding replacements take precedence over the default replacement.
 	// The constructor copies the map so callers cannot mutate active settings.
@@ -124,15 +128,24 @@ type SessionEventReplyOptions struct {
 }
 
 func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.Store, keyring *keychain.Keyring, options SessionEventReplyOptions) (error, *SessionEventReplyRuntime) {
-	queue, err := dbos.RegisterQueue(ctx, sessionEventReplyQueue, dbos.WithPartitionQueue())
+	if options.PollingInterval < 0 {
+		return fmt.Errorf("workflow polling interval must not be negative"), nil
+	}
+	queueOptions := func(settings ...dbos.QueueOption) []dbos.QueueOption {
+		if options.PollingInterval > 0 {
+			settings = append(settings, dbos.WithQueueBasePollingInterval(options.PollingInterval))
+		}
+		return settings
+	}
+	queue, err := dbos.RegisterQueue(ctx, sessionEventReplyQueue, queueOptions(dbos.WithPartitionQueue())...)
 	if err != nil {
 		return fmt.Errorf("register session event reply queue: %w", err), nil
 	}
-	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue, dbos.WithGlobalConcurrency(10))
+	toolQueue, err := dbos.RegisterQueue(ctx, sessionToolCallQueue, queueOptions(dbos.WithGlobalConcurrency(10))...)
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
-	_, err = dbos.RegisterQueue(ctx, sessionNameQueue, dbos.WithPartitionQueue(), dbos.WithGlobalConcurrency(1))
+	_, err = dbos.RegisterQueue(ctx, sessionNameQueue, queueOptions(dbos.WithPartitionQueue(), dbos.WithGlobalConcurrency(1))...)
 	if err != nil {
 		return fmt.Errorf("register session name queue: %w", err), nil
 	}
@@ -145,7 +158,7 @@ func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.St
 	if err != nil {
 		return fmt.Errorf("register Gatehouse database data source: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue, pollingInterval: options.PollingInterval}
 	if options.SystemPromptReplacement != nil {
 		text := *options.SystemPromptReplacement
 		runtime.systemPromptReplacement = &text
@@ -517,7 +530,7 @@ func (runtime *SessionEventReplyRuntime) nameSession(ctx dbos.Context, input Ses
 	stopWatch := watchCancellation(func(check context.Context) bool {
 		err, authorized := runtime.store.SessionRequestAuthorizedGet(check, preparation.Message)
 		return err == nil && !authorized
-	}, cancel)
+	}, cancel, runtime.pollingInterval)
 	defer stopWatch()
 	defer cancel()
 	err, name := runtime.sessionNameCompletion(callContext, preparation.Selected, preparation.Text)
@@ -950,15 +963,18 @@ func (runtime *SessionEventReplyRuntime) watchReplyCancellation(parent *model.Se
 	return watchCancellation(func(ctx context.Context) bool {
 		err, request := runtime.replyCancellationRequested(ctx, *parent)
 		return err == nil && request != nil
-	}, cancel)
+	}, cancel, runtime.pollingInterval)
 }
 
-func watchCancellation(requested func(context.Context) bool, cancel context.CancelFunc) func() {
+func watchCancellation(requested func(context.Context) bool, cancel context.CancelFunc, pollingInterval time.Duration) func() {
+	if pollingInterval <= 0 {
+		pollingInterval = lispCancellationPoll
+	}
 	ctx, stop := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		ticker := time.NewTicker(lispCancellationPoll)
+		ticker := time.NewTicker(pollingInterval)
 		defer ticker.Stop()
 		for {
 			if requested(ctx) {
@@ -1873,7 +1889,7 @@ func (runtime *SessionEventReplyRuntime) awaitApproval(ctx dbos.Context, tool mo
 	if err != nil {
 		return fmt.Errorf("start approval %q: %w", request.Id, err)
 	}
-	outcome, err := handle.GetResult()
+	outcome, err := handle.GetResult(dbos.WithHandlePollingInterval(runtime.pollingInterval))
 	if err != nil {
 		return fmt.Errorf("await approval %q: %w", request.Id, err)
 	}
@@ -2000,7 +2016,7 @@ func (runtime *SessionEventReplyRuntime) runLispCalls(ctx dbos.Context, requests
 	}
 	outputs := make([]model.SessionEventRef, len(handles))
 	for index, handle := range handles {
-		output, err := handle.GetResult()
+		output, err := handle.GetResult(dbos.WithHandlePollingInterval(runtime.pollingInterval))
 		if err != nil {
 			return nil, fmt.Errorf("await session tool call %q: %w", requests[index].Id, err)
 		}

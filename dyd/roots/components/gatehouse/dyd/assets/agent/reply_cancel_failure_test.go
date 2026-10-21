@@ -12,6 +12,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -67,11 +68,11 @@ func TestAcceptedCancellationFailsWhenReplyFinishesFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, 5*time.Second)
@@ -95,7 +96,7 @@ func TestAcceptedCancellationFailsWhenReplyFinishesFirst(t *testing.T) {
 		if status.Status == dbos.WorkflowStatusError {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	status, err := replyHandle.GetStatus()
 	if err != nil || status.Status != dbos.WorkflowStatusError {
@@ -114,7 +115,7 @@ func TestAcceptedCancellationFailsWhenReplyFinishesFirst(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := handle.GetResult()
+	result, err := testdbos.GetResult(handle)
 	if err != nil {
 		t.Fatal(err)
 	}

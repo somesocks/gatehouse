@@ -20,6 +20,7 @@ import (
 	"gatehouse/codexlogin"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -121,7 +122,7 @@ func newCodexAgentFixture(t *testing.T, named bool) *codexAgentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, f.runtime = agent.NewSessionEventReplyRuntime(f.ctx, store, ring)
+	err, f.runtime = agent.NewSessionEventReplyRuntimeWithOptions(f.ctx, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +172,7 @@ func (f *codexAgentFixture) await(t *testing.T, kind string) []model.SessionEven
 				return events
 			}
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	t.Fatalf("missing event %s", kind)
 	return nil
@@ -299,7 +300,7 @@ func TestCodexAgentInference(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := dbos.Launch(f.ctx); err != nil {
+			if err := testdbos.Launch(f.ctx); err != nil {
 				t.Fatal(err)
 			}
 			terminal := model.SessionEventKindAgentFailure
@@ -318,6 +319,17 @@ func TestCodexAgentInference(t *testing.T) {
 				}
 				if err, _ := f.runtime.CancelReply(context.Background(), model.SessionEvent{Ref: model.SessionEventRef{Session: f.session, Id: id}, Parent: &f.request.Ref, Kind: model.SessionEventKindCancelRequest, AuthorPrincipal: &f.principal, Payload: map[string]any{}}); err != nil {
 					t.Fatal(err)
+				}
+				handle, err := dbos.RetrieveWorkflow[model.SessionEventRef](f.ctx, "session-reply-cancel:"+f.request.Ref.Id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(15*time.Second))
+				if err != nil {
+					t.Fatalf("cancellation workflow: %v", err)
+				}
+				if err, event := f.store.SessionEventGet(context.Background(), result); err != nil || event == nil || event.Kind != model.SessionEventKindCancelSuccess {
+					t.Fatalf("cancellation outcome = %#v, %v; want cancel.success", event, err)
 				}
 				terminal = model.SessionEventKindCancelSuccess
 			}
@@ -344,6 +356,15 @@ func TestCodexAgentInference(t *testing.T) {
 				t.Fatal("session failure omitted upstream diagnostics")
 			}
 			if mode == "tool-and-title" {
+				// The final event is committed before quota settlement. Await the
+				// coordinator as well so later accounting assertions see completion.
+				handle, err := dbos.RetrieveWorkflow[model.SessionEventRef](f.ctx, "session-event-reply:"+f.request.Ref.Id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(15*time.Second)); err != nil {
+					t.Fatalf("reply workflow: %v", err)
+				}
 				if turns.Load() != 2 || tools != 1 {
 					t.Fatal("tool conversation did not complete exactly once")
 				}
@@ -362,7 +383,7 @@ func TestCodexAgentInference(t *testing.T) {
 					if time.Now().After(deadline) {
 						t.Fatal("title not generated")
 					}
-					time.Sleep(20 * time.Millisecond)
+					time.Sleep(testdbos.PollInterval)
 				}
 				if titles.Load() != 1 {
 					t.Fatal("title call repeated")
@@ -424,7 +445,7 @@ func TestCodexAgentInference(t *testing.T) {
 					if time.Now().After(deadline) {
 						t.Fatal("next request did not observe quota debit")
 					}
-					time.Sleep(20 * time.Millisecond)
+					time.Sleep(testdbos.PollInterval)
 				}
 				if turns.Load() != 1 {
 					t.Fatal("request exceeded the depleted output quota")

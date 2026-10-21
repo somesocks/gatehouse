@@ -15,6 +15,7 @@ import (
 	"gatehouse/authz"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/model"
 	"gatehouse/typed_id"
@@ -106,7 +107,7 @@ func TestGroupSecretsRespectRoundAdmissionAndLiveCredentialAccess(t *testing.T) 
 					break
 				}
 				if time.Now().After(deadline) { t.Fatal("credential tool round did not finish") }
-				time.Sleep(20*time.Millisecond)
+				time.Sleep(testdbos.PollInterval)
 			}
 		})
 	}

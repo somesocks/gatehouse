@@ -3,6 +3,7 @@ package benchmark
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,8 +17,24 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/internal/testdbos"
 	"gatehouse/model"
 )
+
+func executeTest(ctx context.Context, configuration Config, path, version, fingerprint string, progress io.Writer) (error, *sql.DB) {
+	return ExecuteWithOptions(ctx, configuration, path, version, fingerprint, progress, ExecutionOptions{
+		Parallel: DefaultParallel, WorkflowPollingInterval: testdbos.PollInterval,
+	})
+}
+
+func TestExecuteRejectsNegativeWorkflowPollingInterval(t *testing.T) {
+	err, capture := ExecuteWithOptions(context.Background(), Config{}, "", "test", "build", io.Discard, ExecutionOptions{
+		Parallel: DefaultParallel, WorkflowPollingInterval: -time.Millisecond,
+	})
+	if err == nil || capture != nil || !strings.Contains(err.Error(), "polling interval") {
+		t.Fatalf("negative polling interval = %v, %#v", err, capture)
+	}
+}
 
 func runConfiguration(t *testing.T, provider, selected, prompt, questions, environment string) (Config, string) {
 	t.Helper()
@@ -65,7 +82,7 @@ func TestExecuteBuiltinAndSQLGrading(t *testing.T) {
 	configuration.RunCount = 2
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	err, capture := Execute(ctx, configuration, path, "test", "fingerprint", io.Discard)
+	err, capture := executeTest(ctx, configuration, path, "test", "fingerprint", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}
@@ -122,7 +139,7 @@ func TestExecuteContinuesAfterNativeFailure(t *testing.T) {
 	repetitions := 2
 	configuration.Document.Tests[0].Repetitions = &repetitions
 	configuration.RunCount = 2
-	err, capture := Execute(context.Background(), configuration, path, "test", "build", io.Discard)
+	err, capture := executeTest(context.Background(), configuration, path, "test", "build", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}
@@ -154,7 +171,7 @@ func TestExecuteCredentialReadCanBeCancelled(t *testing.T) {
 	defer func() { os.Stdin = previous }()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	err, capture := Execute(ctx, configuration, path, "test", "build", io.Discard)
+	err, capture := executeTest(ctx, configuration, path, "test", "build", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}
@@ -243,7 +260,7 @@ func TestExecuteScriptedProviders(t *testing.T) {
 				`{alias: environment, project_linked: true, prelude: "(import/define (@native:fixture/v1 (list (pair 'value 24))) (eval program))"}`)
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			err, capture := Execute(ctx, configuration, path, "test", "fingerprint", io.Discard)
+			err, capture := executeTest(ctx, configuration, path, "test", "fingerprint", io.Discard)
 			if capture != nil {
 				defer capture.Close()
 			}
@@ -302,7 +319,7 @@ func TestExecuteCancellationCapturesPartialRun(t *testing.T) {
 		case <-ctx.Done():
 		}
 	}()
-	err, capture := Execute(ctx, configuration, path, "test", "build", io.Discard)
+	err, capture := executeTest(ctx, configuration, path, "test", "build", io.Discard)
 	if capture != nil {
 		defer capture.Close()
 	}

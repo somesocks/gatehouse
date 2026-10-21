@@ -13,6 +13,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -111,7 +112,7 @@ func TestRoundAccessRevocationAllowsCurrentRoundToFinish(t *testing.T) {
 					if time.Now().After(deadline) {
 						t.Fatalf("round did not finish: %#v", events)
 					}
-					time.Sleep(20 * time.Millisecond)
+					time.Sleep(testdbos.PollInterval)
 				}
 			})
 		}
@@ -190,7 +191,7 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +202,7 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 	if err != nil || request == nil {
 		t.Fatalf("agent request = %#v (%v)", request, err)
 	}
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { dbos.Shutdown(dbosContext, 5*time.Second) })

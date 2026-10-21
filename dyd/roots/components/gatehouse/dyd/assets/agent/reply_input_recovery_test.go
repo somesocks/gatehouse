@@ -24,6 +24,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -86,11 +87,11 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err, _ = agent.NewSessionEventReplyRuntime(workflowContext, store, ring)
+	err, _ = agent.NewSessionEventReplyRuntimeWithOptions(workflowContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dbos.Launch(workflowContext); err != nil {
+	if err := testdbos.Launch(workflowContext); err != nil {
 		t.Fatal(err)
 	}
 	select {}
@@ -342,7 +343,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			err, sender := agent.NewSessionEventReplyRuntime(submission, store, ring)
+			err, sender := agent.NewSessionEventReplyRuntimeWithOptions(submission, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -356,11 +357,11 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				err, runtime := agent.NewSessionEventReplyRuntime(context, store, ring)
+				err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(context, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := dbos.Launch(context); err != nil {
+				if err := testdbos.Launch(context); err != nil {
 					t.Fatal(err)
 				}
 				return context, runtime
@@ -525,7 +526,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					result, err := handle.GetResult()
+					result, err := testdbos.GetResult(handle)
 					wantCalls := int32(2)
 					if outcome == "final-replay" {
 						wantCalls = 1
@@ -634,7 +635,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if input.Id != "" || agentFailure != nil || outcome == "retry" && agentSuccess != nil {
 					break
 				}
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(testdbos.PollInterval)
 			}
 			if outcome == "batch-rollback" || outcome == "invalid-batch" || outcome == "final-rollback" || outcome == "provider-failure" {
 				if agentFailure == nil {
@@ -843,7 +844,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						return
 					}
 				}
-				time.Sleep(20 * time.Millisecond)
+				time.Sleep(testdbos.PollInterval)
 			}
 			t.Fatalf("reply did not resume after submitted input; provider calls = %d", calls.Load())
 		})

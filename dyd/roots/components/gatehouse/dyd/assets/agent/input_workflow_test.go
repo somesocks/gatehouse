@@ -17,6 +17,7 @@ import (
 	"gatehouse/config"
 	"gatehouse/database"
 	"gatehouse/inputform"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -112,13 +113,13 @@ func inputDeliveryRuntime(t *testing.T, store *database.Store) (dbos.Context, *a
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, keyring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, keyring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
 	dbos.RegisterWorkflow(dbosContext, inputDeliveryWait, dbos.WithWorkflowName("test.session-input-delivery"))
 	dbos.RegisterWorkflow(dbosContext, inputDeliveryWaitBoth, dbos.WithWorkflowName("test.session-input-delivery-both"))
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { dbos.Shutdown(dbosContext, time.Second) })
@@ -156,7 +157,7 @@ func TestInputResponseCommitsWithDBOSMessage(t *testing.T) {
 	if err, _ := runtime.RespondToInput(ctx, response); err != nil {
 		t.Fatal(err)
 	}
-	got, err := handle.GetResult()
+	got, err := testdbos.GetResult(handle)
 	if err != nil || got != response.Ref {
 		t.Fatalf("delivered response = (%#v, %v), want %#v", got, err, response.Ref)
 	}
@@ -200,7 +201,7 @@ func TestInputResponsesUseDistinctTopicsOnOneTool(t *testing.T) {
 	if err, _ := runtime.RespondToInput(ctx, firstResponse); err != nil {
 		t.Fatal(err)
 	}
-	got, err := handle.GetResult()
+	got, err := testdbos.GetResult(handle)
 	if err != nil || got != [2]model.SessionEventRef{firstResponse.Ref, secondResponse.Ref} {
 		t.Fatalf("form responses crossed topics: %#v (%v)", got, err)
 	}
@@ -301,7 +302,7 @@ func TestInputResponseDeliveryAcrossCrash(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := handle.GetResult()
+			got, err := testdbos.GetResult(handle)
 			if err != nil || got != response.Ref {
 				t.Fatalf("response after recovery: %#v (%v), want %#v", got, err, response.Ref)
 			}

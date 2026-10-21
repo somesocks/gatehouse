@@ -11,6 +11,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -77,7 +78,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+		err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(dbosContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -85,7 +86,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 		return dbosContext, runtime
 	}
 	dbosContext, runtime := newRuntime(store, ring)
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, 5*time.Second)
@@ -119,7 +120,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 		if success != nil {
 			break
 		}
-		time.Sleep(20 * time.Millisecond)
+		time.Sleep(testdbos.PollInterval)
 	}
 	if err, success := store.SessionEventChildGet(ctx, cancellation.Ref, model.SessionEventKindCancelSuccess); err != nil || success == nil {
 		t.Fatalf("queued reply cancellation = (%#v, %v), want success while queue is blocked", success, err)
@@ -146,7 +147,7 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 	}
 	defer ring.Close()
 	dbosContext, runtime = newRuntime(store, ring)
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, 5*time.Second)

@@ -15,6 +15,7 @@ import (
 	"gatehouse/agent"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/model"
 	"gatehouse/storage"
@@ -55,7 +56,7 @@ func TestResultPublicationCrashProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(workflowContext, store, ring)
+	err, runtime := agent.NewSessionEventReplyRuntimeWithOptions(workflowContext, store, ring, agent.SessionEventReplyOptions{PollingInterval: testdbos.PollInterval})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +75,7 @@ func TestResultPublicationCrashProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := dbos.Launch(workflowContext); err != nil {
+	if err := testdbos.Launch(workflowContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(workflowContext, time.Second)
@@ -84,7 +85,7 @@ func TestResultPublicationCrashProcess(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := handle.GetResult(); err != nil {
+		if _, err := testdbos.GetResult(handle); err != nil {
 			t.Fatal(err)
 		}
 		t.Fatal("expected process termination at publication boundary")
@@ -93,7 +94,7 @@ func TestResultPublicationCrashProcess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := handle.GetResult(); err != nil {
+	if _, err := testdbos.GetResult(handle); err != nil {
 		t.Fatal(err)
 	}
 }

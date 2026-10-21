@@ -8,9 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/lisp"
 	"gatehouse/model"
+	"github.com/dbos-inc/dbos-transact-golang/dbos"
 )
 
 func TestWatchCancellation(t *testing.T) {
@@ -23,7 +26,7 @@ func TestWatchCancellation(t *testing.T) {
 		default:
 			return false
 		}
-	}, cancel)
+	}, cancel, testdbos.PollInterval)
 	defer stop()
 	close(requested)
 	select {
@@ -33,6 +36,44 @@ func TestWatchCancellation(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("cancellation watcher did not cancel the evaluation context")
+	}
+}
+
+func TestReplyRuntimePollingConfiguration(t *testing.T) {
+	for _, interval := range []time.Duration{0, testdbos.PollInterval} {
+		t.Run(interval.String(), func(t *testing.T) {
+			err, store := database.Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			ctx, err := dbos.NewContext(context.Background(), dbos.Config{AppName: "reply-polling-test", ApplicationVersion: "test-v1", SQLiteSystemDB: store.DB})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer dbos.Shutdown(ctx, time.Second)
+			if interval == 0 {
+				err, _ = NewSessionEventReplyRuntime(ctx, store, nil)
+			} else {
+				err, _ = NewSessionEventReplyRuntimeWithOptions(ctx, store, nil, SessionEventReplyOptions{PollingInterval: interval})
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := interval
+			if want == 0 {
+				want = time.Second
+			}
+			for _, name := range []string{sessionEventReplyQueue, sessionToolCallQueue, sessionNameQueue} {
+				queue, err := dbos.RetrieveQueue(ctx, name)
+				if err != nil || queue.GetPollingInterval() != want {
+					t.Fatalf("queue %q polling configuration = %#v, %v; want %v", name, queue, err, want)
+				}
+			}
+		})
+	}
+	if err, _ := NewSessionEventReplyRuntimeWithOptions(nil, nil, nil, SessionEventReplyOptions{PollingInterval: -time.Millisecond}); err == nil {
+		t.Fatal("negative polling interval accepted")
 	}
 }
 

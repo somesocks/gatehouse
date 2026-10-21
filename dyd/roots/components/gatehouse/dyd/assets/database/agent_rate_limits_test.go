@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"gatehouse/config"
+	"gatehouse/internal/testdbos"
 	"gatehouse/model"
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 	_ "github.com/dbos-inc/dbos-transact-golang/dbos/driver/sqlite"
@@ -126,7 +127,7 @@ func TestAgentRateLimitClaimScopesAndMinimum(t *testing.T) {
 	runner := agentRateLimitTestWorkflow{store: store, dataSource: dataSource, selected: selected, principal: principal}
 	dbos.RegisterWorkflow(dbosContext, runner.claim, dbos.WithInstance(&runner), dbos.WithWorkflowName("gatehouse.agent-rate-limit-test"))
 	dbos.RegisterWorkflow(dbosContext, runner.settle, dbos.WithInstance(&runner), dbos.WithWorkflowName("gatehouse.agent-rate-limit-settle-test"))
-	if err := dbos.Launch(dbosContext); err != nil {
+	if err := testdbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
@@ -135,7 +136,7 @@ func TestAgentRateLimitClaimScopesAndMinimum(t *testing.T) {
 		if err != nil {
 			return AgentRateLimitClaim{}, err
 		}
-		return handle.GetResult()
+		return testdbos.GetResult(handle)
 	}
 	first, err := claim(120)
 	if err != nil {
@@ -152,7 +153,7 @@ func TestAgentRateLimitClaimScopesAndMinimum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := unknown.GetResult(); err != nil {
+	if _, err := testdbos.GetResult(unknown); err != nil {
 		t.Fatal(err)
 	}
 	var afterUnknown float64
@@ -167,7 +168,7 @@ func TestAgentRateLimitClaimScopesAndMinimum(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := settle.GetResult(); err != nil {
+	if _, err := testdbos.GetResult(settle); err != nil {
 		t.Fatal(err)
 	}
 	var global, user float64

@@ -20,6 +20,7 @@ import (
 	"gatehouse/codexlogin"
 	"gatehouse/config"
 	"gatehouse/database"
+	"gatehouse/internal/testdbos"
 	"gatehouse/keychain"
 	"gatehouse/migrations"
 	"gatehouse/model"
@@ -88,10 +89,7 @@ func launch(t *testing.T, store *database.Store, ring *keychain.Keyring, refresh
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runtime.queue.SetPollingInterval(ctx, 10*time.Millisecond); err != nil {
-		t.Fatal(err)
-	}
-	if err := dbos.Launch(ctx); err != nil {
+	if err := testdbos.Launch(ctx); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
@@ -166,7 +164,7 @@ func (f *fixture) credential(t *testing.T, id string) codexlogin.Credential {
 
 func await(t *testing.T, handle dbos.WorkflowHandle[Result]) Result {
 	t.Helper()
-	result, err := handle.GetResult(dbos.WithHandleTimeout(15*time.Second), dbos.WithHandlePollingInterval(10*time.Millisecond))
+	result, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(15*time.Second))
 	if err != nil {
 		status, _ := handle.GetStatus()
 		t.Fatalf("await maintenance (%s): %v", status.Status, err)
@@ -189,7 +187,7 @@ func (f *fixture) sweep(t *testing.T, tick time.Time) map[string]Result {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := handle.GetResult(dbos.WithHandleTimeout(15 * time.Second)); err != nil {
+	if _, err := testdbos.GetResult(handle, dbos.WithHandleTimeout(15*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	err, targets := f.store.AgentProviderMaintenanceTargets(context.Background())
@@ -278,7 +276,7 @@ func TestScheduleIsOneHourlyDBOSCron(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	count, err := triggered.GetResult(dbos.WithHandleTimeout(15 * time.Second))
+	count, err := testdbos.GetResult(triggered, dbos.WithHandleTimeout(15*time.Second))
 	if err != nil || fmt.Sprint(count) != "1" {
 		t.Fatalf("native scheduled dispatch = %v, %v", count, err)
 	}

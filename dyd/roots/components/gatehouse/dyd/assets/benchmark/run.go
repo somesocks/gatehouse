@@ -34,11 +34,17 @@ const DefaultParallel = 8
 
 type ExecutionOptions struct {
 	Parallel int
+	// WorkflowPollingInterval overrides native workflow queue/result polling.
+	// Zero preserves the DBOS defaults.
+	WorkflowPollingInterval time.Duration
 }
 
 func ExecuteWithOptions(ctx context.Context, configuration Config, path, version, fingerprint string, progress io.Writer, options ExecutionOptions) (error, *sql.DB) {
 	if options.Parallel < 1 {
 		return fmt.Errorf("benchmark parallelism must be a positive integer"), nil
+	}
+	if options.WorkflowPollingInterval < 0 {
+		return fmt.Errorf("workflow polling interval must not be negative"), nil
 	}
 	if progress == nil {
 		progress = io.Discard
@@ -128,7 +134,7 @@ func ExecuteWithOptions(ctx context.Context, configuration Config, path, version
 		}
 		keys[provider.Id] = key
 	}
-	err, native := newNativeRuntime(ctx, prepared, providers, models, prompts, environments, keys, progress)
+	err, native := newNativeRuntime(ctx, prepared, providers, models, prompts, environments, keys, progress, options.WorkflowPollingInterval)
 	if err != nil {
 		return finish(err)
 	}
