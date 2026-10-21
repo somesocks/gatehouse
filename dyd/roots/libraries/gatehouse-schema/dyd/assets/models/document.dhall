@@ -703,33 +703,6 @@ let ProjectTask =
         }
         s.record.meta::{ name = Some "ProjectTask", description = Some "A flat task attached to a project." }
 
-let ProjectSecretRef =
-      s.record.from
-        s.record.props::{
-        , required = toMap
-            { project = s.reference.from s.reference.props::{ to = "ProjectRef" } s.reference.meta::{ description = Some "owning project identity" }
-            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed project secret identity" }
-            }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{ name = Some "ProjectSecretRef", description = Some "The stable identity of a secret attached to a project." }
-
-let ProjectSecret =
-      s.record.from
-        s.record.props::{
-        , required = toMap
-            { ref = s.reference.from s.reference.props::{ to = "ProjectSecretRef" } s.reference.meta::{ description = Some "project secret identity" }
-            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable secret author" }
-            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "public secret description" }
-            , ciphertext = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted secret value" }
-            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the project secret is available" }
-            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret creation timestamp" }
-            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret update timestamp" }
-            }
-        , optional = [] : List { mapKey : Text, mapValue : s.type }
-        }
-        s.record.meta::{ name = Some "ProjectSecret", description = Some "An encrypted secret attached to a project." }
-
 let ProjectRecordSchemaRef =
       s.record.from
         s.record.props::{
@@ -1461,7 +1434,6 @@ let ActivityEvent =
                , resource_project_grant = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project grant resource ID" }
                 , resource_project_note = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project note resource ID" }
 				, resource_project_task = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project task resource ID" }
-                , resource_project_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project secret resource ID" }
                 , resource_project_record_schema = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record schema resource ID" }
                 , resource_project_record_attribute = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record attribute resource ID" }
                 , resource_project_record = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "project record resource ID" }
@@ -1641,8 +1613,6 @@ in  Document::{
 			, s.root.from ProjectNoteRevision s.root.meta::{ name = "ProjectNoteRevision" }
 			, s.root.from ProjectTaskRef s.root.meta::{ name = "ProjectTaskRef" }
 			, s.root.from ProjectTask s.root.meta::{ name = "ProjectTask" }
-			, s.root.from ProjectSecretRef s.root.meta::{ name = "ProjectSecretRef" }
-			, s.root.from ProjectSecret s.root.meta::{ name = "ProjectSecret" }
 			, s.root.from ProjectRecordSchemaRef s.root.meta::{ name = "ProjectRecordSchemaRef" }
 			, s.root.from ProjectRecordSchema s.root.meta::{ name = "ProjectRecordSchema" }
 			, s.root.from ProjectRecordAttributeRef s.root.meta::{ name = "ProjectRecordAttributeRef" }

@@ -972,7 +972,6 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 			runtime.projectFilesModule(ctx, request.Ref.Session, principal),
 			runtime.projectNotesModule(ctx, request.Ref.Session, principal, agent),
 			runtime.projectTasksModule(ctx, request.Ref.Session, principal, agent),
-			runtime.projectSecretsModule(ctx, request.Ref.Session, principal),
 			runtime.projectRecordsModule(ctx, request.Ref.Session, principal, agent),
 		)
 	}

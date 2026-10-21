@@ -14,9 +14,6 @@ const (
 	ProjectFileFinish         ProjectAction = "project.file.finish"
 	ProjectFileUpdate         ProjectAction = "project.file.update"
 	ProjectFileRemove         ProjectAction = "project.file.remove"
-	ProjectSecretCreate       ProjectAction = "project.secret.create"
-	ProjectSecretEdit         ProjectAction = "project.secret.edit"
-	ProjectSecretRemove       ProjectAction = "project.secret.remove"
 	ProjectRecordCreate       ProjectAction = "project.record.create"
 	ProjectRecordEdit         ProjectAction = "project.record.edit"
 	ProjectRecordRemove       ProjectAction = "project.record.remove"
@@ -41,7 +38,6 @@ func ProjectAllows(roles []Role, action ProjectAction) bool {
 				ProjectTaskCreate, ProjectTaskEdit, ProjectTaskRemove,
 				ProjectRecordCreate, ProjectRecordEdit, ProjectRecordRemove,
 				ProjectFileCreate, ProjectFileFinish, ProjectFileUpdate, ProjectFileRemove,
-				ProjectSecretCreate, ProjectSecretEdit, ProjectSecretRemove,
 				ProjectSessionCreate:
 				return true
 			}
@@ -55,7 +51,6 @@ func validProjectAction(action ProjectAction) bool {
 	case ProjectEdit, ProjectNoteCreate, ProjectNoteEdit, ProjectNoteRemove,
 		ProjectTaskCreate, ProjectTaskEdit, ProjectTaskRemove,
 		ProjectFileCreate, ProjectFileFinish, ProjectFileUpdate, ProjectFileRemove,
-		ProjectSecretCreate, ProjectSecretEdit, ProjectSecretRemove,
 		ProjectRecordCreate, ProjectRecordEdit, ProjectRecordRemove,
 		ProjectRecordSchemaCreate, ProjectRecordSchemaEdit, ProjectRecordSchemaRemove,
 		ProjectSessionCreate, ProjectGrantManage:

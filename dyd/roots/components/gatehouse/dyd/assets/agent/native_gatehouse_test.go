@@ -18,7 +18,6 @@ func agentResourceModules(modules []lisp.HostModule) []lisp.HostModule {
 			{prefix: "files/", id: "native:gatehouse/project/files/v1"},
 			{prefix: "notes/", id: "native:gatehouse/project/notes/v1"},
 			{prefix: "tasks/", id: "native:gatehouse/project/tasks/v1"},
-			{prefix: "secrets/", id: "native:gatehouse/project/secrets/v1"},
 			{prefix: "records/", id: "native:gatehouse/project/records/v1"},
 		},
 		gatehouseSessionModuleID: {

@@ -300,7 +300,6 @@ func TestResourceModulesLoadInAgentPrelude(t *testing.T) {
 		runtime.projectFilesModule(nil, session, principal),
 		runtime.projectNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.projectTasksModule(nil, session, principal, model.WorkspaceAgentRef{}),
-		runtime.projectSecretsModule(nil, session, principal),
 		runtime.projectRecordsModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionFilesModule(nil, session, principal, model.WorkspaceAgentRef{}),
 		runtime.sessionNotesModule(nil, session, principal, model.WorkspaceAgentRef{}),

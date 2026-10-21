@@ -43,7 +43,6 @@
   import ProjectFilesRoute from "./pages/project-files/ProjectFilesRoute.svelte"
   import ProjectNotesRoute from "./pages/project-notes/ProjectNotesRoute.svelte"
   import TasksRoute from "./pages/tasks/TasksRoute.svelte"
-  import ProjectSecretsRoute from "./pages/project-secrets/ProjectSecretsRoute.svelte"
   import ProjectRecordsRoute from "./pages/project-records/ProjectRecordsRoute.svelte"
   import SessionWorkspace from "./pages/session-chat/SessionWorkspace.svelte"
   import GroupsRoute from "./pages/groups/GroupsRoute.svelte"
@@ -93,8 +92,6 @@
     <ProjectFilesRoute />
   {:else if owner === "project-tasks"}
     <TasksRoute />
-  {:else if owner === "project-secrets"}
-    <ProjectSecretsRoute />
   {:else if owner === "project-records"}
     <ProjectRecordsRoute />
   {:else if owner === "session-chat" || owner === "session-files" || owner === "session-notes" || owner === "session-tasks" || owner === "session-secrets"}

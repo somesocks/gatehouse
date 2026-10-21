@@ -6,7 +6,6 @@ export type RouteOwner =
   | "project-files"
   | "project-notes"
   | "project-tasks"
-  | "project-secrets"
   | "project-records"
   | "session-chat"
   | "session-files"
@@ -75,11 +74,6 @@ export function routeOwner(route: Route): RouteOwner {
     case "project-task":
     case "project-task-edit":
       return "project-tasks"
-    case "project-secrets":
-    case "project-secret-new":
-    case "project-secret":
-    case "project-secret-edit":
-      return "project-secrets"
     case "project-records":
     case "project-record-schema-new":
     case "project-record-schema":

@@ -46,6 +46,9 @@ func TestWorkspaceCollectionPagesKeepNativeBodiesAndScope(t *testing.T) {
 			{"tasks", `{"title":"needle-alpha","status":"ready"}`, `{"title":"needle-beta","status":"draft"}`},
 			{"secrets", `{"description":"needle-alpha","value":"write-only-value"}`, `{"description":"needle-beta","value":"another-write-only-value"}`},
 		} {
+			if resource.path == "secrets" && owner == workspace+"/projects/"+project {
+				continue
+			}
 			t.Run(owner+"/"+resource.path, func(t *testing.T) {
 				base := owner + "/" + resource.path
 				create(base, resource.body)

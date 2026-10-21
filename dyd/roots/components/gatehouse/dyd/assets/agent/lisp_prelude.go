@@ -27,7 +27,6 @@ const agentPreludeProjectImports = `
         (project/files @native:gatehouse/project/files/v1)
         (project/notes @native:gatehouse/project/notes/v1)
         (project/tasks @native:gatehouse/project/tasks/v1)
-        (project/secrets @native:gatehouse/project/secrets/v1)
         (project/records @native:gatehouse/project/records/v1)
 `
 
@@ -43,7 +42,7 @@ const agentPreludeEnd = `
 
         (let
           (
-            ; Session and project secret mutations opt into approval when exposed.
+            ; Session secret mutations opt into approval when exposed.
             (prelude/operations
               (list))
             (prelude/operation-binding

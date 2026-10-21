@@ -28,11 +28,6 @@ describe("workspace page-purpose routes", () => {
       "session-tasks",
     ],
     [
-      "/app/wsp/wsp_a/prj/prj_a/secrets/psc_a/edit",
-      "project-secret-edit",
-      "project-secrets",
-    ],
-    [
       "/app/wsp/wsp_a/ses/ses_a/secrets/ssc_a/edit",
       "session-secret-edit",
       "session-secrets",

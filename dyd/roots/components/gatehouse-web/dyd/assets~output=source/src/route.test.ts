@@ -423,31 +423,6 @@ describe("routes", () => {
       },
     },
     {
-      path: "/app/wsp/wsp_a/prj/prj_a/secrets",
-      route: {
-        kind: "project-secrets",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-      },
-    },
-    {
-      path: "/app/wsp/wsp_a/prj/prj_a/secrets/new",
-      route: {
-        kind: "project-secret-new",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-      },
-    },
-    {
-      path: "/app/wsp/wsp_a/prj/prj_a/secrets/psr_a",
-      route: {
-        kind: "project-secret",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-        secretID: "psr_a",
-      },
-    },
-    {
       path: "/app/wsp/wsp_a/ses/ses_a/notes/",
       route: {
         kind: "session-notes",
@@ -509,6 +484,10 @@ describe("routes", () => {
     "/app/wsp/wsp_a/ses/ses_a/notes/new/edit",
     "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/0",
     "/app/wsp/wsp_a/ses/ses_a/notes/snt_a/revisions/1.5",
+    "/app/wsp/wsp_a/prj/prj_a/secrets",
+    "/app/wsp/wsp_a/prj/prj_a/secrets/new",
+    "/app/wsp/wsp_a/prj/prj_a/secrets/psc_a",
+    "/app/wsp/wsp_a/prj/prj_a/secrets/psc_a/edit",
     "/app/wsp/%ZZ",
     "/app/wsp//ses",
   ]) {

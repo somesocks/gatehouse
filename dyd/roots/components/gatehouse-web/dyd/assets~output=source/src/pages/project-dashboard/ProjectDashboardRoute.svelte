@@ -304,11 +304,6 @@
                 href={`${base}/tasks`}
               />
               <UI.NavigationCard
-                title="Secrets"
-                description="Manage write-only values and their descriptions."
-                href={`${base}/secrets`}
-              />
-              <UI.NavigationCard
                 title="Records"
                 description="Browse structured records and configure their types."
                 href={`${base}/records`}

@@ -20,16 +20,6 @@ type ProjectInfoSet func(name, description string) (error, ProjectInfo)
 // ProjectFileCreate creates a completed file in the linked project and returns its ID.
 type ProjectFileCreate func(name, mediaType string, source io.Reader) (error, string)
 
-// ProjectSecret describes authorized public project secret metadata.
-type ProjectSecret struct {
-	ID          string
-	Description string
-	AuthorID    string
-	AuthorName  *string
-	CreatedAt   string
-	UpdatedAt   string
-}
-
 var (
 	projectFileListDocumentation          = capabilityDocumentation{"(project/files/list) -> List", "Returns successful files in the project linked to the current session with pfi_ IDs, name, optional media_type, size, and fingerprint.", "(project/files/list)", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	projectFileInfoDocumentation          = capabilityDocumentation{"(project/files/info id) -> List | Null", "Returns successful linked-project file metadata for a pfi_ ID, or null when the file is unavailable.", "(project/files/info \"pfi_example-file-id\")", "((id . \"pfi_example-file-id\") (name . \"report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
@@ -40,8 +30,6 @@ var (
 	projectFileUpdateDocumentation        = capabilityDocumentation{"(project/files/update id name) -> List", "Renames a successful linked-project file. File contents and other metadata are immutable.", "(project/files/update \"pfi_example-file-id\" \"final-report.txt\")", "((id . \"pfi_example-file-id\") (name . \"final-report.txt\") (media_type . \"text/plain\") (size . 12) (fingerprint . \"sha256:...\"))"}
 	projectFileRemoveDocumentation        = capabilityDocumentation{"(project/files/remove id) -> Boolean", "Removes a linked-project file. Returns true when the file was removed and false when it is unavailable.", "(project/files/remove \"pfi_example-file-id\")", "#t"}
 	projectFileSearchDocumentation        = capabilityDocumentation{"(project/files/search-file id query [cursor]) -> List", "Streams one linked-project UTF-8 file for all case-insensitive literal matches. Query may be a literal or a nested or expression source. Returns byte ranges, contextual previews, and an optional cursor.", "(project/files/search-file \"pfi_example-file-id\" \"(or \\\"Conroe\\\" \\\"ordinance\\\")\")", "((terms . (\"Conroe\" \"ordinance\")) (matches . (((offset . 0) (length . 7) (term_index . 0) (preview_offset . 0) (preview . \"Conroe ordinance\")))) (next_cursor))"}
-	projectSecretListDocumentation        = capabilityDocumentation{"(project/secrets/list) -> List", "Returns public metadata for secrets in the project linked to the current session. Secret values are not included.", "(project/secrets/list)", "((id . \"psc_0123456789abcdefghjkmnpqrs\") (description . \"Deployment token\") (author_id . \"example-principal-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\") (updated_at . \"2026-01-01T00:00:00.000Z\"))"}
-	projectSecretReadDocumentation        = capabilityDocumentation{"(project/secrets/read id) -> Bytes", "Reads an encrypted project secret by ID. The returned Bytes are secret-tainted.", "(project/secrets/read \"psc_0123456789abcdefghjkmnpqrs\")", "#<secret>"}
 	projectNoteListDocumentation          = capabilityDocumentation{"(project/notes/list) -> List", "Returns project notes with id, title, possibly empty description, current revision sensitivity, author_id, optional author_name, created_at, and revision.", "(project/notes/list)", "((id . \"example-note-id\") (title . \"Guide\") (description . \"How this project works\") (sensitive . #f) (author_id . \"example-principal-id\") (author_name . \"Ada\") (created_at . \"2026-01-01T00:00:00.000Z\") (revision . 1))"}
 	projectNoteReadDocumentation          = capabilityDocumentation{"(project/notes/read id offset length) -> Bytes", "Reads Markdown source from a note in the project linked to the current session. Sensitive note bytes are marked sensitive. Length must be from 1 through 65536 bytes.", "(bytes/utf8/decode (project/notes/read \"example-note-id\" 0 64))", "\"# Project guide\""}
 	projectNoteRevisionsListDocumentation = capabilityDocumentation{"(project/notes/revisions/list id) -> List", "Returns revision, title, possibly empty description, sensitivity, author_id, optional author_name, and created_at for an authorized project note, newest first.", "(project/notes/revisions/list \"example-note-id\")", "((revision . 2) (title . \"Decision\") (description . \"Updated reasoning\") (sensitive . #f) (author_id . \"example-agent-id\") (author_name) (created_at . \"2026-01-01T00:00:00.000Z\"))"}
@@ -88,63 +76,6 @@ func projectNoteUpdateFunction(update ProjectNoteUpdate, name string) func([]lis
 			return lisp.Errorf("%s failed", name), nil
 		}
 		return noteValue(note, name)
-	}
-}
-
-func projectSecretListFunction(secrets []ProjectSecret, name string) func([]lisp.Expr) (error, lisp.Expr) {
-	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 0 {
-			return lisp.Errorf("%s requires no arguments", name), nil
-		}
-		values := make([]lisp.Expr, 0, len(secrets))
-		for _, secret := range secrets {
-			err, value := projectSecretValue(secret, name)
-			if err != nil {
-				return err, nil
-			}
-			values = append(values, value)
-		}
-		return nil, lisp.List(values...)
-	}
-}
-
-func projectSecretValue(secret ProjectSecret, name string) (error, lisp.Expr) {
-	if secret.ID == "" || secret.Description == "" || secret.AuthorID == "" || secret.CreatedAt == "" || secret.UpdatedAt == "" {
-		return lisp.Errorf("%s has invalid secret metadata", name), nil
-	}
-	authorName := lisp.Null()
-	if secret.AuthorName != nil {
-		authorName = lisp.String(*secret.AuthorName)
-	}
-	return nil, lisp.List(
-		lisp.Pair("id", lisp.String(secret.ID)),
-		lisp.Pair("description", lisp.String(secret.Description)),
-		lisp.Pair("author_id", lisp.String(secret.AuthorID)),
-		lisp.Pair("author_name", authorName),
-		lisp.Pair("created_at", lisp.String(secret.CreatedAt)),
-		lisp.Pair("updated_at", lisp.String(secret.UpdatedAt)),
-	)
-}
-
-func projectSecretReadFunction(read func(id string) (error, []byte), name string) func([]lisp.Expr) (error, lisp.Expr) {
-	return func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 1 {
-			return lisp.Errorf("%s requires an id", name), nil
-		}
-		err, id := lisp.RequireString(arguments[0])
-		if err != nil {
-			return err, nil
-		}
-		if id == "" {
-			return lisp.Errorf("%s requires a non-empty id", name), nil
-		}
-		err, value := read(id)
-		if err != nil {
-			return lisp.Errorf("%s is unavailable", name), nil
-		}
-		result := lisp.MarkSecret(lisp.Bytes(value))
-		clear(value)
-		return nil, result
 	}
 }
 

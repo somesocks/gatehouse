@@ -80,16 +80,6 @@ const routes = [
       taskID: "item",
     },
   },
-  {
-    path: "./project-secrets/ProjectSecretsRoute.svelte",
-    draft: "description",
-    route: {
-      kind: "project-secret-edit",
-      workspaceID: "workspace",
-      projectID: "owner",
-      secretID: "item",
-    },
-  },
 ]
 const item = {
   id: "item",

@@ -228,13 +228,6 @@ principal can always observe its own `prn_.../syg_...` topic.
 - `project_note.update` - emitted when a project note is updated.
   - `wsp_.../prj_.../pnt_...`
 
-### Project Secret
-
-- `project_secret.create` - emitted when a project secret is created.
-  - `wsp_.../prj_.../psc_...`
-- `project_secret.update` - emitted when a project secret's metadata or value changes.
-  - `wsp_.../prj_.../psc_...`
-
 ### Session
 
 - `session.create` - emitted when a session is created.

@@ -63,15 +63,6 @@ type ProjectTasks struct {
 	Remove TaskRemove
 }
 
-// ProjectSecretRead reads an authorized project secret value.
-type ProjectSecretRead func(id string) (error, []byte)
-
-// ProjectSecrets contains authorized secrets in a linked project.
-type ProjectSecrets struct {
-	Secrets []ProjectSecret
-	Read    ProjectSecretRead
-}
-
 // SessionFileActions contains mutation callbacks for current-session files.
 type SessionFileActions struct {
 	Update FileUpdate
@@ -195,19 +186,11 @@ func newSessionModule(files []File, read FileRead, create SessionFileCreate, upd
 }
 
 func NewProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModule(info, files, notes, projectTasksArgument(tasks), nil)
-}
-
-func NewProjectModuleWithSecrets(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModule(info, files, notes, projectTasksArgument(tasks), secrets)
+	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), nil)
 }
 
 func NewProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), nil, records)
-}
-
-func NewProjectModuleWithSecretsAndRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, secrets *ProjectSecrets, records *ProjectRecords, tasks ...*ProjectTasks) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), secrets, records)
+	return newProjectModuleWithRecords(info, files, notes, projectTasksArgument(tasks), records)
 }
 
 func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
@@ -217,11 +200,7 @@ func projectTasksArgument(tasks []*ProjectTasks) *ProjectTasks {
 	return tasks[0]
 }
 
-func newProjectModule(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets) lisp.HostModule {
-	return newProjectModuleWithRecords(info, files, notes, tasks, secrets, nil)
-}
-
-func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, secrets *ProjectSecrets, records *ProjectRecords) lisp.HostModule {
+func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *ProjectNotes, tasks *ProjectTasks, records *ProjectRecords) lisp.HostModule {
 	infoGet, infoSet := projectInfoGetFunction(info), unavailableCreate("project/info/set")
 	if info != nil && info.Set != nil {
 		infoSet = projectInfoSetFunction(info.Set)
@@ -290,15 +269,8 @@ func newProjectModuleWithRecords(info *ProjectInfo, files *ProjectFiles, notes *
 			taskRemove = taskRemoveFunction(tasks.Remove, "project/tasks/remove")
 		}
 	}
-	secretsList, secretRead := projectSecretListFunction(nil, "project/secrets/list"), unavailableSecretRead("project/secrets/read")
-	if secrets != nil {
-		secretsList = projectSecretListFunction(secrets.Secrets, "project/secrets/list")
-	}
-	if secrets != nil && secrets.Read != nil {
-		secretRead = projectSecretReadFunction(secrets.Read, "project/secrets/read")
-	}
 	exports := []lisp.HostExport{
-		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)}, {Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)}, {Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)}, {Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)}, {Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)}, {Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), projectFileCreateDocumentation)}, {Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), projectFileUpdateDocumentation)}, {Name: "files/remove", Value: document(lisp.Function(fileRemove), projectFileRemoveDocumentation)}, {Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearch), projectFileSearchDocumentation)}, {Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)}, {Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)}, {Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), projectNoteRevisionsListDocumentation)}, {Name: "notes/revisions/read", Value: document(lisp.Function(noteRevisionRead), projectNoteRevisionReadDocumentation)}, {Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), projectNoteCreateDocumentation)}, {Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), projectNoteUpdateDocumentation)}, {Name: "notes/remove", Value: document(lisp.Function(noteRemove), projectNoteRemoveDocumentation)}, {Name: "tasks/list", Value: document(lisp.Function(tasksList), projectTaskListDocumentation)}, {Name: "tasks/read", Value: document(lisp.Function(taskRead), projectTaskReadDocumentation)}, {Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), projectTaskCreateDocumentation)}, {Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), projectTaskUpdateDocumentation)}, {Name: "tasks/remove", Value: document(lisp.Function(taskRemove), projectTaskRemoveDocumentation)}, {Name: "secrets/list", Value: document(lisp.FunctionNonLeaky(secretsList), projectSecretListDocumentation)}, {Name: "secrets/read", Value: document(lisp.Function(secretRead), projectSecretReadDocumentation)},
+		{Name: "info/get", Value: document(lisp.Function(infoGet), projectInfoGetDocumentation)}, {Name: "info/set", Value: document(lisp.Function(infoSet), projectInfoSetDocumentation)}, {Name: "files/list", Value: document(lisp.Function(filesList), projectFileListDocumentation)}, {Name: "files/info", Value: document(lisp.FunctionNonLeaky(filesInfo), projectFileInfoDocumentation)}, {Name: "files/read", Value: document(lisp.Function(fileRead), projectFileReadDocumentation)}, {Name: "files/create", Value: document(lisp.FunctionWithContext(fileCreate), projectFileCreateDocumentation)}, {Name: "files/update", Value: document(lisp.FunctionNonLeaky(fileUpdate), projectFileUpdateDocumentation)}, {Name: "files/remove", Value: document(lisp.Function(fileRemove), projectFileRemoveDocumentation)}, {Name: "files/search-file", Value: document(lisp.FunctionNonLeaky(fileSearch), projectFileSearchDocumentation)}, {Name: "notes/list", Value: document(lisp.Function(notesList), projectNoteListDocumentation)}, {Name: "notes/read", Value: document(lisp.Function(noteRead), projectNoteReadDocumentation)}, {Name: "notes/revisions/list", Value: document(lisp.Function(noteRevisionsList), projectNoteRevisionsListDocumentation)}, {Name: "notes/revisions/read", Value: document(lisp.Function(noteRevisionRead), projectNoteRevisionReadDocumentation)}, {Name: "notes/create", Value: document(lisp.FunctionNonLeaky(noteCreate), projectNoteCreateDocumentation)}, {Name: "notes/update", Value: document(lisp.FunctionNonLeaky(noteUpdate), projectNoteUpdateDocumentation)}, {Name: "notes/remove", Value: document(lisp.Function(noteRemove), projectNoteRemoveDocumentation)}, {Name: "tasks/list", Value: document(lisp.Function(tasksList), projectTaskListDocumentation)}, {Name: "tasks/read", Value: document(lisp.Function(taskRead), projectTaskReadDocumentation)}, {Name: "tasks/create", Value: document(lisp.FunctionNonLeaky(taskCreate), projectTaskCreateDocumentation)}, {Name: "tasks/update", Value: document(lisp.FunctionNonLeaky(taskUpdate), projectTaskUpdateDocumentation)}, {Name: "tasks/remove", Value: document(lisp.Function(taskRemove), projectTaskRemoveDocumentation)},
 	}
 	return lisp.HostModule{ID: gatehouseProjectModuleID, Exports: append(exports, projectRecordsExports(records)...)}
 }

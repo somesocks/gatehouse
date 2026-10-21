@@ -6,8 +6,6 @@ import (
 
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 
-	"gatehouse/database"
-	"gatehouse/keychain"
 	"gatehouse/lisp"
 	"gatehouse/model"
 	"gatehouse/typed_id"
@@ -18,7 +16,6 @@ const (
 	gatehouseProjectFilesModuleID   = "native:gatehouse/project/files/v1"
 	gatehouseProjectNotesModuleID   = "native:gatehouse/project/notes/v1"
 	gatehouseProjectTasksModuleID   = "native:gatehouse/project/tasks/v1"
-	gatehouseProjectSecretsModuleID = "native:gatehouse/project/secrets/v1"
 	gatehouseProjectRecordsModuleID = "native:gatehouse/project/records/v1"
 )
 
@@ -235,60 +232,6 @@ func (runtime *SessionEventReplyRuntime) projectTasksModule(ctx dbos.Context, se
 		{Name: "create", Value: document(lisp.FunctionNonLeaky(taskCreateFunction(runtime.projectTaskCreate(ctx, session, principal, agent), "project/tasks/create")), projectTaskCreateDocumentation)},
 		{Name: "update", Value: document(lisp.FunctionNonLeaky(taskUpdateFunction(runtime.projectTaskUpdate(ctx, session, principal, agent), "project/tasks/update")), projectTaskUpdateDocumentation)},
 		{Name: "remove", Value: document(lisp.Function(taskRemoveFunction(runtime.projectTaskRemove(ctx, session, principal), "project/tasks/remove")), projectTaskRemoveDocumentation)},
-	}}
-}
-
-func (runtime *SessionEventReplyRuntime) projectSecretsModule(ctx dbos.Context, session model.SessionRef, principal model.PrincipalRef) lisp.HostModule {
-	list := func(arguments []lisp.Expr) (error, lisp.Expr) {
-		if len(arguments) != 0 {
-			return lisp.Errorf("project/secrets/list requires no arguments"), nil
-		}
-		project, err := runtime.sessionProjectGet(ctx, session, principal)
-		if err != nil {
-			return nil, lisp.List()
-		}
-		err, summaries := runtime.store.ProjectSecretsGet(ctx, *project, principal)
-		if err != nil {
-			return lisp.Errorf("project/secrets/list failed"), nil
-		}
-		secrets := make([]ProjectSecret, 0, len(summaries))
-		for _, secret := range summaries {
-			secrets = append(secrets, ProjectSecret{ID: secret.Ref.Id, Description: secret.Description, AuthorID: secret.AuthorPrincipal.Id, AuthorName: secret.AuthorName, CreatedAt: secret.CreatedAt, UpdatedAt: secret.UpdatedAt})
-		}
-		return projectSecretListFunction(secrets, "project/secrets/list")(arguments)
-	}
-	read := func(id string) (error, []byte) {
-		project, err := runtime.sessionProjectGet(ctx, session, principal)
-		if err != nil {
-			return fmt.Errorf("read project secret: %w", err), nil
-		}
-		err, detail := runtime.store.ProjectSecretGet(ctx, model.ProjectSecretRef{Project: *project, Id: id}, principal)
-		if err != nil || detail == nil {
-			if err != nil {
-				return err, nil
-			}
-			return fmt.Errorf("read project secret: unavailable"), nil
-		}
-		err, encrypted := keychain.ParseResource(detail.Secret.Ciphertext)
-		if err != nil {
-			return fmt.Errorf("parse project secret: %w", err), nil
-		}
-		err, keys := runtime.keyring.Get(ctx, []model.KeychainRef{*encrypted.Key})
-		if err != nil {
-			return fmt.Errorf("get keychain for project secret: %w", err), nil
-		}
-		key := keys[*encrypted.Key]
-		defer clear(key)
-		clear(keys)
-		err, value := keychain.Open(key, database.ProjectSecretAssociatedData(detail.Secret.Ref), encrypted)
-		if err != nil {
-			return fmt.Errorf("decrypt project secret: %w", err), nil
-		}
-		return nil, value
-	}
-	return lisp.HostModule{ID: gatehouseProjectSecretsModuleID, Exports: []lisp.HostExport{
-		{Name: "list", Value: document(lisp.FunctionNonLeaky(list), projectSecretListDocumentation)},
-		{Name: "read", Value: document(lisp.Function(projectSecretReadFunction(read, "project/secrets/read")), projectSecretReadDocumentation)},
 	}}
 }
 

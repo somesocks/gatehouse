@@ -86,31 +86,6 @@ describe("route owner", () => {
     ).toBe("project-records");
   });
 
-  it("assigns every Project Secrets URL to its route owner", () => {
-    expect(
-      routeOwner({
-        kind: "project-secrets",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-      }),
-    ).toBe("project-secrets");
-    expect(
-      routeOwner({
-        kind: "project-secret-new",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-      }),
-    ).toBe("project-secrets");
-    expect(
-      routeOwner({
-        kind: "project-secret",
-        workspaceID: "wsp_a",
-        projectID: "prj_a",
-        secretID: "sec_a",
-      }),
-    ).toBe("project-secrets");
-  });
-
   it("assigns session detail URLs to their route owners", () => {
     expect(
       routeOwner({

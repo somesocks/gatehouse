@@ -24,7 +24,6 @@ const (
 	ProjectFile     = "pfi"
 	ProjectNote     = "pnt"
 	ProjectTask     = "ptk"
-	ProjectSecret   = "psc"
 	ProjectRecordSchema    = "prs"
 	ProjectRecordAttribute = "pra"
 	ProjectRecord          = "prr"

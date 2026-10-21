@@ -1069,7 +1069,7 @@ func TestProjectTaskCreateUpdateListGetAndRemove(t *testing.T) {
 	}
 }
 
-func TestProjectSecretCreateUpdateListGetAndRemove(t *testing.T) {
+func TestProjectSecretRoutesAreRemoved(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
@@ -1092,39 +1092,12 @@ func TestProjectSecretCreateUpdateListGetAndRemove(t *testing.T) {
 		t.Fatalf("POST project = (%d, %#v, %v)", createdProject.Code, project, err)
 	}
 	base := "/api/v1/workspaces/" + engineering.Id + "/projects/" + project.ID + "/secrets"
-	created := request(http.MethodPost, base, `{"description":"Deploy token","value":"secret value"}`)
-	var secret projectSecretResponse
-	if err := json.Unmarshal(created.Body.Bytes(), &secret); err != nil || created.Code != http.StatusCreated || !typed_id.Valid(typed_id.ProjectSecret, secret.ID) || secret.Description != "Deploy token" || secret.Author.ID == "" || secret.CreatedAt == "" || secret.UpdatedAt == "" || strings.Contains(created.Body.String(), "secret value") {
-		t.Fatalf("POST project secret = (%d, %#v, %v)", created.Code, secret, err)
-	}
-	listed := request(http.MethodGet, base, "")
-	var secrets []projectSecretResponse
-	if err := json.Unmarshal(listed.Body.Bytes(), &secrets); err != nil || listed.Code != http.StatusOK || len(secrets) != 1 || secrets[0].ID != secret.ID || strings.Contains(listed.Body.String(), "secret value") {
-		t.Fatalf("GET project secrets = (%d, %#v, %v)", listed.Code, secrets, err)
-	}
-	detail := request(http.MethodGet, base+"/"+secret.ID, "")
-	if err := json.Unmarshal(detail.Body.Bytes(), &secret); err != nil || detail.Code != http.StatusOK || secret.Description != "Deploy token" || strings.Contains(detail.Body.String(), "secret value") {
-		t.Fatalf("GET project secret = (%d, %#v, %v)", detail.Code, secret, err)
-	}
-	updated := request(http.MethodPatch, base+"/"+secret.ID, `{"description":"Rotated deploy token","value":"replacement value"}`)
-	if err := json.Unmarshal(updated.Body.Bytes(), &secret); err != nil || updated.Code != http.StatusOK || secret.Description != "Rotated deploy token" || strings.Contains(updated.Body.String(), "replacement value") {
-		t.Fatalf("PATCH project secret = (%d, %#v, %v)", updated.Code, secret, err)
-	}
-	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
-	err, stored := store.ProjectSecretGet(context.Background(), model.ProjectSecretRef{Project: model.ProjectRef{Workspace: engineering, Id: project.ID}, Id: secret.ID}, principal)
-	if err != nil || stored == nil || !strings.HasPrefix(stored.Secret.Ciphertext, "gh-enc:") || strings.Contains(stored.Secret.Ciphertext, "replacement value") {
-		t.Fatalf("stored project secret = (%#v, %v)", stored, err)
-	}
-	invalid := request(http.MethodPost, base, `{"description":""}`)
-	if invalid.Code != http.StatusBadRequest {
-		t.Fatalf("POST invalid project secret = status %d", invalid.Code)
-	}
-	removed := request(http.MethodDelete, base+"/"+secret.ID, "")
-	if removed.Code != http.StatusNoContent || removed.Header().Get("Cache-Control") != "no-store" {
-		t.Fatalf("DELETE project secret = status %d cache %q", removed.Code, removed.Header().Get("Cache-Control"))
-	}
-	if get := request(http.MethodGet, base+"/"+secret.ID, ""); get.Code != http.StatusNotFound {
-		t.Fatalf("GET removed project secret = status %d", get.Code)
+	for _, path := range []string{base, base + "/psc_01m17ej89df8jnhnh7476ssnvg"} {
+		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodPatch, http.MethodDelete} {
+			if response := request(method, path, `{"description":"Deploy token","value":"secret value"}`); response.Code != http.StatusNotFound {
+				t.Fatalf("%s %s = status %d, want 404", method, path, response.Code)
+			}
+		}
 	}
 }
 

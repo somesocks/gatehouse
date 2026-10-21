@@ -101,10 +101,6 @@ export type Route =
   | ({ kind: "project-task-new" } & ProjectRoute)
   | ({ kind: "project-task"; taskID: string } & ProjectRoute)
   | ({ kind: "project-task-edit"; taskID: string } & ProjectRoute)
-  | ({ kind: "project-secrets" } & ProjectRoute)
-  | ({ kind: "project-secret-new" } & ProjectRoute)
-  | ({ kind: "project-secret"; secretID: string } & ProjectRoute)
-  | ({ kind: "project-secret-edit"; secretID: string } & ProjectRoute)
   | ({ kind: "project-records" } & ProjectRoute)
   | ({ kind: "project-record-schema-new" } & ProjectRoute)
   | ({ kind: "project-record-schema"; schemaID: string } & ProjectRoute)
@@ -635,13 +631,6 @@ export function parseRoute(url: URL): Route {
           projectID: resourceID,
           taskID: segments[6],
         }
-      if (section === "secrets")
-        return {
-          kind: "project-secret-edit",
-          workspaceID,
-          projectID: resourceID,
-          secretID: segments[6],
-        }
     }
     if (
       segments.length === 9 &&
@@ -699,19 +688,6 @@ export function parseRoute(url: URL): Route {
             workspaceID,
             projectID: resourceID,
             taskID: segments[6],
-          }
-    }
-    if (segments.length === 6 && section === "secrets") {
-      return { kind: "project-secrets", workspaceID, projectID: resourceID }
-    }
-    if (segments.length === 7 && section === "secrets") {
-      return segments[6] === "new"
-        ? { kind: "project-secret-new", workspaceID, projectID: resourceID }
-        : {
-            kind: "project-secret",
-            workspaceID,
-            projectID: resourceID,
-            secretID: segments[6],
           }
     }
     if (segments.length === 6 && section === "records") {
@@ -1003,14 +979,6 @@ export function routePath(route: NavigableRoute): string {
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/tasks/${segment(route.taskID)}`
     case "project-task-edit":
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/tasks/${segment(route.taskID)}/edit`
-    case "project-secrets":
-      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets`
-    case "project-secret-new":
-      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets/new`
-    case "project-secret":
-      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets/${segment(route.secretID)}`
-    case "project-secret-edit":
-      return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/secrets/${segment(route.secretID)}/edit`
     case "project-records":
       return `/app/wsp/${segment(route.workspaceID)}/prj/${segment(route.projectID)}/records`
     case "project-record-schema-new":
