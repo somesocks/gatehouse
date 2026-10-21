@@ -10,11 +10,11 @@ import (
 	"gatehouse/typed_id"
 )
 
-func postgresMigrationR005ReconcileIdentities(state config.State) RepeatableMigration {
+func postgresMigrationR005ReconcileIdentities(state config.State, crypto config.Crypto) RepeatableMigration {
 	return RepeatableMigration{
 		Index:       5,
 		Description: "reconcile_identities",
-		Builder:     postgresMigrationR005ReconcileIdentitiesBuilder(state.Principals),
+		Builder:     postgresMigrationR005ReconcileIdentitiesBuilder(state.Principals, crypto),
 	}
 }
 
@@ -33,8 +33,8 @@ type postgresMigrationR005Identity struct {
 	Revision int
 }
 
-func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal) MigrationBuilder {
-	resolver := identity.NewPasswordSourceResolver()
+func postgresMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal, crypto config.Crypto) MigrationBuilder {
+	resolver := identity.NewPasswordSourceResolver(crypto)
 	return func(ctx context.Context, session *MigrationSession) (error, string) {
 		principalIDs, err := principalIDsByAlias(ctx, session)
 		if err != nil {

@@ -22,6 +22,13 @@ func TestKDFRoundTrip(t *testing.T) {
 	if string(parsed.Salt) != string(salt) {
 		t.Fatalf("ParseKDF() salt = %x, want %x", parsed.Salt, salt)
 	}
+	for _, algorithm := range []string{"pbkdf2-hmac-sha256-v0", "pbkdf2-hmac-sha256-v1"} {
+		encoded := KDF{Salt: salt, Algorithm: algorithm}.String()
+		err, decoded := ParseKDF(encoded)
+		if err != nil || decoded.Algorithm != algorithm || decoded.String() != encoded {
+			t.Fatalf("algorithm round trip = %#v, %v", decoded, err)
+		}
+	}
 }
 
 func TestParseKDFRejectsInvalidValues(t *testing.T) {

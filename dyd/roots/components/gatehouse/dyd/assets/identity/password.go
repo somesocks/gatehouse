@@ -17,11 +17,10 @@ import (
 	"crypto/pbkdf2"
 	"gatehouse/config"
 	"gatehouse/configschema"
+	"gatehouse/kdf"
 )
 
 const (
-	passwordAlgorithm  = "pbkdf2-hmac-sha256-v1"
-	passwordIterations = 600_000
 	passwordSaltSize   = 16
 	passwordDigestSize = 32
 )
@@ -29,10 +28,11 @@ const (
 type PasswordSourceResolver struct {
 	stdin  *bufio.Reader
 	getenv func(string) string
+	crypto config.Crypto
 }
 
-func NewPasswordSourceResolver() *PasswordSourceResolver {
-	return &PasswordSourceResolver{stdin: bufio.NewReader(os.Stdin), getenv: os.Getenv}
+func NewPasswordSourceResolver(crypto config.Crypto) *PasswordSourceResolver {
+	return &PasswordSourceResolver{stdin: bufio.NewReader(os.Stdin), getenv: os.Getenv, crypto: crypto}
 }
 
 func (resolver *PasswordSourceResolver) Resolve(identityID string, sources []config.PasswordSource) (error, []byte) {
@@ -96,7 +96,7 @@ func resolveDefaultPasswordVerifier(identityID string, sources []config.Password
 	if bytes.IndexByte(password, 0) >= 0 {
 		return fmt.Errorf("password for identity %q must not contain NUL", identityID), configschema.PasswordVerifier{}
 	}
-	verifier, err := passwordVerifier(password)
+	verifier, err := passwordVerifier(password, resolver.crypto)
 	if err != nil {
 		return err, configschema.PasswordVerifier{}
 	}
@@ -105,10 +105,15 @@ func resolveDefaultPasswordVerifier(identityID string, sources []config.Password
 
 type verifierSourceDocument struct {
 	Verifiers       []configschema.PasswordVerifier `json:"verifiers"`
-	PasswordSources []config.PasswordSource          `json:"password_sources,omitempty"`
+	PasswordSources []config.PasswordSource         `json:"password_sources,omitempty"`
+	DefaultKDF      string                          `json:"default_kdf,omitempty"`
 }
 
-func EncodeVerifierSources(configured []configschema.Verifier, passwordSources []config.PasswordSource) (error, string) {
+func EncodeVerifierSources(configured []configschema.Verifier, passwordSources []config.PasswordSource, crypto config.Crypto) (error, string) {
+	algorithm := crypto.KDFAlgorithm()
+	if _, err := kdf.Iterations(algorithm); err != nil {
+		return err, ""
+	}
 	records := make([]configschema.PasswordVerifier, 0, len(configured))
 	for index, verifier := range configured {
 		record, err := configuredPasswordVerifier(verifier)
@@ -117,7 +122,11 @@ func EncodeVerifierSources(configured []configschema.Verifier, passwordSources [
 		}
 		records = append(records, record)
 	}
-	encoded, err := json.Marshal(verifierSourceDocument{Verifiers: records, PasswordSources: passwordSources})
+	// Preserve the legacy source document for the default policy.
+	if algorithm == kdf.Default {
+		algorithm = ""
+	}
+	encoded, err := json.Marshal(verifierSourceDocument{Verifiers: records, PasswordSources: passwordSources, DefaultKDF: algorithm})
 	if err != nil {
 		return fmt.Errorf("encode verifier sources: %w", err), ""
 	}
@@ -138,7 +147,11 @@ func ResolveVerifiersJSON(identityID, source string, resolver *PasswordSourceRes
 		verifiers = append(verifiers, verifier)
 	}
 	if len(configured.PasswordSources) > 0 {
-		resolveErr, verifier := resolveDefaultPasswordVerifier(identityID, configured.PasswordSources, resolver)
+		local := *resolver
+		if configured.DefaultKDF != "" {
+			local.crypto = config.Crypto{DefaultKDF: configured.DefaultKDF}
+		}
+		resolveErr, verifier := resolveDefaultPasswordVerifier(identityID, configured.PasswordSources, &local)
 		if resolveErr != nil {
 			return resolveErr, ""
 		}
@@ -151,28 +164,33 @@ func ResolveVerifiersJSON(identityID, source string, resolver *PasswordSourceRes
 	return nil, string(encoded)
 }
 
-func passwordVerifier(password []byte) (string, error) {
+func passwordVerifier(password []byte, crypto config.Crypto) (string, error) {
+	algorithm := crypto.KDFAlgorithm()
+	iterations, err := kdf.Iterations(algorithm)
+	if err != nil {
+		return "", err
+	}
 	salt := make([]byte, passwordSaltSize)
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("generate password verifier salt: %w", err)
 	}
-	digest, err := pbkdf2.Key(sha256.New, string(password), salt, passwordIterations, passwordDigestSize)
+	digest, err := pbkdf2.Key(sha256.New, string(password), salt, iterations, passwordDigestSize)
 	if err != nil {
 		return "", fmt.Errorf("derive password verifier: %w", err)
 	}
-	return "gh-ver:" + base64.RawURLEncoding.EncodeToString(salt) + "." + base64.RawURLEncoding.EncodeToString(digest) + "?alg=" + passwordAlgorithm, nil
+	return "gh-ver:" + base64.RawURLEncoding.EncodeToString(salt) + "." + base64.RawURLEncoding.EncodeToString(digest) + "?alg=" + algorithm, nil
 }
 
 // NewPasswordVerifier hashes a password supplied through administration APIs.
-func NewPasswordVerifier(password []byte) (string, error) {
+func NewPasswordVerifier(password []byte, crypto config.Crypto) (string, error) {
 	if len(password) == 0 || bytes.IndexByte(password, 0) >= 0 {
 		return "", fmt.Errorf("password must be nonempty and must not contain NUL")
 	}
-	return passwordVerifier(password)
+	return passwordVerifier(password, crypto)
 }
 
-func NewDummyPasswordVerifier() (error, string) {
-	value, err := passwordVerifier([]byte("gatehouse dummy password verifier"))
+func NewDummyPasswordVerifier(crypto config.Crypto) (error, string) {
+	value, err := passwordVerifier([]byte("gatehouse dummy password verifier"), crypto)
 	if err != nil {
 		return err, ""
 	}
@@ -181,8 +199,13 @@ func NewDummyPasswordVerifier() (error, string) {
 
 func VerifyPassword(value string, password []byte) (error, bool) {
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Scheme != "gh-ver" || parsed.Opaque == "" || parsed.Host != "" || parsed.Path != "" || parsed.Fragment != "" || parsed.RawQuery != "alg="+passwordAlgorithm {
+	if err != nil || parsed.Scheme != "gh-ver" || parsed.Opaque == "" || parsed.Host != "" || parsed.Path != "" || parsed.Fragment != "" {
 		return fmt.Errorf("invalid gh-ver password verifier"), false
+	}
+	algorithm := parsed.Query().Get("alg")
+	iterations, err := kdf.Iterations(algorithm)
+	if err != nil || parsed.RawQuery != "alg="+algorithm {
+		return fmt.Errorf("invalid gh-ver password verifier algorithm"), false
 	}
 	parts := strings.Split(parsed.Opaque, ".")
 	if len(parts) != 2 {
@@ -196,7 +219,7 @@ func VerifyPassword(value string, password []byte) (error, bool) {
 	if err != nil || len(digest) != passwordDigestSize {
 		return fmt.Errorf("invalid gh-ver password verifier digest"), false
 	}
-	derived, err := pbkdf2.Key(sha256.New, string(password), salt, passwordIterations, passwordDigestSize)
+	derived, err := pbkdf2.Key(sha256.New, string(password), salt, iterations, passwordDigestSize)
 	if err != nil {
 		return fmt.Errorf("derive password verifier: %w", err), false
 	}

@@ -83,7 +83,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			sqliteMigrationR002SeedGatehouseWorkspace(),
 			sqliteMigrationR003ReconcileWorkspaces(state),
 			sqliteMigrationR004ReconcilePrincipals(state),
-			sqliteMigrationR005ReconcileIdentities(state),
+			sqliteMigrationR005ReconcileIdentities(state, keyring.Crypto()),
 			sqliteMigrationR006ReconcileGroupsAndMemberships(state.Groups),
 			sqliteMigrationR007ReconcileWorkspaceGrants(state),
 			sqliteMigrationR009ReconcileAgentProviders(state, keyring),

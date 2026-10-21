@@ -18,7 +18,7 @@ import (
 
 func TestBearerTokensRoundTripWithSystemKeychain(t *testing.T) {
 	ctx := context.Background()
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, store := database.OpenWithCrypto(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestBearerTokensRoundTripWithSystemKeychain(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	verifierErr, passwordVerifier := identity.NewDummyPasswordVerifier()
+	verifierErr, passwordVerifier := identity.NewDummyPasswordVerifier(store.Crypto())
 	if verifierErr != nil {
 		t.Fatal(verifierErr)
 	}

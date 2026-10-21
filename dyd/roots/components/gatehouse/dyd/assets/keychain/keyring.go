@@ -26,6 +26,14 @@ func NewKeyring(store *database.Store, configured []config.Keychain, resolver *P
 	return newKeyring(store, configured, resolver, rand.Reader)
 }
 
+// Crypto is the creation policy shared by the keyring, migrations and store.
+func (keyring *Keyring) Crypto() config.Crypto {
+	if keyring == nil {
+		return config.Crypto{}
+	}
+	return keyring.store.Crypto()
+}
+
 // NewEphemeralKeyring uses execution-local random passphrases for disposable
 // databases. No passphrases are read from or written to the process environment.
 func NewEphemeralKeyring(store *database.Store, ids []string) (error, *Keyring) {
@@ -81,7 +89,7 @@ func (keyring *Keyring) Candidates() (error, []model.Keychain) {
 		if _, err := io.ReadFull(keyring.random, salt); err != nil {
 			return fmt.Errorf("generate keychain KDF salt for %q: %w", reference.Id, err), nil
 		}
-		kdf := KDF{Salt: salt}
+		kdf := KDF{Salt: salt, Algorithm: keyring.Crypto().KDFAlgorithm()}
 		err, kek := DeriveKEK(passphrase, kdf)
 		if err != nil {
 			return fmt.Errorf("derive KEK for keychain %q: %w", reference.Id, err), nil

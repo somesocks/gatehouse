@@ -173,7 +173,7 @@ func insertCandidates(t *testing.T, store *database.Store, keyring *Keyring) {
 
 func openKeyringTestStore(t *testing.T) *database.Store {
 	t.Helper()
-	err, store := database.Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, store := database.OpenWithCrypto(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

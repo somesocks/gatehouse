@@ -69,7 +69,7 @@ func newResultFileFixture(t *testing.T, cutoff int, endpoint string) *resultFile
 func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string, configuration config.DatabaseConfig) *resultFileFixture {
 	t.Helper()
 	ctx := context.Background()
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

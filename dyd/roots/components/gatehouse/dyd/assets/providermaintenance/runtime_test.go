@@ -50,7 +50,7 @@ func newConfiguredFixture(t *testing.T, configuration config.DatabaseConfig, ref
 	t.Setenv("DBOS__APPVERSION", "")
 	t.Setenv("DBOS__VMID", "")
 	t.Setenv("MAINTENANCE_TEST_KEYCHAIN", "test passphrase")
-	err, store := database.Open(context.Background(), configuration)
+	err, store := database.OpenWithCrypto(context.Background(), configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -490,7 +490,7 @@ func verifyExecutors(t *testing.T, configuration config.DatabaseConfig) {
 	})
 	f := newConfiguredFixture(t, configuration, refresher)
 	a, b := f.add(t, "a", time.Time{}), f.add(t, "b", time.Time{})
-	err, second := database.Open(context.Background(), configuration)
+	err, second := database.OpenWithCrypto(context.Background(), configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -643,7 +643,7 @@ func TestRecoveryAfterSaveBeforeCheckpointDoesNotRefreshUnknownExpiryTwice(t *te
 	if err := dbos.Shutdown(f.ctx, 100*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	err, reopened := database.Open(context.Background(), f.configuration)
+	err, reopened := database.OpenWithCrypto(context.Background(), f.configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -442,7 +442,7 @@ func TestMigratePreparesKeychainsFirstWithoutReplacement(t *testing.T) {
 
 func TestMigrateReconcilesIdentitiesByRevision(t *testing.T) {
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(context.Background(), configuration)
+	err, store := database.OpenWithCrypto(context.Background(), configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

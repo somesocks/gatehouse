@@ -628,6 +628,18 @@ let Services =
         }
         s.record.meta::{ name = Some "Services" }
 
+let Crypto =
+      s.record.from
+        s.record.props::{
+        , required = [] : List { mapKey : Text, mapValue : s.type }
+        , optional = toMap
+            { default_kdf = s.text.from
+                s.text.props::{ variant = s.text.variants.none }
+                s.text.meta::{ description = Some "KDF for new password verifiers and keychains: pbkdf2-hmac-sha256-v1 (default, 600000 iterations) or pbkdf2-hmac-sha256-v0 (insecure, one iteration)" }
+            }
+        }
+        s.record.meta::{ name = Some "Crypto" }
+
 let GatehouseConfig =
       s.record.from
         s.record.props::{
@@ -639,6 +651,7 @@ let GatehouseConfig =
               }
         , optional = toMap
             { database = Database
+              , crypto = Crypto
              , workspaces = Workspaces
               , principals = Principals
 			  , system_grants = SystemGrants

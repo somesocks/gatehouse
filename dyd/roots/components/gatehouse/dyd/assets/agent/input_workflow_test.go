@@ -25,7 +25,7 @@ import (
 func inputDeliveryFixture(t *testing.T, configuration config.DatabaseConfig) (*database.Store, model.SessionEventRef, model.Principal) {
 	t.Helper()
 	ctx := context.Background()
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestInputResponseDeliveryCrashProcess(t *testing.T) {
 		t.Skip("subprocess helper")
 	}
 	ctx := context.Background()
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path})
+	err, store := database.OpenWithCrypto(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestInputResponseDeliveryAcrossCrash(t *testing.T) {
 			if output, err := process.CombinedOutput(); err != nil {
 				t.Fatalf("delivery crash process: %v\n%s", err, output)
 			}
-			err, store = database.Open(ctx, configuration)
+			err, store = database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 			if err != nil {
 				t.Fatal(err)
 			}

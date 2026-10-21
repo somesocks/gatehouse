@@ -8,13 +8,13 @@ import (
 	"strconv"
 
 	"gatehouse/config"
+	"gatehouse/kdf"
 	"gatehouse/model"
 )
 
 const (
 	kdfScheme        = "gh-kdf"
 	encryptionScheme = "gh-enc"
-	kdfAlgorithm     = "pbkdf2-hmac-sha256-v1"
 	encryptionAlg    = "aes128-gcm-v1"
 	saltSize         = 16
 	AADID            = "id"
@@ -24,7 +24,8 @@ const (
 var keyID = regexp.MustCompile(`^[a-z][a-z0-9_-]*$`)
 
 type KDF struct {
-	Salt []byte
+	Salt      []byte
+	Algorithm string
 }
 
 type Encrypted struct {
@@ -38,20 +39,28 @@ func ParseKDF(value string) (error, KDF) {
 	if err != nil {
 		return err, KDF{}
 	}
-	if err := requireQuery(parsed, url.Values{"alg": []string{kdfAlgorithm}}); err != nil {
+	algorithm := parsed.Query().Get("alg")
+	if _, err := kdf.Iterations(algorithm); err != nil {
+		return err, KDF{}
+	}
+	if err := requireQuery(parsed, url.Values{"alg": []string{algorithm}}); err != nil {
 		return err, KDF{}
 	}
 	salt, err := base64.RawURLEncoding.DecodeString(parsed.Opaque)
 	if err != nil || len(salt) != saltSize {
 		return fmt.Errorf("%s salt must be a %d-byte base64url value", kdfScheme, saltSize), KDF{}
 	}
-	return nil, KDF{Salt: salt}
+	return nil, KDF{Salt: salt, Algorithm: algorithm}
 }
 
 func (kdf KDF) String() string {
 	return kdfScheme + ":" + base64.RawURLEncoding.EncodeToString(kdf.Salt) + "?" + url.Values{
-		"alg": []string{kdfAlgorithm},
+		"alg": []string{kdf.algorithm()},
 	}.Encode()
+}
+
+func (value KDF) algorithm() string {
+	return (config.Crypto{DefaultKDF: value.Algorithm}).KDFAlgorithm()
 }
 
 func ParseEncrypted(value string) (error, Encrypted) {

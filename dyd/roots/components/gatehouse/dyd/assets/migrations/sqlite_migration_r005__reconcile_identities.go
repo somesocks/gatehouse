@@ -8,11 +8,11 @@ import (
 	"gatehouse/identity"
 )
 
-func sqliteMigrationR005ReconcileIdentities(state config.State) RepeatableMigration {
+func sqliteMigrationR005ReconcileIdentities(state config.State, crypto config.Crypto) RepeatableMigration {
 	return RepeatableMigration{
 		Index:       5,
 		Description: "reconcile_identities",
-		Builder:     sqliteMigrationR005ReconcileIdentitiesBuilder(state.Principals),
+		Builder:     sqliteMigrationR005ReconcileIdentitiesBuilder(state.Principals, crypto),
 	}
 }
 
@@ -25,12 +25,12 @@ type sqliteMigrationR005IdentityValue struct {
 	Enabled        bool
 }
 
-func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal) MigrationBuilder {
+func sqliteMigrationR005ReconcileIdentitiesBuilder(principals []config.Principal, crypto config.Crypto) MigrationBuilder {
 	return func(_ context.Context, session *MigrationSession) (error, string) {
 		identities := make([]sqliteMigrationR005IdentityValue, 0)
 		for _, principal := range principals {
 			for _, configured := range principal.Identities {
-				err, verifierSource := identity.EncodeVerifierSources(configured.Verifiers, configured.PasswordSources)
+				err, verifierSource := identity.EncodeVerifierSources(configured.Verifiers, configured.PasswordSources, crypto)
 				if err != nil {
 					return fmt.Errorf("encode verifier sources for identity %q: %w", configured.Key, err), ""
 				}

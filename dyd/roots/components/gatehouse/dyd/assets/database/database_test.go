@@ -1439,7 +1439,7 @@ func newTypedID(t *testing.T, kind string) string {
 }
 
 func openConfigured(ctx context.Context, configuration config.DatabaseConfig, workspaces []config.Workspace, principals []config.Principal) (error, *database.Store) {
-	err, database := database.Open(ctx, configuration)
+	err, database := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		return err, nil
 	}

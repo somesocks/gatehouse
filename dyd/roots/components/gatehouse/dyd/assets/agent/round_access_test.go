@@ -124,7 +124,7 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 	t.Setenv("GATEHOUSE_TEST_ROUND_KEYCHAIN", "test passphrase")
 	t.Setenv("GATEHOUSE_TEST_ROUND_API_KEY", "test-key")
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

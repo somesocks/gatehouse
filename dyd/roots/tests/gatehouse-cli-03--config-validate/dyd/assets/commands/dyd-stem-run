@@ -49,6 +49,15 @@ _test() {
     gatehouse config validate "$TEMP_DIR/valid-services.yaml" >"$TEMP_DIR/valid-services.stdout" 2>"$TEMP_DIR/valid-services.stderr"
     assert_contains "$(cat "$TEMP_DIR/valid-services.stderr")" "configuration is valid" "service validation"
 
+    gatehouse config validate "$TEMP_DIR/valid-crypto.yaml" >"$TEMP_DIR/valid-crypto.stdout" 2>"$TEMP_DIR/valid-crypto.stderr"
+    assert_contains "$(cat "$TEMP_DIR/valid-crypto.stderr")" "configuration is valid" "crypto validation"
+
+    if gatehouse config validate "$TEMP_DIR/invalid-crypto.yaml" >"$TEMP_DIR/invalid-crypto.stdout" 2>"$TEMP_DIR/invalid-crypto.stderr"; then
+        printf '%s\n' "[ERROR] Fail: invalid KDF algorithm unexpectedly succeeded" >&2
+        return 1
+    fi
+    assert_contains "$(cat "$TEMP_DIR/invalid-crypto.stderr")" "crypto.default_kdf" "crypto algorithm validation"
+
     if gatehouse config validate "$TEMP_DIR/invalid-unknown-field.yaml" >"$TEMP_DIR/invalid.stdout" 2>"$TEMP_DIR/invalid.stderr"; then
         printf '%s\n' "[ERROR] Fail: unknown-field configuration unexpectedly succeeded" >&2
         return 1

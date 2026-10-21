@@ -44,7 +44,7 @@ func (store *Store) PasswordSet(ctx context.Context, principal, id string, revis
 	if !typed_id.Valid(typed_id.Principal, principal) || !typed_id.Valid(typed_id.Identity, id) || revision < 0 {
 		return ErrPasswordLinkUnavailable
 	}
-	value, err := identity.NewPasswordVerifier(password)
+	value, err := identity.NewPasswordVerifier(password, store.Crypto())
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrPrincipalInput, err)
 	}

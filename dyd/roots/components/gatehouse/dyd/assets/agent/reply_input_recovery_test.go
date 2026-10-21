@@ -47,7 +47,7 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path})
+	err, store := database.OpenWithCrypto(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			defer server.Close()
 			ctx := context.Background()
 			configuration := config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: filepath.Join(t.TempDir(), "gatehouse.sqlite")}
-			err, store := database.Open(ctx, configuration)
+			err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -708,7 +708,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				if err := store.Close(); err != nil {
 					t.Fatal(err)
 				}
-				err, store = database.Open(ctx, configuration)
+				err, store = database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 				if err != nil {
 					t.Fatal(err)
 				}

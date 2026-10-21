@@ -2126,7 +2126,7 @@ func TestSystemWorkspacePrincipalAPI(t *testing.T) {
 func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[string]model.WorkspaceRef) {
 	t.Helper()
 	ctx := context.Background()
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral})
+	err, store := database.OpenWithCrypto(ctx, config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

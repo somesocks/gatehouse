@@ -29,7 +29,7 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 	t.Setenv("GATEHOUSE_TEST_CANCEL_API_KEY", "test-key")
 	testPrelude := `(import (json @native:json/v1) (input @native:gatehouse/input/v1) (policy @native:gatehouse/policy/v1) (let ((input/ask (fn (form) (json/decode (input/ask-json form))))) (eval program)))`
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

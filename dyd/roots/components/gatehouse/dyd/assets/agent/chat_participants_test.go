@@ -30,7 +30,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 	t.Helper()
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, configuration)
+	err, store := database.OpenWithCrypto(ctx, configuration, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -83,7 +83,7 @@ func postgresMigrations(state config.State, keyring *keychain.Keyring) (error, R
 			postgresMigrationR002SeedGatehouseWorkspace(),
 			postgresMigrationR003ReconcileWorkspaces(state),
 			postgresMigrationR004ReconcilePrincipals(state),
-			postgresMigrationR005ReconcileIdentities(state),
+			postgresMigrationR005ReconcileIdentities(state, keyring.Crypto()),
 			postgresMigrationR006ReconcileGroupsAndMemberships(state),
 			postgresMigrationR007ReconcileWorkspaceGrants(state),
 			postgresMigrationR009ReconcileAgentProviders(state, keyring),

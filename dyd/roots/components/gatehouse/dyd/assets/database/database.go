@@ -13,6 +13,7 @@ import (
 
 	"gatehouse/config"
 	"gatehouse/identity"
+	"gatehouse/kdf"
 	"gatehouse/typed_id"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
@@ -24,6 +25,7 @@ type Store struct {
 	kind         config.DatabaseKind
 	databaseURL  string
 	postgresPool *pgxpool.Pool
+	crypto       config.Crypto
 }
 
 const sqliteBusyTimeout = 30_000
@@ -34,6 +36,31 @@ var sqliteFunctions struct {
 }
 
 func Open(ctx context.Context, configuration config.DatabaseConfig) (error, *Store) {
+	return OpenWithCrypto(ctx, configuration, config.Crypto{})
+}
+
+// OpenWithCrypto sets the creation policy for this store and its runtime services.
+func OpenWithCrypto(ctx context.Context, configuration config.DatabaseConfig, crypto config.Crypto) (error, *Store) {
+	if _, err := kdf.Iterations(crypto.KDFAlgorithm()); err != nil {
+		return err, nil
+	}
+	err, store := open(ctx, configuration)
+	if err != nil {
+		return err, nil
+	}
+	store.crypto = crypto
+	return nil, store
+}
+
+// Crypto returns the creation policy; it never overrides stored KDF algorithms.
+func (store *Store) Crypto() config.Crypto {
+	if store == nil {
+		return config.Crypto{}
+	}
+	return store.crypto
+}
+
+func open(ctx context.Context, configuration config.DatabaseConfig) (error, *Store) {
 	switch configuration.Kind {
 	case config.DatabaseKindSQLite:
 		if err := prepareSQLitePath(configuration.Path); err != nil {
@@ -193,7 +220,7 @@ func registerSQLiteFunctions() error {
 			if !ok {
 				return nil, fmt.Errorf("gh_identity_verifiers verifier sources must be text")
 			}
-			err, verifiers := identity.ResolveVerifiersJSON(identityID, source, identity.NewPasswordSourceResolver())
+			err, verifiers := identity.ResolveVerifiersJSON(identityID, source, identity.NewPasswordSourceResolver(config.Crypto{}))
 			if err != nil {
 				return nil, err
 			}

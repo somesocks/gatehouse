@@ -79,7 +79,7 @@ func normalizeOptionalString(value *string) *string {
 	return &text
 }
 
-func principalIdentityValues(input SystemPrincipalIdentityInput, creating bool) (*string, *string, error) {
+func (store *Store) principalIdentityValues(input SystemPrincipalIdentityInput, creating bool) (*string, *string, error) {
 	var key, verifiers *string
 	if creating && (input.Username == nil || input.Password == nil) {
 		return nil, nil, fmt.Errorf("%w: username and password are required", ErrPrincipalInput)
@@ -95,7 +95,7 @@ func principalIdentityValues(input SystemPrincipalIdentityInput, creating bool) 
 	if input.Password != nil {
 		password := []byte(*input.Password)
 		defer clear(password)
-		value, err := identity.NewPasswordVerifier(password)
+		value, err := identity.NewPasswordVerifier(password, store.Crypto())
 		if err != nil {
 			return nil, nil, fmt.Errorf("%w: %v", ErrPrincipalInput, err)
 		}
@@ -113,7 +113,7 @@ func (store *Store) SystemPrincipalIdentityCreate(ctx context.Context, principal
 	if !typed_id.Valid(typed_id.Principal, principal) {
 		return nil, nil
 	}
-	key, verifiers, err := principalIdentityValues(input, true)
+	key, verifiers, err := store.principalIdentityValues(input, true)
 	if err != nil {
 		return err, nil
 	}
@@ -159,7 +159,7 @@ func (store *Store) SystemPrincipalIdentityUpdate(ctx context.Context, principal
 	if revision < 0 || (input.Username == nil && input.Password == nil && input.Enabled == nil) {
 		return fmt.Errorf("%w: expected revision and an update are required", ErrPrincipalInput), nil
 	}
-	key, verifiers, err := principalIdentityValues(input, false)
+	key, verifiers, err := store.principalIdentityValues(input, false)
 	if err != nil {
 		return err, nil
 	}

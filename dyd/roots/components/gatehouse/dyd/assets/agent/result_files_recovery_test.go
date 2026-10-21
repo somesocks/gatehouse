@@ -37,7 +37,7 @@ func TestResultPublicationCrashProcess(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path})
+	err, store := database.OpenWithCrypto(ctx, config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestResultPublicationRecovery(t *testing.T) {
 				}
 			}
 			run(test.firstOutcome, test.firstBody, test.crash)
-			err, store := database.Open(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path})
+			err, store := database.OpenWithCrypto(context.Background(), config.DatabaseConfig{Kind: config.DatabaseKindSQLite, Path: path}, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 			if err != nil {
 				t.Fatal(err)
 			}

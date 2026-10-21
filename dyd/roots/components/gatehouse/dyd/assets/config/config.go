@@ -73,6 +73,9 @@ func ValidateFile(path string) (error, configschema.GatehouseConfig) {
 	if err, _ := ResolveServices(config); err != nil {
 		return err, configschema.GatehouseConfig{}
 	}
+	if err, _ := ResolveCrypto(config); err != nil {
+		return err, configschema.GatehouseConfig{}
+	}
 	return nil, config
 }
 

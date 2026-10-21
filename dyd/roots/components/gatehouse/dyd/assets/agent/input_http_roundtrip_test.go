@@ -31,7 +31,7 @@ import (
 func TestInputAskCompletesThroughFormHTTPAPI(t *testing.T) {
 	ctx := context.Background()
 	databaseConfig := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
-	err, store := database.Open(ctx, databaseConfig)
+	err, store := database.OpenWithCrypto(ctx, databaseConfig, config.Crypto{DefaultKDF: "pbkdf2-hmac-sha256-v0"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -31,6 +31,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 		var databaseConfig config.DatabaseConfig
 		var state config.State
 		var services config.Services
+		var crypto config.Crypto
 		var warnings []config.Warning
 		var err error
 
@@ -61,6 +62,11 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "configure services: %v\n", err)
 			return 1
 		}
+		err, crypto = config.ResolveCrypto(document)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "configure crypto: %v\n", err)
+			return 1
+		}
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
@@ -83,7 +89,7 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			}()
 		}
 
-		err, store := database.Open(ctx, databaseConfig)
+		err, store := database.OpenWithCrypto(ctx, databaseConfig, crypto)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "start database: %v\n", err)
 			return 1

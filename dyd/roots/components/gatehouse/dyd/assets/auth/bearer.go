@@ -42,7 +42,7 @@ type BearerTokens struct {
 }
 
 func Prepare(ctx context.Context, store *database.Store, keyring *keychain.Keyring) (error, *BearerTokens) {
-	err, dummyVerifier := identity.NewDummyPasswordVerifier()
+	err, dummyVerifier := identity.NewDummyPasswordVerifier(store.Crypto())
 	if err != nil {
 		return fmt.Errorf("create dummy password verifier: %w", err), nil
 	}
