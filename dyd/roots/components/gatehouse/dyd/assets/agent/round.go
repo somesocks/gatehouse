@@ -147,6 +147,9 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 
 // Preparation commits only the lifecycle marker and its checkpoint reference.
 // Request construction happens at each attempt, using bounded canonical history.
+// Access is checked once here for the thinking step and its entire tool batch.
+// Revocation takes effect at the next round; replay preserves this committed
+// admission decision instead of rechecking access midway through the round.
 func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, input SessionAgentRoundInput) (model.SessionEventRef, error) {
 	return dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
 		get := func(ref model.SessionEventRef) (error, *model.SessionEvent) {

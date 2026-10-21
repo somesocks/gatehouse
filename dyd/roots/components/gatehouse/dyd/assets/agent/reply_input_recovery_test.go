@@ -66,7 +66,7 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE UPDATE ON workflow_status
 				WHEN NEW.name = 'gatehouse.session-event-reply' AND NEW.status = 'SUCCESS'
 				BEGIN SELECT gh_test_crash(); END`
-		} else if crashPoint == "round-final-replay" || crashPoint == "request-replay" {
+		} else if crashPoint == "round-final-replay" || crashPoint == "round-access-replay" || crashPoint == "request-replay" {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE UPDATE ON workflow_status
 				WHEN NEW.name = 'gatehouse.session-agent-round' AND NEW.status = 'SUCCESS'
 				BEGIN SELECT gh_test_crash(); END`
@@ -108,6 +108,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 		{"openai-responses", "batch-unstarted"},
 		{"openai-responses", "final-replay"},
 		{"openai-responses", "round-final-replay"},
+		{"openai-responses", "round-access-replay"},
 		{"openai-responses", "request-replay"},
 		{"openai-responses", "retry-replay"},
 		{"openai-responses", "rate-replay"},
@@ -231,7 +232,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				}
 				var response any
 				if callProtocol == "openai-responses" {
-					if callNumber == 1 && outcome != "final-replay" && outcome != "final-rollback" && outcome != "round-final-replay" && outcome != "request-replay" {
+					if callNumber == 1 && outcome != "final-replay" && outcome != "final-rollback" && outcome != "round-final-replay" && outcome != "round-access-replay" && outcome != "request-replay" {
 						outputs := make([]any, 0, len(callIDs))
 						for _, callID := range callIDs {
 							callArguments := arguments
@@ -247,7 +248,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						response = map[string]any{"output": outputs}
 					} else {
 						text := "Selected " + providerReplyMarker
-						if (outcome == "final-replay" || outcome == "round-final-replay" || outcome == "request-replay") && callNumber > 1 {
+						if (outcome == "final-replay" || outcome == "round-final-replay" || outcome == "round-access-replay" || outcome == "request-replay") && callNumber > 1 {
 							text = "Discard this new provider response"
 						}
 						final, _ := json.Marshal(map[string]any{"text": text, "attachments": []string{}})
@@ -362,7 +363,7 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 			}
 			process := exec.Command(executable, "-test.run=^TestReplyRecoveryProcess$")
 			process.Env = append(os.Environ(), "GATEHOUSE_TEST_REPLAY_PATH="+configuration.Path, "GATEHOUSE_TEST_REPLAY_PROTOCOL="+protocol)
-			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "request-replay" || outcome == "input-request-rollback" || switching
+			boundaryCrash := outcome == "batch-unstarted" || outcome == "final-replay" || outcome == "retry-replay" || outcome == "decision-rollback" || outcome == "round-final-replay" || outcome == "round-access-replay" || outcome == "request-replay" || outcome == "input-request-rollback" || switching
 			var recoveredContext dbos.Context
 			var recoveredRuntime *agent.SessionEventReplyRuntime
 			if boundaryCrash {
@@ -385,6 +386,14 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				}
 				if _, err := store.ExecContext(ctx, `DROP TRIGGER crash_at_provider_boundary`); err != nil {
 					t.Fatal(err)
+				}
+				if outcome == "round-access-replay" {
+					// Both permissions disappear after the round was admitted. A
+					// real process restart must preserve that round's decision.
+					if _, err := store.ExecContext(ctx, `UPDATE gatehouse_session_grants SET enabled = FALSE;
+						UPDATE gatehouse_workspace_grants SET enabled = FALSE`); err != nil {
+						t.Fatal(err)
+					}
 				}
 				if outcome == "round-final-replay" {
 					err, root := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)

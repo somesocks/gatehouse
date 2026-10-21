@@ -448,10 +448,10 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		}
 	})
 
-	t.Run("revocation, restoration and detached requests use every participation path", func(t *testing.T) {
+	t.Run("revocation and restoration use every participation path", func(t *testing.T) {
 		f := newChatGroupFixture(t, configuration)
 		chat, engineering, finance := f.sharedChat()
-		request := func(bot string) string {
+		request := func(bot string) {
 			t.Helper()
 			err, message := f.send(chat, "bob", model.MessageTargetRef{Kind: "agent", Id: f.bots[bot]})
 			if err != nil {
@@ -461,9 +461,9 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 			if err != nil || child == nil {
 				t.Fatalf("bot request = %#v %v", child, err)
 			}
-			return child.Ref.Id
 		}
-		engRequest, sharedRequest := request("eng"), request("shared")
+		request("eng")
+		request("shared")
 		active := func(bot string, expected bool) {
 			t.Helper()
 			if err, got := f.store.SessionAgentParticipantGet(f.ctx, chat, model.WorkspaceAgentRef{Workspace: f.workspace, Id: f.bots[bot]}); err != nil || got != expected {
@@ -486,20 +486,6 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 				t.Fatalf("%s available = %t, want %t", bot, found, expected)
 			}
 		}
-		detached := func(want ...string) {
-			t.Helper()
-			err, requests := f.store.SessionDetachedAgentRequestsGet(f.ctx, 1000)
-			if err != nil {
-				t.Fatal(err)
-			}
-			ids := []string{}
-			for _, ref := range requests {
-				if ref.Session == chat {
-					ids = append(ids, ref.Id)
-				}
-			}
-			assertChatIDs(t, ids, want...)
-		}
 		update := func(author string, grant *database.SessionParticipantGrant, enabled bool) *database.SessionParticipantGrant {
 			t.Helper()
 			err, changed := f.store.SessionParticipantGrantUpdate(f.ctx, chat, f.people[author], grant.ID, nil, &enabled, grant.Revision)
@@ -511,23 +497,19 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		direct := f.invite(chat, "alice", "agent", f.bots["shared"], authz.Contributor)
 		active("eng", true)
 		active("shared", true)
-		detached()
 		engineering = update("alice", engineering, false)
 		active("eng", false)
 		active("shared", true)
-		detached(engRequest)
 		if err := f.store.SystemGroupAgentUpdate(f.ctx, f.workspace.Id, f.groups["finance"], f.bots["shared"], false, 1); err != nil {
 			t.Fatal(err)
 		}
 		active("shared", true) // Direct grant survives the last group path.
 		direct = update("alice", direct, false)
 		active("shared", false)
-		detached(engRequest, sharedRequest)
 		if err := f.store.SystemGroupAgentUpdate(f.ctx, f.workspace.Id, f.groups["finance"], f.bots["shared"], true, 2); err != nil {
 			t.Fatal(err)
 		}
 		active("shared", true)
-		detached(engRequest)
 		finance = update("alice", finance, false)
 		active("shared", false)
 		enabled := true
@@ -541,20 +523,17 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		active("shared", true)
 		engineering = update("alice", engineering, true)
 		active("eng", true)
-		detached()
 		disabled := false
 		if err, _ := f.store.SystemGroupUpdate(f.ctx, f.workspace.Id, f.groups["engineering"], 1, database.SystemGroupInput{Enabled: &disabled}); err != nil {
 			t.Fatal(err)
 		}
 		active("eng", false)
 		active("shared", true) // Finance still supplies a path.
-		detached(engRequest)
 		if _, err := f.store.Exec(`UPDATE gatehouse_workspace_agents SET enabled = FALSE WHERE workspace_id = `+f.p(1)+` AND id = `+f.p(2), f.workspace.Id, f.bots["shared"]); err != nil {
 			t.Fatal(err)
 		}
 		active("shared", true)
 		available("shared", false)
-		detached(engRequest)
 		if _, err := f.store.Exec(`UPDATE gatehouse_workspace_agents SET enabled = TRUE WHERE workspace_id = `+f.p(1)+` AND id = `+f.p(2), f.workspace.Id, f.bots["shared"]); err != nil {
 			t.Fatal(err)
 		}
@@ -569,7 +548,6 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 			}
 			active("shared", true)
 			available("shared", false)
-			detached(engRequest)
 			if _, err := f.store.Exec(`UPDATE `+resource.table+` SET enabled = TRUE WHERE `+resource.selector, f.bots["shared"]); err != nil {
 				t.Fatal(err)
 			}

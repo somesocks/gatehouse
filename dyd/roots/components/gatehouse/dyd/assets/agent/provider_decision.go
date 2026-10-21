@@ -52,16 +52,6 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCommit(
 		if publicationErr != nil {
 			return result, publicationErr
 		}
-		if err, active := runtime.store.SessionAgentParticipantGetInTransaction(step, transaction, parent.Session, selected.Ref); err != nil {
-			return result, err
-		} else if !active {
-			return result, fmt.Errorf("bot is no longer a participant in this chat")
-		}
-		if err, authorized := runtime.store.SessionRequestAuthorizedGetInTransaction(step, transaction, parent); err != nil {
-			return result, err
-		} else if !authorized {
-			return result, fmt.Errorf("requesting principal is no longer authorized")
-		}
 		persist := func(event model.SessionEvent) (model.SessionEventRef, error) {
 			id, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {

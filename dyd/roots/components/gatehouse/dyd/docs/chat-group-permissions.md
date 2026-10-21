@@ -21,7 +21,18 @@ Within a chat, participants can address its effective participants independently
 of shared groups. A participating group supplies its enabled human and bot
 members. Bots participating through several groups or directly are deduplicated.
 Removing one path leaves other paths in effect; removing the final path stops
-new requests and routes outstanding requests through durable cancellation.
+new requests. Each agent round checks bot participation and the requesting
+principal's workspace, chat, and project access before starting. A round consists
+of one thinking step (including provider retries) and its resulting tool batch.
+An admitted round may finish, including publishing a final answer, if access is
+removed midway; the next round fails normally instead of starting new work.
+Approval and input waits remain part of their admitted tool batch. Individual
+tools still enforce their normal resource-level permissions.
+
+The round's admission decision is committed with its thinking-request marker,
+so recovery of an already-started round does not recheck chat access midway.
+Permission changes do not manufacture cancellation events or trigger a global
+request scan. Explicit user cancellation uses the durable cancellation flow.
 
 Bot, model, and provider availability is checked for discovery, new messages,
 and live model resolution. Disabling availability retains participation paths so

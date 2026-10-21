@@ -91,19 +91,6 @@ func testWorkspaceAdmissionRevokesRetainedResourceAndGroupAccess(t *testing.T, c
 	if err, active := f.store.SessionAgentParticipantGet(f.ctx, chat, model.WorkspaceAgentRef{Workspace: f.workspace, Id: f.bots["eng"]}); err != nil || !active {
 		t.Fatalf("author admission affected bot participation: %t %v", active, err)
 	}
-	err, detached := f.store.SessionDetachedAgentRequestsGet(f.ctx, 100)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, ref := range detached {
-		if ref == request.Ref {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("revoked author's queued request was not detached")
-	}
 	if err, _ := f.send(chat, "alice"); !errors.Is(err, database.ErrSessionParticipantForbidden) {
 		t.Fatalf("revoked author sent message: %v", err)
 	}

@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 
-	"gatehouse/config"
 	"gatehouse/model"
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 )
@@ -105,8 +104,8 @@ func (store *Store) messageTargetMembershipSQL(kind, subject, workspace, session
 
 func (store *Store) sessionAgentParticipationSQL(workspace, session, agent string) string {
 	// Availability is checked when discovering/sending and resolving a live model.
-	// Participation must still permit replay of committed decisions after a bot,
-	// model, or provider is disabled; only losing its chat paths detaches a request.
+	// Participation is independent of bot/model/provider availability. Losing the
+	// last chat path prevents admission to the next round of an existing request.
 	return `EXISTS (SELECT 1 FROM gatehouse_sessions participating_session
 		JOIN gatehouse_workspaces participating_workspace ON participating_workspace.id = participating_session.workspace
 		WHERE participating_session.workspace = ` + workspace + ` AND participating_session.id = ` + session + `
@@ -133,32 +132,4 @@ func (store *Store) sessionAgentParticipantGet(session model.SessionRef, agent m
 		return fmt.Errorf("check bot participation: %w", err), false
 	}
 	return nil, active
-}
-
-// Detached requests are reconciled through the same durable cancellation flow
-// as an explicit user cancellation, including pending tool/input workflows.
-func (store *Store) SessionDetachedAgentRequestsGet(ctx context.Context, limit int) (error, []model.SessionEventRef) {
-	target := "json_extract(events.payload, '$.agent')"
-	if store.kind != config.DatabaseKindSQLite {
-		target = "events.payload ->> 'agent'"
-	}
-	rows, err := store.QueryContext(ctx, `SELECT events.workspace, events.session, events.id FROM gatehouse_session_events events
-		WHERE events.kind = 'agent.request' AND events.author_principal IS NOT NULL
-		AND (NOT `+store.sessionAgentParticipationSQL("events.workspace", "events.session", target)+`
-		OR NOT `+sessionPrincipalAccessSQL("events.workspace", "events.session", "events.author_principal", "'contributor', 'manager'")+`)
-		AND NOT EXISTS (SELECT 1 FROM gatehouse_session_events child WHERE child.workspace = events.workspace AND child.session = events.session AND child.parent = events.id AND child.kind IN ('agent.success', 'agent.failure', 'cancel.request'))
-		ORDER BY events.id LIMIT `+keychainPlaceholder(store.kind)(1), limit)
-	if err != nil {
-		return err, nil
-	}
-	defer rows.Close()
-	refs := []model.SessionEventRef{}
-	for rows.Next() {
-		var ref model.SessionEventRef
-		if err := rows.Scan(&ref.Session.Workspace.Id, &ref.Session.Id, &ref.Id); err != nil {
-			return err, nil
-		}
-		refs = append(refs, ref)
-	}
-	return rows.Err(), refs
 }

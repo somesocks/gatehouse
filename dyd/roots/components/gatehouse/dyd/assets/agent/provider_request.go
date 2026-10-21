@@ -41,9 +41,6 @@ func (runtime *SessionEventReplyRuntime) agentProviderRequestForThinking(ctx con
 	if selected == nil {
 		return fmt.Errorf("agent model or provider is unavailable"), nil, agentProviderRequest{}
 	}
-	if err := runtime.requireAgentParticipant(ctx, thinking.Ref.Session, selected.Ref, *thinking.Parent); err != nil {
-		return err, nil, agentProviderRequest{}
-	}
 	selected.SystemPromptReplacement = runtime.systemPromptReplacement
 	if text, ok := runtime.systemPromptReplacements[selected.Ref]; ok {
 		selected.SystemPromptReplacement = &text

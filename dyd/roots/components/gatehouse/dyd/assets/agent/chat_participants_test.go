@@ -14,19 +14,19 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 )
 
-func TestBotRemovalCancelsQueuedReplyBeforeExecution(t *testing.T) {
-	testBotRemovalCancelsQueuedReply(t, false)
+func TestBotRemovalRejectsQueuedReplyAtRoundStart(t *testing.T) {
+	testBotRemovalRejectsQueuedReply(t, false)
 }
 
-func TestGroupDerivedBotRemovalCancelsQueuedReplyBeforeExecution(t *testing.T) {
-	testBotRemovalCancelsQueuedReply(t, true)
+func TestGroupDerivedBotRemovalRejectsQueuedReplyAtRoundStart(t *testing.T) {
+	testBotRemovalRejectsQueuedReply(t, true)
 }
 
-func TestWorkspaceAdmissionRemovalCancelsQueuedReplyBeforeExecution(t *testing.T) {
-	testBotRemovalCancelsQueuedReply(t, true, true)
+func TestWorkspaceAdmissionRemovalRejectsQueuedReplyAtRoundStart(t *testing.T) {
+	testBotRemovalRejectsQueuedReply(t, true, true)
 }
 
-func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool, removeAuthor ...bool) {
+func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor ...bool) {
 	t.Helper()
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
@@ -131,21 +131,27 @@ func testBotRemovalCancelsQueuedReply(t *testing.T, inherited bool, removeAuthor
 		if err != nil {
 			t.Fatal(err)
 		}
-		cancelled := false
+		failed := false
 		for _, event := range events {
 			if event.Kind == model.SessionEventKindAgentSuccess {
 				t.Fatal("removed bot produced a reply")
 			}
-			if event.Kind == model.SessionEventKindCancelSuccess {
-				cancelled = true
+			if event.Kind == model.SessionEventKindThinkingRequest {
+				t.Fatal("unauthorized request started a thinking round")
+			}
+			if event.Kind == model.SessionEventKindCancelRequest || event.Kind == model.SessionEventKindCancelSuccess {
+				t.Fatal("access revocation created a synthetic cancellation")
+			}
+			if event.Kind == model.SessionEventKindAgentFailure {
+				failed = true
 			}
 		}
-		if cancelled {
+		if failed {
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatal("removed bot's queued request did not reach cancellation")
+	t.Fatal("unauthorized queued request did not fail at the round boundary")
 }
 
 func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
