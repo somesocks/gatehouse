@@ -21,6 +21,7 @@ const (
 	ActivityResourceKindGroup                    = "group"
 	ActivityResourceKindGroupMember              = "group_member"
 	ActivityResourceKindGroupAgent               = "group_agent"
+	ActivityResourceKindGroupSecret              = "group_secret"
 	ActivityResourceKindPrincipal                = "principal"
 	ActivityResourceKindProject                  = "project"
 	ActivityResourceKindProjectFile              = "project_file"
@@ -48,6 +49,7 @@ const (
 var activityEventNames = []string{
 	"agent_model.create", "agent_model.update", "agent_provider.create", "agent_provider.update",
 	"group.create", "group.update", "group_member.create", "group_member.update", "group_agent.create", "group_agent.update",
+	"group_secret.create", "group_secret.update", "group_secret.remove",
 	"identity.create", "identity.update", "identity.remove", "keychain.create",
 	"principal.create", "principal.update",
 	"project.create", "project.update", "project_file.create", "project_file.remove", "project_file.update",
@@ -244,12 +246,12 @@ func (store *Store) ActivityEventAppendInTransaction(ctx context.Context, transa
 }
 
 func activityEventInsertSQL(placeholder func(int) string) string {
-	parameters := make([]string, 38)
+	parameters := make([]string, 39)
 	for index := range parameters {
 		parameters[index] = placeholder(index + 1)
 	}
 	return `INSERT INTO gatehouse_activity_events (
-		id, event, resource_kind, resource_keychain_id, resource_keychain_version, resource_agent_provider, resource_agent_model, resource_group, resource_group_member_group, resource_group_member_principal, detail_identity, resource_principal, resource_project, resource_project_file, resource_project_grant, resource_project_note, resource_project_task, resource_project_record_schema, resource_project_record_attribute, resource_project_record, resource_session, resource_session_event, resource_session_file, resource_session_grant, resource_session_note, resource_session_task, resource_session_secret, resource_storage_provider, resource_system_grant, resource_workspace, resource_workspace_agent_workspace, resource_workspace_agent_id, resource_workspace_grant, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at, resource_group_agent_group, resource_group_agent_agent
+		id, event, resource_kind, resource_keychain_id, resource_keychain_version, resource_agent_provider, resource_agent_model, resource_group, resource_group_member_group, resource_group_member_principal, detail_identity, resource_principal, resource_project, resource_project_file, resource_project_grant, resource_project_note, resource_project_task, resource_project_record_schema, resource_project_record_attribute, resource_project_record, resource_session, resource_session_event, resource_session_file, resource_session_grant, resource_session_note, resource_session_task, resource_session_secret, resource_storage_provider, resource_system_grant, resource_workspace, resource_workspace_agent_workspace, resource_workspace_agent_id, resource_workspace_grant, resource_workspace_storage_provider_workspace, resource_workspace_storage_provider_provider, created_at, resource_group_agent_group, resource_group_agent_agent, resource_group_secret
 	) VALUES (` + strings.Join(parameters, ", ") + `)`
 }
 
@@ -267,7 +269,7 @@ func activityEventValues(activity model.ActivityEvent) []any {
 		return *target
 	}
 	return []any{activity.Ref.Id, activity.Event, activity.ResourceKind,
-		value(activity.ResourceKeychainId), version(activity.ResourceKeychainVersion), value(activity.ResourceAgentProvider), value(activity.ResourceAgentModel), value(activity.ResourceGroup), value(activity.ResourceGroupMemberGroup), value(activity.ResourceGroupMemberPrincipal), value(activity.DetailIdentity), value(activity.ResourcePrincipal), value(activity.ResourceProject), value(activity.ResourceProjectFile), value(activity.ResourceProjectGrant), value(activity.ResourceProjectNote), value(activity.ResourceProjectTask), value(activity.ResourceProjectRecordSchema), value(activity.ResourceProjectRecordAttribute), value(activity.ResourceProjectRecord), value(activity.ResourceSession), value(activity.ResourceSessionEvent), value(activity.ResourceSessionFile), value(activity.ResourceSessionGrant), value(activity.ResourceSessionNote), value(activity.ResourceSessionTask), value(activity.ResourceSessionSecret), value(activity.ResourceStorageProvider), value(activity.ResourceSystemGrant), value(activity.ResourceWorkspace), value(activity.ResourceWorkspaceAgentWorkspace), value(activity.ResourceWorkspaceAgentId), value(activity.ResourceWorkspaceGrant), value(activity.ResourceWorkspaceStorageProviderWorkspace), value(activity.ResourceWorkspaceStorageProviderProvider), activity.CreatedAt, value(activity.ResourceGroupAgentGroup), value(activity.ResourceGroupAgentAgent)}
+		value(activity.ResourceKeychainId), version(activity.ResourceKeychainVersion), value(activity.ResourceAgentProvider), value(activity.ResourceAgentModel), value(activity.ResourceGroup), value(activity.ResourceGroupMemberGroup), value(activity.ResourceGroupMemberPrincipal), value(activity.DetailIdentity), value(activity.ResourcePrincipal), value(activity.ResourceProject), value(activity.ResourceProjectFile), value(activity.ResourceProjectGrant), value(activity.ResourceProjectNote), value(activity.ResourceProjectTask), value(activity.ResourceProjectRecordSchema), value(activity.ResourceProjectRecordAttribute), value(activity.ResourceProjectRecord), value(activity.ResourceSession), value(activity.ResourceSessionEvent), value(activity.ResourceSessionFile), value(activity.ResourceSessionGrant), value(activity.ResourceSessionNote), value(activity.ResourceSessionTask), value(activity.ResourceSessionSecret), value(activity.ResourceStorageProvider), value(activity.ResourceSystemGrant), value(activity.ResourceWorkspace), value(activity.ResourceWorkspaceAgentWorkspace), value(activity.ResourceWorkspaceAgentId), value(activity.ResourceWorkspaceGrant), value(activity.ResourceWorkspaceStorageProviderWorkspace), value(activity.ResourceWorkspaceStorageProviderProvider), activity.CreatedAt, value(activity.ResourceGroupAgentGroup), value(activity.ResourceGroupAgentAgent), value(activity.ResourceGroupSecret)}
 }
 
 func validateActivityEvent(activity *model.ActivityEvent, topics []string) error {
@@ -292,7 +294,7 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 	}
 	targets := []*string{activity.ResourceKeychainId, activity.ResourceAgentProvider, activity.ResourceAgentModel, activity.ResourceGroup, activity.ResourceGroupMemberGroup, activity.ResourceGroupMemberPrincipal, activity.ResourcePrincipal, activity.ResourceProject, activity.ResourceProjectFile, activity.ResourceProjectGrant, activity.ResourceProjectNote, activity.ResourceProjectTask, activity.ResourceProjectRecordSchema, activity.ResourceProjectRecordAttribute, activity.ResourceProjectRecord, activity.ResourceSession, activity.ResourceSessionEvent, activity.ResourceSessionFile, activity.ResourceSessionGrant, activity.ResourceSessionNote, activity.ResourceSessionTask, activity.ResourceSessionSecret, activity.ResourceStorageProvider, activity.ResourceSystemGrant, activity.ResourceWorkspace, activity.ResourceWorkspaceAgentWorkspace, activity.ResourceWorkspaceAgentId, activity.ResourceWorkspaceGrant, activity.ResourceWorkspaceStorageProviderWorkspace, activity.ResourceWorkspaceStorageProviderProvider}
 	count := 0
-	targets = append(targets, activity.ResourceGroupAgentGroup, activity.ResourceGroupAgentAgent)
+	targets = append(targets, activity.ResourceGroupAgentGroup, activity.ResourceGroupAgentAgent, activity.ResourceGroupSecret)
 	for _, target := range targets {
 		if target != nil {
 			count++
@@ -332,6 +334,8 @@ func validateActivityEvent(activity *model.ActivityEvent, topics []string) error
 		return require(1, activity.ResourceAgentModel)
 	case ActivityResourceKindGroup:
 		return require(1, activity.ResourceGroup)
+	case ActivityResourceKindGroupSecret:
+		return require(1, activity.ResourceGroupSecret)
 	case ActivityResourceKindPrincipal:
 		return require(1, activity.ResourcePrincipal)
 	case ActivityResourceKindProject:

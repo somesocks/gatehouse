@@ -15,6 +15,7 @@ const (
 	Principal       = "prn"
 	Identity        = "idt"
 	Group           = "grp"
+	GroupSecret     = "gsc"
 	AgentProvider   = "apr"
 	AgentModel      = "amd"
 	WorkspaceAgent  = "wag"

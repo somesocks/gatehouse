@@ -184,6 +184,8 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/agents/{agent}", groupAgent(store, tokens[0], false))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/member-options", groupMemberOptions(store, tokens[0], false))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/agent-options", groupAgentOptions(store, tokens[0], false))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/secrets", workspaceGroupSecrets(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/groups/{group}/secrets/{secret}", workspaceGroupSecret(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects", workspaceProjects(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}", workspaceProject(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/projects/{project}/members", workspaceProjectMembers(store, tokens[0], ""))

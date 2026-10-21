@@ -401,6 +401,35 @@ let GroupAgent =
         }
         s.record.meta::{ name = Some "GroupAgent", description = Some "A bot assigned to a workspace-local authorization group." }
 
+let GroupSecretRef =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { workspace = s.reference.from s.reference.props::{ to = "WorkspaceRef" } s.reference.meta::{ description = Some "owning workspace identity" }
+            , group = s.reference.from s.reference.props::{ to = "GroupRef" } s.reference.meta::{ description = Some "owning group identity" }
+            , id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed group secret identity" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "GroupSecretRef", description = Some "The stable identity of a group credential." }
+
+let GroupSecret =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { ref = s.reference.from s.reference.props::{ to = "GroupSecretRef" } s.reference.meta::{ description = Some "group secret identity" }
+            , author_principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "immutable secret author" }
+            , description = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "public secret description" }
+            , ciphertext = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "encrypted credential" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the credential is available" }
+            , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic secret revision" }
+            , created_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "creation timestamp" }
+            , updated_at = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "last update timestamp" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "GroupSecret", description = Some "An encrypted credential owned by an authorization group." }
+
 let ProjectRef =
       s.record.from
         s.record.props::{
@@ -1423,6 +1452,7 @@ let ActivityEvent =
                , resource_agent_provider = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent provider resource ID" }
                , resource_agent_model = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "agent model resource ID" }
                , resource_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group resource ID" }
+               , resource_group_secret = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group secret resource ID" }
                , resource_group_member_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership group ID" }
                , resource_group_member_principal = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "group membership principal ID" }
                , resource_group_agent_group = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "bot membership group ID" }
@@ -1628,6 +1658,8 @@ in  Document::{
 			 , s.root.from SessionTaskRef s.root.meta::{ name = "SessionTaskRef" }
 			 , s.root.from SessionTask s.root.meta::{ name = "SessionTask" }
 			 , s.root.from SessionSecretRef s.root.meta::{ name = "SessionSecretRef" }
+			 , s.root.from GroupSecretRef s.root.meta::{ name = "GroupSecretRef" }
+			 , s.root.from GroupSecret s.root.meta::{ name = "GroupSecret" }
 			 , s.root.from SessionSecret s.root.meta::{ name = "SessionSecret" }
              , s.root.from GatewayRef s.root.meta::{ name = "GatewayRef" }
              , s.root.from SessionEventRef s.root.meta::{ name = "SessionEventRef" }

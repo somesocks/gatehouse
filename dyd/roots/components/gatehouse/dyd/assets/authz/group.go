@@ -5,6 +5,9 @@ type GroupAction string
 const (
 	GroupEdit             GroupAction = "group.edit"
 	GroupMembershipManage GroupAction = "group.membership.manage"
+	GroupSecretCreate     GroupAction = "group.secret.create"
+	GroupSecretEdit       GroupAction = "group.secret.edit"
+	GroupSecretRemove     GroupAction = "group.secret.remove"
 )
 
 func ValidGroupRole(role string) bool {
@@ -12,7 +15,7 @@ func ValidGroupRole(role string) bool {
 }
 
 func GroupAllows(roles []Role, action GroupAction) bool {
-	if action != GroupEdit && action != GroupMembershipManage {
+	if action != GroupEdit && action != GroupMembershipManage && action != GroupSecretCreate && action != GroupSecretEdit && action != GroupSecretRemove {
 		return false
 	}
 	for _, role := range roles {

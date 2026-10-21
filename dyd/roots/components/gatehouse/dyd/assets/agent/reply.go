@@ -916,6 +916,7 @@ func (runtime *SessionEventReplyRuntime) toolCallAttempt(ctx dbos.Context, input
 		)
 	}
 	modules = append(modules,
+		runtime.groupSecretsModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionFilesModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionNotesModule(ctx, request.Ref.Session, principal, agent),
 		runtime.sessionTasksModule(ctx, request.Ref.Session, principal, agent),

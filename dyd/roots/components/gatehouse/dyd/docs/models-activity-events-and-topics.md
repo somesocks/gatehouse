@@ -133,6 +133,15 @@ and workspace-bot binding IDs in `resource_group_agent_group` and
 `resource_group_agent_agent`. Disabled memberships retain their identities and
 activity history. Membership changes and their activity are committed atomically.
 
+### Group Secret
+
+- `group_secret.create`, `group_secret.update`, `group_secret.remove` — credential
+  metadata or value changes, including removal.
+  - `wsp_.../grp_.../gsc_...`
+  - `prn_.../gsc_...` for current enabled group members with workspace access.
+  - Resource kind: `group_secret`; target: `resource_group_secret`.
+  - Credential values are never included in activity events.
+
 ### Workspace Grant
 
 - `workspace_grant.create` - emitted when a workspace grant is created.

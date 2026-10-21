@@ -13,6 +13,7 @@
   import { createSystemGroupController } from "../system/workspaces/system-group-controller.svelte"
   import SystemGroupDetailsDialog from "../system/workspaces/SystemGroupDetailsDialog.svelte"
   import SystemGroupMembershipDialog from "../system/workspaces/SystemGroupMembershipDialog.svelte"
+  import GroupSecretsSection from "./GroupSecretsSection.svelte"
 
   let {
     workspaceID,
@@ -358,6 +359,11 @@
         />
       {/snippet}
     </UI.ManagementSection>
+    {#if scope === "workspace"}
+      {#key `${workspaceID}/${groupID}`}
+        <GroupSecretsSection {workspaceID} {groupID} />
+      {/key}
+    {/if}
   </UI.ManagementLayout>
   {#if canManage && dialog === "details"}<SystemGroupDetailsDialog
       {controller}

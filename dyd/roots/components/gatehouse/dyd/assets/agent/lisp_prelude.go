@@ -31,6 +31,7 @@ const agentPreludeProjectImports = `
 `
 
 const agentPreludeEnd = `
+        (group/secrets @native:gatehouse/group/secrets/v1)
         (session/files @native:gatehouse/session/files/v1)
         (session/notes @native:gatehouse/session/notes/v1)
         (session/tasks @native:gatehouse/session/tasks/v1)

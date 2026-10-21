@@ -3,3 +3,5 @@
 The lisp environment includes `session/*` to read and write session files, notes, and secrets. Run `(help/env "session/")` to see available session capabilities.
 
 Check what session notes, files, or secrets are available before fulfilling a request when they may provide useful context.
+
+`group/secrets` provides credentials only from groups shared by the current bot and acting person. Both must be enabled members of a credential's group. Use `(group/secrets/list)` to discover credential IDs, descriptions, and source groups, then `(group/secrets/read id)` when needed. Credential values are secret-tainted and must not be printed or copied into ordinary output.

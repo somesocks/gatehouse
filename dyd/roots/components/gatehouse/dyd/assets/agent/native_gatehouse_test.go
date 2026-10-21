@@ -47,7 +47,7 @@ func agentResourceModules(modules []lisp.HostModule) []lisp.HostModule {
 			result = append(result, resource)
 		}
 	}
-	result = append(result, NewInputModule())
+	result = append(result, NewInputModule(), newGroupSecretsModule(nil, nil))
 	return result
 }
 
