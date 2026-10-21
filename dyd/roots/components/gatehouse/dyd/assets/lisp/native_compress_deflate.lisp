@@ -153,17 +153,37 @@
         (if (= count 0)
             values
             (list/drop (int/sub count 1) (tail values)))))
-     (fixed-lengths
-      (fn (index values)
-        (if (= index 288)
-            (reverse values)
-            (fixed-lengths
-              (int/add index 1)
-              (pair
-                (if (int/lt index 144) 8 (if (int/lt index 256) 9 (if (int/lt index 280) 7 8)))
-                values)))))
-     (fixed-literal (h/build (list/vector (fixed-lengths 0 null))))
-     (fixed-distance (h/build (list/vector (reverse (repeat 5 32 null)))))
+      ; RFC 1951 section 3.2.6: fixed canonical codes need no histogram or insertion.
+      ; 7-bit codes 0..23 map to symbols 256..279; 8-bit codes 48..191 to 0..143
+      ; and 192..199 to 280..287; 9-bit codes 400..511 to 144..255.
+      (fixed-symbol
+       (fn (code width)
+         (if (= width 7)
+             (if (int/lt code 24) (int/add 256 code) null)
+             (if (= width 8)
+                 (if (int/lt code 192)
+                     (int/sub code 48)
+                     (if (int/lt code 200) (int/add code 88) null))
+                 (if (= width 9) (int/sub code 256) null)))))
+      (fixed-literal-tree
+       (fn (code width)
+         (let ((symbol (fixed-symbol code width)))
+           (if (null? symbol)
+               (h/node
+                 null
+                 (fixed-literal-tree (int/mul code 2) (int/add width 1))
+                 (fixed-literal-tree (int/add (int/mul code 2) 1) (int/add width 1)))
+               (h/node symbol null null)))))
+      (fixed-distance-tree
+       (fn (code width)
+         (if (= width 5)
+             (h/node code null null)
+             (h/node
+               null
+               (fixed-distance-tree (int/mul code 2) (int/add width 1))
+               (fixed-distance-tree (int/add (int/mul code 2) 1) (int/add width 1))))))
+      (fixed-literal (fixed-literal-tree 0 0))
+      (fixed-distance (fixed-distance-tree 0 0))
      (length-base (vector/from 3 4 5 6 7 8 9 10 11 13 15 17 19 23 27 31 35 43 51 59 67 83 99 115 131 163 195 227 258))
      (length-extra (vector/from 0 0 0 0 0 0 0 0 1 1 1 1 2 2 2 2 3 3 3 3 4 4 4 4 5 5 5 5 0))
      (distance-base (vector/from 1 2 3 4 5 7 9 13 17 25 33 49 65 97 129 193 257 385 513 769 1025 1537 2049 3073 4097 6145 8193 12289 16385 24577))

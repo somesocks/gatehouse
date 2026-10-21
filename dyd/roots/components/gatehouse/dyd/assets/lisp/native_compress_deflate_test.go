@@ -19,6 +19,102 @@ func TestNativeCompressDeflateLisp(t *testing.T) {
 	}
 }
 
+func TestNativeCompressDeflateFixedTreesMatchCanonicalBuilder(t *testing.T) {
+	env := prelude()
+	err, exports := (&moduleLoader{cache: newModuleCache()}).load(moduleReference{scheme: moduleReferenceNative, uri: nativeCompressDeflateID}, env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var moduleEnv *environment
+	for _, export := range exports {
+		if export.name == "decode" {
+			base, _ := unwrap(export.value)
+			decode, ok := base.(*closure)
+			if !ok {
+				t.Fatalf("DEFLATE decode is %T, want a Lisp closure", base)
+			}
+			moduleEnv = decode.env
+		}
+	}
+	if moduleEnv == nil {
+		t.Fatal("DEFLATE decode export is missing")
+	}
+	err, builder := moduleEnv.lookup("h/build")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, vectorFrom := moduleEnv.lookup("vector/from")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, binding string
+		lengths       []int
+	}{
+		{"literal-length", "fixed-literal", fixedDeflateLiteralLengths()},
+		{"distance", "fixed-distance", []int{5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			evaluator := newEvaluator(nil)
+			lengths := make([]Expr, len(test.lengths))
+			for index, width := range test.lengths {
+				lengths[index] = integer(int64(width))
+			}
+			err, vector := evaluator.call(vectorFrom, moduleEnv, lengths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, expected := evaluator.call(builder, moduleEnv, []Expr{vector})
+			if err != nil {
+				t.Fatal(err)
+			}
+			err, actual := moduleEnv.lookup(test.binding)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Compare every branch and leaf, including reserved fixed-code symbols.
+			if !equal(actual, expected) {
+				t.Fatal("direct fixed tree differs from the canonical Huffman builder")
+			}
+		})
+	}
+}
+
+func fixedDeflateLiteralLengths() []int {
+	lengths := make([]int, 288)
+	for symbol := range lengths {
+		switch {
+		case symbol < 144:
+			lengths[symbol] = 8
+		case symbol < 256:
+			lengths[symbol] = 9
+		case symbol < 280:
+			lengths[symbol] = 7
+		default:
+			lengths[symbol] = 8
+		}
+	}
+	return lengths
+}
+
+func BenchmarkNativeModuleImports(b *testing.B) {
+	for _, test := range []struct{ name, source string }{
+		{"bare", "(int/add 1 2)"},
+		{"deflate", "(import (deflate @native:compress/deflate/v1) null)"},
+		{"zip", "(import (zip @native:archive/zip/v1) null)"},
+		{"zip-and-deflate", "(import (zip @native:archive/zip/v1) (deflate @native:compress/deflate/v1) null)"},
+	} {
+		b.Run(test.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				if err, _ := Run(test.source); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
 func TestNativeCompressDeflateDocumentationExamples(t *testing.T) {
 	cache := newModuleCache()
 	err, exports := (&moduleLoader{cache: cache}).load(moduleReference{scheme: moduleReferenceNative, uri: nativeCompressDeflateID}, prelude())
