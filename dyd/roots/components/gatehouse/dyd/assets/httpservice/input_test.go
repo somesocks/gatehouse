@@ -23,8 +23,12 @@ type inputTestDispatcher struct {
 	calls int
 }
 
-func (dispatcher *inputTestDispatcher) Reconcile() error {
-	return nil
+func (dispatcher *inputTestDispatcher) CreateMessage(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	return dispatcher.store.SessionMessagesCreate(ctx, event)
+}
+
+func (dispatcher *inputTestDispatcher) RespondToApproval(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	return dispatcher.store.SessionApprovalResponseCreate(ctx, event)
 }
 
 func (dispatcher *inputTestDispatcher) RespondToInput(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {

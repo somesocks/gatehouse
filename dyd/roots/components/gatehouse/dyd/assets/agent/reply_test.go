@@ -84,10 +84,6 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		AuthorPrincipal: &alicePrincipal,
 		Payload:         map[string]interface{}{"text": "hello", "agents": []string{requestedID}},
 	}
-	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
-		t.Fatal(err)
-	}
-
 	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-agent-test", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -100,10 +96,7 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
-	if err := runtime.Reconcile(); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Reconcile(); err != nil {
+	if err, _ := runtime.CreateMessage(ctx, message); err != nil {
 		t.Fatal(err)
 	}
 
@@ -144,10 +137,6 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
-	}
 	for {
 		err, name := store.SessionNameGet(ctx, session)
 		if err != nil {
@@ -163,10 +152,6 @@ func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 			t.Fatal("session name was not generated")
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-	err, nameTasks := store.SessionNameTasksGet(ctx, 10)
-	if err != nil || len(nameTasks) != 0 {
-		t.Fatalf("SessionNameTasksGet() = (%#v, %v)", nameTasks, err)
 	}
 	rows, err := store.QueryContext(ctx, `
 		SELECT function_name, length(COALESCE(output, ''))
@@ -289,9 +274,6 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
 		t.Fatalf("CancelReply() = (%#v, %v), want %#v", stored, err, cancellation.Ref)
 	}
-	if err := runtime.Reconcile(); err != nil {
-		t.Fatal(err)
-	}
 
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -314,10 +296,6 @@ func TestSessionEventReplyRuntimeCancelsQueuedReply(t *testing.T) {
 			t.Fatalf("session events = %#v, want message, agent request, cancellation request, agent failure, and cancellation success", events)
 		}
 		time.Sleep(20 * time.Millisecond)
-	}
-	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("SessionEventReplyTasksGet() = (%#v, %v)", tasks, err)
 	}
 }
 

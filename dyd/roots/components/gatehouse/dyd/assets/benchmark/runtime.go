@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"sync"
 	"time"
 
 	"gatehouse/agent"
@@ -31,13 +30,12 @@ type nativeBinding struct {
 }
 
 type nativeRuntime struct {
-	store       *database.Store
-	keyring     *keychain.Keyring
-	runtime     *agent.SessionEventReplyRuntime
-	principal   model.PrincipalRef
-	bindings    map[nativeSelection]nativeBinding
-	reconcileMu sync.Mutex
-	shutdown    func() error
+	store     *database.Store
+	keyring   *keychain.Keyring
+	runtime   *agent.SessionEventReplyRuntime
+	principal model.PrincipalRef
+	bindings  map[nativeSelection]nativeBinding
+	shutdown  func() error
 }
 
 func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[string]benchmarkmodel.Provider, models map[string]benchmarkmodel.Model, prompts map[string]benchmarkmodel.SystemPrompt, environments map[string]benchmarkmodel.LispEnvironment, credentials map[string][]byte, progress io.Writer) (resultErr error, result *nativeRuntime) {
@@ -189,12 +187,6 @@ func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[str
 	}
 	native.shutdown = func() error { return dbos.Shutdown(durable, 5*time.Second) }
 	return nil, native
-}
-
-func (native *nativeRuntime) reconcile() error {
-	native.reconcileMu.Lock()
-	defer native.reconcileMu.Unlock()
-	return native.runtime.Reconcile()
 }
 
 func (native *nativeRuntime) close() error {

@@ -316,11 +316,8 @@ func (native *nativeRuntime) executeRun(ctx context.Context, capture *sql.DB, ru
 		return err
 	}
 	author := model.Principal{Ref: principal, Enabled: true}
-	if err, _ := store.SessionMessagesCreate(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session.Ref, Id: messageID}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &author,
+	if err, _ := runtime.CreateMessage(ctx, model.SessionEvent{Ref: model.SessionEventRef{Session: session.Ref, Id: messageID}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &author,
 		Payload: map[string]interface{}{"text": question.Text, "agents": []string{binding.agentID}}}); err != nil {
-		return err
-	}
-	if err := native.reconcile(); err != nil {
 		return err
 	}
 	var stopping error

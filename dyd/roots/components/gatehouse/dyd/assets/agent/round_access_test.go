@@ -57,21 +57,13 @@ func TestRoundAccessRevocationAllowsCurrentRoundToFinish(t *testing.T) {
 				release := func() { once.Do(func() { close(resume) }) }
 				defer release()
 
-				store, runtime, request, revoke := roundAccessFixture(t, server.URL, removal)
-				if err := runtime.Reconcile(); err != nil {
-					t.Fatal(err)
-				}
+				store, _, request, revoke := roundAccessFixture(t, server.URL, removal)
 				select {
 				case <-started:
 				case <-time.After(10 * time.Second):
 					t.Fatal("thinking did not reach the provider")
 				}
 				revoke()
-				// Reconciliation must not manufacture a cancellation for an active
-				// round, even when every permission path has been removed.
-				if err := runtime.Reconcile(); err != nil {
-					t.Fatal(err)
-				}
 				release()
 				deadline := time.Now().Add(10 * time.Second)
 				for {
@@ -194,13 +186,6 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 		}
 	}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: session.Ref, Id: "sev_00000000000000000000000000"}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &model.Principal{Ref: alice, Enabled: true}, Payload: map[string]interface{}{"text": "Calculate", "agents": []string{bot}}}
-	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
-		t.Fatal(err)
-	}
-	err, request := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
-	if err != nil || request == nil {
-		t.Fatalf("agent request = %#v (%v)", request, err)
-	}
 	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "round-access-test", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -208,6 +193,13 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if err, _ := runtime.CreateMessage(ctx, message); err != nil {
+		t.Fatal(err)
+	}
+	err, request := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
+	if err != nil || request == nil {
+		t.Fatalf("agent request = %#v (%v)", request, err)
 	}
 	if err := dbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)

@@ -153,9 +153,6 @@ func TestReplyCancellationStopsQueuedReplyAcrossRestart(t *testing.T) {
 	if err, stored := runtime.CancelReply(ctx, cancellation); err != nil || stored.Ref != cancellation.Ref {
 		t.Fatalf("cancel request after restart = (%#v, %v)", stored, err)
 	}
-	if err := runtime.Reconcile(); err != nil {
-		t.Fatal(err)
-	}
 	if err := store.QueryRowContext(ctx, `SELECT status FROM workflow_status WHERE workflow_uuid = ?`, "session-event-reply:"+request.Ref.Id).Scan(&status); err != nil || status != "CANCELLED" {
 		t.Fatalf("reply workflow after restart = (%q, %v), want CANCELLED", status, err)
 	}

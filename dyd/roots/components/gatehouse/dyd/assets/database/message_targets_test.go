@@ -85,9 +85,9 @@ func TestMessageTargetsSnapshotEffectiveParticipantsAndDispatchOnlyBots(t *testi
 	if _, legacy := stored.Payload["agents"]; legacy {
 		t.Fatal("new message retained duplicate agents field")
 	}
-	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 2 {
-		t.Fatalf("reply tasks = %#v, %v", tasks, err)
+	requests := agentRequests(t, ctx, store, session)
+	if len(requests) != 2 {
+		t.Fatalf("agent requests = %#v", requests)
 	}
 	if _, err := store.Exec(`UPDATE gatehouse_principals SET alias = 'renamed' WHERE id = ?`, bob.Id); err != nil {
 		t.Fatal(err)
@@ -112,14 +112,29 @@ func TestMessageTargetsSnapshotEffectiveParticipantsAndDispatchOnlyBots(t *testi
 			t.Fatalf("invalid target %#v = %v", ref, err)
 		}
 	}
-	// Human/group-only messages create no additional bot tasks.
+	// Human/group-only messages create no additional agent requests.
 	message.Ref.Id, _ = typed_id.New(typed_id.SessionEvent)
 	message.Payload = map[string]interface{}{"text": "For the team", "targets": targets[:2]}
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 		t.Fatal(err)
 	}
-	err, tasks = store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 2 {
-		t.Fatalf("human targets dispatched a bot: %#v, %v", tasks, err)
+	requests = agentRequests(t, ctx, store, session)
+	if len(requests) != 2 {
+		t.Fatalf("human targets requested a bot: %#v", requests)
 	}
+}
+
+func agentRequests(t *testing.T, ctx context.Context, store *database.Store, session model.SessionRef) []model.SessionEvent {
+	t.Helper()
+	err, events := store.SessionEventsGet(ctx, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := []model.SessionEvent{}
+	for _, event := range events {
+		if event.Kind == model.SessionEventKindAgentRequest {
+			requests = append(requests, event)
+		}
+	}
+	return requests
 }

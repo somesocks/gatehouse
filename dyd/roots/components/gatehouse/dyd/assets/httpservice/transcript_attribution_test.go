@@ -39,7 +39,7 @@ func TestTranscriptHydratesBotAttributionIndependentlyOfParticipation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	request := func(method, path, body, bearer string, status int) *httptest.ResponseRecorder {
 		t.Helper()
 		r := httptest.NewRequest(method, path, strings.NewReader(body))

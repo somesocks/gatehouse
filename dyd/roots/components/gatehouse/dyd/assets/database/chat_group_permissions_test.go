@@ -282,7 +282,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		if err, _ := f.send(chat, "alice", model.MessageTargetRef{Kind: "group", Id: f.groups["engineering"]}, model.MessageTargetRef{Kind: "principal", Id: f.people["bob"].Id}); !errors.Is(err, database.ErrMessageTarget) {
 			t.Fatalf("mixed invitation = %v", err)
 		}
-		for table, want := range map[string]int{"gatehouse_session_grants": 1, "gatehouse_session_events": 0, "gatehouse_agent_tasks__session_event_reply": 0} {
+		for table, want := range map[string]int{"gatehouse_session_grants": 1, "gatehouse_session_events": 0} {
 			var count int
 			if err := f.store.QueryRow(`SELECT COUNT(*) FROM `+table+` WHERE workspace = `+f.p(1)+` AND session = `+f.p(2), f.workspace.Id, chat.Id).Scan(&count); err != nil || count != want {
 				t.Fatalf("rejected invitation changed %s: %d, %v", table, count, err)

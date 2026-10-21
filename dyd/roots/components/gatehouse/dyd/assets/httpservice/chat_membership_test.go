@@ -54,7 +54,7 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, &bob, nil, authz.Contributor); err != nil {
 		t.Fatal(err)
 	}
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	base := "/api/v1/workspaces/" + workspace.Id + "/sessions/" + id
 	request := func(method, path, body, token string, status int) *httptest.ResponseRecorder {
 		t.Helper()

@@ -52,7 +52,8 @@ func Start(configuration config.HTTPService, store *database.Store, tokens ...*a
 }
 
 type ReplyDispatcher interface {
-	Reconcile() error
+	CreateMessage(context.Context, model.SessionEvent) (error, model.SessionEvent)
+	RespondToApproval(context.Context, model.SessionEvent) (error, model.SessionEvent)
 }
 
 type ReplyCancellationDispatcher interface {
@@ -1853,7 +1854,11 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 			AuthorPrincipal: &claims.Principal,
 			Payload:         payload,
 		}
-		err, stored := store.SessionMessagesCreate(request.Context(), event)
+		if dispatcher == nil {
+			http.Error(response, "agent runtime unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		err, stored := dispatcher.CreateMessage(request.Context(), event)
 		if err != nil {
 			if errors.Is(err, database.ErrSessionParticipantForbidden) {
 				http.Error(response, "You do not have permission to send to recipients outside this chat.", http.StatusForbidden)
@@ -1870,9 +1875,6 @@ func workspaceSessionMessages(store *database.Store, tokens *auth.BearerTokens, 
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
-		}
-		if dispatcher != nil {
-			_ = dispatcher.Reconcile()
 		}
 		writeJSONStatus(response, http.StatusAccepted, hydrated[0])
 	}
@@ -3383,7 +3385,11 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 		event := model.SessionEvent{
 			Ref: model.SessionEventRef{Session: session, Id: id}, Parent: &approvalRef, Kind: kind, AuthorPrincipal: &claims.Principal, Payload: payload,
 		}
-		err, stored := store.SessionApprovalResponseCreate(request.Context(), event)
+		if dispatcher == nil {
+			http.Error(response, "agent runtime unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		err, stored := dispatcher.RespondToApproval(request.Context(), event)
 		if errors.Is(err, database.ErrSessionApprovalResolved) {
 			http.Error(response, "approval is already resolved", http.StatusConflict)
 			return
@@ -3391,9 +3397,6 @@ func workspaceSessionApproval(store *database.Store, tokens *auth.BearerTokens, 
 		if err != nil {
 			http.Error(response, "internal server error", http.StatusInternalServerError)
 			return
-		}
-		if dispatcher != nil {
-			_ = dispatcher.Reconcile()
 		}
 		writeJSONStatus(response, http.StatusAccepted, stored)
 	}

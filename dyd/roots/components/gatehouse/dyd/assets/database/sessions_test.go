@@ -359,30 +359,6 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 		t.Fatalf("SessionEventsGet() = %#v", events)
 	}
 	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001', '2026-01-01T00:00:00.000Z')
-	`, workspace.Id); err != nil {
-		t.Fatalf("create session event reply task: %v", err)
-	}
-	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001', '2026-01-01T00:00:00.000Z')
-	`, workspace.Id); err == nil {
-		t.Fatal("session event reply tasks accepted a duplicate event")
-	}
-	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000007', '2026-01-01T00:00:00.000Z')
-	`, workspace.Id); err == nil {
-		t.Fatal("session event reply tasks accepted a missing event")
-	}
-	if _, err := store.ExecContext(ctx, `
-		INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event)
-		VALUES (?, 'ses_00000000000000000000000000', 'sev_00000000000000000000000001')
-	`, workspace.Id); err == nil {
-		t.Fatal("session event reply tasks accepted a missing timestamp")
-	}
-	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_keychains (id, version, kek_kdf, key, enabled)
 		VALUES ('events', 1, 'kdf', 'key', TRUE);
 		INSERT INTO gatehouse_agent_providers (id, revision, protocol, endpoint, keychain_id, keychain_version, credential, enabled)
@@ -880,7 +856,7 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 	}
 }
 
-func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesKeyset(t *testing.T) {
+func TestSessionMessagesCreateOnlyAddsRequestsForTargetedMessagesAndEventsPageUsesKeyset(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -926,9 +902,8 @@ func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesK
 	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
 		t.Fatal(err)
 	}
-	err, tasks := store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("SessionEventReplyTasksGet() for human-only message = (%#v, %v)", tasks, err)
+	if requests := agentRequests(t, ctx, store, session); len(requests) != 0 {
+		t.Fatalf("human-only message created agent requests: %#v", requests)
 	}
 	targeted := message
 	targeted.Ref.Id = "sev_00000000000000000000000004"
@@ -936,25 +911,20 @@ func TestSessionMessagesCreateOnlyAddsTasksForTargetedMessagesAndEventsPageUsesK
 	if err, _ := store.SessionMessagesCreate(ctx, targeted); err != nil {
 		t.Fatal(err)
 	}
-	err, tasks = store.SessionEventReplyTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 2 || tasks[0].Event == targeted.Ref || tasks[1].Event == targeted.Ref {
-		t.Fatalf("SessionEventReplyTasksGet() for targeted message = (%#v, %v)", tasks, err)
+	requests := agentRequests(t, ctx, store, session)
+	if len(requests) != 2 {
+		t.Fatalf("targeted message agent requests = %#v", requests)
 	}
 	targets := map[string]bool{}
-	for _, task := range tasks {
-		err, request := store.SessionEventGet(ctx, task.Event)
-		if err != nil || request == nil || request.Kind != "agent.request" || request.Parent == nil || *request.Parent != targeted.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice {
-			t.Fatalf("created agent request = (%#v, %v)", request, err)
+	for _, request := range requests {
+		if request.Parent == nil || *request.Parent != targeted.Ref || request.AuthorPrincipal == nil || request.AuthorPrincipal.Ref != alice {
+			t.Fatalf("created agent request = %#v", request)
 		}
 		target, _ := request.Payload["agent"].(string)
 		targets[target] = true
 	}
 	if !targets[agentID] || !targets[secondAgentID] || len(targets) != 2 {
 		t.Fatalf("agent request targets = %#v", targets)
-	}
-	err, nameTasks := store.SessionNameTasksGet(ctx, 10)
-	if err != nil || len(nameTasks) != 1 || nameTasks[0].Session != session {
-		t.Fatalf("SessionNameTasksGet() for targeted message = (%#v, %v)", nameTasks, err)
 	}
 
 	if _, err := store.ExecContext(ctx, `
@@ -1543,7 +1513,7 @@ func TestSessionEventsSearch(t *testing.T) {
 	}
 }
 
-func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
+func TestSessionApprovalResponseCreatesOneTerminalEvent(t *testing.T) {
 	ctx := context.Background()
 	configuration := config.DatabaseConfig{Kind: config.DatabaseKindEphemeral}
 	err, store := database.Open(ctx, configuration)
@@ -1590,20 +1560,12 @@ func TestSessionApprovalResponseCreatesOneDecisionTask(t *testing.T) {
 	if err != nil || stored.Ref != decision.Ref {
 		t.Fatalf("SessionApprovalResponseCreate() = (%#v, %v)", stored, err)
 	}
-	err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Approval != request.Ref || tasks[0].Response != decision.Ref {
-		t.Fatalf("SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
-	}
 	rejected := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000004"}, Parent: &request.Ref, Kind: model.SessionEventKindApprovalFailure, AuthorPrincipal: &alicePrincipal, Payload: map[string]interface{}{"code": "rejected"}}
 	err, _ = store.SessionApprovalResponseCreate(ctx, rejected)
 	if !errors.Is(err, database.ErrSessionApprovalResolved) {
 		t.Fatalf("second SessionApprovalResponseCreate() error = %v", err)
 	}
-	if err := store.SessionApprovalDecisionTaskDelivered(ctx, request.Ref); err != nil {
-		t.Fatal(err)
-	}
-	err, tasks = store.SessionApprovalDecisionTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("delivered SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
+	if err, duplicate := store.SessionEventGet(ctx, rejected.Ref); err != nil || duplicate != nil {
+		t.Fatalf("duplicate approval response persisted: %#v (%v)", duplicate, err)
 	}
 }

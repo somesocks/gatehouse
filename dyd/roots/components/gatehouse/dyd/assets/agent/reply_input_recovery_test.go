@@ -86,14 +86,11 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	err, runtime := agent.NewSessionEventReplyRuntime(workflowContext, store, ring)
+	err, _ = agent.NewSessionEventReplyRuntime(workflowContext, store, ring)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := dbos.Launch(workflowContext); err != nil {
-		t.Fatal(err)
-	}
-	if err := runtime.Reconcile(); err != nil {
 		t.Fatal(err)
 	}
 	select {}
@@ -339,9 +336,20 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				t.Fatal(err)
 			}
 			message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &model.Principal{Ref: principal, Enabled: true}, Payload: map[string]interface{}{"text": "Select a file", "agents": []string{agentID}}}
-			if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
+			// Persist the message and DBOS enqueues before the worker process
+			// starts. A crash needs only DBOS recovery, not an application outbox.
+			submission, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-input-replay-" + protocol, ApplicationVersion: "replay-v1", SQLiteSystemDB: store.DB})
+			if err != nil {
 				t.Fatal(err)
 			}
+			err, sender := agent.NewSessionEventReplyRuntime(submission, store, ring)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err, _ := sender.CreateMessage(ctx, message); err != nil {
+				t.Fatal(err)
+			}
+			defer dbos.Shutdown(submission, time.Second)
 			newRuntime := func() (dbos.Context, *agent.SessionEventReplyRuntime) {
 				t.Helper()
 				context, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-input-replay-" + protocol, ApplicationVersion: "replay-v1", SQLiteSystemDB: store.DB})
@@ -508,9 +516,6 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 				second, runtime := newRuntime()
 				recoveredContext, recoveredRuntime = second, runtime
 				defer dbos.Shutdown(second, 10*time.Second)
-				if err := runtime.Reconcile(); err != nil {
-					t.Fatal(err)
-				}
 				if outcome != "batch-unstarted" && outcome != "input-request-rollback" {
 					err, request := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
 					if err != nil || request == nil {

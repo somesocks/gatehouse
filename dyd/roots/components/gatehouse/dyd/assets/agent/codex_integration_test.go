@@ -117,14 +117,6 @@ func newCodexAgentFixture(t *testing.T, named bool) *codexAgentFixture {
 		t.Fatal(err)
 	}
 	f.message = model.SessionEvent{Ref: model.SessionEventRef{Session: f.session, Id: "sev_00000000000000000000000000"}, Kind: model.SessionEventKindMessageText, AuthorPrincipal: &f.principal, Payload: map[string]any{"text": "Calculate 1 + 2", "agents": []string{agentID}}}
-	if err, _ := store.SessionMessagesCreate(ctx, f.message); err != nil {
-		t.Fatal(err)
-	}
-	err, request := store.SessionEventChildGet(ctx, f.message.Ref, model.SessionEventKindAgentRequest)
-	if err != nil || request == nil {
-		t.Fatal("agent request missing")
-	}
-	f.request = *request
 	f.ctx, err = dbos.NewContext(ctx, dbos.Config{AppName: "codex-agent-test", ApplicationVersion: "codex-agent-v1", ExecutorID: "codex-agent-test", SQLiteSystemDB: store.DB, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	if err != nil {
 		t.Fatal(err)
@@ -133,9 +125,14 @@ func newCodexAgentFixture(t *testing.T, named bool) *codexAgentFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := dbos.Launch(f.ctx); err != nil {
+	if err, _ := f.runtime.CreateMessage(ctx, f.message); err != nil {
 		t.Fatal(err)
 	}
+	err, request := store.SessionEventChildGet(ctx, f.message.Ref, model.SessionEventKindAgentRequest)
+	if err != nil || request == nil {
+		t.Fatal("agent request missing")
+	}
+	f.request = *request
 	t.Cleanup(func() {
 		if err := dbos.Shutdown(f.ctx, 2*time.Second); err != nil {
 			t.Error(err)
@@ -302,7 +299,7 @@ func TestCodexAgentInference(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := f.runtime.Reconcile(); err != nil {
+			if err := dbos.Launch(f.ctx); err != nil {
 				t.Fatal(err)
 			}
 			terminal := model.SessionEventKindAgentFailure
@@ -408,15 +405,12 @@ func TestCodexAgentInference(t *testing.T) {
 					t.Fatal(err)
 				}
 				next.Ref.Id = id
-				if err, _ := f.store.SessionMessagesCreate(context.Background(), next); err != nil {
+				if err, _ := f.runtime.CreateMessage(context.Background(), next); err != nil {
 					t.Fatal(err)
 				}
 				err, root := f.store.SessionEventChildGet(context.Background(), next.Ref, model.SessionEventKindAgentRequest)
 				if err != nil || root == nil {
 					t.Fatal("second request missing")
-				}
-				if err := f.runtime.Reconcile(); err != nil {
-					t.Fatal(err)
 				}
 				deadline := time.Now().Add(10 * time.Second)
 				for {

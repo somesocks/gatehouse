@@ -68,13 +68,6 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 		t.Fatal(err)
 	}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &principal, Payload: map[string]interface{}{"text": "Review", "agents": []string{agentID}}}
-	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
-		t.Fatal(err)
-	}
-	err, request := store.SessionEventChildGet(ctx, message.Ref, "agent.request")
-	if err != nil || request == nil {
-		t.Fatalf("agent request = (%#v, %v)", request, err)
-	}
 	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "gatehouse-cancel-input-test", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -87,8 +80,12 @@ func TestReplyCancellationClosesParallelInputAndApprovalWorkflows(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, 5*time.Second)
-	if err := runtime.Reconcile(); err != nil {
+	if err, _ := runtime.CreateMessage(ctx, message); err != nil {
 		t.Fatal(err)
+	}
+	err, request := store.SessionEventChildGet(ctx, message.Ref, "agent.request")
+	if err != nil || request == nil {
+		t.Fatalf("agent request = (%#v, %v)", request, err)
 	}
 	var input, approval model.SessionEventRef
 	deadline := time.Now().Add(10 * time.Second)

@@ -477,7 +477,7 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
 	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
 	if login.Code != http.StatusOK {
@@ -623,10 +623,6 @@ func TestHandlerBootstrapsLogsInCreatesSessionAndSubmitsMessage(t *testing.T) {
 	if len(events) != 4 || events[0].Ref != event.Ref || events[0].AuthorPrincipal == nil || events[0].AuthorPrincipal.Ref != principal || events[0].AuthorPrincipal.Name == nil || *events[0].AuthorPrincipal.Name != "Alice" {
 		t.Fatalf("stored session events = %#v", events)
 	}
-	err, tasks := store.SessionEventReplyTasksGet(context.Background(), 10)
-	if err != nil || len(tasks) != 0 {
-		t.Fatalf("stored session reply tasks for human-only message = (%#v, %v)", tasks, err)
-	}
 	cancel := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/messages/"+event.Ref.Id+"/cancel", "")
 	if cancel.Code != http.StatusNotFound {
 		t.Fatalf("POST cancel for human-only message = status %d", cancel.Code)
@@ -638,7 +634,7 @@ func TestSessionApprovalResponse(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
 	alice, _ := principalIdentityRefs(t, ctx, store, "alice", "gatehouse:alice")
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
 	if login.Code != http.StatusOK {
@@ -688,16 +684,15 @@ func TestSessionApprovalResponse(t *testing.T) {
 	if duplicate := request("rejected"); duplicate.Code != http.StatusConflict {
 		t.Fatalf("duplicate approval = %d body %q", duplicate.Code, duplicate.Body.String())
 	}
-	err, tasks := store.SessionApprovalDecisionTasksGet(ctx, 10)
-	if err != nil || len(tasks) != 1 || tasks[0].Approval != approval.Ref || tasks[0].Response != decision.Ref {
-		t.Fatalf("SessionApprovalDecisionTasksGet() = (%#v, %v)", tasks, err)
+	if err, stored := store.SessionEventGet(ctx, decision.Ref); err != nil || stored == nil || stored.Parent == nil || *stored.Parent != approval.Ref {
+		t.Fatalf("stored approval response = %#v (%v)", stored, err)
 	}
 }
 
 func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	tokens, store, refs := testBearerTokens(t)
 	engineering := refs["engineering"]
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
 	var credentials loginResponse
@@ -1535,7 +1530,7 @@ func TestWorkspaceAgentsAndMessageAgentPreference(t *testing.T) {
 	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ? AND alias = 'assistant'`, engineering.Id).Scan(&assistantID); err != nil {
 		t.Fatal(err)
 	}
-	handler := Handler(config.HTTPService{API: true}, store, tokens)
+	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
 	login := httptest.NewRecorder()
 	handler.ServeHTTP(login, httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"identity":"gatehouse:alice","password":"correct password"}`)))
 	var credentials loginResponse

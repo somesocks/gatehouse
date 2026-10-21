@@ -132,27 +132,6 @@ var serveCommand = clib.NewCommand("serve", "run the Gatehouse daemon").
 			fmt.Fprintf(os.Stderr, "schedule provider maintenance: %v\n", err)
 			return 1
 		}
-		reconcileContext, stopReconciliation := context.WithCancel(ctx)
-		reconciliationDone := make(chan struct{})
-		go func() {
-			defer close(reconciliationDone)
-			ticker := time.NewTicker(time.Second)
-			defer ticker.Stop()
-			for {
-				if err := replies.Reconcile(); err != nil {
-					fmt.Fprintf(os.Stderr, "reconcile agent replies: %v\n", err)
-				}
-				select {
-				case <-reconcileContext.Done():
-					return
-				case <-ticker.C:
-				}
-			}
-		}()
-		defer func() {
-			stopReconciliation()
-			<-reconciliationDone
-		}()
 		if services.HTTP == nil || !services.HTTP.Enabled {
 			fmt.Fprintln(os.Stderr, "Gatehouse is serving")
 			<-ctx.Done()
@@ -208,7 +187,7 @@ func newServeDBOSContext(ctx context.Context, databaseConfig config.DatabaseConf
 	} else {
 		dbosConfig.SQLiteSystemDB = store.DB
 	}
-	// The signal context stops HTTP and reconciliation. Cancelling the DBOS
+	// The signal context stops HTTP. Cancelling the DBOS
 	// parent directly would durably cancel waiting workflows before Shutdown
 	// can interrupt them without changing their PENDING status.
 	return dbos.NewContext(context.WithoutCancel(ctx), dbosConfig)

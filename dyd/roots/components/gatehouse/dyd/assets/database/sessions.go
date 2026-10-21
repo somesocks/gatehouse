@@ -383,7 +383,7 @@ func sessionAuthorsFromValues(workspace model.WorkspaceRef, principal, agent, ga
 }
 
 func (store *Store) SessionEventsCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, false, false)
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, false)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -462,26 +462,44 @@ func (store *Store) SessionEventCreateInTransaction(ctx context.Context, transac
 }
 
 func (store *Store) SessionMessagesCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	transaction, err := store.BeginTx(ctx, nil)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	defer transaction.Rollback()
+	err, events := store.SessionMessagesCreateInTransaction(ctx, transaction, event)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	if err := transaction.Commit(); err != nil {
+		return err, model.SessionEvent{}
+	}
+	return nil, events[0]
+}
+
+// SessionMessagesCreateInTransaction persists the message and its agent requests.
+// The caller must enqueue the requests in DBOS on this transaction before commit.
+func (store *Store) SessionMessagesCreateInTransaction(ctx context.Context, transaction *sql.Tx, event model.SessionEvent) (error, []model.SessionEvent) {
 	if event.Payload == nil {
 		event.Payload = map[string]interface{}{}
 	}
 	targets, err := sessionMessageTargetAgents(event)
 	if err != nil {
-		return err, model.SessionEvent{}
+		return err, nil
 	}
 	if event.Parent != nil || event.AuthorPrincipal == nil || event.AuthorAgent != nil || event.AuthorGateway != nil {
-		return fmt.Errorf("create session message: message must be a principal-authored root"), model.SessionEvent{}
+		return fmt.Errorf("create session message: message must be a principal-authored root"), nil
 	}
 	events := make([]model.SessionEvent, 1, len(targets)+1)
 	events[0] = event
 	for _, target := range targets {
 		id, err := typed_id.New(typed_id.SessionEvent)
 		if err != nil {
-			return fmt.Errorf("create agent request: generate event ID: %w", err), model.SessionEvent{}
+			return fmt.Errorf("create agent request: generate event ID: %w", err), nil
 		}
 		payload, err := SessionEventPayloadFrom(model.AgentRequestPayload{Agent: target})
 		if err != nil {
-			return fmt.Errorf("create agent request payload: %w", err), model.SessionEvent{}
+			return fmt.Errorf("create agent request payload: %w", err), nil
 		}
 		events = append(events, model.SessionEvent{
 			Ref:             model.SessionEventRef{Session: event.Ref.Session, Id: id},
@@ -491,11 +509,7 @@ func (store *Store) SessionMessagesCreate(ctx context.Context, event model.Sessi
 			Payload:         payload,
 		})
 	}
-	err, events = store.sessionEventsCreateBatch(ctx, events, true, false, false)
-	if err != nil {
-		return err, model.SessionEvent{}
-	}
-	return nil, events[0]
+	return store.sessionEventsCreateBatchInTransaction(ctx, transaction, events, true, false)
 }
 
 func sessionMessageAttachmentIDs(event model.SessionEvent) ([]string, error) {
@@ -634,12 +648,17 @@ func sessionEventAttachmentIDs(event model.SessionEvent) ([]string, bool, error)
 }
 
 func (store *Store) SessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent) (error, []model.SessionEvent) {
-	return store.sessionEventsCreateBatch(ctx, events, false, false, false)
+	return store.sessionEventsCreateBatch(ctx, events, false, false)
 }
 
-// SessionApprovalResponseCreate persists one terminal approval response and schedules its delivery.
+// SessionApprovalResponseCreate persists one terminal approval response. Runtime
+// delivery uses SessionApprovalResponseCreateInTransaction instead.
 func (store *Store) SessionApprovalResponseCreate(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
-	return store.sessionApprovalResponseCreate(ctx, event, false)
+	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, true)
+	if err != nil {
+		return err, model.SessionEvent{}
+	}
+	return nil, events[0]
 }
 
 // SessionApprovalCancellationCreate marks an approval terminal without queuing
@@ -648,11 +667,11 @@ func (store *Store) SessionApprovalCancellationCreate(ctx context.Context, event
 	if event.Kind != model.SessionEventKindApprovalFailure || event.Payload["code"] != "cancelled" {
 		return fmt.Errorf("create session approval cancellation: event must be approval.failure with code cancelled"), model.SessionEvent{}
 	}
-	return store.sessionApprovalResponseCreate(ctx, event, true)
+	return store.SessionApprovalResponseCreate(ctx, event)
 }
 
-func (store *Store) sessionApprovalResponseCreate(ctx context.Context, event model.SessionEvent, delivered bool) (error, model.SessionEvent) {
-	err, events := store.sessionEventsCreateBatch(ctx, []model.SessionEvent{event}, false, true, delivered)
+func (store *Store) SessionApprovalResponseCreateInTransaction(ctx context.Context, transaction *sql.Tx, event model.SessionEvent) (error, model.SessionEvent) {
+	err, events := store.sessionEventsCreateBatchInTransaction(ctx, transaction, []model.SessionEvent{event}, false, true)
 	if err != nil {
 		return err, model.SessionEvent{}
 	}
@@ -667,7 +686,7 @@ type sessionEventInsert struct {
 	metrics                  any
 }
 
-func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createReplyTasks, createApprovalResponse, approvalResponseDelivered bool) (error, []model.SessionEvent) {
+func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model.SessionEvent, createMessage, createApprovalResponse bool) (error, []model.SessionEvent) {
 	if len(events) == 0 {
 		return nil, []model.SessionEvent{}
 	}
@@ -676,10 +695,23 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		return fmt.Errorf("begin session event creation: %w", err), nil
 	}
 	defer transaction.Rollback()
+	err, stored := store.sessionEventsCreateBatchInTransaction(ctx, transaction, events, createMessage, createApprovalResponse)
+	if err != nil {
+		return err, nil
+	}
+	if err := transaction.Commit(); err != nil {
+		return fmt.Errorf("commit session event creation: %w", err), nil
+	}
+	return nil, stored
+}
 
+func (store *Store) sessionEventsCreateBatchInTransaction(ctx context.Context, transaction *sql.Tx, events []model.SessionEvent, createMessage, createApprovalResponse bool) (error, []model.SessionEvent) {
+	if transaction == nil {
+		return fmt.Errorf("create session events: transaction is required"), nil
+	}
 	placeholder := keychainPlaceholder(store.kind)
 	inserts := make([]sessionEventInsert, 0, len(events))
-	if createReplyTasks {
+	if createMessage && len(events) > 0 {
 		root := events[0]
 		if root.AuthorPrincipal == nil {
 			return ErrSessionParticipantForbidden, nil
@@ -739,7 +771,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			return fmt.Errorf("create session events: event %d ID is invalid", index), nil
 		}
 		event.CreatedAt = createdAt.Format("2006-01-02T15:04:05.000Z")
-		if createReplyTasks {
+		if createMessage {
 			switch event.Kind {
 			case model.SessionEventKindMessageText:
 				if err := store.sessionMessageTargetsSnapshot(ctx, transaction, event); err != nil {
@@ -787,6 +819,30 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if createApprovalResponse && (insert.event.Parent == nil || (insert.event.Kind != model.SessionEventKindApprovalSuccess && insert.event.Kind != model.SessionEventKindApprovalFailure)) {
 			return fmt.Errorf("create approval response: event must be an approval.success or approval.failure child"), nil
 		}
+		if createApprovalResponse {
+			// Serialize responders on the approval request, including explicit
+			// cancellation, before checking for an existing terminal response.
+			result, err := transaction.ExecContext(ctx, `UPDATE gatehouse_session_events SET id = id
+				WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND id = `+placeholder(3)+` AND kind = 'approval.request'`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id)
+			if err != nil {
+				return err, nil
+			}
+			count, err := result.RowsAffected()
+			if err != nil {
+				return err, nil
+			}
+			if count != 1 {
+				return fmt.Errorf("approval request is unavailable"), nil
+			}
+			var resolved bool
+			if err := transaction.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_session_events
+				WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND parent = `+placeholder(3)+` AND kind IN ('approval.success', 'approval.failure'))`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id).Scan(&resolved); err != nil {
+				return err, nil
+			}
+			if resolved {
+				return ErrSessionApprovalResolved, nil
+			}
+		}
 		row := transaction.QueryRowContext(ctx, `
 			INSERT INTO gatehouse_session_events (
 				workspace, session, id, parent, kind, author_principal, author_agent, author_gateway, payload, metrics, created_at
@@ -800,7 +856,7 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 			return fmt.Errorf("insert session event: %w", err), nil
 		}
 		topics := []string{ActivityTopicSessionEvent(insert.event.Ref)}
-		err, _ = store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
+		err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
 			Ref:                  model.ActivityEventRef{},
 			Event:                "session_event.create",
 			ResourceKind:         ActivityResourceKindSessionEvent,
@@ -810,60 +866,6 @@ func (store *Store) sessionEventsCreateBatch(ctx context.Context, events []model
 		if err != nil {
 			return fmt.Errorf("append session event activity: %w", err), nil
 		}
-		if createReplyTasks {
-			if insert.event.Kind == model.SessionEventKindAgentRequest {
-				_, err := transaction.ExecContext(ctx, `
-				INSERT INTO gatehouse_agent_tasks__session_event_reply (workspace, session, event, created_at)
-				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`)
-			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Ref.Id, insert.event.CreatedAt)
-				if err != nil {
-					return fmt.Errorf("insert session event reply task: %w", err), nil
-				}
-			}
-			if insert.event.Kind == model.SessionEventKindMessageText {
-				targets, err := sessionMessageTargetAgents(insert.event)
-				if err != nil {
-					return err, nil
-				}
-				if len(targets) == 0 {
-					continue
-				}
-				if text, _ := insert.event.Payload["text"].(string); strings.TrimSpace(text) != "" {
-					_, err = transaction.ExecContext(ctx, `
-					INSERT INTO gatehouse_agent_tasks__session_name (workspace, session, created_at)
-					SELECT `+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`
-					WHERE EXISTS (
-						SELECT 1 FROM gatehouse_sessions
-						WHERE workspace = `+placeholder(4)+` AND id = `+placeholder(5)+` AND name IS NULL
-					)
-					ON CONFLICT (workspace, session) DO NOTHING
-				`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.CreatedAt, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id)
-					if err != nil {
-						return fmt.Errorf("insert session name task: %w", err), nil
-					}
-				}
-			}
-		}
-		if createApprovalResponse {
-			result, err := transaction.ExecContext(ctx, `
-				INSERT INTO gatehouse_session_approval_decisions (workspace, session, approval, response, created_at, delivered)
-				VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, `+placeholder(6)+`)
-				ON CONFLICT (workspace, session, approval) DO NOTHING
-			`, insert.event.Ref.Session.Workspace.Id, insert.event.Ref.Session.Id, insert.event.Parent.Id, insert.event.Ref.Id, insert.event.CreatedAt, approvalResponseDelivered)
-			if err != nil {
-				return fmt.Errorf("create approval response decision: %w", err), nil
-			}
-			created, err := result.RowsAffected()
-			if err != nil {
-				return fmt.Errorf("create approval response decision: %w", err), nil
-			}
-			if created != 1 {
-				return ErrSessionApprovalResolved, nil
-			}
-		}
-	}
-	if err := transaction.Commit(); err != nil {
-		return fmt.Errorf("commit session event creation: %w", err), nil
 	}
 	stored := make([]model.SessionEvent, len(inserts))
 	for index, insert := range inserts {
@@ -1434,150 +1436,19 @@ func (store *Store) SessionEventChildGet(ctx context.Context, parent model.Sessi
 	return store.SessionEventGet(ctx, model.SessionEventRef{Session: parent.Session, Id: childID})
 }
 
-type SessionEventReplyTask struct {
-	Event model.SessionEventRef
-}
-
-type SessionApprovalDecisionTask struct {
-	Approval model.SessionEventRef
-	Response model.SessionEventRef
-}
-
-func (store *Store) SessionApprovalDecisionTasksGet(ctx context.Context, limit int) (error, []SessionApprovalDecisionTask) {
-	if limit <= 0 {
-		return fmt.Errorf("get session approval decision tasks: limit must be positive"), nil
-	}
-	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `
-		SELECT workspace, session, approval, response
-		FROM gatehouse_session_approval_decisions
-		WHERE delivered = FALSE
-		ORDER BY created_at, response
-		LIMIT `+placeholder(1)+`
-	`, limit)
-	if err != nil {
-		return fmt.Errorf("get session approval decision tasks: %w", err), nil
-	}
-	defer rows.Close()
-
-	tasks := []SessionApprovalDecisionTask{}
-	for rows.Next() {
-		var task SessionApprovalDecisionTask
-		if err := rows.Scan(&task.Approval.Session.Workspace.Id, &task.Approval.Session.Id, &task.Approval.Id, &task.Response.Id); err != nil {
-			return fmt.Errorf("scan session approval decision task: %w", err), nil
-		}
-		task.Response.Session = task.Approval.Session
-		tasks = append(tasks, task)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate session approval decision tasks: %w", err), nil
-	}
-	return nil, tasks
-}
-
-func (store *Store) SessionApprovalDecisionTaskDelivered(ctx context.Context, approval model.SessionEventRef) error {
-	placeholder := keychainPlaceholder(store.kind)
-	_, err := store.ExecContext(ctx, `
-		UPDATE gatehouse_session_approval_decisions SET delivered = TRUE
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND approval = `+placeholder(3)+`
-	`, approval.Session.Workspace.Id, approval.Session.Id, approval.Id)
-	if err != nil {
-		return fmt.Errorf("mark session approval decision delivered: %w", err)
-	}
-	return nil
-}
-
-func (store *Store) SessionEventReplyTasksGet(ctx context.Context, limit int) (error, []SessionEventReplyTask) {
-	if limit <= 0 {
-		return fmt.Errorf("get session event reply tasks: limit must be positive"), nil
-	}
-	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `
-		SELECT workspace, session, event
-		FROM gatehouse_agent_tasks__session_event_reply
-		ORDER BY created_at, event
-		LIMIT `+placeholder(1)+`
-	`, limit)
-	if err != nil {
-		return fmt.Errorf("get session event reply tasks: %w", err), nil
-	}
-	defer rows.Close()
-
-	tasks := []SessionEventReplyTask{}
-	for rows.Next() {
-		var task SessionEventReplyTask
-		if err := rows.Scan(&task.Event.Session.Workspace.Id, &task.Event.Session.Id, &task.Event.Id); err != nil {
-			return fmt.Errorf("scan session event reply task: %w", err), nil
-		}
-		tasks = append(tasks, task)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate session event reply tasks: %w", err), nil
-	}
-	return nil, tasks
-}
-
-func (store *Store) SessionEventReplyTaskDelete(ctx context.Context, event model.SessionEventRef) error {
-	placeholder := keychainPlaceholder(store.kind)
-	_, err := store.ExecContext(ctx, `
-		DELETE FROM gatehouse_agent_tasks__session_event_reply
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+` AND event = `+placeholder(3)+`
-	`, event.Session.Workspace.Id, event.Session.Id, event.Id)
-	if err != nil {
-		return fmt.Errorf("delete session event reply task: %w", err)
-	}
-	return nil
-}
-
-type SessionNameTask struct {
-	Session model.SessionRef
-}
-
-func (store *Store) SessionNameTasksGet(ctx context.Context, limit int) (error, []SessionNameTask) {
-	if limit <= 0 {
-		return fmt.Errorf("get session name tasks: limit must be positive"), nil
-	}
-	placeholder := keychainPlaceholder(store.kind)
-	rows, err := store.QueryContext(ctx, `
-		SELECT workspace, session
-		FROM gatehouse_agent_tasks__session_name
-		ORDER BY created_at, session
-		LIMIT `+placeholder(1)+`
-	`, limit)
-	if err != nil {
-		return fmt.Errorf("get session name tasks: %w", err), nil
-	}
-	defer rows.Close()
-
-	tasks := []SessionNameTask{}
-	for rows.Next() {
-		var task SessionNameTask
-		if err := rows.Scan(&task.Session.Workspace.Id, &task.Session.Id); err != nil {
-			return fmt.Errorf("scan session name task: %w", err), nil
-		}
-		tasks = append(tasks, task)
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate session name tasks: %w", err), nil
-	}
-	return nil, tasks
-}
-
-func (store *Store) SessionNameTaskDelete(ctx context.Context, session model.SessionRef) error {
-	placeholder := keychainPlaceholder(store.kind)
-	_, err := store.ExecContext(ctx, `
-		DELETE FROM gatehouse_agent_tasks__session_name
-		WHERE workspace = `+placeholder(1)+` AND session = `+placeholder(2)+`
-	`, session.Workspace.Id, session.Id)
-	if err != nil {
-		return fmt.Errorf("delete session name task: %w", err)
-	}
-	return nil
-}
-
 func (store *Store) SessionNameGet(ctx context.Context, session model.SessionRef) (error, *string) {
+	return store.sessionNameGet(ctx, store.DB, session)
+}
+
+func (store *Store) SessionNameGetInTransaction(ctx context.Context, tx *sql.Tx, session model.SessionRef) (error, *string) {
+	return store.sessionNameGet(ctx, tx, session)
+}
+
+func (store *Store) sessionNameGet(ctx context.Context, query interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, session model.SessionRef) (error, *string) {
 	placeholder := keychainPlaceholder(store.kind)
-	row := store.QueryRowContext(ctx, `
+	row := query.QueryRowContext(ctx, `
 		SELECT name FROM gatehouse_sessions
 		WHERE workspace = `+placeholder(1)+` AND id = `+placeholder(2)+`
 	`, session.Workspace.Id, session.Id)

@@ -296,9 +296,6 @@ independent client activity:
 - `gatehouse_activity_events`
 - `gatehouse_activity_event_topics`
 - `gatehouse_agent_contexts`
-- `gatehouse_agent_tasks__session_event_reply`
-- `gatehouse_agent_tasks__session_name`
-- `gatehouse_session_approval_decisions`
 - `gatehouse_session_input_drafts`
 - `gatehouse_storage_objects`
 - `gatehouse_embedded_storage_objects`

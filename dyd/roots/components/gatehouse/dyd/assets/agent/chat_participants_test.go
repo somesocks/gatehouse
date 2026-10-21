@@ -77,8 +77,16 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 			t.Fatal(err)
 		}
 	}
+	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "bot-removal-test", SQLiteSystemDB: store.DB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
+	if err != nil {
+		t.Fatal(err)
+	}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: alice, Enabled: true}, Payload: map[string]interface{}{"text": "Hello", "agents": []string{bot}}}
-	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
+	if err, _ := runtime.CreateMessage(ctx, message); err != nil {
 		t.Fatal(err)
 	}
 	err, request := store.SessionEventChildGet(ctx, message.Ref, model.SessionEventKindAgentRequest)
@@ -110,21 +118,10 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 			t.Fatal(err)
 		}
 	}
-	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "bot-removal-test", SQLiteSystemDB: store.DB})
-	if err != nil {
-		t.Fatal(err)
-	}
-	err, runtime := agent.NewSessionEventReplyRuntime(dbosContext, store, ring)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := dbos.Launch(dbosContext); err != nil {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
-	if err := runtime.Reconcile(); err != nil {
-		t.Fatal(err)
-	}
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		err, events := store.SessionEventsGet(ctx, session)
@@ -210,9 +207,6 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 		t.Fatalf("outsider discovered a group-only bot: %#v %v", directory, err)
 	}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: chat, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: bob, Enabled: true}, Payload: map[string]interface{}{"text": "Hello", "agents": []string{bot}}}
-	if err, _ := store.SessionMessagesCreate(ctx, message); err != nil {
-		t.Fatal(err)
-	}
 	dbosContext, err := dbos.NewContext(ctx, dbos.Config{AppName: "group-derived-bot-test", SQLiteSystemDB: store.DB})
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +219,7 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer dbos.Shutdown(dbosContext, time.Second)
-	if err := runtime.Reconcile(); err != nil {
+	if err, _ := runtime.CreateMessage(ctx, message); err != nil {
 		t.Fatal(err)
 	}
 	deadline := time.Now().Add(15 * time.Second)

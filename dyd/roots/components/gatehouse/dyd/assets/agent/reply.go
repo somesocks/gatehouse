@@ -107,7 +107,6 @@ type SessionEventReplyRuntime struct {
 	dataSource               *dbos.DataSource
 	queue                    dbos.Queue
 	toolQueue                dbos.Queue
-	nameQueue                dbos.Queue
 	systemPromptReplacement  *string
 	systemPromptReplacements map[model.WorkspaceAgentRef]string
 }
@@ -133,7 +132,7 @@ func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.St
 	if err != nil {
 		return fmt.Errorf("register session tool-call queue: %w", err), nil
 	}
-	nameQueue, err := dbos.RegisterQueue(ctx, sessionNameQueue, dbos.WithPartitionQueue(), dbos.WithGlobalConcurrency(1))
+	_, err = dbos.RegisterQueue(ctx, sessionNameQueue, dbos.WithPartitionQueue(), dbos.WithGlobalConcurrency(1))
 	if err != nil {
 		return fmt.Errorf("register session name queue: %w", err), nil
 	}
@@ -146,7 +145,7 @@ func NewSessionEventReplyRuntimeWithOptions(ctx dbos.Context, store *database.St
 	if err != nil {
 		return fmt.Errorf("register Gatehouse database data source: %w", err), nil
 	}
-	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue, nameQueue: nameQueue}
+	runtime := &SessionEventReplyRuntime{store: store, keyring: keyring, storage: storage.NewClient(store, keyring), dbos: ctx, dataSource: dataSource, queue: queue, toolQueue: toolQueue}
 	if options.SystemPromptReplacement != nil {
 		text := *options.SystemPromptReplacement
 		runtime.systemPromptReplacement = &text
@@ -458,59 +457,6 @@ func (runtime *SessionEventReplyRuntime) cancelledReplyFinalize(ctx dbos.Context
 			CreatedAt: eventTerminalCreatedAt(agentRequest.CreatedAt),
 		}); err != nil {
 			return fmt.Errorf("finish cancelled agent request %q: %w", request.Id, err)
-		}
-	}
-	return nil
-}
-
-func (runtime *SessionEventReplyRuntime) Reconcile() error {
-	err, tasks := runtime.store.SessionEventReplyTasksGet(runtime.dbos, 100)
-	if err != nil {
-		return err
-	}
-	for _, task := range tasks {
-		_, err = dbos.RunWorkflow(runtime.dbos, runtime.reply, SessionEventReplyInput{Event: task.Event},
-			dbos.WithRunInstance(runtime),
-			dbos.WithWorkflowID(sessionEventReplyWorkflowID(task.Event)),
-			dbos.WithQueue(runtime.queue),
-			dbos.WithQueuePartitionKey(sessionEventReplyTaskPartition(task.Event)),
-		)
-		if err != nil {
-			return fmt.Errorf("enqueue session event reply %q: %w", task.Event.Id, err)
-		}
-		if err := runtime.store.SessionEventReplyTaskDelete(runtime.dbos, task.Event); err != nil {
-			return err
-		}
-	}
-	err, nameTasks := runtime.store.SessionNameTasksGet(runtime.dbos, 100)
-	if err != nil {
-		return err
-	}
-	for _, task := range nameTasks {
-		_, err = dbos.RunWorkflow(runtime.dbos, runtime.nameSession, SessionNameInput{Session: task.Session},
-			dbos.WithRunInstance(runtime),
-			dbos.WithWorkflowID(sessionNameWorkflowID(task.Session)),
-			dbos.WithQueue(runtime.nameQueue),
-			dbos.WithQueuePartitionKey(sessionEventReplyPartition(task.Session)),
-		)
-		if err != nil {
-			return fmt.Errorf("enqueue session name %q: %w", task.Session.Id, err)
-		}
-		if err := runtime.store.SessionNameTaskDelete(runtime.dbos, task.Session); err != nil {
-			return err
-		}
-	}
-	err, approvalTasks := runtime.store.SessionApprovalDecisionTasksGet(runtime.dbos, 100)
-	if err != nil {
-		return err
-	}
-	for _, task := range approvalTasks {
-		err := dbos.Send(runtime.dbos, sessionApprovalWorkflowID(task.Approval), task.Response, "response", dbos.WithIdempotencyKey(task.Response.Id))
-		if err != nil {
-			return fmt.Errorf("send approval response %q: %w", task.Response.Id, err)
-		}
-		if err := runtime.store.SessionApprovalDecisionTaskDelivered(runtime.dbos, task.Approval); err != nil {
-			return err
 		}
 	}
 	return nil

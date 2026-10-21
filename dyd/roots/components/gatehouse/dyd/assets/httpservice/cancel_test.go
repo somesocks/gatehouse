@@ -20,7 +20,13 @@ type cancellationTestDispatcher struct {
 	reject bool
 }
 
-func (*cancellationTestDispatcher) Reconcile() error { return nil }
+func (dispatcher *cancellationTestDispatcher) CreateMessage(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	return dispatcher.store.SessionMessagesCreate(ctx, event)
+}
+
+func (dispatcher *cancellationTestDispatcher) RespondToApproval(ctx context.Context, event model.SessionEvent) (error, model.SessionEvent) {
+	return dispatcher.store.SessionApprovalResponseCreate(ctx, event)
+}
 
 func (dispatcher *cancellationTestDispatcher) CancelReply(ctx context.Context, request model.SessionEvent) (error, model.SessionEvent) {
 	dispatcher.calls++
