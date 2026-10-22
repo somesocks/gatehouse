@@ -253,11 +253,21 @@ func TestMigrateRejectsBaselineAfterRepeatableHistory(t *testing.T) {
 }
 
 func TestSQLiteBaselineMatchesVersionedSchema(t *testing.T) {
+	for _, baseline := range testSQLiteBaselineRegistry(t).Baseline {
+		t.Run(fmt.Sprint(baseline.Index), func(t *testing.T) {
+			testSQLiteBaselineMatchesVersionedSchema(t, baseline)
+		})
+	}
+}
+
+func testSQLiteBaselineMatchesVersionedSchema(t *testing.T, selected BaselineMigration) {
+	t.Helper()
 	ctx := context.Background()
 	legacy := openConfiguredMigrationTestDatabase(t)
 	baseline := openConfiguredMigrationTestDatabase(t)
 	legacyRegistry := testSQLiteRegistry(t)
 	baselineRegistry := testSQLiteBaselineRegistry(t)
+	baselineRegistry.Baseline = []BaselineMigration{selected}
 	legacyRegistry.Repeatable = nil
 	baselineRegistry.Repeatable = nil
 	versioned := VersionedMigration{
@@ -291,12 +301,12 @@ func TestSQLiteBaselineMatchesVersionedSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if got := historyIndexes(t, baseline, migrationTypeBaseline); !reflect.DeepEqual(got, []int64{49}) {
-		t.Fatalf("baseline migration indexes = %#v, want [49]", got)
+	if got := historyIndexes(t, baseline, migrationTypeBaseline); !reflect.DeepEqual(got, []int64{selected.Index}) {
+		t.Fatalf("baseline migration indexes = %#v, want [%d]", got, selected.Index)
 	}
 	wantVersioned := []int64{}
 	for _, migration := range baselineRegistry.Versioned {
-		if migration.Index > baselineRegistry.Baseline[0].Index {
+		if migration.Index > selected.Index {
 			wantVersioned = append(wantVersioned, migration.Index)
 		}
 	}

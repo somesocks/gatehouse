@@ -20,13 +20,7 @@ func TestSQLiteMigrationV052AgentProviderEndpoints(t *testing.T) {
 				registry = testSQLiteBaselineRegistry(t)
 			}
 			registry.Repeatable = nil
-			old := registry
-			old.Versioned = nil
-			for _, migration := range registry.Versioned {
-				if migration.Index < 52 {
-					old.Versioned = append(old.Versioned, migration)
-				}
-			}
+			old := testSchemaAtVersion(registry, 51)
 			if err := migrateSQLite(ctx, db, old); err != nil {
 				t.Fatal(err)
 			}

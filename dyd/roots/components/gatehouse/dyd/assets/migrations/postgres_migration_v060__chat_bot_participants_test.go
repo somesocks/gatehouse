@@ -51,13 +51,7 @@ func TestPostgresMigrationV060BackfillsValidGrantIDsAfterFailedUpgrade(t *testin
 		t.Fatal(err)
 	}
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 60 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 59)
 	if err := migratePostgres(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

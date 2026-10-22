@@ -58,13 +58,7 @@ func testDropProjectSecrets(t *testing.T, db *sql.DB, registry Registry, migrate
 	t.Helper()
 	ctx := context.Background()
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 65 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 64)
 	if err := migrate(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

@@ -12,13 +12,7 @@ func TestSQLiteMigrationV053DropThinkingRequestSnapshots(t *testing.T) {
 	db := openConfiguredMigrationTestDatabase(t)
 	registry := testSQLiteBaselineRegistry(t)
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 53 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 52)
 	if err := migrateSQLite(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

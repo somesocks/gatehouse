@@ -25,13 +25,7 @@ func TestPostgresMultipleWorkspaceAgentDefaultsUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 62 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 61)
 	if err := migratePostgres(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

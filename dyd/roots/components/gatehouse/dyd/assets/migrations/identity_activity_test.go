@@ -100,13 +100,7 @@ func verifyPrincipalIdentityActivityMigration(t *testing.T, db *sql.DB, registry
 	t.Helper()
 	ctx := context.Background()
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 57 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 56)
 	if err := migrate(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

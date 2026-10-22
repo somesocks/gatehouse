@@ -10,13 +10,7 @@ func TestSQLiteMigrationV059PreservesSessionGrants(t *testing.T) {
 	db := openConfiguredMigrationTestDatabase(t)
 	registry := testSQLiteBaselineRegistry(t)
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 59 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 58)
 	if err := migrateSQLite(ctx, db, old); err != nil {
 		t.Fatal(err)
 	}

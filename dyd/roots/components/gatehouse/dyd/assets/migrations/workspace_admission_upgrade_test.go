@@ -88,14 +88,7 @@ func TestPostgresRootWorkspaceRoleDowngradeSurvivesBootstrapUpgrade(t *testing.T
 
 func testRootWorkspaceRoleDowngradeUpgrade(t *testing.T, db *sql.DB, registry Registry, bootstrap RepeatableMigration, migrate func(Registry) error) {
 	t.Helper()
-	old := registry
-	old.Repeatable = nil
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 63 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 62)
 	if err := migrate(old); err != nil {
 		t.Fatal(err)
 	}
@@ -135,13 +128,7 @@ func testRootWorkspaceRoleDowngradeUpgrade(t *testing.T, db *sql.DB, registry Re
 func testExplicitWorkspaceAdmissionUpgrade(t *testing.T, db *sql.DB, registry Registry, migrate func(Registry) error, testRollback bool) {
 	t.Helper()
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 63 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 62)
 	if err := migrate(old); err != nil {
 		t.Fatal(err)
 	}

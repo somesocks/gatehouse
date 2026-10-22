@@ -42,11 +42,7 @@ func testGroupSecretsUpgrade(t *testing.T, db *sql.DB, registry Registry, migrat
 	t.Helper()
 	ctx := context.Background()
 	registry.Repeatable = nil
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 68 { old.Versioned = append(old.Versioned, migration) }
-	}
+	old := testSchemaAtVersion(registry, 67)
 	if err := migrate(ctx, db, old); err != nil { t.Fatal(err) }
 	if _, err := db.Exec(`
 		INSERT INTO gatehouse_workspaces (id, enabled) VALUES ('wsp_00000000000000000000000000', TRUE), ('wsp_00000000000000000000000001', TRUE);

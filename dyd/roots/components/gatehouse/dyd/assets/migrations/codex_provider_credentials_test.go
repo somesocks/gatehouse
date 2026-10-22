@@ -62,13 +62,7 @@ func TestPostgresCodexCredentialMigration(t *testing.T) {
 
 func verifyCodexMigration(t *testing.T, db *sql.DB, registry Registry, migrate func(Registry) error) {
 	t.Helper()
-	old := registry
-	old.Versioned = nil
-	for _, migration := range registry.Versioned {
-		if migration.Index < 56 {
-			old.Versioned = append(old.Versioned, migration)
-		}
-	}
+	old := testSchemaAtVersion(registry, 55)
 	if err := migrate(old); err != nil {
 		t.Fatal(err)
 	}

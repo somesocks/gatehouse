@@ -108,15 +108,7 @@ func testDefaultAdmissionFullRegistry(t *testing.T, configuration config.Databas
 		return migrateSQLite(ctx, store.DB, registry)
 	}
 	if scenario != "fresh" {
-		old := registry()
-		old.Repeatable = nil
-		versions := old.Versioned
-		old.Versioned = nil
-		for _, migration := range versions {
-			if migration.Index < 63 {
-				old.Versioned = append(old.Versioned, migration)
-			}
-		}
+		old := testSchemaAtVersion(registry(), 62)
 		if err := migrate(old); err != nil {
 			t.Fatal(err)
 		}
