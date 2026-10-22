@@ -3,8 +3,10 @@ package lisp
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/netip"
@@ -120,6 +122,9 @@ func publicHTTPAddresses(ctx context.Context, host string, resolver publicHTTPRe
 	}
 	addresses, err := resolver.LookupNetIP(ctx, "ip", host)
 	if err != nil || len(addresses) == 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		return nil, fmt.Errorf("resolve destination")
 	}
 	for _, ip := range addresses {
@@ -148,10 +153,17 @@ type nativeNetHTTPDoer interface {
 }
 
 var nativeNetHTTPRequestDocumentation = doc(
-	"(http/request method url headers body) -> Response",
-	"Performs an HTTP request and returns its status, headers, and bounded body. Completed HTTP responses, including non-2xx responses, are returned normally.",
+	"(http/request method url headers body [timeout]) -> Response",
+	"Performs an HTTP request and returns its status, headers, and bounded body. Defaults to 10000 milliseconds; an http/timeout option replaces that default. The evaluation context always applies. Request timeouts are catchable errors; evaluation interruption is not. Completed HTTP responses, including non-2xx responses, are returned normally.",
 	"(import (http @native:net/http/v1) (string/contains? (help http/request) \"(http/request\"))",
 	"#t",
+)
+
+var nativeNetHTTPTimeoutDocumentation = doc(
+	"(http/timeout milliseconds) -> HTTP Timeout",
+	"Sets a positive timeout in milliseconds for the complete HTTP request, including body reading. Replaces the default request timeout and cannot extend an enclosing deadline.",
+	"(import (http @native:net/http/v1) (http/timeout 5000))",
+	"(http/timeout 5000)",
 )
 
 var nativeNetHTTPStatusDocumentation = doc(
@@ -184,7 +196,6 @@ var nativeNetHTTPBodyDocumentation = doc(
 
 func nativeNetHTTPModule() Expr {
 	return nativeNetHTTPModuleWithDoer(&http.Client{
-		Timeout: nativeNetHTTPTimeout,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -196,6 +207,7 @@ func nativeNetHTTPModuleWithDoer(doer nativeNetHTTPDoer) Expr {
 		leaky: true,
 		call:  pure(nativeNetHTTPRequest(doer)),
 	}, nativeNetHTTPRequestDocumentation.text())
+	timeout := withHelp(&builtin{leaky: true, call: pure(nativeNetHTTPTimeoutOption)}, nativeNetHTTPTimeoutDocumentation.text())
 	status := withHelp(&builtin{
 		leaky: true,
 		call:  pure(nativeNetHTTPStatus),
@@ -216,6 +228,7 @@ func nativeNetHTTPModuleWithDoer(doer nativeNetHTTPDoer) Expr {
 		symbol("quote"),
 		list([]Expr{
 			pairValue(symbol("request"), request),
+			pairValue(symbol("timeout"), timeout),
 			pairValue(symbol("status"), status),
 			pairValue(symbol("headers"), headers),
 			pairValue(symbol("header"), header),
@@ -225,9 +238,9 @@ func nativeNetHTTPModuleWithDoer(doer nativeNetHTTPDoer) Expr {
 }
 
 func nativeNetHTTPRequest(doer nativeNetHTTPDoer) pureBuiltinCall {
-	return func(_ *evaluator, arguments []Expr) (error, Expr) {
-		if len(arguments) != 4 {
-			return expressionError("http/request requires method, URL, headers, and body"), nil
+	return func(evaluator *evaluator, arguments []Expr) (error, Expr) {
+		if len(arguments) < 4 || len(arguments) > 5 {
+			return expressionError("http/request requires method, URL, headers, and body, with one optional http/timeout option"), nil
 		}
 		err, method := requireString(arguments[0])
 		if err != nil {
@@ -248,15 +261,28 @@ func nativeNetHTTPRequest(doer nativeNetHTTPDoer) pureBuiltinCall {
 		if !nativeNetHTTPValidateURL(rawURL) {
 			return expressionError("http/request requires an absolute HTTP or HTTPS URL without credentials"), nil
 		}
+		timeout := nativeNetHTTPTimeout
+		if len(arguments) == 5 {
+			err, values := expressions(arguments[4])
+			if err != nil || len(values) != 2 || !isSymbol(values[0], "http/timeout") {
+				return expressionError("http/request timeout must be an http/timeout option"), nil
+			}
+			err, timeout = nativeNetHTTPTimeoutDuration(values[1])
+			if err != nil {
+				return err, nil
+			}
+		}
+		ctx, cancel := context.WithTimeout(evaluator.executionContext(), timeout)
+		defer cancel()
 
-		request, err := http.NewRequest(method, rawURL, bytes.NewReader([]byte(body)))
+		request, err := http.NewRequestWithContext(ctx, method, rawURL, bytes.NewReader([]byte(body)))
 		if err != nil {
 			return expressionError("http/request requires a valid method and URL"), nil
 		}
 		request.Header = headers
 		response, err := doer.Do(request)
 		if err != nil {
-			return expressionError("http/request failed"), nil
+			return nativeNetHTTPFailure(ctx, err, "http/request failed"), nil
 		}
 		if response == nil {
 			return expressionError("http/request failed"), nil
@@ -268,13 +294,44 @@ func nativeNetHTTPRequest(doer nativeNetHTTPDoer) pureBuiltinCall {
 		}
 		bodyBytes, err := io.ReadAll(io.LimitReader(responseBody, nativeNetHTTPMaximumBodySize+1))
 		if err != nil {
-			return expressionError("http/request could not read response body"), nil
+			return nativeNetHTTPFailure(ctx, err, "http/request could not read response body"), nil
+		}
+		if err := ctx.Err(); err != nil {
+			return nativeNetHTTPFailure(ctx, err, "http/request failed"), nil
 		}
 		if len(bodyBytes) > nativeNetHTTPMaximumBodySize {
 			return expressionError("http/request response body exceeds %d bytes", nativeNetHTTPMaximumBodySize), nil
 		}
 		return nil, nativeNetHTTPResponse(response.StatusCode, response.Header, string(bodyBytes))
 	}
+}
+
+func nativeNetHTTPTimeoutDuration(expression Expr) (error, time.Duration) {
+	err, milliseconds := requireInteger(expression)
+	if err != nil {
+		return err, 0
+	}
+	if milliseconds <= 0 || milliseconds > math.MaxInt64/int64(time.Millisecond) {
+		return expressionError("http/timeout requires positive milliseconds within the supported duration range"), 0
+	}
+	return nil, time.Duration(milliseconds) * time.Millisecond
+}
+
+func nativeNetHTTPTimeoutOption(_ *evaluator, arguments []Expr) (error, Expr) {
+	if len(arguments) != 1 {
+		return expressionError("http/timeout requires milliseconds"), nil
+	}
+	if err, _ := nativeNetHTTPTimeoutDuration(arguments[0]); err != nil {
+		return err, nil
+	}
+	return nil, list([]Expr{symbol("http/timeout"), arguments[0]})
+}
+
+func nativeNetHTTPFailure(ctx context.Context, err error, message string) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("http/request timed out: %w", context.DeadlineExceeded)
+	}
+	return expressionError("%s", message)
 }
 
 func nativeNetHTTPValidateURL(raw string) bool {

@@ -68,8 +68,8 @@ func TestEvaluateSourceModulesCanImportHostModules(t *testing.T) {
 
 func TestEvaluateRejectsInvalidAndDuplicateInput(t *testing.T) {
 	tests := []struct {
-		name    string
-		options EvalOptions
+		name     string
+		options  EvalOptions
 		contains string
 	}{
 		{name: "binding", options: EvalOptions{Bindings: []Binding{{}}}, contains: "binding is invalid"},
@@ -111,5 +111,23 @@ func TestEvaluateInterruptsInfiniteTailRecursion(t *testing.T) {
 		case <-time.After(time.Second):
 			t.Fatalf("Evaluate(%s) did not stop after cancellation", source)
 		}
+	}
+}
+
+func TestHostFunctionContextPreservesCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	called := false
+	host := FunctionWithContext(func(call *FunctionContext, _ []Expr) (error, Expr) {
+		called = true
+		if call.Context() != ctx {
+			t.Fatal("host callback did not receive the evaluation context")
+		}
+		cancel()
+		return Errorf("ordinary host failure after cancellation"), nil
+	})
+	err, _ := Evaluate(`(error/catch (host))`, EvalOptions{Context: ctx, Bindings: []Binding{{Name: "host", Value: host}}})
+	if !called || !errors.Is(err, ErrInterrupted) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("host cancellation = %v, callback called=%t", err, called)
 	}
 }

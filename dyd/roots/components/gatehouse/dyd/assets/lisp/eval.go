@@ -16,6 +16,13 @@ func newEvaluator(ctx context.Context) *evaluator {
 	return &evaluator{context: ctx}
 }
 
+func (evaluator *evaluator) executionContext() context.Context {
+	if evaluator.context == nil {
+		return context.Background()
+	}
+	return evaluator.context
+}
+
 func Eval(expression Expr) (error, Expr) { return newEvaluator(nil).eval(expression, prelude()) }
 func Run(source string) (error, Expr) {
 	err, expression := Read(source)
@@ -172,11 +179,11 @@ func (evaluator *evaluator) callBuiltin(builtin *builtin, env *environment, argu
 		}
 	}
 	err, outcome := builtin.call(evaluator, env, arguments)
+	if interrupted := evaluator.interrupted(); interrupted != nil {
+		return taintError(interrupted, joinTaint(taint, errorTaint(err))), nil, TaintNone
+	}
 	if err != nil {
 		return taintError(err, taint), nil, TaintNone
-	}
-	if err := evaluator.interrupted(); err != nil {
-		return err, nil, TaintNone
 	}
 	return nil, outcome, taint
 }

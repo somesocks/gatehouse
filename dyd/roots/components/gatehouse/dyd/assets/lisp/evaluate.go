@@ -142,7 +142,8 @@ func function(leaky bool, call func([]Expr) (error, Expr)) Expr {
 	})}
 }
 
-// FunctionWithContext creates a host function that can synchronously call Lisp values.
+// FunctionWithContext creates a host function with access to the evaluation
+// context and synchronous calls to Lisp values.
 func FunctionWithContext(call func(*FunctionContext, []Expr) (error, Expr)) Expr {
 	return functionWithContext(true, call)
 }
@@ -157,12 +158,19 @@ func functionWithContext(leaky bool, call func(*FunctionContext, []Expr) (error,
 	})}
 }
 
-// FunctionContext invokes Lisp values while a context-aware host function runs.
+// FunctionContext exposes the evaluation context and invokes Lisp values while
+// a context-aware host function runs.
 type FunctionContext struct {
 	mutex       sync.Mutex
 	evaluator   *evaluator
 	environment *environment
 	active      bool
+}
+
+// Context returns the host call's evaluation context, including cancellation
+// and deadlines. Ownership of that context remains with the evaluation caller.
+func (call *FunctionContext) Context() context.Context {
+	return call.evaluator.executionContext()
 }
 
 func (context *FunctionContext) Call(callee Expr, arguments ...Expr) (error, Expr) {

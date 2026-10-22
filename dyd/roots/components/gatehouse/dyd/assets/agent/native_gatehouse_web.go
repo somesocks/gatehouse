@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,13 +56,12 @@ var webFetchDocumentation = capabilityDocumentation{
 }
 
 var webSearchHTTPClient = &http.Client{
-	Timeout: webSearchTimeout,
 	CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	},
 }
 
-var webFetchHTTPClient = lisp.PublicHTTPSClient(webFetchTimeout)
+var webFetchHTTPClient = lisp.PublicHTTPSClient(0)
 
 // NewWebModule constructs the web capability module for one agent evaluation.
 func NewWebModule() lisp.HostModule {
@@ -74,13 +74,13 @@ func newWebModule(endpoint string, client *http.Client) lisp.HostModule {
 
 func newWebModuleWithFetch(endpoint string, client *http.Client, fetch webFetchRequest) lisp.HostModule {
 	return lisp.HostModule{ID: gatehouseWebModuleID, Exports: []lisp.HostExport{
-		{Name: "search", Value: document(lisp.FunctionNonLeaky(webSearchFunction(endpoint, client)), webSearchDocumentation)},
-		{Name: "fetch", Value: document(lisp.FunctionNonLeaky(webFetchFunction(fetch)), webFetchDocumentation)},
+		{Name: "search", Value: document(lisp.FunctionWithContextNonLeaky(webSearchFunction(endpoint, client)), webSearchDocumentation)},
+		{Name: "fetch", Value: document(lisp.FunctionWithContextNonLeaky(webFetchFunction(fetch)), webFetchDocumentation)},
 	}}
 }
 
-func webSearchFunction(endpoint string, client *http.Client) func([]lisp.Expr) (error, lisp.Expr) {
-	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+func webSearchFunction(endpoint string, client *http.Client) func(*lisp.FunctionContext, []lisp.Expr) (error, lisp.Expr) {
+	return func(call *lisp.FunctionContext, arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 1 {
 			return lisp.Errorf("web/search requires a query"), nil
 		}
@@ -95,18 +95,18 @@ func webSearchFunction(endpoint string, client *http.Client) func([]lisp.Expr) (
 		if query == "" {
 			return lisp.Errorf("web/search query must not be blank"), nil
 		}
-		result, err := webSearch(endpoint, client, query)
+		result, err := webSearch(call.Context(), endpoint, client, query)
 		if err != nil {
-			return lisp.Errorf("web/search failed"), nil
+			return webRequestFailure("web/search", err), nil
 		}
 		return nil, lisp.String(result)
 	}
 }
 
-type webFetchRequest func(string) (string, error)
+type webFetchRequest func(context.Context, string) (string, error)
 
-func webFetchFunction(fetch webFetchRequest) func([]lisp.Expr) (error, lisp.Expr) {
-	return func(arguments []lisp.Expr) (error, lisp.Expr) {
+func webFetchFunction(fetch webFetchRequest) func(*lisp.FunctionContext, []lisp.Expr) (error, lisp.Expr) {
+	return func(call *lisp.FunctionContext, arguments []lisp.Expr) (error, lisp.Expr) {
 		if len(arguments) != 1 {
 			return lisp.Errorf("web/fetch requires a URL"), nil
 		}
@@ -121,19 +121,21 @@ func webFetchFunction(fetch webFetchRequest) func([]lisp.Expr) (error, lisp.Expr
 		if rawURL == "" {
 			return lisp.Errorf("web/fetch URL must not be blank"), nil
 		}
-		body, err := fetch(rawURL)
+		body, err := fetch(call.Context(), rawURL)
 		if err != nil {
-			return lisp.Errorf("web/fetch failed"), nil
+			return webRequestFailure("web/fetch", err), nil
 		}
 		return nil, lisp.String(body)
 	}
 }
 
-func webFetch(rawURL string) (string, error) {
-	if err := lisp.ValidatePublicHTTPSURL(context.Background(), rawURL); err != nil {
+func webFetch(ctx context.Context, rawURL string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, webFetchTimeout)
+	defer cancel()
+	if err := lisp.ValidatePublicHTTPSURL(ctx, rawURL); err != nil {
 		return "", err
 	}
-	request, err := http.NewRequest(http.MethodGet, rawURL, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
@@ -151,13 +153,18 @@ func webFetch(rawURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if len(body) > webFetchMaximumResponseSize {
 		return "", fmt.Errorf("response exceeds %d bytes", webFetchMaximumResponseSize)
 	}
 	return string(body), nil
 }
 
-func webSearch(endpoint string, client *http.Client, query string) (string, error) {
+func webSearch(ctx context.Context, endpoint string, client *http.Client, query string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, webSearchTimeout)
+	defer cancel()
 	requestPayload := webSearchMCPRequest{JSONRPC: "2.0", ID: 1, Method: "tools/call"}
 	requestPayload.Params.Name = "web_search_exa"
 	requestPayload.Params.Arguments = webSearchMCPArguments{
@@ -167,7 +174,7 @@ func webSearch(endpoint string, client *http.Client, query string) (string, erro
 	if err != nil {
 		return "", fmt.Errorf("marshal request: %w", err)
 	}
-	request, err := http.NewRequest(http.MethodPost, endpoint, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
 	}
@@ -185,6 +192,9 @@ func webSearch(endpoint string, client *http.Client, query string) (string, erro
 	body, err := io.ReadAll(io.LimitReader(response.Body, webSearchMaximumResponseSize+1))
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
 	if len(body) > webSearchMaximumResponseSize {
 		return "", fmt.Errorf("response exceeds %d bytes", webSearchMaximumResponseSize)
@@ -209,6 +219,13 @@ func webSearch(endpoint string, client *http.Client, query string) (string, erro
 		}
 	}
 	return "", fmt.Errorf("response has no text content")
+}
+
+func webRequestFailure(operation string, err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("%s timed out: %w", operation, context.DeadlineExceeded)
+	}
+	return lisp.Errorf("%s failed", operation)
 }
 
 func webSearchMCPPayload(body []byte) (string, bool, error) {

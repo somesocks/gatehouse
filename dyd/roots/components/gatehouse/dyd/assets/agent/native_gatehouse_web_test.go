@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -67,7 +68,7 @@ func TestAgentPreludeDoesNotRequireApprovalForWebCapabilities(t *testing.T) {
 			NewProjectModule(nil, nil, nil),
 			NewSessionModule(nil, nil, nil, nil),
 			NewPolicyModule(nil),
-			newWebModuleWithFetch(server.URL, server.Client(), func(string) (string, error) { return "<h1>Raw HTML</h1>", nil }),
+			newWebModuleWithFetch(server.URL, server.Client(), func(context.Context, string) (string, error) { return "<h1>Raw HTML</h1>", nil }),
 		}),
 	})
 	if err != nil || result.String() != `("result" "<h1>Raw HTML</h1>")` {
@@ -78,7 +79,7 @@ func TestAgentPreludeDoesNotRequireApprovalForWebCapabilities(t *testing.T) {
 func TestGatehouseWebModuleFetchesRawHTML(t *testing.T) {
 	fetched := ""
 	err, result := lisp.Evaluate(`(import (web @native:gatehouse/web/v1) (web/fetch "https://example.test/page"))`, lisp.EvalOptions{
-		HostModules: []lisp.HostModule{newWebModuleWithFetch("", nil, func(rawURL string) (string, error) {
+		HostModules: []lisp.HostModule{newWebModuleWithFetch("", nil, func(_ context.Context, rawURL string) (string, error) {
 			fetched = rawURL
 			return "<h1>Raw HTML</h1>", nil
 		})},
@@ -103,7 +104,7 @@ func TestGatehouseWebModuleRejectsInvalidQueriesAndResponses(t *testing.T) {
     (error/value (error/catch (web/fetch)))
     (error/value (error/catch (web/fetch " ")))
 	    (error/value (error/catch (web/fetch (taint/secret/mark "https://example.test"))))
-    (error/value (error/catch (web/fetch "https://example.test")))))`, lisp.EvalOptions{HostModules: []lisp.HostModule{newWebModuleWithFetch(server.URL, server.Client(), func(string) (string, error) { return "", errors.New("unavailable") })}})
+    (error/value (error/catch (web/fetch "https://example.test")))))`, lisp.EvalOptions{HostModules: []lisp.HostModule{newWebModuleWithFetch(server.URL, server.Client(), func(context.Context, string) (string, error) { return "", errors.New("unavailable") })}})
 	if err != nil || result.String() != `("web/search requires a query" "web/search query must not be blank" "web/search query must not be sensitive" "web/search failed" "web/fetch requires a URL" "web/fetch URL must not be blank" "web/fetch URL must not be sensitive" "web/fetch failed")` {
 		t.Fatalf("Evaluate() = (%s, %v)", result, err)
 	}
