@@ -4,6 +4,7 @@
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createConfirmation } from "../../utils/confirmation.svelte"
   import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { formatFileSize } from "../../utils/file-size"
 
@@ -26,6 +27,7 @@
   type Status = "checking" | "ready" | "unavailable"
 
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const projectLoad = createLoadState()
   const filesLoad = createLoadState()
   const page = createCollectionPage()
@@ -335,9 +337,20 @@
     if (!finished.ok) throw new Error()
   }
 
+  function requestRemoveFile(file: ProjectFile) {
+    const snapshot = { ...file }
+    confirmation.request({
+      title: "Remove file?",
+      description: `Remove “${file.name}” from this project? The stored project file will be removed.`,
+      confirmLabel: "Remove file",
+      onConfirm: async () => {
+        await deleteFile(snapshot)
+        return filesError
+      },
+    })
+  }
   async function deleteFile(file: ProjectFile): Promise<void> {
-    if (removingFileIDs.has(file.id) || !window.confirm(`Remove ${file.name}?`))
-      return
+    if (removingFileIDs.has(file.id)) return
     const route = currentRoute
     const value = generation
     removingFileIDs = new Set(removingFileIDs).add(file.id)
@@ -490,7 +503,7 @@
                 ><UI.Button
                   variant="outline"
                   disabled={removingFileIDs.has(selectedFile.id)}
-                  onclick={() => selectedFile && void deleteFile(selectedFile)}
+                  onclick={() => selectedFile && requestRemoveFile(selectedFile)}
                   >{removingFileIDs.has(selectedFile.id)
                     ? "Removing…"
                     : "Remove"}</UI.Button
@@ -539,7 +552,6 @@
           {:else}{#snippet uploadActions()}
               <UI.Button
                 variant="default"
-                size="sm"
                 type="button"
                 disabled={uploadingFiles > 0}
                 onclick={() => fileInput?.click()}
@@ -630,3 +642,5 @@
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

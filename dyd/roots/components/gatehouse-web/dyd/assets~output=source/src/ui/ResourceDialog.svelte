@@ -42,6 +42,7 @@
     resetScroll: () => bodyElement?.scrollTo({ top: 0 }),
   })
   provideResourceDialog(dialog)
+  const blocked = $derived(busy || dialog.footer?.busy === true)
 
   $effect.pre(() => {
     const view = viewKey
@@ -69,7 +70,7 @@
 <Dialog.Root
   {open}
   onOpenChange={(value) => {
-    if (!value) onClose()
+    if (!value && !blocked) onClose()
   }}
 >
   <Dialog.Content
@@ -80,10 +81,10 @@
         : "resource"}
     showCloseButton={false}
     onEscapeKeydown={(event) => {
-      if (busy) event.preventDefault()
+      if (blocked) event.preventDefault()
     }}
     onInteractOutside={(event) => {
-      if (busy) event.preventDefault()
+      if (blocked) event.preventDefault()
     }}
   >
     <header
@@ -98,6 +99,7 @@
           aria-label={backLabel ?? "Back"}
           title={backLabel ?? "Back"}
           href={backHref}
+          disabled={blocked}
         >
           <ArrowLeft size={18} aria-hidden="true" />
         </RouterLink>
@@ -108,7 +110,7 @@
         size="icon"
         aria-label={`Close ${title.toLowerCase()}`}
         title="Close"
-        disabled={busy}
+        disabled={blocked}
         onclick={onClose}
       >
         <X size={18} aria-hidden="true" />
@@ -124,7 +126,7 @@
       class="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-4 py-3"
     >
       {#if dialog.footer?.includeClose !== false}
-        <Button variant="outline" disabled={busy} onclick={onClose}
+        <Button variant="outline" disabled={blocked} onclick={onClose}
           >Close</Button
         >
       {/if}

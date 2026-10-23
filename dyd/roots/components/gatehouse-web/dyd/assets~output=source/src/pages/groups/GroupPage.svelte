@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte"
   import * as UI from "../../ui"
+  import { createConfirmation } from "../../utils/confirmation.svelte"
   import { useRuntime } from "../../app/runtime.svelte"
   import {
     fetchAdminGroupMembers,
@@ -21,6 +22,7 @@
     scope = "workspace",
   }: { workspaceID: string; groupID: string; scope?: GroupScope } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   let dialog = $state<"details" | "members" | "bots" | null>(null)
   const members = createDirectoryController<SystemGroupMember>({
     onAuthenticationLost: runtime.requireLogin,
@@ -138,13 +140,61 @@
     controller.clearFeedback(kind)
     dialog = kind
   }
-  async function deleteGroup() {
-    if (await controller.deleteGroup())
-      runtime.navigate(
-        scope === "system"
-          ? `/app/system/workspaces/${encodeURIComponent(workspaceID)}/groups`
-          : `/app/wsp/${encodeURIComponent(workspaceID)}/grp`,
-      )
+  function deleteGroup() {
+    if (!view.group) return
+    const group = { ...view.group }
+    confirmation.request({
+      title: "Delete group?",
+      description: `Delete “${group.name ?? group.alias ?? "Group"}”? Memberships and access inherited through this group will stop applying.`,
+      confirmLabel: "Delete group",
+      onConfirm: async () => {
+        if (await controller.deleteGroup(group))
+          runtime.navigate(scope === "system"
+            ? `/app/system/workspaces/${encodeURIComponent(workspaceID)}/groups`
+            : `/app/wsp/${encodeURIComponent(workspaceID)}/grp`)
+        else return view.feedback.details.error || "The group could not be deleted."
+      },
+    })
+  }
+  function removeMember(member: SystemGroupMember) {
+    const snapshot = { ...member }
+    confirmation.request({
+      title: "Remove member?",
+      description: `Remove ${member.name ?? member.alias ?? "this person"} from the group? Access inherited through this membership will stop applying. Other access paths remain.`,
+      confirmLabel: "Remove member",
+      onConfirm: async () => {
+        if (!(await controller.toggleMember(snapshot)))
+          return view.feedback.members.error || "The member could not be removed."
+      },
+    })
+  }
+  function removeBot(agent: SystemGroupAgent) {
+    const snapshot = { ...agent }
+    confirmation.request({
+      title: "Remove bot?",
+      description: `Remove ${agent.label ?? agent.alias} from the group? The bot will no longer participate through this group.`,
+      confirmLabel: "Remove bot",
+      onConfirm: async () => {
+        if (!(await controller.toggleAgent(snapshot)))
+          return view.feedback.bots.error || "The bot could not be removed."
+      },
+    })
+  }
+  function changeMemberRole(member: SystemGroupMember, role: "member" | "manager") {
+    if (member.role !== "manager" || role !== "member") {
+      void controller.changeMemberRole(member, role)
+      return
+    }
+    const snapshot = { ...member }
+    confirmation.request({
+      title: "Remove group management access?",
+      description: `${member.name ?? member.alias ?? "This person"} will remain a member but will no longer be able to manage this group.`,
+      confirmLabel: "Change to member",
+      onConfirm: async () => {
+        if (!(await controller.changeMemberRole(snapshot, role)))
+          return view.feedback.members.error || "The role could not be changed."
+      },
+    })
   }
 </script>
 
@@ -171,7 +221,7 @@
               onclick={editDetails}>Edit details</UI.Button
             >
             {#if group.enabled}<UI.ActionButton
-                variant="destructive"
+                variant="outline"
                 disabled={view.saving}
                 pending={view.pendingAction === "details:delete"}
                 onclick={() => void deleteGroup()}>Delete group</UI.ActionButton
@@ -234,7 +284,7 @@
               onchange={(event) => {
                 const role = event.currentTarget.value as "member" | "manager"
                 event.currentTarget.value = member.role
-                void controller.changeMemberRole(member, role)
+                changeMemberRole(member, role)
               }}
             >
               <UI.Option value="member">Member</UI.Option>
@@ -246,7 +296,7 @@
               aria-label={`Remove ${member.label}`}
               pending={view.pendingAction === `member:${member.principal}`}
               disabled={view.saving}
-              onclick={() => void controller.toggleMember(member)}
+              onclick={() => removeMember(member)}
               >Remove</UI.ActionButton
             >
           {:else}
@@ -328,7 +378,7 @@
               aria-label={`Remove ${agent.label}`}
               pending={view.pendingAction === `bot:${agent.agent}`}
               disabled={view.saving}
-              onclick={() => void controller.toggleAgent(agent)}
+              onclick={() => removeBot(agent)}
               >Remove</UI.ActionButton
             >
           {/if}
@@ -379,3 +429,5 @@
     />
   {/if}
 {/if}
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

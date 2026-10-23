@@ -2,6 +2,7 @@
   import { untrack } from "svelte"
   import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
     systemAdministration,
@@ -19,6 +20,7 @@
     editingPage?: boolean
   } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const resource = createLoadState()
   const mutation = createLoadState()
   let binding = $state<SystemWorkspaceStorageProvider | null>(null),
@@ -137,6 +139,16 @@
       request.finish()
     }
   }
+  const disabling = $derived(binding?.enabled && !enabled)
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable storage binding?",
+      description: "Disable this workspace storage binding? It will be unavailable for use until enabled again.",
+      confirmLabel: "Disable binding",
+      onConfirm: async () => { await save(); return error },
+    })
+  }
 </script>
 
 <SystemWorkspaceFrame
@@ -188,7 +200,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
         ><UI.FormSection title="Provider assignment"
           ><UI.Text emphasis="strong">{provider?.alias ?? providerID}</UI.Text
@@ -246,3 +258,5 @@
     {/if}
   </UI.AdminContent>
 </SystemWorkspaceFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

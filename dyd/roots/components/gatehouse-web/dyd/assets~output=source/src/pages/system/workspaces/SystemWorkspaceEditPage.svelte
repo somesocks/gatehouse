@@ -1,11 +1,13 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import { untrack } from "svelte"
   import { createSystemWorkspaceDetailController } from "./system-workspace-detail-controller.svelte"
   let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const controller = untrack(() =>
     createSystemWorkspaceDetailController({
       onAuthenticationLost: runtime.requireLogin,
@@ -23,6 +25,16 @@
         `/app/system/workspaces/${encodeURIComponent(workspaceID)}`,
         true,
       )
+  }
+  const disabling = $derived(controller.state.workspace?.enabled && !controller.state.form.enabled)
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable workspace?",
+      description: `Disable “${controller.state.workspace?.name ?? controller.state.workspace?.alias ?? "this workspace"}”? Members will lose access until it is enabled again.`,
+      confirmLabel: "Disable workspace",
+      onConfirm: async () => { await save(); return controller.state.error },
+    })
   }
 </script>
 
@@ -65,7 +77,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
       >
         <UI.FormSection title="Workspace information"
@@ -103,3 +115,5 @@
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

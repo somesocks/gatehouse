@@ -2,6 +2,7 @@
   import { untrack } from "svelte"
   import { createLoadState } from "../../../utils/load-state.svelte"
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import PrincipalLogins from "./PrincipalLogins.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
@@ -15,11 +16,13 @@
     editingPage = false,
   }: { principalID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const resource = createLoadState()
   const mutation = createLoadState()
   let principal = $state<SystemPrincipal | null>(null)
   let enabled = $state(true),
     error = $state("")
+  const disabling = $derived(principal?.enabled && !enabled)
   const loading = $derived(resource.loading)
   const saving = $derived(mutation.state.pending)
   let generation = 0
@@ -71,13 +74,6 @@
   })
   async function save() {
     if (saving || !principal) return
-    if (
-      !enabled &&
-      !window.confirm(
-        `Disable ${principal.name ?? principal.alias ?? principal.id}?`,
-      )
-    )
-      return
     const current = generation
     const request = mutation.begin()
     error = ""
@@ -109,6 +105,15 @@
     } finally {
       request.finish()
     }
+  }
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable principal?",
+      description: `Disable ${principal?.name ?? principal?.alias ?? "this principal"}? The account will lose access until enabled again. Disabling your own account signs you out.`,
+      confirmLabel: "Disable principal",
+      onConfirm: async () => { await save(); return error },
+    })
   }
 </script>
 
@@ -149,7 +154,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
         ><UI.FormSection title="Availability"
           ><UI.Label layout="choice"
@@ -197,3 +202,5 @@
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

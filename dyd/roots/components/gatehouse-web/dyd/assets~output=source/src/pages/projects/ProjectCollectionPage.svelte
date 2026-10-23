@@ -61,7 +61,6 @@
 
 {#snippet projectActions()}<UI.RouterLink
     variant="default"
-    size="sm"
     href={`${projectsPath()}/new`}>New project</UI.RouterLink
   >{/snippet}
 <UI.AdminContent>

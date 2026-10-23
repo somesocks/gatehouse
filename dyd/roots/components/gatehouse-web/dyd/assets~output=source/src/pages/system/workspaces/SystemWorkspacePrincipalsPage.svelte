@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
     fetchSystemWorkspacePrincipals,
@@ -10,8 +11,10 @@
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
   import { createWorkspaceGrantRoleController } from "./workspace-grant-role-controller.svelte"
   import { onMount } from "svelte"
+  import { reducesRoleAccess } from "../../../app/role-access"
   let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const lifetime = new AbortController()
   let removing = $state(new Set<string>()),
     error = $state("")
@@ -49,14 +52,7 @@
     }
   })
   async function remove(principal: SystemWorkspacePrincipal) {
-    if (
-      removing.has(principal.id) ||
-      roleEditor.state.saving ||
-      !window.confirm(
-        `Remove direct workspace access for ${principal.name ?? principal.alias ?? principal.id}? Group-derived access may remain.`,
-      )
-    )
-      return
+    if (removing.has(principal.id) || roleEditor.state.saving) return
     if (roleEditor.state.grant?.principal === principal.id) roleEditor.cancel()
     removing = new Set(removing).add(principal.id)
     error = ""
@@ -81,6 +77,31 @@
         removing = next
       }
     }
+  }
+  function requestRemove(principal: SystemWorkspacePrincipal) {
+    const snapshot = { ...principal }
+    confirmation.request({
+      title: "Remove workspace access?",
+      description: `Remove all direct workspace grants for ${principal.name ?? principal.alias ?? principal.id}? Workspace access will be suspended until admission is restored. Retained project and chat grants are not deleted.`,
+      confirmLabel: "Remove direct access",
+      onConfirm: async () => { await remove(snapshot); return error },
+    })
+  }
+  function saveRole() {
+    const grant = roleEditor.state.grant
+    if (!grant || !reducesRoleAccess(grant.role, roleEditor.state.role)) {
+      void roleEditor.save()
+      return
+    }
+    confirmation.request({
+      title: "Reduce workspace access?",
+      description: `Change ${roleEditor.state.recipient} from ${grant.role} to ${roleEditor.state.role}? Permissions provided by this grant will be reduced. Other grants still apply.`,
+      confirmLabel: "Change role",
+      onConfirm: async () => {
+        await roleEditor.save()
+        if (roleEditor.state.grant) return roleEditor.state.error || "The role could not be changed."
+      },
+    })
   }
 </script>
 
@@ -112,7 +133,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void roleEditor.save()
+          saveRole()
         }}
       >
         <UI.FormSection
@@ -199,7 +220,7 @@
                 size="sm"
                 variant="outline"
                 disabled={removing.has(principal.id) || roleEditor.state.saving}
-                onclick={() => void remove(principal)}
+                onclick={() => requestRemove(principal)}
                 >{removing.has(principal.id)
                   ? "Removing…"
                   : "Remove direct access"}</UI.Button
@@ -220,3 +241,5 @@
     />
   </UI.AdminContent>
 </SystemWorkspaceFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

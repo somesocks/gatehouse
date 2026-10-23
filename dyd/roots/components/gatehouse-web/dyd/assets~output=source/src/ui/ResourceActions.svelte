@@ -2,15 +2,16 @@
   import type { Snippet } from "svelte"
   import { resourceDialog } from "./resource-dialog-context"
 
-  let { children, includeClose = true }: {
+  let { children, includeClose = true, busy = false }: {
     children: Snippet
     includeClose?: boolean
+    busy?: boolean
   } = $props()
   const dialog = resourceDialog()
   const owner = Symbol("resource-actions")
   $effect(() => {
     if (!dialog) return
-    dialog.footer = { owner, children, includeClose }
+    dialog.footer = { owner, children, includeClose, busy }
     return () => {
       if (dialog.footer?.owner === owner) dialog.footer = undefined
     }

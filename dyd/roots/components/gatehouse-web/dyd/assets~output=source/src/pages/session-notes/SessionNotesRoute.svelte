@@ -964,12 +964,12 @@
           {:else if active !== null}{@const noteID = active.id}{@const displayed =
               selectedRevision ?? active}
             {#snippet noteActions()}
-              <UI.RouterLink variant="outline" size={embedded ? "default" : "sm"} href={`${detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}/revisions`}>History</UI.RouterLink>
+              <UI.RouterLink variant="outline" href={`${detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}/revisions`}>History</UI.RouterLink>
               {#if selectedRevision === null}
-                <UI.Button variant={embedded ? "destructive" : "outline"} size={embedded ? "default" : "sm"} disabled={deleting} onclick={requestRemove}>Remove</UI.Button>
-                <UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={editPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Edit</UI.RouterLink>
+                <UI.Button variant="outline" disabled={deleting} onclick={requestRemove}>Remove</UI.Button>
+                <UI.RouterLink variant={embedded ? "default" : "outline"} href={editPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Edit</UI.RouterLink>
               {:else}
-                <UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Current revision</UI.RouterLink>
+                <UI.RouterLink variant={embedded ? "default" : "outline"} href={detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Current revision</UI.RouterLink>
               {/if}
             {/snippet}
             <UI.Stack as="article">
@@ -1008,7 +1008,6 @@
             </UI.Stack>
           {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
-                size={embedded ? "default" : "sm"}
                 href={`${listPath(workspace.id, currentRoute.sessionID)}/new`}>New note</UI.RouterLink
               >{/snippet}
             {#if embedded}

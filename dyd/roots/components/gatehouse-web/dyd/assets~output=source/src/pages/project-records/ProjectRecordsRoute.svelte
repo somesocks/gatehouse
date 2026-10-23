@@ -4,6 +4,7 @@
   import { PageBody, PageHeading, RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createConfirmation } from "../../utils/confirmation.svelte"
   import { setRecordReference } from "../../app/record-reference-drafts"
   import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { dateTimeInput, dateTimeValue } from "../../utils/date-time-input"
@@ -81,6 +82,7 @@
   }
 
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const projectLoad = createLoadState()
   const schemasLoad = createLoadState()
   const schemaLoad = createLoadState()
@@ -912,11 +914,7 @@
 
   async function deleteSchema(): Promise<void> {
     const route = currentRoute
-    if (
-      !isSchemaRoute(route) ||
-      !window.confirm(`Remove ${schema?.label ?? "this record type"}?`)
-    )
-      return
+    if (!isSchemaRoute(route)) return
     saving = true
     error = ""
     try {
@@ -1007,14 +1005,9 @@
     attribute: ProjectRecordAttribute,
   ): Promise<void> {
     const route = currentRoute
-    if (
-      !isSchemaRoute(route) ||
-      !window.confirm(
-        `Remove ${attribute.label}? Its stored values will be removed from records.`,
-      )
-    )
-      return
+    if (!isSchemaRoute(route)) return
     saving = true
+    error = ""
     try {
       const response = await removeProjectRecordAttribute(
         route.workspaceID,
@@ -1123,12 +1116,9 @@
 
   async function deleteRecord(): Promise<void> {
     const route = currentRoute
-    if (
-      route.kind !== "project-record-edit" ||
-      !window.confirm("Remove this record?")
-    )
-      return
+    if (route.kind !== "project-record-edit") return
     saving = true
+    error = ""
     try {
       const response = await removeProjectRecord(
         route.workspaceID,
@@ -1343,7 +1333,12 @@
                       variant="outline"
                       size="sm"
                       disabled={saving}
-                      onclick={() => void deleteAttribute(attribute)}
+                      onclick={() => confirmation.request({
+                        title: "Remove field?",
+                        description: `Remove “${attribute.label}”? Its stored values will be removed from records.`,
+                        confirmLabel: "Remove field",
+                        onConfirm: async () => { await deleteAttribute(attribute); return error },
+                      })}
                       >Remove</UI.Button
                     ></UI.RecordCell
                   >
@@ -1373,7 +1368,12 @@
                   variant="outline"
                   type="button"
                   disabled={saving}
-                  onclick={() => void deleteSchema()}
+                  onclick={() => confirmation.request({
+                    title: "Remove record type?",
+                    description: `Remove “${schema?.label ?? "this record type"}” from the project?`,
+                    confirmLabel: "Remove record type",
+                    onConfirm: async () => { await deleteSchema(); return error },
+                  })}
                   >Remove record type</UI.Button
                 >{/if}{/snippet}
             <UI.AdminHeader
@@ -1435,8 +1435,7 @@
                   variant="outline"
                   href={recordsPath(workspace.id, currentRoute.projectID)}>Cancel</UI.RouterLink
                 ><UI.Button
-                  variant="outline"
-                  size="sm"
+                  variant="default"
                   type="submit"
                   disabled={saving}
                   >{saving ? "Saving..." : "Save record type"}</UI.Button
@@ -1568,7 +1567,12 @@
                   variant="outline"
                   type="button"
                   disabled={saving}
-                  onclick={() => void deleteRecord()}>Remove record</UI.Button
+                  onclick={() => confirmation.request({
+                    title: "Remove record?",
+                    description: "Remove this record and its stored values from the project?",
+                    confirmLabel: "Remove record",
+                    onConfirm: async () => { await deleteRecord(); return error },
+                  })}>Remove record</UI.Button
                 >{/if}{/snippet}
             <UI.AdminHeader
               kind={schema?.label ?? "Record"}
@@ -1759,11 +1763,9 @@
             </UI.Form>
           {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<UI.RouterLink
                 variant="outline"
-                size="sm"
                 href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/overview`}>Type overview</UI.RouterLink
               ><UI.RouterLink
                 variant="default"
-                size="sm"
                 href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`}>New record</UI.RouterLink
               >{/snippet}
             <UI.AdminHeader
@@ -2042,3 +2044,5 @@
     </SidebarPage.Page>
   </SidebarPage.Root>
 {/if}
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

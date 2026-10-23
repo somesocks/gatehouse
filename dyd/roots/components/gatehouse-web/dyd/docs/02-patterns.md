@@ -158,6 +158,36 @@ keyset pagination run on the server.
 
 `AdminContent`, `AdminHeader`, `NavigationCard`, and `NavigationGrid`.
 
+## Action emphasis and confirmations
+
+Primary emphasis follows the importance of an action within the current view.
+Main collection, dialog, connection, and recovery actions retain primary emphasis
+even when they open another view. This includes creation actions, Add person or
+group, Sign in, and the main recovery action on an error page. Save remains
+primary when a destructive change requires a subsequent confirmation.
+Supporting controls such as Close and Cancel use secondary treatment; compact
+utility actions may use ghost treatment.
+Success-specific styling is reserved for final affirmative actions such as
+Create, Save, Add, or Submit. Header actions use the default control size; compact
+row actions may use smaller sizes.
+
+Persistent deletion, revocation, disconnection, and availability or role changes
+that remove access require explicit confirmation. The opening control retains its
+primary or secondary emphasis and does not use destructive styling. The final
+confirmation control uses destructive treatment. Ordinary draft edits, including
+staged value removals with Undo, retain editing controls.
+
+`ConfirmationDialog` presents the target, consequences, Cancel, and the final
+destructive action. Its controller in `src/utils/confirmation.svelte.ts` defers
+the mutation until confirmation, blocks duplicate submissions and dismissal while
+pending, and retains failures for retry or cancellation. A context change or
+unmount resets the confirmation, and late results cannot affect a new request.
+Targets and expected revisions are captured when the confirmation opens.
+
+Chat-resource removals retain their in-dialog `ResourceRemoval` view. Participant,
+project-grant, and group-secret dialogs already provide final confirmations;
+their final action is destructive for removals and permission reductions.
+
 ## Reference selectors
 
 ### Scope

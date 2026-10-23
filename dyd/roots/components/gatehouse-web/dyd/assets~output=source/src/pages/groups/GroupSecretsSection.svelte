@@ -52,7 +52,11 @@
 
 {#if view.dialog !== null}
   <UI.Dialog.Root open={true} onOpenChange={(open) => { if (!open) controller.cancelDialog() }}>
-    <UI.Dialog.Content showCloseButton>
+    <UI.Dialog.Content
+      showCloseButton={!view.saving && !view.reloading}
+      onEscapeKeydown={(event) => { if (view.saving || view.reloading) event.preventDefault() }}
+      onInteractOutside={(event) => { if (view.saving || view.reloading) event.preventDefault() }}
+    >
       <UI.Dialog.Title>{view.dialog === "create" ? "Add secret" : view.dialog === "edit" ? "Edit secret" : "Remove secret"}</UI.Dialog.Title>
       <UI.Form onsubmit={(event) => { event.preventDefault(); void controller.save() }}>
         {#if view.dialog === "remove"}
@@ -74,7 +78,7 @@
           </UI.Notice>
         {/if}
         <UI.Row justify="end">
-          <UI.Button variant="outline" onclick={controller.cancelDialog}>Cancel</UI.Button>
+          <UI.Button variant="outline" disabled={view.saving || view.reloading} onclick={controller.cancelDialog}>Cancel</UI.Button>
           <UI.Button type="submit" variant={view.dialog === "remove" ? "destructive" : "default"} disabled={view.saving || view.reloading || !view.canManage || (view.dialog !== "remove" && (!view.description.trim() || (view.dialog === "create" && !view.value)))}>
             {view.saving ? "Saving…" : view.dialog === "remove" ? "Remove" : "Save"}
           </UI.Button>

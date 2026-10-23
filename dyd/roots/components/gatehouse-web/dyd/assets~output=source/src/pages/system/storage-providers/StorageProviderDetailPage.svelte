@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import { untrack } from "svelte"
@@ -10,6 +11,7 @@
     editingPage = false,
   }: { providerID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const controller = untrack(() =>
     createStorageProviderFormController({
       onAuthenticationLost: runtime.requireLogin,
@@ -38,6 +40,16 @@
         `/app/system/storage-providers/${encodeURIComponent(providerID)}`,
         true,
       )
+  }
+  const disabling = $derived(controller.state.provider?.enabled && !controller.state.form.enabled)
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable storage provider?",
+      description: `Disable “${controller.state.provider?.alias}”? It will be unavailable for use until enabled again.`,
+      confirmLabel: "Disable provider",
+      onConfirm: async () => { await save(); return controller.state.error },
+    })
   }
 </script>
 
@@ -93,7 +105,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
       >
         <StorageProviderFields
@@ -164,3 +176,5 @@
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

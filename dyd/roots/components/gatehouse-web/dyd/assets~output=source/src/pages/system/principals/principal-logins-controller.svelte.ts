@@ -164,7 +164,6 @@ export function createPrincipalLoginsController({
   }
   async function setEnabled(identity: SystemPrincipalIdentity): Promise<void> {
     if (state.saving || disposed) return
-    if (identity.enabled && !window.confirm(`Disable ${identity.key}?`)) return
     const current = generation
     const saved = await mutate(
       "PATCH",
@@ -178,12 +177,7 @@ export function createPrincipalLoginsController({
     }
   }
   async function remove(identity: SystemPrincipalIdentity): Promise<void> {
-    if (
-      state.saving ||
-      disposed ||
-      !window.confirm(`Delete ${identity.key} and its password?`)
-    )
-      return
+    if (state.saving || disposed) return
     const current = generation
     const saved = await mutate(
       "DELETE",

@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import { untrack } from "svelte"
@@ -10,6 +11,7 @@
     editingPage = false,
   }: { providerID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const controller = untrack(() =>
     createAgentProviderFormController({
       onAuthenticationLost: runtime.requireLogin,
@@ -56,6 +58,26 @@
         `/app/system/agent-providers/${encodeURIComponent(providerID)}`,
         true,
       )
+  }
+  const disabling = $derived(controller.state.provider?.enabled && !controller.state.form.enabled)
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable provider?",
+      description: `Disable “${controller.state.provider?.alias}”? It will be unavailable for use until enabled again.`,
+      confirmLabel: "Disable provider",
+      onConfirm: async () => { await save(); return controller.state.error },
+    })
+  }
+  function requestDisconnect() {
+    if (!controller.state.provider) return
+    const provider = { ...controller.state.provider }
+    confirmation.request({
+      title: "Disconnect ChatGPT?",
+      description: `Remove the stored ChatGPT connection for “${provider.alias}”${provider.account?.email ? ` (${provider.account.email})` : ""}? Reconnect the account to use it again.`,
+      confirmLabel: "Disconnect",
+      onConfirm: async () => { await controller.disconnect(provider); return controller.state.error },
+    })
   }
 </script>
 
@@ -111,7 +133,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
       >
         <AgentProviderFields
@@ -182,7 +204,7 @@
                   variant="outline"
                   size="sm"
                   disabled={controller.state.saving}
-                  onclick={() => void controller.disconnect()}
+                  onclick={requestDisconnect}
                   >{controller.state.saving
                     ? "Disconnecting…"
                     : "Disconnect"}</UI.Button
@@ -212,3 +234,5 @@
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

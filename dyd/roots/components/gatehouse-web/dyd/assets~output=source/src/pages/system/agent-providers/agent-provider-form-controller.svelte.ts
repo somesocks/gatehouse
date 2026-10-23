@@ -215,8 +215,7 @@ export function createAgentProviderFormController({
     state.form.apiKey = ""
     state.editing = false
   }
-  async function disconnect(): Promise<void> {
-    const provider = state.provider
+  async function disconnect(provider = state.provider): Promise<void> {
     if (
       disposed ||
       state.saving ||

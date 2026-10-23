@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte"
+  import { reducesRoleAccess } from "../app/role-access"
   import * as UI from "../ui"
   import {
     participantRoles,
@@ -44,6 +45,7 @@
   // overwrite the draft or silently advance the revision used by confirmation.
   let snapshot = $state<SessionParticipantGrant>(untrack(() => ({ ...grant })))
   let draft = $state<ParticipantRole>(untrack(() => grant.role))
+  const reducing = $derived(mode === "role" && reducesRoleAccess(snapshot.role, draft))
   let reloading = $state(false)
   let active = true
   $effect(() => () => {
@@ -75,10 +77,14 @@
 <UI.Dialog.Root
   open={true}
   onOpenChange={(open) => {
-    if (!open) onClose()
+    if (!open && !saving && !reloading) onClose()
   }}
 >
-  <UI.Dialog.Content showCloseButton>
+  <UI.Dialog.Content
+    showCloseButton={!saving && !reloading}
+    onEscapeKeydown={(event) => { if (saving || reloading) event.preventDefault() }}
+    onInteractOutside={(event) => { if (saving || reloading) event.preventDefault() }}
+  >
     <UI.Dialog.Title
       >{mode === "role"
         ? `Edit role for ${name}`
@@ -91,6 +97,9 @@
       }}
     >
       {#if mode === "role"}
+        {#if reducing}<UI.Dialog.Description>
+          This change reduces {name}'s permissions from this grant. Other direct and group grants still apply.
+        </UI.Dialog.Description>{/if}
         <UI.Field
           ><UI.Label for={`${uid}-role`}>Role</UI.Label>
           <UI.Select
@@ -119,11 +128,11 @@
           ></UI.Notice
         >{/if}
       <UI.Row justify="end">
-        <UI.Button variant="outline" onclick={() => onClose()}>Cancel</UI.Button
+        <UI.Button variant="outline" disabled={saving || reloading} onclick={() => onClose()}>Cancel</UI.Button
         >
         <UI.Button
           type="submit"
-          variant={mode === "remove" ? "destructive" : "default"}
+          variant={mode === "remove" || reducing ? "destructive" : "default"}
           disabled={saving ||
             reloading ||
             !canManage ||

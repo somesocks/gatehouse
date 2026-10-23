@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
     systemAdministration,
@@ -19,6 +20,7 @@
     editingPage?: boolean
   } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   let model = $state<SystemAgentModel | null>(null)
   const controller = untrack(() =>
     createWorkspaceAgentBindingController({
@@ -75,6 +77,21 @@
         true,
       )
   }
+  const disabling = $derived(
+    (controller.state.binding?.enabled && !controller.state.form.enabled) ||
+    (controller.state.binding?.default && !controller.state.form.default),
+  )
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: !controller.state.form.enabled ? "Disable agent binding?" : "Restrict agent availability?",
+      description: !controller.state.form.enabled
+        ? `Disable “${controller.state.binding?.alias}”? This workspace bot will be unavailable until enabled again.`
+        : `Remove workspace-wide availability for “${controller.state.binding?.alias}”? Members will need access through an assigned group.`,
+      confirmLabel: !controller.state.form.enabled ? "Disable binding" : "Restrict availability",
+      onConfirm: async () => { await save(); return controller.state.error },
+    })
+  }
 </script>
 
 <SystemWorkspaceFrame
@@ -127,7 +144,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
         ><WorkspaceAgentBindingFields
           bind:form={controller.state.form}
@@ -199,3 +216,5 @@
     {/if}
   </UI.AdminContent>
 </SystemWorkspaceFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

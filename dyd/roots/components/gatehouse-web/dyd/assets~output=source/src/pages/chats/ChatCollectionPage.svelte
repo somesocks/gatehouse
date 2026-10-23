@@ -73,7 +73,6 @@
 
 {#snippet chatActions()}<UI.Button
     variant="default"
-    size="sm"
     type="button"
     disabled={creating}
     onclick={() => void onCreate()}>New chat</UI.Button

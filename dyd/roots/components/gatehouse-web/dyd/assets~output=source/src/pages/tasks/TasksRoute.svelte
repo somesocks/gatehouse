@@ -831,13 +831,12 @@
               }}>Try again</UI.Button
             >
           {:else if active !== null}{@const taskID = active.id}{#snippet taskActions()}<UI.Button
-                variant={embedded ? "destructive" : "outline"}
-                size={embedded ? "default" : "sm"}
+                variant="outline"
                 type="button"
                 disabled={deleting}
                 onclick={requestRemove}
                 >{deleting ? "Removing..." : "Remove"}</UI.Button
-              ><UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={`${detailPath(currentRoute, taskID)}/edit`}>Edit</UI.RouterLink>{/snippet}
+              ><UI.RouterLink variant={embedded ? "default" : "outline"} href={`${detailPath(currentRoute, taskID)}/edit`}>Edit</UI.RouterLink>{/snippet}
             <UI.Stack as="article">
               <UI.AdminHeader
                 compact={embedded}
@@ -882,7 +881,6 @@
             </UI.Stack>
           {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
-                size={embedded ? "default" : "sm"}
                 href={`${listPath(currentRoute)}/new`}
                 >New task</UI.RouterLink
               >{/snippet}

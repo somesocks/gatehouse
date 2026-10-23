@@ -1,8 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { useRuntime } from "../../../app/runtime.svelte"
-  import type { SystemPrincipal } from "../../../app/system"
+  import type { SystemPrincipal, SystemPrincipalIdentity } from "../../../app/system"
   import { createPrincipalLoginsController } from "./principal-logins-controller.svelte"
   let {
     principal,
@@ -14,6 +15,7 @@
     onReload: () => Promise<void>
   } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const principalID = $derived(principal.id)
   const controller = createPrincipalLoginsController({
     onAuthenticationLost: runtime.requireLogin,
@@ -22,11 +24,40 @@
     currentIdentityID: () => runtime.auth.state.claims?.identity,
     onReload: () => onReload(),
   })
+  const disabling = $derived(controller.state.mode === "edit" && controller.state.identity?.enabled && !controller.state.enabled)
   $effect(() => {
     const id = principalID
     untrack(() => controller.reset(id))
     return controller.stop
   })
+  function saveLogin() {
+    if (!disabling) { void controller.save(); return }
+    confirmation.request({
+      title: "Disable login?",
+      description: `Disable ${controller.state.identity?.key}? It will no longer be usable for sign-in. This may sign you out if it is your current identity.`,
+      confirmLabel: "Disable login",
+      onConfirm: async () => { await controller.save(); return controller.state.error },
+    })
+  }
+  function setEnabled(identity: SystemPrincipalIdentity) {
+    if (!identity.enabled) { void controller.setEnabled(identity); return }
+    const snapshot = { ...identity }
+    confirmation.request({
+      title: "Disable login?",
+      description: `Disable ${identity.key}? It will no longer be usable for sign-in. This may sign you out if it is your current identity.`,
+      confirmLabel: "Disable login",
+      onConfirm: async () => { await controller.setEnabled(snapshot); return controller.state.error },
+    })
+  }
+  function remove(identity: SystemPrincipalIdentity) {
+    const snapshot = { ...identity }
+    confirmation.request({
+      title: "Delete login?",
+      description: `Delete ${identity.key} and its password? This may sign you out if it is your current identity.`,
+      confirmLabel: "Delete login",
+      onConfirm: async () => { await controller.remove(snapshot); return controller.state.error },
+    })
+  }
 </script>
 
 <UI.Stack>
@@ -79,7 +110,7 @@
       surface
       onsubmit={(event) => {
         event.preventDefault()
-        void controller.save()
+        saveLogin()
       }}
     >
       <UI.FormSection
@@ -187,14 +218,14 @@
               <UI.Button
                 variant="outline"
                 disabled={controller.state.saving}
-                onclick={() => void controller.setEnabled(identity)}
+                onclick={() => setEnabled(identity)}
                 >{identity.enabled ? "Disable" : "Enable"}</UI.Button
               >
             {/if}
             <UI.Button
-              variant="destructive"
+              variant="outline"
               disabled={controller.state.saving}
-              onclick={() => void controller.remove(identity)}>Delete</UI.Button
+              onclick={() => remove(identity)}>Delete</UI.Button
             >
           </UI.Row></UI.RecordCell
         >
@@ -205,3 +236,5 @@
       />{/each}
   </UI.RecordTable>
 </UI.Stack>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

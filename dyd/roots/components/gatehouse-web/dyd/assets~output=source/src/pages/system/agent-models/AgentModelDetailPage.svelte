@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import { untrack } from "svelte"
@@ -14,6 +15,7 @@
     editingPage = false,
   }: { modelID: string; editingPage?: boolean } = $props()
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   let provider = $state<SystemAgentProvider | null>(null)
   const controller = untrack(() =>
     createAgentModelFormController({
@@ -63,6 +65,16 @@
         `/app/system/agent-models/${encodeURIComponent(modelID)}`,
         true,
       )
+  }
+  const disabling = $derived(controller.state.model?.enabled && !controller.state.form.enabled)
+  function requestSave() {
+    if (!disabling) { void save(); return }
+    confirmation.request({
+      title: "Disable model?",
+      description: `Disable “${controller.state.model?.alias}”? It will be unavailable for use until enabled again.`,
+      confirmLabel: "Disable model",
+      onConfirm: async () => { await save(); return controller.state.error },
+    })
   }
 </script>
 
@@ -116,7 +128,7 @@
         surface
         onsubmit={(event) => {
           event.preventDefault()
-          void save()
+          requestSave()
         }}
       >
         <AgentModelFields bind:form={controller.state.form} editing />
@@ -185,3 +197,5 @@
     {/if}
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

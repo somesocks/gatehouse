@@ -18,7 +18,7 @@
   <p class="text-sm break-words">Remove “{name}” from this {scope}?</p>
   {#if error}<Notice variant="destructive" role="alert">{error}</Notice>{/if}
 </section>
-<ResourceActions includeClose={false}>
+<ResourceActions includeClose={false} {busy}>
   <Button variant="outline" disabled={busy} onclick={onCancel}>Cancel</Button>
   <Button variant="destructive" disabled={busy} onclick={onConfirm}>{busy ? "Removing…" : "Remove"}</Button>
 </ResourceActions>

@@ -12,6 +12,7 @@
   } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
+  import { createConfirmation } from "../../utils/confirmation.svelte"
   import { userAuthorLabel } from "../../app/user-labels"
   import { createCollectionPage } from "../../utils/collection-page.svelte"
   import { useRuntime } from "../../app/runtime.svelte"
@@ -53,6 +54,7 @@
   > & { revision: number; body?: string }
 
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const projectLoad = createLoadState()
   const notesLoad = createLoadState()
   const detailLoad = createLoadState()
@@ -460,13 +462,20 @@
     }
   }
 
+  function requestRemove() {
+    if (!active) return
+    confirmation.request({
+      title: "Remove note?",
+      description: `Remove “${active.title}” from this project? Its stored content will be removed.`,
+      confirmLabel: "Remove note",
+      onConfirm: async () => {
+        await remove()
+        return error
+      },
+    })
+  }
   async function remove(): Promise<void> {
-    if (
-      active === null ||
-      deleting ||
-      !window.confirm(`Remove ${active.title}?`)
-    )
-      return
+    if (active === null || deleting) return
     const route = currentRoute
     const note = active
     const value = generation
@@ -812,23 +821,19 @@
               selectedRevision ?? active}
             {#snippet noteActions()}{#if selectedRevision === null}<UI.RouterLink
                   variant="outline"
-                  size="sm"
                   href={`${detailPath(currentRoute.workspaceID, currentRoute.projectID, noteID)}/edit`}>Edit</UI.RouterLink
                 >{:else}<UI.RouterLink
                   variant="outline"
-                  size="sm"
                   href={detailPath(currentRoute.workspaceID, currentRoute.projectID, noteID)}>Current revision</UI.RouterLink
                 >{/if}<UI.Button
                 variant="outline"
-                size="sm"
                 type="button"
                 onclick={() => void openHistory()}>History</UI.Button
               >{#if selectedRevision === null}<UI.Button
                   variant="outline"
-                  size="sm"
                   type="button"
                   disabled={deleting}
-                  onclick={() => void remove()}
+                  onclick={requestRemove}
                   >{deleting ? "Removing..." : "Remove"}</UI.Button
                 >{/if}{/snippet}
             <UI.Stack as="article">
@@ -865,7 +870,6 @@
             </UI.Stack>
           {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
-                size="sm"
                 href={`${listPath(workspace.id, currentRoute.projectID)}/new`}>New note</UI.RouterLink
               >{/snippet}
             <UI.AdminHeader
@@ -1017,3 +1021,5 @@
         </UI.Text>{/if}{/if}
   </Modal>
 {/if}
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />

@@ -60,7 +60,7 @@
       title="Groups"
       description="Organize workspace members and bots into collaboration groups."
     >
-      {#snippet actions()}<UI.Button
+      {#snippet actions()}<UI.Button variant={creating ? "outline" : "default"}
           onclick={() => (creating = !creating)}
           disabled={form.state.saving}
           >{creating ? "Cancel creation" : "Create group"}</UI.Button

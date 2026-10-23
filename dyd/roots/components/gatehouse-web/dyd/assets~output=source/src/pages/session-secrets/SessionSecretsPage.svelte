@@ -212,13 +212,12 @@
   {:else if controller.state.active !== null}
     {@const secretID = controller.state.active.id}
     {#snippet secretActions()}<UI.Button
-        variant={embedded ? "destructive" : "outline"}
-        size={embedded ? "default" : "sm"}
+        variant="outline"
         type="button"
         disabled={controller.state.deleting}
         onclick={requestRemove}
         >{controller.state.deleting ? "Removing..." : "Remove"}</UI.Button
-      ><UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={`${secretPath(secretID)}/edit`}>Edit</UI.RouterLink>{/snippet}
+      ><UI.RouterLink variant={embedded ? "default" : "outline"} href={`${secretPath(secretID)}/edit`}>Edit</UI.RouterLink>{/snippet}
     <UI.Stack as="article">
       {#if !embedded}<UI.AdminHeader
         kind="Chat secret"
@@ -254,7 +253,6 @@
     </UI.Stack>
   {:else}{#snippet collectionActions()}<UI.RouterLink
         variant="default"
-        size={embedded ? "default" : "sm"}
         href={`${secretsPath}/new`}>New secret</UI.RouterLink
       >{/snippet}
     {#if embedded}

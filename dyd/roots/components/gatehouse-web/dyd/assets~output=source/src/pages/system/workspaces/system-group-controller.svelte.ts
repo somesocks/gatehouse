@@ -233,12 +233,12 @@ export function createSystemGroupController({
     if (result.conflict && !disposed) state.groupConflict = true
     return result.ok
   }
-  async function deleteGroup() {
-    if (!state.group) return false
+  async function deleteGroup(group = state.group) {
+    if (!group) return false
     const result = await mutate(
       groupAdminPath(workspaceID(), groupID()),
       "PATCH",
-      { enabled: false, expected_revision: state.group.revision },
+      { enabled: false, expected_revision: group.revision },
       async (_response, current) => {
         if (current()) state.group = null
       },
@@ -313,6 +313,7 @@ export function createSystemGroupController({
       },
     )
     if (result.conflict && !disposed) await refresh()
+    return result.ok
   }
   function stop() {
     disposed = true

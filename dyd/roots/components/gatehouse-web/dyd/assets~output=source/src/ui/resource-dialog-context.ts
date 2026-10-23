@@ -4,6 +4,7 @@ export type ResourceFooter = {
   owner: symbol
   children: Snippet
   includeClose: boolean
+  busy?: boolean
 }
 export type ResourceDialogContext = {
   footer?: ResourceFooter

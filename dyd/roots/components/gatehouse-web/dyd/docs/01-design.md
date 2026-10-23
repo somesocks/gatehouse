@@ -120,6 +120,19 @@ the default theme.
 Visual emphasis distinguishes primary, secondary, and destructive actions.
 Actions with equivalent importance and consequences receive equivalent treatment.
 
+Primary emphasis identifies the main action in a view, including actions that
+open an editor. Supporting actions use secondary or neutral treatment. Primary
+emphasis is distinct from success-specific styling, which is reserved for final
+affirmative actions, including form submissions.
+
+Destructive operations require explicit confirmation before they are committed.
+The confirmation identifies what will be affected and explains the relevant
+consequences. Destructive treatment is reserved for the final confirming action.
+Cancelling a confirmation leaves the affected data and state unchanged.
+
+Local, undoable draft changes use ordinary editing controls. Destructive changes
+that save immediately require confirmation even when initiated through a form.
+
 Each action has a clear scope: users can identify what it affects.
 
 While an action is pending, the interface communicates progress and prevents

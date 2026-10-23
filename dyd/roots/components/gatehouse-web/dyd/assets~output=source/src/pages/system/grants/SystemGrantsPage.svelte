@@ -1,5 +1,6 @@
 <script lang="ts">
   import * as UI from "../../../ui"
+  import { createConfirmation } from "../../../utils/confirmation.svelte"
   import { systemNavigation } from "../../../app/navigation"
   import { useRuntime } from "../../../app/runtime.svelte"
   import {
@@ -11,6 +12,7 @@
   import { createDirectoryController } from "../../../utils/directory-controller.svelte"
   import { onMount } from "svelte"
   const runtime = useRuntime()
+  const confirmation = createConfirmation()
   const lifetime = new AbortController()
   let subjects = $state<SystemPrincipal[]>([])
   let updating = $state(new Set<string>())
@@ -44,13 +46,6 @@
   }
   async function setEnabled(grant: SystemGrant) {
     if (updating.has(grant.ref.id)) return
-    if (
-      grant.enabled &&
-      !window.confirm(
-        `Revoke system-manager access for ${name(grant.principal.id)}?`,
-      )
-    )
-      return
     updating = new Set(updating).add(grant.ref.id)
     mutationError = ""
     try {
@@ -74,6 +69,16 @@
         updating = next
       }
     }
+  }
+  function requestSetEnabled(grant: SystemGrant) {
+    if (!grant.enabled) { void setEnabled(grant); return }
+    const snapshot = { ...grant }
+    confirmation.request({
+      title: "Revoke system access?",
+      description: `${name(grant.principal.id)} will lose the system-manager access provided by this grant.`,
+      confirmLabel: "Revoke access",
+      onConfirm: async () => { await setEnabled(snapshot); return mutationError },
+    })
   }
 </script>
 
@@ -135,7 +140,7 @@
                 size="sm"
                 variant="outline"
                 disabled={updating.has(grant.ref.id)}
-                onclick={() => void setEnabled(grant)}
+                onclick={() => requestSetEnabled(grant)}
                 >{updating.has(grant.ref.id)
                   ? "Saving…"
                   : grant.enabled
@@ -158,3 +163,5 @@
     />
   </UI.AdminContent>
 </UI.AppFrame>
+
+<UI.ConfirmationDialog {confirmation} contextKey={runtime.state.route} />
