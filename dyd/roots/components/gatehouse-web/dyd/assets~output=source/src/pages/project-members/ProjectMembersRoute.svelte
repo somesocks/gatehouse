@@ -97,11 +97,11 @@
   </UI.StatusPage>
 {:else if runtime.auth.state.status !== "authenticated"}
   <UI.StatusPage title="Sign in required">
-    <UI.Button onclick={() => runtime.requireLogin()}>Sign in</UI.Button>
+    <UI.RouterLink variant="default" href={runtime.loginHref} replace>Sign in</UI.RouterLink>
   </UI.StatusPage>
 {:else if !workspace}
   <UI.StatusPage title="No workspace access" description="Ask an administrator to grant you workspace access.">
-    <UI.Button onclick={() => runtime.navigate("/app/no-access", true)}>Continue</UI.Button>
+    <UI.RouterLink variant="default" href="/app/no-access" replace>Continue</UI.RouterLink>
   </UI.StatusPage>
 {:else}
   <UI.AppFrame

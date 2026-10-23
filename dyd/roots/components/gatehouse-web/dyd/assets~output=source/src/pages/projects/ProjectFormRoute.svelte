@@ -188,7 +188,7 @@
   >
 {:else if runtime.auth.state.status !== "authenticated"}
   <UI.StatusPage title="Sign in required"
-    ><UI.Button onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+    ><UI.RouterLink variant="default" href={runtime.loginHref} replace>Sign in</UI.RouterLink
     ></UI.StatusPage
   >
 {:else if workspace}

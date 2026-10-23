@@ -5,6 +5,7 @@ export type RouterLinkClick = Pick<
 
 type Options = {
   href: string
+  disabled?: boolean
   target?: string
   download?: string | boolean
   origin: string
@@ -13,9 +14,10 @@ type Options = {
 
 export function routerLinkPath(
   event: RouterLinkClick,
-  { href, target, download, origin, currentURL }: Options,
+  { href, disabled, target, download, origin, currentURL }: Options,
 ): string | null {
   if (
+    disabled ||
     event.defaultPrevented ||
     event.button !== 0 ||
     event.metaKey ||
@@ -32,4 +34,21 @@ export function routerLinkPath(
     return null
   }
   return destination.pathname + destination.search + destination.hash
+}
+
+export function followRouterLink(
+  event: RouterLinkClick & Pick<MouseEvent, "preventDefault">,
+  options: Options & { replace?: boolean },
+  navigate: (path: string, replace?: boolean) => void,
+  onNavigate?: () => void,
+): void {
+  if (options.disabled) {
+    event.preventDefault()
+    return
+  }
+  const path = routerLinkPath(event, options)
+  if (path === null) return
+  event.preventDefault()
+  onNavigate?.()
+  navigate(path, options.replace ?? false)
 }

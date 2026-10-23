@@ -4,6 +4,7 @@
   import { ArrowLeft, X } from "@lucide/svelte"
   import * as Dialog from "./dialog"
   import Button from "./Button.svelte"
+  import RouterLink from "./RouterLink.svelte"
   import {
     provideResourceDialog,
     type ResourceFooter,
@@ -17,7 +18,7 @@
     compact = false,
     busy = false,
     backLabel,
-    onBack,
+    backHref,
     onClose,
     children,
   }: {
@@ -28,7 +29,7 @@
     compact?: boolean
     busy?: boolean
     backLabel?: string
-    onBack?: () => void
+    backHref?: string
     onClose: () => void
     children: Snippet
   } = $props()
@@ -90,16 +91,16 @@
       tabindex="-1"
       class="flex shrink-0 items-center gap-3 border-b px-4 py-3 outline-none"
     >
-      {#if onBack}
-        <Button
+      {#if backHref}
+        <RouterLink
           variant="ghost"
           size="icon"
           aria-label={backLabel ?? "Back"}
           title={backLabel ?? "Back"}
-          onclick={onBack}
+          href={backHref}
         >
           <ArrowLeft size={18} aria-hidden="true" />
-        </Button>
+        </RouterLink>
       {/if}
       <Dialog.Title class="min-w-0 flex-1">{title}</Dialog.Title>
       <Button

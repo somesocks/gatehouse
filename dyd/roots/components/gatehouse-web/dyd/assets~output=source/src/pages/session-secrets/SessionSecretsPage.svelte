@@ -73,8 +73,11 @@
     return () => onBreadcrumbChange(null)
   })
 
+  const secretsPath = $derived(
+    `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}/secrets`,
+  )
   function secretPath(secretID: string) {
-    return `/app/wsp/${encodeURIComponent(workspaceID)}/ses/${encodeURIComponent(sessionID)}/secrets/${encodeURIComponent(secretID)}`
+    return `${secretsPath}/${encodeURIComponent(secretID)}`
   }
 
   function requestRemove() {
@@ -191,11 +194,12 @@
           {controller.state.error}
         </UI.Text>{/if}
       <UI.FormActions dialog={embedded}>
-        <UI.Button
+        <UI.RouterLink
           variant="outline"
-          type="button"
           disabled={controller.state.saving}
-          onclick={() => controller.cancelEdit()}>Cancel</UI.Button
+          href={controller.state.creating || controller.state.active === null
+            ? secretsPath
+            : secretPath(controller.state.active.id)}>Cancel</UI.RouterLink
         ><UI.Button
           variant="default"
           type="submit"
@@ -206,6 +210,7 @@
       </UI.FormActions>
     </UI.Form>
   {:else if controller.state.active !== null}
+    {@const secretID = controller.state.active.id}
     {#snippet secretActions()}<UI.Button
         variant={embedded ? "destructive" : "outline"}
         size={embedded ? "default" : "sm"}
@@ -213,7 +218,7 @@
         disabled={controller.state.deleting}
         onclick={requestRemove}
         >{controller.state.deleting ? "Removing..." : "Remove"}</UI.Button
-      ><UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} type="button" onclick={() => controller.startEdit()}>Edit</UI.Button>{/snippet}
+      ><UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={`${secretPath(secretID)}/edit`}>Edit</UI.RouterLink>{/snippet}
     <UI.Stack as="article">
       {#if !embedded}<UI.AdminHeader
         kind="Chat secret"
@@ -247,11 +252,10 @@
           {controller.state.error}
         </UI.Text>{/if}
     </UI.Stack>
-  {:else}{#snippet collectionActions()}<UI.Button
+  {:else}{#snippet collectionActions()}<UI.RouterLink
         variant="default"
         size={embedded ? "default" : "sm"}
-        type="button"
-        onclick={() => controller.startCreate()}>New secret</UI.Button
+        href={`${secretsPath}/new`}>New secret</UI.RouterLink
       >{/snippet}
     {#if embedded}
       <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>

@@ -3,7 +3,6 @@
   import { RouterLink, StatusPage } from "../../ui"
   import { workspaceNavigation } from "../../app/navigation"
   import * as UI from "../../ui"
-  import { createProject, type Project } from "../../app/projects"
   import { useRuntime } from "../../app/runtime.svelte"
   import * as SidebarPage from "../../ui/sidebar-page"
 
@@ -14,7 +13,6 @@
 
   const runtime = useRuntime()
   const { access, auth } = runtime
-  let creating = $state(false)
   let generation = 0
   let abortController: AbortController | null = null
   let routeSignal = $state<AbortSignal | null>(null)
@@ -27,8 +25,6 @@
   )
   const workspacePath = (workspaceID: string) =>
     `/app/wsp/${encodeURIComponent(workspaceID)}`
-  const projectsPath = (workspaceID: string) =>
-    `${workspacePath(workspaceID)}/prj`
   const isCurrent = (value: number, workspaceID: string, signal: AbortSignal) =>
     value === generation &&
     !signal.aborted &&
@@ -53,7 +49,6 @@
     abortController?.abort()
     abortController = new AbortController()
     routeSignal = abortController.signal
-    creating = false
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
@@ -89,32 +84,6 @@
       )
   }
 
-  async function create(): Promise<void> {
-    if (creating) return
-    const route = currentRoute
-    const value = generation
-    const signal = abortController?.signal
-    if (signal === undefined) return
-    creating = true
-    try {
-      const response = await createProject(route.workspaceID, signal)
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      if (response.status === 401) {
-        runtime.requireLogin()
-        return
-      }
-      if (!response.ok) throw new Error("project could not be created")
-      const project = (await response.json()) as Project
-      if (!isCurrent(value, route.workspaceID, signal)) return
-      runtime.navigate(
-        `${projectsPath(route.workspaceID)}/${encodeURIComponent(project.id)}`,
-      )
-    } catch {
-      // The existing collection has no error surface for failed creation.
-    } finally {
-      if (isCurrent(value, route.workspaceID, signal)) creating = false
-    }
-  }
 </script>
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
@@ -144,10 +113,9 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -158,11 +126,10 @@
     description="Ask an administrator to add you to a workspace group."
   >
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.navigate("/app/no-access", true)}
-          >Continue</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href="/app/no-access" replace
+        >Continue</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -192,12 +159,7 @@
             {workspace}
             search={currentRoute.search}
             signal={routeSignal}
-            {creating}
             onAuthenticationLost={() => runtime.requireLogin()}
-            onCreate={() =>
-              runtime.navigate(
-                `/app/wsp/${encodeURIComponent(workspace.id)}/prj/new`,
-              )}
             onNavigate={runtime.navigate}
             activity={runtime.activity}
           />{/if}</SidebarPage.Body

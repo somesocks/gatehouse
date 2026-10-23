@@ -149,10 +149,9 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -163,11 +162,10 @@
     description="Ask an administrator to add you to a workspace group."
   >
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.navigate("/app/no-access", true)}
-          >Continue</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href="/app/no-access" replace
+        >Continue</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>

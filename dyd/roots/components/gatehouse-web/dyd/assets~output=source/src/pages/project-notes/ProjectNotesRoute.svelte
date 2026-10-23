@@ -396,13 +396,6 @@
     }
   }
 
-  function startEdit(): void {
-    if (active)
-      runtime.navigate(
-        `${detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id)}/edit`,
-      )
-  }
-
   function populateEdit(): void {
     if (active === null) return
     title = active.title
@@ -411,19 +404,6 @@
     sensitive = active.sensitive
     error = ""
     editing = true
-  }
-
-  function cancelEdit(): void {
-    if (saving) return
-    error = ""
-    if (creating)
-      runtime.navigate(
-        listPath(currentRoute.workspaceID, currentRoute.projectID),
-      )
-    else if (active)
-      runtime.navigate(
-        detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id),
-      )
   }
 
   async function save(): Promise<void> {
@@ -580,18 +560,11 @@
     }
   }
 
-  async function selectRevision(revision: number): Promise<void> {
-    if (active === null) return
-    runtime.navigate(
-      revision === active.revision
-        ? detailPath(
-            currentRoute.workspaceID,
-            currentRoute.projectID,
-            active.id,
-          )
-        : `${detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id)}/revisions/${revision}`,
-    )
-    historyModal?.close()
+  function revisionPath(revision: number): string {
+    if (active === null)
+      return listPath(currentRoute.workspaceID, currentRoute.projectID)
+    const path = detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id)
+    return revision === active.revision ? path : `${path}/revisions/${revision}`
   }
 </script>
 
@@ -622,10 +595,9 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -636,11 +608,10 @@
     description="Ask an administrator to add you to a workspace group."
   >
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.navigate("/app/no-access", true)}
-          >Continue</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href="/app/no-access" replace
+        >Continue</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -802,11 +773,12 @@
                   {error}
                 </UI.Text>{/if}
               <UI.FormActions>
-                <UI.Button
+                <UI.RouterLink
                   variant="outline"
-                  type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</UI.Button
+                  href={creating || active === null
+                    ? listPath(currentRoute.workspaceID, currentRoute.projectID)
+                    : detailPath(currentRoute.workspaceID, currentRoute.projectID, active.id)}>Cancel</UI.RouterLink
                 ><UI.Button variant="default" type="submit" disabled={saving}
                   >{saving ? "Saving..." : "Save note"}</UI.Button
                 >
@@ -836,26 +808,16 @@
                   abortController!.signal,
                 )}>Try again</UI.Button
             >
-          {:else if active !== null}{@const displayed =
+          {:else if active !== null}{@const noteID = active.id}{@const displayed =
               selectedRevision ?? active}
-            {#snippet noteActions()}{#if selectedRevision === null}<UI.Button
+            {#snippet noteActions()}{#if selectedRevision === null}<UI.RouterLink
                   variant="outline"
                   size="sm"
-                  type="button"
-                  onclick={startEdit}>Edit</UI.Button
-                >{:else}<UI.Button
+                  href={`${detailPath(currentRoute.workspaceID, currentRoute.projectID, noteID)}/edit`}>Edit</UI.RouterLink
+                >{:else}<UI.RouterLink
                   variant="outline"
                   size="sm"
-                  type="button"
-                  onclick={() =>
-                    active &&
-                    runtime.navigate(
-                      detailPath(
-                        currentRoute.workspaceID,
-                        currentRoute.projectID,
-                        active.id,
-                      ),
-                    )}>Current revision</UI.Button
+                  href={detailPath(currentRoute.workspaceID, currentRoute.projectID, noteID)}>Current revision</UI.RouterLink
                 >{/if}<UI.Button
                 variant="outline"
                 size="sm"
@@ -901,14 +863,10 @@
                   {error}
                 </UI.Text>{/if}
             </UI.Stack>
-          {:else}{#snippet collectionActions()}<UI.Button
+          {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
                 size="sm"
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${listPath(workspace.id, currentRoute.projectID)}/new`,
-                  )}>New note</UI.Button
+                href={`${listPath(workspace.id, currentRoute.projectID)}/new`}>New note</UI.RouterLink
               >{/snippet}
             <UI.AdminHeader
               title="Notes"
@@ -1024,10 +982,11 @@
       <UI.RecordTable headers={["Revision", "Title", "Author", "Date"]}>
         {#each history as revision (revision.revision)}<UI.RecordRow>
             <UI.RecordCell primary
-              ><UI.Button
+              ><UI.RouterLink
                 variant="link"
-                onclick={() => void selectRevision(revision.revision)}
-                >Revision {revision.revision}</UI.Button
+                href={revisionPath(revision.revision)}
+                onNavigate={() => historyModal?.close()}
+                >Revision {revision.revision}</UI.RouterLink
               >{#if revision.revision === active?.revision}<UI.Badge
                   >Current</UI.Badge
                 >{/if}</UI.RecordCell

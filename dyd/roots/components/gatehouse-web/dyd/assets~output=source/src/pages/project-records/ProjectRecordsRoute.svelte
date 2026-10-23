@@ -1168,10 +1168,9 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -1432,13 +1431,9 @@
                   role="alert">{error}</UI.Text
                 >{/if}
               <UI.FormActions>
-                <UI.Button
+                <UI.RouterLink
                   variant="outline"
-                  type="button"
-                  onclick={() =>
-                    runtime.navigate(
-                      recordsPath(workspace.id, currentRoute.projectID),
-                    )}>Cancel</UI.Button
+                  href={recordsPath(workspace.id, currentRoute.projectID)}>Cancel</UI.RouterLink
                 ><UI.Button
                   variant="outline"
                   size="sm"
@@ -1448,13 +1443,9 @@
                 >
               </UI.FormActions>
             </UI.Form>
-          {:else if currentRoute.kind === "project-record"}{#snippet recordActions()}<UI.Button
+          {:else if currentRoute.kind === "project-record"}{#snippet recordActions()}<UI.RouterLink
                 variant="default"
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`,
-                  )}>Edit record</UI.Button
+                href={`${recordPath(workspace.id, currentRoute.projectID, currentRoute.schemaID, currentRoute.recordID)}/edit`}>Edit record</UI.RouterLink
               >{/snippet}
             <UI.Stack as="section">
               <PageHeading as="header" actions={recordActions}>
@@ -1744,12 +1735,9 @@
                   {error}
                 </UI.Text>{/if}
               <UI.FormActions>
-                <UI.Button
+                <UI.RouterLink
                   variant="outline"
-                  type="button"
-                  onclick={() =>
-                    runtime.navigate(
-                      currentRoute.kind === "project-record-edit"
+                  href={currentRoute.kind === "project-record-edit"
                         ? recordPath(
                             workspace.id,
                             currentRoute.projectID,
@@ -1760,8 +1748,7 @@
                             workspace.id,
                             currentRoute.projectID,
                             currentRoute.schemaID,
-                          ),
-                    )}>Cancel</UI.Button
+                           )}>Cancel</UI.RouterLink
                 ><UI.Button
                   variant="default"
                   type="submit"
@@ -1770,22 +1757,14 @@
                 >
               </UI.FormActions>
             </UI.Form>
-          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<UI.Button
+          {:else if currentRoute.kind === "project-record-schema"}{#snippet schemaListActions()}<UI.RouterLink
                 variant="outline"
                 size="sm"
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/overview`,
-                  )}>Type overview</UI.Button
-              ><UI.Button
+                href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/overview`}>Type overview</UI.RouterLink
+              ><UI.RouterLink
                 variant="default"
                 size="sm"
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`,
-                  )}>New record</UI.Button
+                href={`${schemaPath(workspace.id, currentRoute.projectID, currentRoute.schemaID)}/new`}>New record</UI.RouterLink
               >{/snippet}
             <UI.AdminHeader
               title={`${schema?.label ?? "Type"} records`}
@@ -1866,13 +1845,9 @@
               onprevious={() => void recordsPage.previous(reloadRecords)}
               onnext={() => void recordsPage.next(reloadRecords)}
             />
-          {:else}{#snippet recordTypesActions()}<UI.Button
+          {:else}{#snippet recordTypesActions()}<UI.RouterLink
                 variant="default"
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${recordsPath(workspace.id, currentRoute.projectID)}/new`,
-                  )}>New record type</UI.Button
+                href={`${recordsPath(workspace.id, currentRoute.projectID)}/new`}>New record type</UI.RouterLink
               >{/snippet}
             <UI.AdminHeader
               title="Record types"

@@ -531,22 +531,6 @@
     editing = true
   }
 
-  function cancelEdit(): void {
-    if (saving) return
-    error = ""
-    runtime.navigate(
-      creating
-        ? listPath(currentRoute.workspaceID, currentRoute.sessionID)
-        : active === null
-          ? listPath(currentRoute.workspaceID, currentRoute.sessionID)
-          : detailPath(
-              currentRoute.workspaceID,
-              currentRoute.sessionID,
-              active.id,
-            ),
-    )
-  }
-
   async function save(): Promise<void> {
     if (saving || deleting) return
     if (title.trim() === "") {
@@ -736,10 +720,9 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage eyebrow="Gatehouse" title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -750,11 +733,10 @@
     description="Ask an administrator to add you to a workspace group."
   >
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.navigate("/app/no-access", true)}
-          >Continue</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href="/app/no-access" replace
+        >Continue</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -945,11 +927,12 @@
                   {error}
                 </UI.Text>{/if}
               <UI.FormActions dialog={embedded}>
-                <UI.Button
+                <UI.RouterLink
                   variant="outline"
-                  type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</UI.Button
+                  href={creating || active === null
+                    ? listPath(currentRoute.workspaceID, currentRoute.sessionID)
+                    : detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id)}>Cancel</UI.RouterLink
                 ><UI.Button variant="default" type="submit" form="session-note-form" disabled={saving}
                   >{saving ? "Saving..." : "Save note"}</UI.Button
                 >
@@ -978,15 +961,15 @@
                   void loadContent(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
-          {:else if active !== null}{@const displayed =
+          {:else if active !== null}{@const noteID = active.id}{@const displayed =
               selectedRevision ?? active}
             {#snippet noteActions()}
-              <UI.Button variant="outline" size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(`${detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id)}/revisions`)}>History</UI.Button>
+              <UI.RouterLink variant="outline" size={embedded ? "default" : "sm"} href={`${detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}/revisions`}>History</UI.RouterLink>
               {#if selectedRevision === null}
                 <UI.Button variant={embedded ? "destructive" : "outline"} size={embedded ? "default" : "sm"} disabled={deleting} onclick={requestRemove}>Remove</UI.Button>
-                <UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(editPath(currentRoute.workspaceID, currentRoute.sessionID, active.id))}>Edit</UI.Button>
+                <UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={editPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Edit</UI.RouterLink>
               {:else}
-                <UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} onclick={() => active !== null && runtime.navigate(detailPath(currentRoute.workspaceID, currentRoute.sessionID, active.id))}>Current revision</UI.Button>
+                <UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={detailPath(currentRoute.workspaceID, currentRoute.sessionID, noteID)}>Current revision</UI.RouterLink>
               {/if}
             {/snippet}
             <UI.Stack as="article">
@@ -1023,14 +1006,10 @@
                   {error}
                 </UI.Text>{/if}
             </UI.Stack>
-          {:else}{#snippet collectionActions()}<UI.Button
+          {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
                 size={embedded ? "default" : "sm"}
-                type="button"
-                onclick={() =>
-                  runtime.navigate(
-                    `${listPath(workspace.id, currentRoute.sessionID)}/new`,
-                  )}>New note</UI.Button
+                href={`${listPath(workspace.id, currentRoute.sessionID)}/new`}>New note</UI.RouterLink
               >{/snippet}
             {#if embedded}
               <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>

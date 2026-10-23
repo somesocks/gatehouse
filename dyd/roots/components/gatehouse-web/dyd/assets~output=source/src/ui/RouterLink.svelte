@@ -1,30 +1,40 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte"
   import Link from "./Link.svelte"
-  import { routerLinkPath } from "../app/router-link"
+  import { followRouterLink } from "../app/router-link"
   import { useRuntime } from "../app/runtime.svelte"
   let {
     href,
     children,
     onclick,
+    disabled = false,
+    replace = false,
+    onNavigate,
     ...rest
-  }: ComponentProps<typeof Link> & { href: string } = $props()
+  }: ComponentProps<typeof Link> & {
+    href: string
+    replace?: boolean
+    onNavigate?: () => void
+  } = $props()
   const runtime = useRuntime()
   function navigate(event: MouseEvent) {
     onclick?.(event as MouseEvent & { currentTarget: HTMLAnchorElement })
     if (event.defaultPrevented) return
-    const path = routerLinkPath(event, {
-      href,
-      target: rest.target ?? undefined,
-      download: rest.download,
-      origin: window.location.origin,
-      currentURL: window.location.href,
-    })
-    if (path !== null) {
-      event.preventDefault()
-      runtime.navigate(path)
-    }
+    followRouterLink(
+      event,
+      {
+        href,
+        disabled,
+        replace,
+        target: rest.target ?? undefined,
+        download: rest.download,
+        origin: window.location.origin,
+        currentURL: window.location.href,
+      },
+      runtime.navigate,
+      onNavigate,
+    )
   }
 </script>
 
-<Link {href} {...rest} onclick={navigate}>{@render children?.()}</Link>
+<Link {href} {disabled} {...rest} onclick={navigate}>{@render children?.()}</Link>

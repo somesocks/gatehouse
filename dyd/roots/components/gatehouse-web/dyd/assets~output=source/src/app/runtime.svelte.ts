@@ -4,6 +4,7 @@ import { createActivityClient } from "./activity"
 import { createAuth } from "./auth.svelte"
 import { createRouter, type Navigate } from "./router"
 import { parseRoute, type Route } from "../route"
+import { loginPath } from "./login-path"
 
 const runtimeContext = Symbol("gatehouse-runtime")
 
@@ -24,6 +25,13 @@ export function createApplicationRuntime() {
   const activity = createActivityClient({ onAuthenticationLost: requireLogin })
   const access = createAccess({ activity, onAuthenticationLost: requireLogin })
   const router = createRouter((route) => (state.route = route))
+  function getLoginHref(): string {
+    // Track navigation while retaining the original query and fragment.
+    state.route
+    return loginPath(
+      window.location.pathname + window.location.search + window.location.hash,
+    )
+  }
 
   function navigate(path: string, replace = false): void {
     router.navigate(path, replace)
@@ -39,9 +47,7 @@ export function createApplicationRuntime() {
     activity.dispose()
     auth.clear()
     if (state.route.kind !== "login") {
-      const requested =
-        window.location.pathname + window.location.search + window.location.hash
-      navigate(`/app/login?next=${encodeURIComponent(requested)}`, true)
+      navigate(getLoginHref(), true)
     }
   }
 
@@ -104,6 +110,9 @@ export function createApplicationRuntime() {
     activity,
     router,
     navigate: navigate as Navigate,
+    get loginHref() {
+      return getLoginHref()
+    },
     requireLogin,
     refresh,
     start,

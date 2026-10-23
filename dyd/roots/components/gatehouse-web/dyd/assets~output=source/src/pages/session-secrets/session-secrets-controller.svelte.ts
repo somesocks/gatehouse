@@ -297,19 +297,6 @@ export function createSessionSecretsController({
     state.value = ""
   }
 
-  function startCreate(): void {
-    if (context !== null) {
-      onNavigate(`${listPath(context.workspaceID, context.sessionID)}/new`)
-    }
-  }
-
-  function startEdit(): void {
-    if (context && state.active)
-      onNavigate(
-        `${detailPath(context.workspaceID, context.sessionID, state.active.id)}/edit`,
-      )
-  }
-
   function populateEdit(): void {
     if (state.active === null) {
       return
@@ -318,24 +305,6 @@ export function createSessionSecretsController({
     state.value = ""
     state.error = ""
     state.editing = true
-  }
-
-  function cancelEdit(): void {
-    if (state.saving || context === null) {
-      return
-    }
-    state.error = ""
-    state.value = ""
-    if (state.creating) {
-      state.creating = false
-      state.editing = false
-      onNavigate(listPath(context.workspaceID, context.sessionID))
-      return
-    }
-    if (state.active)
-      onNavigate(
-        detailPath(context.workspaceID, context.sessionID, state.active.id),
-      )
   }
 
   async function save(): Promise<void> {
@@ -477,9 +446,6 @@ export function createSessionSecretsController({
     state,
     start,
     stop,
-    startCreate,
-    startEdit,
-    cancelEdit,
     save,
     remove,
   }

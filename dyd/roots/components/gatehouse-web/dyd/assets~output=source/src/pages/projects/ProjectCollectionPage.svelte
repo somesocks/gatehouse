@@ -10,18 +10,14 @@
     workspace,
     search,
     signal,
-    creating,
     onAuthenticationLost,
-    onCreate,
     onNavigate,
     activity,
   }: {
     workspace: Workspace
     search: string
     signal: AbortSignal
-    creating: boolean
     onAuthenticationLost: () => void
-    onCreate: () => void | Promise<void>
     onNavigate: (path: string) => void
     activity?: ActivityClient
   } = $props()
@@ -63,12 +59,10 @@
   }
 </script>
 
-{#snippet projectActions()}<UI.Button
+{#snippet projectActions()}<UI.RouterLink
     variant="default"
     size="sm"
-    type="button"
-    disabled={creating}
-    onclick={() => void onCreate()}>New project</UI.Button
+    href={`${projectsPath()}/new`}>New project</UI.RouterLink
   >{/snippet}
 <UI.AdminContent>
   <UI.AdminHeader

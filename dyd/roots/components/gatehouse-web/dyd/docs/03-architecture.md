@@ -30,6 +30,24 @@ blur. Blur would make every input repaint reprocess the page behind the modal.
 
 [Bits UI reference](bits-ui.md) supplies third-party component documentation.
 
+## Navigation links
+
+`RouterLink` renders application destinations as anchors, including button-styled
+links through its visual variants. It intercepts ordinary same-tab clicks for
+application routing and leaves modified clicks, downloads, external destinations,
+and other targets to the browser. Its `replace` option preserves replacement
+history where needed. The optional `onNavigate` callback runs only for intercepted
+navigation, so opening another tab does not clear a draft or dismiss the current
+view.
+
+`Link` supplies native links for destinations outside the application router,
+including the standalone file picker. Disabled links expose their disabled state,
+have no destination or keyboard stop, and suppress activation. `PaginationFooter`
+accepts destination URLs for link-based pagination as well as callbacks for local
+collection operations. Buttons perform operations such as creation, submission,
+deletion, retry, and local dialog dismissal; successful operations may navigate
+afterward.
+
 ## Resource ownership and transport
 
 Each resource retains its own API and data model. No generic catalog,

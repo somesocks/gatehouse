@@ -252,9 +252,15 @@
             previous={!!picker.state.previousCursor}
             next={!!picker.state.nextCursor}
             loading={picker.state.pageLoading || picker.state.busy}
-            onprevious={() =>
-              navigate(pageLink(picker.state.previousCursor!, "previous"))}
-            onnext={() => navigate(pageLink(picker.state.nextCursor!))}
+            previousHref={picker.state.previousCursor
+              ? fileBrowseURL(window.location.href, pageLink(picker.state.previousCursor, "previous"))
+              : undefined}
+            nextHref={picker.state.nextCursor
+              ? fileBrowseURL(window.location.href, pageLink(picker.state.nextCursor))
+              : undefined}
+            onprevious={(event) =>
+              navigate(pageLink(picker.state.previousCursor!, "previous"), event)}
+            onnext={(event) => navigate(pageLink(picker.state.nextCursor!), event)}
           />
         </UI.Stack>
       {/if}

@@ -45,9 +45,6 @@
     if (tool !== null && canOpen) runtime.navigate(routePath(conversation))
   }
 
-  function goBack() {
-    if (back !== undefined) runtime.navigate(back.path)
-  }
 </script>
 
 {#key sessionKey}
@@ -58,7 +55,7 @@
     viewKey={routePath(currentRoute)}
     expanded={tool === "notes" && currentRoute.kind !== "session-notes" && currentRoute.kind !== "session-note-history"}
     backLabel={back?.label}
-    onBack={back === undefined ? undefined : goBack}
+    backHref={back?.path}
     onClose={close}
   >
     {#if tool === "files"}

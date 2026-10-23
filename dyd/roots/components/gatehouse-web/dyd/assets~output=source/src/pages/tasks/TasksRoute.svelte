@@ -446,10 +446,6 @@
     }
   }
 
-  function startEdit(): void {
-    if (active) runtime.navigate(`${detailPath(currentRoute, active.id)}/edit`)
-  }
-
   function populateEdit(): void {
     if (active === null) return
     title = active.title
@@ -458,14 +454,6 @@
     status = active.status
     error = ""
     editing = true
-  }
-
-  function cancelEdit(): void {
-    if (saving) return
-    error = ""
-    if (currentRoute.kind.endsWith("-task-new"))
-      runtime.navigate(listPath(currentRoute))
-    else if (active) runtime.navigate(detailPath(currentRoute, active.id))
   }
 
   async function save(): Promise<void> {
@@ -596,21 +584,19 @@
 {:else if auth.state.status !== "authenticated"}
   <StatusPage title="Sign in required">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.requireLogin()}>Sign in</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href={runtime.loginHref} replace>Sign in</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
 {:else if access.state.workspaceStatus === "empty" || workspace === null}
   <StatusPage title="No workspace access">
     {#snippet children()}<UI.Group
-        ><UI.Button
-          variant="default"
-          type="button"
-          onclick={() => runtime.navigate("/app/no-access", true)}
-          >Continue</UI.Button
+      ><UI.RouterLink
+        variant="default"
+        href="/app/no-access" replace
+        >Continue</UI.RouterLink
         ></UI.Group
       >{/snippet}
   </StatusPage>
@@ -807,11 +793,12 @@
                   {error}
                 </UI.Text>{/if}
               <UI.FormActions dialog={embedded}>
-                <UI.Button
+                <UI.RouterLink
                   variant="outline"
-                  type="button"
                   disabled={saving}
-                  onclick={cancelEdit}>Cancel</UI.Button
+                  href={currentRoute.kind.endsWith("-task-new") || active === null
+                    ? listPath(currentRoute)
+                    : detailPath(currentRoute, active.id)}>Cancel</UI.RouterLink
                 ><UI.Button variant="default" type="submit" form="task-form" disabled={saving}
                   >{saving ? "Saving..." : "Save task"}</UI.Button
                 >
@@ -843,14 +830,14 @@
                   )
               }}>Try again</UI.Button
             >
-          {:else if active !== null}{#snippet taskActions()}<UI.Button
+          {:else if active !== null}{@const taskID = active.id}{#snippet taskActions()}<UI.Button
                 variant={embedded ? "destructive" : "outline"}
                 size={embedded ? "default" : "sm"}
                 type="button"
                 disabled={deleting}
                 onclick={requestRemove}
                 >{deleting ? "Removing..." : "Remove"}</UI.Button
-              ><UI.Button variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} type="button" onclick={startEdit}>Edit</UI.Button>{/snippet}
+              ><UI.RouterLink variant={embedded ? "default" : "outline"} size={embedded ? "default" : "sm"} href={`${detailPath(currentRoute, taskID)}/edit`}>Edit</UI.RouterLink>{/snippet}
             <UI.Stack as="article">
               <UI.AdminHeader
                 compact={embedded}
@@ -893,13 +880,11 @@
                   {error}
                 </UI.Text>{/if}
             </UI.Stack>
-          {:else}{#snippet collectionActions()}<UI.Button
+          {:else}{#snippet collectionActions()}<UI.RouterLink
                 variant="default"
                 size={embedded ? "default" : "sm"}
-                type="button"
-                onclick={() =>
-                  runtime.navigate(`${listPath(currentRoute)}/new`)}
-                >New task</UI.Button
+                href={`${listPath(currentRoute)}/new`}
+                >New task</UI.RouterLink
               >{/snippet}
             {#if embedded}
               <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>
