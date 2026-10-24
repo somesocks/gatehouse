@@ -416,6 +416,8 @@ rather than inside a separately capped roster.
 Existing participants have role labels and icon actions; add dialogs have
 selection markers. There is no explanatory boilerplate or result count, and
 pagination controls appear only when needed. Add actions live in the footer.
+The Participants body starts with People/Groups/Bots tabs. Each tab panel owns its
+search field above its results and retains its own query and pagination state.
 Participant dialogs also use footer dismissal controls without a header X icon.
 
 ### Interaction behavior

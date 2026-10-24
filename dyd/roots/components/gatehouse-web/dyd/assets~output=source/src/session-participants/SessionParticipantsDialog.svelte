@@ -27,8 +27,6 @@
   } = $props()
   let tab = $state("principal")
   let open = $state(false)
-  const activeDirectory = $derived(controller.directory(tab as ParticipantKind))
-  const activeNoun = $derived(participantPlural(tab as ParticipantKind))
   let adding = $state<ParticipantKind | null>(null)
   let action = $state<{
     mode: "role" | "remove"
@@ -89,17 +87,6 @@
   }
 </script>
 
-{#snippet searchControls()}
-    <UI.SearchToolbar
-      integrated
-      label={`Search ${activeNoun}`}
-      placeholder="Search by name…"
-      bind:value={activeDirectory.state.search}
-      loading={activeDirectory.state.busy}
-      onsearch={() => void activeDirectory.search()}
-    />
-{/snippet}
-
 {#snippet participantActions()}
   {#if controller.state.canManage}<UI.Button disabled={controller.state.saving}
     onclick={() => { adding = tab as ParticipantKind }}>Add {participantNoun(tab as ParticipantKind)}</UI.Button>{/if}
@@ -107,23 +94,25 @@
 
 <UI.ResourceDialog {open} title="Search participants" viewKey="participants" compact onClose={close}
   dismissible={adding === null && action === null}
-  search={searchControls} footer={participantActions}>
+  footer={participantActions}>
   <UI.Stack>
-    {#if controller.state.error && action === null}<UI.Notice
-        variant="destructive"
-        role="alert"
-        >{controller.state.error}<UI.Button
-          variant="outline"
-          size="sm"
-          onclick={() => void controller.reload()}>Reload</UI.Button
-        ></UI.Notice
-      >{/if}
     <UI.Tabs label="Participant type" items={tabs} bind:value={tab}>
       {#snippet children(value)}
         {@const kind = value as ParticipantKind}
         {@const directory = controller.directory(kind)}
         {@const noun = participantPlural(kind)}
         <UI.Stack>
+          <UI.SearchToolbar
+            integrated
+            label={`Search ${noun}`}
+            placeholder="Search by name…"
+            bind:value={directory.state.search}
+            loading={directory.state.busy}
+            onsearch={() => void directory.search()}
+          />
+          {#if controller.state.error && action === null}<UI.Notice variant="destructive" role="alert">
+            {controller.state.error}<UI.Button variant="outline" size="sm" onclick={() => void controller.reload()}>Reload</UI.Button>
+          </UI.Notice>{/if}
           {#if directory.state.error}<UI.Notice
               variant="destructive"
               role="alert"
