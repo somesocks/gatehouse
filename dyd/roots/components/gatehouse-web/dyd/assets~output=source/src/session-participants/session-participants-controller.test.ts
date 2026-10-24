@@ -16,7 +16,7 @@ beforeAll(async () => {
 const grant = {
   id: "grant",
   principal: "alice",
-  role: "contributor",
+  role: "member",
   enabled: true,
   revision: 3,
 }
@@ -95,7 +95,7 @@ describe("chat participant lifecycle", () => {
     const inherited = {
       ...assistant,
       grants: [],
-      inherited_from: [{ group: "developers", role: "contributor" }],
+      inherited_from: [{ group: "developers", role: "member" }],
     }
     request.mockImplementation(async (path: string) => {
       const kind = new URL(path, "http://localhost").searchParams.get("kind")
@@ -130,11 +130,11 @@ describe("chat participant lifecycle", () => {
     request.mockResolvedValueOnce(
       new Response("The role changed elsewhere.", { status: 409 }),
     )
-    expect(await controller.update(grant, "manager")).toBe(false)
+    expect(await controller.update(grant, "admin")).toBe(false)
     expect(controller.people.state.items).toEqual([alice])
     expect(controller.state.error).toContain("changed elsewhere")
     expect(JSON.parse(request.mock.calls.at(-1)![1]!.body as string)).toEqual({
-      role: "manager",
+      role: "admin",
       expected_revision: 3,
     })
     request.mockResolvedValueOnce(

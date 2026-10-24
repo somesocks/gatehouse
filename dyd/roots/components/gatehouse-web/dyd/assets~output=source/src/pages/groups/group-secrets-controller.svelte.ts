@@ -166,7 +166,7 @@ export function createGroupSecretsController({ activity, onAuthenticationLost, o
         state.canManage = false
         directory.stop() // Do not let an older response restore stale controls.
         clearDialog()
-        throw new Error("Group manager access is required.")
+        throw new Error("Group admin access is required.")
       }
       if (!response.ok) throw new Error(message.trim() || "Secret could not be saved.")
       clearDialog() // Clear credential drafts even when refreshing metadata fails.

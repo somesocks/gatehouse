@@ -33,8 +33,8 @@ func TestWorkspaceRolesAreIndependentOfGroupMembership(t *testing.T) {
 			Members: []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: &alice, Revision: 1, Enabled: true},
-			{WorkspaceID: "engineering", Role: string(authz.Contributor), PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: string(authz.Guest), PrincipalID: &alice, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -46,8 +46,8 @@ func TestWorkspaceRolesAreIndependentOfGroupMembership(t *testing.T) {
 		principal string
 		roles     []authz.Role
 	}{
-		{principal: "alice", roles: []authz.Role{authz.Member}},
-		{principal: "bob", roles: []authz.Role{authz.Contributor}},
+		{principal: "alice", roles: []authz.Role{authz.Guest}},
+		{principal: "bob", roles: []authz.Role{authz.Member}},
 		{principal: "carol", roles: []authz.Role{}},
 	} {
 		t.Run(test.principal, func(t *testing.T) {
@@ -83,7 +83,7 @@ func TestWorkspaceRolesAreIndependentOfGroupMembership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(roles, []authz.Role{authz.Contributor}) {
+	if !reflect.DeepEqual(roles, []authz.Role{authz.Member}) {
 		t.Fatalf("group membership changed explicit workspace roles: %#v", roles)
 	}
 	err, workspaces = store.WorkspacesGet(ctx, bob)

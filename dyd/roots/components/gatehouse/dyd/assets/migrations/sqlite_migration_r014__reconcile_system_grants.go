@@ -33,7 +33,7 @@ func sqliteMigrationR014ReconcileSystemGrantsBuilder(grants []config.SystemGrant
 		SELECT grant_id, principal, gh_id_new('act'), CASE WHEN existing_revision IS NULL THEN 'system_grant.create' ELSE 'system_grant.update' END
 		FROM gatehouse_migration_system_grants_state;
 		INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision)
-		SELECT grant_id, principal, 'manager', enabled, revision FROM gatehouse_migration_system_grants_state
+		SELECT grant_id, principal, 'admin', enabled, revision FROM gatehouse_migration_system_grants_state
 		WHERE TRUE
 		ON CONFLICT (principal) DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
 		WHERE gatehouse_system_grants.revision < excluded.revision;

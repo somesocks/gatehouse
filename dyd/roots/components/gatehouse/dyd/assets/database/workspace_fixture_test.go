@@ -21,7 +21,7 @@ func withTestWorkspaceMembers(state config.State) config.State {
 				}
 			}
 			if !declared {
-				state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace.Alias, PrincipalID: stringPointer(principal.Alias), Role: "member", Enabled: true, Revision: 1})
+				state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace.Alias, PrincipalID: stringPointer(principal.Alias), Role: "guest", Enabled: true, Revision: 1})
 			}
 		}
 	}

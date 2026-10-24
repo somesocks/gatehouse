@@ -1,7 +1,7 @@
 # Group secrets
 
 Group secrets are encrypted credentials owned by a workspace-local group. The
-workspace group page includes a Secrets section. Only current group managers
+workspace group page includes a Secrets section. Only current group admins
 may create, update, or remove credentials. Group members can list metadata;
 workspace/system administration does not implicitly confer secret-management
 permission.
@@ -20,7 +20,7 @@ Under `/api/v1/workspaces/{workspace}/groups/{group}/secrets`:
 
 Values are write-only over HTTP. Responses never include values or ciphertext
 and use `Cache-Control: no-store`. Descriptions are limited to 4096 bytes;
-values to 1 MiB. Updates re-check manager membership inside the transaction and
+values to 1 MiB. Updates re-check admin membership inside the transaction and
 reject stale revisions with `409`.
 
 ## Bot access

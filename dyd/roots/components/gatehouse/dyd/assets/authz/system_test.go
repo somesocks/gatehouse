@@ -9,9 +9,10 @@ func TestSystemAllows(t *testing.T) {
 		action  SystemAction
 		allowed bool
 	}{
+		{name: "guest denied", roles: []Role{Guest}, action: SystemManage},
 		{name: "member denied", roles: []Role{Member}, action: SystemManage},
-		{name: "manager allowed", roles: []Role{Manager}, action: SystemManage, allowed: true},
-		{name: "unknown action denied", roles: []Role{Manager}, action: "system.unknown"},
+		{name: "admin allowed", roles: []Role{Admin}, action: SystemManage, allowed: true},
+		{name: "unknown action denied", roles: []Role{Admin}, action: "system.unknown"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := SystemAllows(test.roles, test.action); got != test.allowed {

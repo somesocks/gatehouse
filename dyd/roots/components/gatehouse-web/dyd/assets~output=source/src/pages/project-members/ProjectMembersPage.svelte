@@ -9,6 +9,7 @@
   } from "../../app/project-members"
   import { createProjectAccessController } from "./project-access-controller.svelte"
   import ProjectMemberDialogs from "./ProjectMemberDialogs.svelte"
+  import { roleLabel } from "../../app/roles"
 
   let {
     workspaceID,
@@ -44,7 +45,7 @@
       title="Members"
     />
     {#if !controller.state.canManage && controller.people.state.hasLoaded}
-      <UI.Text tone="muted">Only project managers can change membership.</UI.Text>
+      <UI.Text tone="muted">Only project admins can change membership.</UI.Text>
     {/if}
     {#if controller.state.error && !controller.state.adding && !controller.state.action}
       <UI.Notice variant="destructive" role="alert">
@@ -107,7 +108,7 @@
                   <UI.Button
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={`Edit ${grant.role} role for ${item.label}`}
+                    aria-label={`Edit ${roleLabel(grant.role)} role for ${item.label}`}
                     title="Edit role"
                     disabled={controller.state.saving}
                     onclick={() => controller.beginAction("role", section.kind, grant, item.label)}
@@ -117,7 +118,7 @@
                   <UI.Button
                     size="icon-sm"
                     variant="ghost"
-                    aria-label={`Remove ${grant.role} grant for ${item.label}`}
+                    aria-label={`Remove ${roleLabel(grant.role)} grant for ${item.label}`}
                     title="Remove grant"
                     disabled={controller.state.saving}
                     onclick={() => controller.beginAction("remove", section.kind, grant, item.label)}

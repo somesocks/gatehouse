@@ -19,7 +19,7 @@ func groupAgentTestState(t *testing.T) config.State {
 	return config.State{
 		Workspaces:      []config.Workspace{{Alias: workspace, Enabled: true}, {Alias: other, Enabled: true}},
 		Principals:      []config.Principal{{Alias: principal, Enabled: true}},
-		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: workspace, PrincipalID: &principal, Role: "member", Enabled: true, Revision: 1}},
+		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: workspace, PrincipalID: &principal, Role: "guest", Enabled: true, Revision: 1}},
 		AgentProviders:  []config.AgentProvider{{Alias: provider, Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: model, ProviderAlias: provider, Revision: 1, Model: "dummy.fixed-reply", Parameters: `{"text":"Done."}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{

@@ -36,7 +36,7 @@ func TestSessionParticipantAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Admin); err != nil {
 		t.Fatal(err)
 	}
 	contactsAlias := "chat-contacts"
@@ -66,19 +66,19 @@ func TestSessionParticipantAPI(t *testing.T) {
 	base := "/api/v1/workspaces/" + workspace.Id + "/sessions/ses_00000000000000000000000000"
 	request("GET", base+"/participants", "", "", 401)
 	request("GET", base+"/participants", "", ordinary, 404) // Workspace manager is not a chat manager.
-	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"manager"}`, ordinary, 404)
+	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"admin"}`, ordinary, 404)
 	for _, query := range []string{"?kind=invalid", "?cursor=invalid", "?limit=101"} {
 		request("GET", base+"/participants"+query, "", manager, 400)
 	}
-	for _, body := range []string{`{}`, `{"principal":"` + bob + `","group":"invalid","role":"member"}`, `{"principal":"` + bob + `","role":"owner"}`, `{"principal":"` + bob + `","role":"member","extra":true}`} {
+	for _, body := range []string{`{}`, `{"principal":"` + bob + `","group":"invalid","role":"guest"}`, `{"principal":"` + bob + `","role":"owner"}`, `{"principal":"` + bob + `","role":"guest","extra":true}`} {
 		request("POST", base+"/grants", body, manager, 400)
 	}
-	created := request("POST", base+"/grants", `{"principal":"`+bob+`","role":"member"}`, manager, 201)
+	created := request("POST", base+"/grants", `{"principal":"`+bob+`","role":"guest"}`, manager, 201)
 	var grant database.SessionParticipantGrant
 	if err := json.Unmarshal(created.Body.Bytes(), &grant); err != nil {
 		t.Fatal(err)
 	}
-	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"member"}`, manager, 409)
+	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"guest"}`, manager, 409)
 	roster := request("GET", base+"/participants", "", ordinary, 200)
 	var page struct {
 		Participants []database.SessionParticipant `json:"participants"`
@@ -92,13 +92,13 @@ func TestSessionParticipantAPI(t *testing.T) {
 		request("GET", base+suffix, "", manager, 200)
 	}
 	grantPath := base + "/grants/" + grant.ID
-	request("PATCH", grantPath, `{"role":"manager","expected_revision":1}`, ordinary, 403)
-	request("PATCH", grantPath, `{"role":"contributor"}`, manager, 400)
-	request("PATCH", grantPath, `{"role":"contributor","expected_revision":1}`, manager, 200)
+	request("PATCH", grantPath, `{"role":"admin","expected_revision":1}`, ordinary, 403)
+	request("PATCH", grantPath, `{"role":"member"}`, manager, 400)
+	request("PATCH", grantPath, `{"role":"member","expected_revision":1}`, manager, 200)
 	request("PATCH", grantPath, `{"enabled":false,"expected_revision":1}`, manager, 409)
-	request("POST", base+"/grants", `{"principal":"`+alice.Id+`","role":"member"}`, ordinary, 403)
+	request("POST", base+"/grants", `{"principal":"`+alice.Id+`","role":"guest"}`, ordinary, 403)
 	group := groupID(t, ctx, store, "engineering", "developers")
-	request("POST", base+"/grants", `{"group":"`+group+`","role":"contributor"}`, manager, 201)
+	request("POST", base+"/grants", `{"group":"`+group+`","role":"member"}`, manager, 201)
 	groupPage := request("GET", base+"/participants?kind=group", "", ordinary, 200)
 	if err := json.Unmarshal(groupPage.Body.Bytes(), &page); err != nil || len(page.Participants) != 1 || page.Participants[0].ID != group {
 		t.Fatalf("group roster = %#v %v", page, err)
@@ -107,7 +107,7 @@ func TestSessionParticipantAPI(t *testing.T) {
 	request("PATCH", other, `{"enabled":false,"expected_revision":2}`, manager, 404)
 	request("PATCH", grantPath, `{"enabled":false,"expected_revision":2}`, manager, 200)
 	request("GET", base+"/participants", "", ordinary, 404)
-	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"contributor"}`, manager, 201)
+	request("POST", base+"/grants", `{"principal":"`+bob+`","role":"member"}`, manager, 201)
 	request("GET", base+"/participants", "", ordinary, 200)
 	request("PATCH", base+"/grants/sgr_00000000000000000000000000", `{"enabled":false,"expected_revision":1}`, manager, 409)
 }

@@ -12,7 +12,7 @@ const grant: SystemWorkspacePrincipalGrant = {
   id: "wgr_one",
   workspace: "wsp_team",
   principal: "prn_alice",
-  role: "member",
+  role: "guest",
   enabled: true,
   revision: 3,
 }
@@ -33,23 +33,23 @@ function fixture() {
 describe("workspace grant role editor", () => {
   it("updates only the selected grant's role using its revision and refreshes the roster", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>(async () =>
-      Response.json({ ...grant, role: "contributor", revision: 4 }),
+      Response.json({ ...grant, role: "member", revision: 4 }),
     )
     vi.stubGlobal("fetch", fetch)
     const { controller, onReload } = fixture()
-    controller.state.role = "contributor"
+    controller.state.role = "member"
     await controller.save()
     expect(fetch).toHaveBeenCalledWith(
       "/api/v1/system/workspaces/wsp_team/grants/wgr_one",
       expect.objectContaining({
         method: "PATCH",
-        body: JSON.stringify({ role: "contributor", expected_revision: 3 }),
+        body: JSON.stringify({ role: "member", expected_revision: 3 }),
       }),
     )
     expect(onReload).toHaveBeenCalledOnce()
     expect(controller.state.grant).toBeNull()
     expect(controller.state.notice).toMatch(/updated/)
-    expect(grant.role).toBe("member")
+    expect(grant.role).toBe("guest")
     controller.stop()
   })
 
@@ -65,11 +65,11 @@ describe("workspace grant role editor", () => {
       ),
     )
     const { controller, onReload } = fixture()
-    controller.state.role = "manager"
+    controller.state.role = "admin"
     await controller.save()
     expect(controller.state.error).toMatch(/Another grant/)
     expect(controller.state.conflict).toBe(false)
-    expect(controller.state.role).toBe("manager")
+    expect(controller.state.role).toBe("admin")
     expect(controller.state.grant?.id).toBe(grant.id)
     expect(onReload).toHaveBeenCalledOnce()
     controller.cancel()
@@ -87,10 +87,10 @@ describe("workspace grant role editor", () => {
     )
     vi.stubGlobal("fetch", fetch)
     const { controller, onReload } = fixture()
-    controller.state.role = "contributor"
+    controller.state.role = "member"
     await controller.save()
     expect(controller.state.conflict).toBe(true)
-    expect(controller.state.role).toBe("contributor")
+    expect(controller.state.role).toBe("member")
     expect(controller.state.error).toMatch(/Cancel and reopen/)
     await controller.save()
     expect(fetch).toHaveBeenCalledOnce()

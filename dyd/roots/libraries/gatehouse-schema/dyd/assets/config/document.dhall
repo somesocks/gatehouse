@@ -78,7 +78,7 @@ let GroupMember =
               , role =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "group membership role: member (default) or manager" }
+                    s.text.meta::{ description = Some "group membership role: member (default) or admin" }
               , revision =
                   s.number.from
                     s.number.props::{ variant = s.number.variants.integer }
@@ -147,7 +147,7 @@ let WorkspaceGrant =
               { role =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "workspace role granted by this grant" }
+                    s.text.meta::{ description = Some "workspace role granted by this grant: guest, member, or admin" }
               , principal =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
@@ -414,7 +414,7 @@ let SystemGrant =
 let SystemGrants =
       s.list.from
         s.list.props::{ values = SystemGrant }
-        s.list.meta::{ description = Some "configured system manager grants" }
+        s.list.meta::{ description = Some "configured system admin grants" }
 
 let KeychainPassphraseSource =
       s.text.from

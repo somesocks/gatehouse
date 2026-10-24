@@ -84,7 +84,7 @@
     }),
   )
   const view = controller.state
-  let canManage = $derived(scope === "system" || view.group?.role === "manager")
+  let canManage = $derived(scope === "system" || view.group?.role === "admin")
   onMount(() => {
     void controller.load()
     void members.search()
@@ -180,8 +180,8 @@
       },
     })
   }
-  function changeMemberRole(member: SystemGroupMember, role: "member" | "manager") {
-    if (member.role !== "manager" || role !== "member") {
+  function changeMemberRole(member: SystemGroupMember, role: "member" | "admin") {
+    if (member.role !== "admin" || role !== "member") {
       void controller.changeMemberRole(member, role)
       return
     }
@@ -282,13 +282,13 @@
               value={member.role}
               disabled={view.saving}
               onchange={(event) => {
-                const role = event.currentTarget.value as "member" | "manager"
+                const role = event.currentTarget.value as "member" | "admin"
                 event.currentTarget.value = member.role
                 changeMemberRole(member, role)
               }}
             >
               <UI.Option value="member">Member</UI.Option>
-              <UI.Option value="manager">Manager</UI.Option>
+              <UI.Option value="admin">Admin</UI.Option>
             </UI.Select>
             <UI.ActionButton
               size="sm"
@@ -301,7 +301,7 @@
             >
           {:else}
             <UI.Text size="small" tone="muted"
-              >{member.role === "manager" ? "Manager" : "Member"}</UI.Text
+              >{member.role === "admin" ? "Admin" : "Member"}</UI.Text
             >
           {/if}
         {/snippet}

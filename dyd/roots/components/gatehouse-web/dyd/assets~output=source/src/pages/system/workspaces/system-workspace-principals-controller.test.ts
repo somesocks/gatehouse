@@ -23,14 +23,14 @@ describe("workspace principal controllers", () => {
       alias: "alice",
       name: "Alice",
       enabled: true,
-      roles: ["member"],
+      roles: ["guest"],
     }
     const bob = {
       id: "prn_bob",
       alias: "bob",
       name: "Bob",
       enabled: true,
-      roles: ["contributor"],
+      roles: ["member"],
     }
     const request = vi.fn(
       async (
@@ -124,7 +124,7 @@ describe("workspace principal controllers", () => {
     ).toEqual([bob.id, carol.id])
 
     controller.state.selectedPrincipalID = bob.id
-    controller.state.role = "contributor"
+    controller.state.role = "member"
     await expect(controller.add(workspaceID)).resolves.toBe(true)
     expect(
       request.mock.calls.some(
@@ -132,7 +132,7 @@ describe("workspace principal controllers", () => {
           String(url).endsWith(`/workspaces/${workspaceID}/principals`) &&
           init?.method === "POST" &&
           init.body ===
-            JSON.stringify({ principal: bob.id, role: "contributor" }),
+            JSON.stringify({ principal: bob.id, role: "member" }),
       ),
     ).toBe(true)
     stop()

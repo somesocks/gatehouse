@@ -1,7 +1,7 @@
 # Workspace grant role administration
 
 Under **System → Workspaces → [workspace] → Principals**, each enabled direct
-grant has an **Edit role** action. Select Member, Contributor, or Manager and
+grant has an **Edit role** action. Select Guest, Member, or Admin and
 save. The operation edits that specific grant; it preserves its `wgr_…` ID,
 workspace, principal, and enabled state. Other direct workspace grants still
 apply. Group membership never assigns workspace admission or roles.
@@ -16,7 +16,7 @@ grant's ID, workspace, principal, role, enabled status, and revision.
 `system.manage` and a body such as:
 
 ```json
-{"role":"contributor","expected_revision":3}
+{"role":"member","expected_revision":3}
 ```
 
 The response is the updated principal grant, including its role, enabled status,

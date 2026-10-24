@@ -4,24 +4,24 @@ package authz
 type Role string
 
 const (
-	Member      Role = "member"
-	Contributor Role = "contributor"
-	Manager     Role = "manager"
+	Guest  Role = "guest"
+	Member Role = "member"
+	Admin  Role = "admin"
 )
 
 type WorkspaceAction string
 
 const (
-	WorkspaceEdit              WorkspaceAction = "workspace.edit"
-	WorkspaceProjectCreate     WorkspaceAction = "workspace.project.create"
-	WorkspaceSessionCreate     WorkspaceAction = "workspace.session.create"
-	WorkspaceGroupCreate       WorkspaceAction = "workspace.group.create"
-	WorkspaceGrantManage       WorkspaceAction = "workspace.grant.manage"
+	WorkspaceEdit          WorkspaceAction = "workspace.edit"
+	WorkspaceProjectCreate WorkspaceAction = "workspace.project.create"
+	WorkspaceSessionCreate WorkspaceAction = "workspace.session.create"
+	WorkspaceGroupCreate   WorkspaceAction = "workspace.group.create"
+	WorkspaceGrantManage   WorkspaceAction = "workspace.grant.manage"
 )
 
 func ValidRole(role string) bool {
 	switch Role(role) {
-	case Member, Contributor, Manager:
+	case Guest, Member, Admin:
 		return true
 	default:
 		return false
@@ -34,9 +34,9 @@ func WorkspaceAllows(roles []Role, action WorkspaceAction) bool {
 	}
 	for _, role := range roles {
 		switch role {
-		case Manager:
+		case Admin:
 			return true
-		case Contributor:
+		case Member:
 			switch action {
 			case WorkspaceProjectCreate, WorkspaceSessionCreate:
 				return true

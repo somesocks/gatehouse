@@ -6,6 +6,10 @@ keeps its recorded baseline and applies later versioned migrations normally.
 Baseline SQL is checksummed like other migrations: retain previously published
 snapshots unchanged when adding a newer one.
 
+V069 upgrades either baseline to the Guest / Member / Admin role vocabulary;
+fresh databases currently apply B068 followed by V069. See
+[the role-name upgrade notes](role-names-upgrade.md).
+
 ## B068 sources
 
 - SQLite: schema definitions from a temporary database migrated through v068

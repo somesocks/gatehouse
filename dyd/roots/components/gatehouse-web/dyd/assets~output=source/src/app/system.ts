@@ -1,4 +1,5 @@
 import { fetchGatehouse as fetch } from "./api"
+import type { ResourceRole } from "./roles"
 
 export type SystemGrant = {
   ref: { id: string }
@@ -175,7 +176,7 @@ export type SystemWorkspacePrincipalGrant = {
   enabled: boolean
   revision: number
 }
-export type WorkspaceRole = "member" | "contributor" | "manager"
+export type WorkspaceRole = ResourceRole
 export type TokenBucket = {
   minimum_balance: number
   maximum_balance: number

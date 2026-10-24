@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte"
   import { reducesRoleAccess } from "../app/role-access"
+  import { roleDescription } from "../app/roles"
   import * as UI from "../ui"
   import {
     participantRoles,
@@ -111,6 +112,7 @@
                 >{role.label}</UI.Option
               >{/each}
           </UI.Select>
+          <UI.Text tone="muted" size="small">{roleDescription(draft)}</UI.Text>
         </UI.Field>
       {:else}
         <UI.Dialog.Description

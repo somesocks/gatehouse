@@ -234,8 +234,8 @@ func TestHandlerListsAuthorizedWorkspaceCatalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	err, roles := store.WorkspaceRolesGet(context.Background(), engineering, principal)
-	if err != nil || !reflect.DeepEqual(roles, []authz.Role{authz.Manager}) {
-		t.Fatalf("WorkspaceRolesGet() = (%#v, %v), want (%#v, nil)", roles, err, []authz.Role{authz.Manager})
+	if err != nil || !reflect.DeepEqual(roles, []authz.Role{authz.Admin}) {
+		t.Fatalf("WorkspaceRolesGet() = (%#v, %v), want (%#v, nil)", roles, err, []authz.Role{authz.Admin})
 	}
 	request := func(path string) *httptest.ResponseRecorder {
 		response := httptest.NewRecorder()
@@ -309,7 +309,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_project_grants
-		SET role = 'member'
+		SET role = 'guest'
 		WHERE workspace = ? AND project = ? AND principal = ?
 	`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -319,7 +319,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_project_grants
-		SET role = 'contributor'
+		SET role = 'member'
 		WHERE workspace = ? AND project = ? AND principal = ?
 	`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_session_grants
-		SET role = 'member'
+		SET role = 'guest'
 		WHERE workspace = ? AND session = ? AND principal = ?
 	`, engineering.Id, session.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -348,7 +348,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_session_grants
-		SET role = 'contributor'
+		SET role = 'member'
 		WHERE workspace = ? AND session = ? AND principal = ?
 	`, engineering.Id, session.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -364,7 +364,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_session_grants
-		SET role = 'manager'
+		SET role = 'admin'
 		WHERE workspace = ? AND session = ? AND principal = ?
 	`, engineering.Id, session.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -381,7 +381,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_project_grants
-		SET role = 'member'
+		SET role = 'guest'
 		WHERE workspace = ? AND project = ? AND principal = ?
 	`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -391,7 +391,7 @@ func TestHandlerEnforcesProjectAndSessionRoles(t *testing.T) {
 	}
 	if _, err := store.ExecContext(context.Background(), `
 		UPDATE gatehouse_project_grants
-		SET role = 'contributor'
+		SET role = 'member'
 		WHERE workspace = ? AND project = ? AND principal = ?
 	`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
@@ -462,7 +462,7 @@ func TestHandlerRequiresWorkspaceAdmissionDespiteDirectResourceGrants(t *testing
 	if response := request(http.MethodPost, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/notes", `{"title":"Unavailable"}`); response.Code != http.StatusNotFound {
 		t.Fatalf("POST session note with disabled project = %d, want %d", response.Code, http.StatusNotFound)
 	}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(context.Background(), engineering.Id, principal.Id, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(context.Background(), engineering.Id, principal.Id, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	if response := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/projects/"+project.ID, ""); response.Code != http.StatusOK {
@@ -740,13 +740,13 @@ func TestSessionFileUploadFinishAndDownload(t *testing.T) {
 	if invalid := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, `{"media_type":"text/plain"}`); invalid.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH session file unknown field = %d", invalid.Code)
 	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'member' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'guest' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
 		t.Fatal(err)
 	}
 	if denied := request(http.MethodPatch, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files/"+uploaded.File.Ref.Id, `{"name":"denied.txt"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("PATCH session file as member = %d", denied.Code)
 	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'manager' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_session_grants SET role = 'admin' WHERE workspace = ? AND session = ?`, engineering.Id, session.ID); err != nil {
 		t.Fatal(err)
 	}
 	listed := request(http.MethodGet, "/api/v1/workspaces/"+engineering.Id+"/sessions/"+session.ID+"/files", "")
@@ -887,13 +887,13 @@ func TestProjectFileUploadFinishListDownloadAndRemove(t *testing.T) {
 	if invalid := request(http.MethodPatch, base+"/"+upload.File.ID, `{"name":""}`); invalid.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH project file blank name = %d", invalid.Code)
 	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'member' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'guest' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
 		t.Fatal(err)
 	}
 	if denied := request(http.MethodPatch, base+"/"+upload.File.ID, `{"name":"denied.html"}`); denied.Code != http.StatusForbidden {
 		t.Fatalf("PATCH project file as member = %d", denied.Code)
 	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'admin' WHERE workspace = ? AND project = ?`, engineering.Id, project.ID); err != nil {
 		t.Fatal(err)
 	}
 	listed := request(http.MethodGet, base, "")
@@ -1154,7 +1154,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	}
 
 	principal, _ := principalIdentityRefs(t, context.Background(), store, "alice", "gatehouse:alice")
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'contributor' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'member' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if denied := request(http.MethodPost, base, `{"name":"denied","label":"Denied"}`); denied.Code != http.StatusForbidden {
@@ -1172,7 +1172,7 @@ func TestProjectRecordSchemaAttributeRecordAndValueHTTPAPI(t *testing.T) {
 	if detail := request(http.MethodGet, recordsPath+"/"+recordResult.Record.ID, ""); detail.Code != http.StatusOK {
 		t.Fatalf("GET project record = %d", detail.Code)
 	}
-	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'manager' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
+	if _, err := store.ExecContext(context.Background(), `UPDATE gatehouse_project_grants SET role = 'admin' WHERE workspace = ? AND project = ? AND principal = ?`, engineering.Id, project.ID, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	fileID, err := typed_id.New(typed_id.ProjectFile)
@@ -2068,24 +2068,24 @@ func TestSystemWorkspacePrincipalAPI(t *testing.T) {
 		t.Fatalf("GET principals for missing workspace = %d", missing.Code)
 	}
 
-	created := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"member"}`)
+	created := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"guest"}`)
 	var grant database.SystemWorkspacePrincipalGrant
-	if err := json.Unmarshal(created.Body.Bytes(), &grant); err != nil || created.Code != http.StatusCreated || grant.Workspace != workspaceID || grant.Principal != bob || grant.Role != authz.Member || grant.Revision != 1 || !grant.Enabled {
+	if err := json.Unmarshal(created.Body.Bytes(), &grant); err != nil || created.Code != http.StatusCreated || grant.Workspace != workspaceID || grant.Principal != bob || grant.Role != authz.Guest || grant.Revision != 1 || !grant.Enabled {
 		t.Fatalf("POST workspace principal grant = (%d, %#v, %v)", created.Code, grant, err)
 	}
-	if duplicate := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"member"}`); duplicate.Code != http.StatusConflict {
+	if duplicate := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"guest"}`); duplicate.Code != http.StatusConflict {
 		t.Fatalf("POST duplicate workspace principal grant = %d", duplicate.Code)
 	}
 	if invalidRole := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+bob+`","role":"owner"}`); invalidRole.Code != http.StatusBadRequest {
 		t.Fatalf("POST workspace principal grant with invalid role = %d", invalidRole.Code)
 	}
-	if missingPrincipal := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"prn_00000000000000000000000000","role":"member"}`); missingPrincipal.Code != http.StatusNotFound {
+	if missingPrincipal := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"prn_00000000000000000000000000","role":"guest"}`); missingPrincipal.Code != http.StatusNotFound {
 		t.Fatalf("POST workspace grant for missing principal = %d", missingPrincipal.Code)
 	}
 	if invalidBody := request(http.MethodPost, workspacePrincipalsPath, `{}`); invalidBody.Code != http.StatusBadRequest {
 		t.Fatalf("POST invalid workspace principal grant = %d", invalidBody.Code)
 	}
-	createdAlice := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+alice.Id+`","role":"contributor"}`)
+	createdAlice := request(http.MethodPost, workspacePrincipalsPath, `{"principal":"`+alice.Id+`","role":"member"}`)
 	if createdAlice.Code != http.StatusCreated {
 		t.Fatalf("POST direct grant for group member = (%d, %q)", createdAlice.Code, createdAlice.Body.String())
 	}
@@ -2115,7 +2115,7 @@ func TestSystemWorkspacePrincipalAPI(t *testing.T) {
 	}
 	var enabled bool
 	var revision int
-	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ? AND role = 'member'`, workspaceID, bob).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
+	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ? AND role = 'guest'`, workspaceID, bob).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
 		t.Fatalf("removed bob grant = (%v, %d, %v)", enabled, revision, err)
 	}
 	if missingPrincipal := request(http.MethodDelete, workspacePrincipalsPath+"/prn_00000000000000000000000000", ""); missingPrincipal.Code != http.StatusNotFound {
@@ -2169,8 +2169,8 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 			{WorkspaceID: "private", Alias: "owners", Enabled: true},
 		},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "engineering", Role: string(authz.Manager), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
-			{WorkspaceID: "operations", Role: string(authz.Member), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: string(authz.Admin), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
+			{WorkspaceID: "operations", Role: string(authz.Guest), PrincipalID: &aliceAlias, Revision: 1, Enabled: true},
 		},
 		SystemGrants:     []config.SystemGrant{{PrincipalID: "alice", Revision: 1, Enabled: true}},
 		AgentProviders:   []config.AgentProvider{{Alias: "builtin", Revision: 1, Protocol: "builtin", Enabled: true}},
@@ -2217,13 +2217,13 @@ func testBearerTokens(t *testing.T) (*auth.BearerTokens, *database.Store, map[st
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
-		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'manager', ?, NULL, TRUE)
+		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'admin', ?, NULL, TRUE)
 	`, workspaces["engineering"].Id, principal.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
-		VALUES ('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
+		VALUES ('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000001', 'admin', NULL, ?, TRUE)
 	`, workspaces["engineering"].Id, developersID); err != nil {
 		t.Fatal(err)
 	}

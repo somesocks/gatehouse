@@ -99,7 +99,7 @@
             />
           </UI.Field>
           <UI.Text size="small" tone="muted"
-            >You will be added as a group manager.</UI.Text
+            >You will be added as a group admin.</UI.Text
           >
         </UI.FormSection>
         <UI.ActionFeedback
@@ -150,7 +150,7 @@
           ></UI.RecordCell
         >
         <UI.RecordCell label="Your role"
-          >{group.role === "manager" ? "Manager" : "Member"}</UI.RecordCell
+          >{group.role === "admin" ? "Admin" : "Member"}</UI.RecordCell
         >
       </UI.RecordRow>{:else}<UI.TableEmpty
         columns={2}

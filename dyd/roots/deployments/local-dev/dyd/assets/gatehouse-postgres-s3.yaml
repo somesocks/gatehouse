@@ -104,7 +104,7 @@ workspaces:
         members:
           - principal: root
     grants:
-      - role: manager
+      - role: admin
         principal: root
 services:
   http:

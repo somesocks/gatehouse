@@ -36,7 +36,7 @@ func TestWorkspaceGroupManagement(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
@@ -64,7 +64,7 @@ func TestWorkspaceGroupManagement(t *testing.T) {
 	request("POST", base, `{"alias":"no-access"}`, "", 401)
 	request("POST", base, `{"alias":"not-allowed"}`, member, 403)
 	var group database.SystemGroup
-	if err := json.Unmarshal(request("POST", base, `{"alias":"delegated","name":"Delegated"}`, admin, 201).Body.Bytes(), &group); err != nil || group.Role != authz.Manager {
+	if err := json.Unmarshal(request("POST", base, `{"alias":"delegated","name":"Delegated"}`, admin, 201).Body.Bytes(), &group); err != nil || group.Role != authz.Admin {
 		t.Fatalf("creator role: %#v %v", group, err)
 	}
 	path := base + "/" + group.ID
@@ -72,7 +72,7 @@ func TestWorkspaceGroupManagement(t *testing.T) {
 	for _, groupPath := range []string{path, systemPath} {
 		for _, body := range []string{`{"role":"member","expected_revision":1}`, `{"enabled":false,"expected_revision":1}`} {
 			response := request("PATCH", groupPath+"/members/"+alice.Id, body, admin, 409)
-			if !strings.Contains(response.Body.String(), "at least one enabled manager") {
+			if !strings.Contains(response.Body.String(), "at least one enabled admin") {
 				t.Fatalf("last-manager error: %s", response.Body.String())
 			}
 		}
@@ -104,8 +104,8 @@ func TestWorkspaceGroupManagement(t *testing.T) {
 		request("GET", path+destination, "", member, 403)
 	}
 	request("PATCH", path, `{"name":"denied","expected_revision":1}`, member, 403)
-	request("PATCH", path+"/members/"+bob, `{"role":"manager","expected_revision":1}`, member, 403)
-	request("PATCH", path+"/members/"+bob, `{"role":"manager","expected_revision":1}`, admin, 204)
+	request("PATCH", path+"/members/"+bob, `{"role":"admin","expected_revision":1}`, member, 403)
+	request("PATCH", path+"/members/"+bob, `{"role":"admin","expected_revision":1}`, admin, 204)
 	request("PATCH", path+"/members/"+bob, `{"role":"member","expected_revision":1}`, admin, 409)
 	// A group manager need only be an ordinary workspace member.
 	request("PATCH", path, `{"name":"Managed by Bob","expected_revision":1}`, member, 200)
@@ -159,17 +159,17 @@ func TestWorkspaceGroupManagement(t *testing.T) {
 		t.Fatal(err)
 	}
 	request("PATCH", path, `{"name":"revoked","expected_revision":4}`, member, 404)
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	request("PATCH", path, `{"name":"restored","expected_revision":4}`, member, 200)
 	request("PATCH", path+"/members/"+bob, `{"role":"member","expected_revision":2}`, member, 409)
 	request("PATCH", path+"/members/"+bob, `{"enabled":false,"expected_revision":2}`, member, 409)
 	// Appoint a replacement before the current manager steps down.
-	request("PATCH", systemPath+"/members/"+alice.Id, `{"role":"manager","expected_revision":4}`, admin, 204)
+	request("PATCH", systemPath+"/members/"+alice.Id, `{"role":"admin","expected_revision":4}`, admin, 204)
 	request("PATCH", path+"/members/"+bob, `{"role":"member","expected_revision":2}`, member, 204)
 	request("PATCH", path, `{"name":"demoted","expected_revision":5}`, member, 403)
 	// System administration can appoint managers independently of group membership.
-	request("PATCH", systemPath+"/members/"+bob, `{"role":"manager","expected_revision":3}`, admin, 204)
+	request("PATCH", systemPath+"/members/"+bob, `{"role":"admin","expected_revision":3}`, admin, 204)
 	request("PATCH", path, `{"name":"appointed","expected_revision":5}`, member, 200)
 }

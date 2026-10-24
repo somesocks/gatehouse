@@ -77,6 +77,7 @@ func sqliteMigrations(state config.State, keyring *keychain.Keyring) (error, Reg
 			sqliteMigrationV066ProjectGrantRevisions(),
 			sqliteMigrationV067DropWorkflowOutboxes(),
 			sqliteMigrationV068GroupSecrets(),
+			sqliteMigrationV069RenameRoles(),
 		},
 		Repeatable: []RepeatableMigration{
 			sqliteMigrationR001PrepareKeychains(keyring),

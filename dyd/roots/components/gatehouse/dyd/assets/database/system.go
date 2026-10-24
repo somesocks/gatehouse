@@ -85,7 +85,7 @@ func (store *Store) SystemGrantCreate(ctx context.Context, principal model.Princ
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, TRUE, 1)
 		ON CONFLICT (principal) DO NOTHING
 		RETURNING id
-	`, grant.Ref.Id, principal.Id, authz.Manager).Scan(&insertedID)
+	`, grant.Ref.Id, principal.Id, authz.Admin).Scan(&insertedID)
 	if err == sql.ErrNoRows {
 		return ErrSystemGrantAlreadyExists, nil
 	}

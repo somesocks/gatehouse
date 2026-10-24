@@ -20,7 +20,7 @@ func (rejectWorkspaceGrantSnapshotQueryer) QueryContext(context.Context, string,
 
 func TestPostgresWorkspaceGrantReconciliationBuildIsSnapshotIndependent(t *testing.T) {
 	principal := "alice"
-	migration := postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "team", PrincipalID: &principal, Role: "contributor", Enabled: true, Revision: 3}}})
+	migration := postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "team", PrincipalID: &principal, Role: "member", Enabled: true, Revision: 3}}})
 	session := &MigrationSession{queryer: rejectWorkspaceGrantSnapshotQueryer{}}
 	err, first := migration.Builder(context.Background(), session)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestPostgresWorkspaceGrantReconciliationUsesExecutionTimeState(t *testing.T
 			workspaceAlias, principalAlias := "grant-"+id, "member-"+id
 			// Build before even the parent identities exist: configuration is the
 			// complete source, and the database is consulted only when executing it.
-			desired := config.WorkspaceGrant{WorkspaceID: workspaceAlias, PrincipalID: &principalAlias, Role: "contributor", Enabled: true, Revision: 2}
+			desired := config.WorkspaceGrant{WorkspaceID: workspaceAlias, PrincipalID: &principalAlias, Role: "member", Enabled: true, Revision: 2}
 			if scenario == "admin advances revision after build" {
 				desired.Enabled = false
 			}
@@ -90,7 +90,7 @@ func TestPostgresWorkspaceGrantReconciliationUsesExecutionTimeState(t *testing.T
 			var existingID string
 			wantRevision, wantEvents := 2, 1
 			if scenario != "two prepared sources" {
-				err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.ID, principal.ID, "contributor")
+				err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.ID, principal.ID, "member")
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -122,7 +122,7 @@ func TestPostgresWorkspaceGrantReconciliationUsesExecutionTimeState(t *testing.T
 				var actualID string
 				var revision int
 				var enabled bool
-				if err := store.QueryRowContext(ctx, `SELECT id, revision, enabled FROM gatehouse_workspace_grants WHERE workspace = $1 AND principal = $2 AND role = 'contributor'`, workspace.ID, principal.ID).Scan(&actualID, &revision, &enabled); err != nil {
+				if err := store.QueryRowContext(ctx, `SELECT id, revision, enabled FROM gatehouse_workspace_grants WHERE workspace = $1 AND principal = $2 AND role = 'member'`, workspace.ID, principal.ID).Scan(&actualID, &revision, &enabled); err != nil {
 					t.Fatal(err)
 				}
 				if existingID == "" {

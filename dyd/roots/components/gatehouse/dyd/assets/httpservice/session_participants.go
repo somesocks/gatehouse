@@ -17,7 +17,7 @@ func sessionParticipantError(w http.ResponseWriter, r *http.Request, err error) 
 		http.NotFound(w, r)
 	case errors.Is(err, database.ErrSessionParticipantForbidden):
 		http.Error(w, "forbidden", http.StatusForbidden)
-	case errors.Is(err, database.ErrSessionGrantExists), errors.Is(err, database.ErrSessionLastManager):
+	case errors.Is(err, database.ErrSessionGrantExists), errors.Is(err, database.ErrSessionLastAdmin):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrRevisionConflict):
 		http.Error(w, "This participant changed elsewhere. Reload before retrying.", http.StatusConflict)

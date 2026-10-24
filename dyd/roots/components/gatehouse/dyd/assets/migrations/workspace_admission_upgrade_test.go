@@ -15,7 +15,7 @@ func TestSQLiteExplicitWorkspaceAdmissionUpgrade(t *testing.T) {
 	registry := testSQLiteBaselineRegistry(t)
 	testExplicitWorkspaceAdmissionUpgrade(t, db, registry, func(r Registry) error { return migrateSQLite(context.Background(), db, r) }, true)
 	root := "root"
-	registry.Repeatable = []RepeatableMigration{sqliteMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "manager", Revision: 1, Enabled: true}}})}
+	registry.Repeatable = []RepeatableMigration{sqliteMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "admin", Revision: 1, Enabled: true}}})}
 	if err := migrateSQLite(context.Background(), db, registry); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func TestPostgresExplicitWorkspaceAdmissionUpgrade(t *testing.T) {
 	}
 	testExplicitWorkspaceAdmissionUpgrade(t, store.DB, registry, func(r Registry) error { return migratePostgres(context.Background(), store.DB, r) }, false)
 	root := "root"
-	registry.Repeatable = []RepeatableMigration{postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "manager", Revision: 1, Enabled: true}}})}
+	registry.Repeatable = []RepeatableMigration{postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "admin", Revision: 1, Enabled: true}}})}
 	if err := migratePostgres(context.Background(), store.DB, registry); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestSQLiteRootWorkspaceRoleDowngradeSurvivesBootstrapUpgrade(t *testing.T) 
 	db := openConfiguredMigrationTestDatabase(t)
 	registry := testSQLiteBaselineRegistry(t)
 	root := "root"
-	bootstrap := sqliteMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "manager", Enabled: true, Revision: 1}}})
+	bootstrap := sqliteMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "admin", Enabled: true, Revision: 1}}})
 	testRootWorkspaceRoleDowngradeUpgrade(t, db, registry, bootstrap, func(r Registry) error { return migrateSQLite(context.Background(), db, r) })
 }
 
@@ -82,7 +82,7 @@ func TestPostgresRootWorkspaceRoleDowngradeSurvivesBootstrapUpgrade(t *testing.T
 		t.Fatal(err)
 	}
 	root := "root"
-	bootstrap := postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "manager", Enabled: true, Revision: 1}}})
+	bootstrap := postgresMigrationR007ReconcileWorkspaceGrants(config.State{WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "admin", PrincipalID: &root, Role: "admin", Enabled: true, Revision: 1}}})
 	testRootWorkspaceRoleDowngradeUpgrade(t, store.DB, registry, bootstrap, func(r Registry) error { return migratePostgres(context.Background(), store.DB, r) })
 }
 
@@ -120,7 +120,7 @@ func testRootWorkspaceRoleDowngradeUpgrade(t *testing.T, db *sql.DB, registry Re
 		}
 		roles = append(roles, role)
 	}
-	if len(roles) != 1 || roles[0] != "contributor" {
+	if len(roles) != 1 || roles[0] != "member" {
 		t.Fatalf("bootstrap changed downgraded root roles: %#v", roles)
 	}
 }

@@ -1114,8 +1114,8 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 		Principals: []config.Principal{{Alias: alice, Enabled: true}},
 		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: members, Enabled: true}},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "engineering", Role: "member", PrincipalID: &alice, Revision: 1, Enabled: true},
-			{WorkspaceID: "engineering", Role: "manager", PrincipalID: &alice, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: "guest", PrincipalID: &alice, Revision: 1, Enabled: true},
+			{WorkspaceID: "engineering", Role: "admin", PrincipalID: &alice, Revision: 1, Enabled: true},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -1129,7 +1129,7 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	var principalGrantID string
 	if err := store.QueryRowContext(ctx, `
 		SELECT id FROM gatehouse_workspace_grants
-		WHERE workspace = ? AND role = 'member' AND principal = ?
+		WHERE workspace = ? AND role = 'guest' AND principal = ?
 	`, workspace.Id, principalID).Scan(&principalGrantID); err != nil {
 		t.Fatal(err)
 	}
@@ -1139,8 +1139,8 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 		SELECT COUNT(*)
 		FROM gatehouse_workspace_grants
 		WHERE workspace = ? AND (
-			(role = 'member' AND principal = ?)
-			OR (role = 'manager' AND principal = ?)
+			(role = 'guest' AND principal = ?)
+			OR (role = 'admin' AND principal = ?)
 		)
 	`, workspace.Id, principalID, principalID).Scan(&grants); err != nil {
 		t.Fatal(err)
@@ -1180,7 +1180,7 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT enabled
 		FROM gatehouse_workspace_grants
-		WHERE workspace = ? AND role = 'member' AND principal = ?
+		WHERE workspace = ? AND role = 'guest' AND principal = ?
 	`, workspace.Id, principalID).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}
@@ -1195,7 +1195,7 @@ func TestMigrateSQLiteReconcilesWorkspaceGrants(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT enabled
 		FROM gatehouse_workspace_grants
-		WHERE workspace = ? AND role = 'member' AND principal = ?
+		WHERE workspace = ? AND role = 'guest' AND principal = ?
 	`, workspace.Id, principalID).Scan(&enabled); err != nil {
 		t.Fatal(err)
 	}

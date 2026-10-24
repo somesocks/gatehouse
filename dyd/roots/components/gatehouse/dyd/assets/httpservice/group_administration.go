@@ -42,7 +42,7 @@ func groupAdminError(w http.ResponseWriter, r *http.Request, err error) {
 		http.Error(w, err.Error(), http.StatusForbidden)
 	case errors.Is(err, database.ErrRevisionConflict):
 		http.Error(w, "This record changed elsewhere. Reload before retrying.", http.StatusConflict)
-	case errors.Is(err, database.ErrGroupLastManager):
+	case errors.Is(err, database.ErrGroupLastAdmin):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrGroupAliasExists), errors.Is(err, database.ErrGroupMemberExists), errors.Is(err, database.ErrWorkspaceGrantAlreadyExists):
 		http.Error(w, err.Error(), http.StatusConflict)
@@ -166,7 +166,7 @@ func groupDetail(store *database.Store, tokens *auth.BearerTokens, system bool) 
 			return
 		}
 		if actor != nil {
-			group.Role = authz.Manager
+			group.Role = authz.Admin
 		}
 		writeJSON(w, group)
 	}

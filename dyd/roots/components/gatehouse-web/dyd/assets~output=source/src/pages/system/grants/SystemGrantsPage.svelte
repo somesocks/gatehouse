@@ -75,7 +75,7 @@
     const snapshot = { ...grant }
     confirmation.request({
       title: "Revoke system access?",
-      description: `${name(grant.principal.id)} will lose the system-manager access provided by this grant.`,
+      description: `${name(grant.principal.id)} will lose the system admin access provided by this grant.`,
       confirmLabel: "Revoke access",
       onConfirm: async () => { await setEnabled(snapshot); return mutationError },
     })
@@ -95,7 +95,7 @@
       description="Principals permitted to manage global Gatehouse state."
       >{#snippet actions()}<UI.RouterLink
           variant="default"
-          href="/app/system/grants/new">Add manager</UI.RouterLink
+          href="/app/system/grants/new">Add admin</UI.RouterLink
         >{/snippet}</UI.AdminHeader
     >
     <UI.SearchToolbar
@@ -127,7 +127,7 @@
               /></UI.RecordCell
             >
             <UI.RecordCell label="Role"
-              ><UI.Badge>System manager</UI.Badge></UI.RecordCell
+              ><UI.Badge>System admin</UI.Badge></UI.RecordCell
             ><UI.RecordCell label="Grant status"
               ><UI.StatusBadge
                 enabled={grant.enabled}

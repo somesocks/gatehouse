@@ -72,7 +72,7 @@ func (store *Store) SessionsCreate(ctx context.Context, session model.Session, g
 	_, err = transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, NULL, TRUE)
-	`, grantID, session.Ref.Workspace.Id, session.Ref.Id, authz.Manager, grantee.Id)
+	`, grantID, session.Ref.Workspace.Id, session.Ref.Id, authz.Admin, grantee.Id)
 	if err != nil {
 		return fmt.Errorf("bind session principal role: %w", err), model.Session{}
 	}
@@ -1480,7 +1480,7 @@ func (store *Store) SessionNameSet(ctx context.Context, session model.SessionRef
 	filter := ""
 	args := []any{name, session.Workspace.Id, session.Id}
 	if len(actors) > 0 {
-		filter = ` AND ` + sessionPrincipalAccessSQL(placeholder(2), placeholder(3), placeholder(4), "'contributor', 'manager'")
+		filter = ` AND ` + sessionPrincipalAccessSQL(placeholder(2), placeholder(3), placeholder(4), "'member', 'admin'")
 		args = append(args, actors[0].Id)
 	}
 	row := transaction.QueryRowContext(ctx, `

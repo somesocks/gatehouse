@@ -8,7 +8,7 @@ import (
 func TestSQLiteMigrationV059PreservesSessionGrants(t *testing.T) {
 	ctx := context.Background()
 	db := openConfiguredMigrationTestDatabase(t)
-	registry := testSQLiteBaselineRegistry(t)
+	registry := testSchemaAtVersion(testSQLiteBaselineRegistry(t), 59)
 	registry.Repeatable = nil
 	old := testSchemaAtVersion(registry, 58)
 	if err := migrateSQLite(ctx, db, old); err != nil {

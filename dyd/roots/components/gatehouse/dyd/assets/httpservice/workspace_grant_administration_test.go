@@ -37,7 +37,7 @@ func TestSystemWorkspaceGrantRoleAPI(t *testing.T) {
 	}
 	// The sysadmin does not need workspace membership to administer this grant.
 	workspace := workspaces["private"]
-	err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member)
+	err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,34 +56,34 @@ func TestSystemWorkspaceGrantRoleAPI(t *testing.T) {
 		}
 		return w
 	}
-	const body = `{"role":"contributor","expected_revision":1}`
+	const body = `{"role":"member","expected_revision":1}`
 	request("PATCH", path, body, "", 401)
 	request("PATCH", path, body, ordinary, 403)
 	request("GET", path, "", admin, 405)
-	for _, body := range []string{`{}`, `{"role":"owner","expected_revision":1}`, `{"role":"contributor"}`, `{"role":"contributor","expected_revision":0}`, `{"role":"contributor","expected_revision":1,"principal":"other"}`, `{"role":"contributor","expected_revision":1} {}`} {
+	for _, body := range []string{`{}`, `{"role":"owner","expected_revision":1}`, `{"role":"member"}`, `{"role":"member","expected_revision":0}`, `{"role":"member","expected_revision":1,"principal":"other"}`, `{"role":"member","expected_revision":1} {}`} {
 		request("PATCH", path, body, admin, 400)
 	}
 	request("PATCH", strings.Replace(path, workspace.Id, workspaces["engineering"].Id, 1), body, admin, 404)
 	request("PATCH", strings.Replace(path, grant.ID, "wgr_00000000000000000000000000", 1), body, admin, 404)
 	response := request("PATCH", path, body, admin, 200)
 	var updated database.SystemWorkspaceGrant
-	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil || updated.ID != grant.ID || updated.Principal == nil || *updated.Principal != bob || updated.Role != authz.Contributor || updated.Revision != 2 || !updated.Enabled {
+	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil || updated.ID != grant.ID || updated.Principal == nil || *updated.Principal != bob || updated.Role != authz.Member || updated.Revision != 2 || !updated.Enabled {
 		t.Fatalf("updated grant = (%#v, %v)", updated, err)
 	}
 	request("PATCH", path, body, admin, 409)
 	roster := request("GET", "/api/v1/system/workspaces/"+workspace.Id+"/principals", "", admin, 200)
 	var page systemWorkspacePrincipalPage
-	if err := json.Unmarshal(roster.Body.Bytes(), &page); err != nil || len(page.Principals) != 1 || len(page.Principals[0].Grants) != 1 || page.Principals[0].Grants[0].ID != grant.ID || page.Principals[0].Grants[0].Revision != 2 || page.Principals[0].Roles[0] != authz.Contributor {
+	if err := json.Unmarshal(roster.Body.Bytes(), &page); err != nil || len(page.Principals) != 1 || len(page.Principals[0].Grants) != 1 || page.Principals[0].Grants[0].ID != grant.ID || page.Principals[0].Grants[0].Revision != 2 || page.Principals[0].Roles[0] != authz.Member {
 		t.Fatalf("roster grant metadata = (%#v, %v)", page, err)
 	}
-	err, duplicate := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager)
+	err, duplicate := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Admin)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Exec(`UPDATE gatehouse_workspace_grants SET enabled = FALSE WHERE id = ?`, duplicate.ID); err != nil {
 		t.Fatal(err)
 	}
-	collision := request("PATCH", path, `{"role":"manager","expected_revision":2}`, admin, 409)
+	collision := request("PATCH", path, `{"role":"admin","expected_revision":2}`, admin, 409)
 	if !strings.Contains(collision.Body.String(), "Another grant") {
 		t.Fatal("missing role collision explanation")
 	}

@@ -159,9 +159,9 @@ func TestSystemWorkspacePrincipalManagementIsPaginatedAndRevisioned(t *testing.T
 		principals = append(principals, testPrincipal{id: id, alias: alias})
 	}
 	for index, principal := range principals {
-		role := authz.Member
+		role := authz.Guest
 		if index == 1 {
-			role = authz.Contributor
+			role = authz.Member
 		}
 		if err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal.id, role); err != nil || grant == nil || !grant.Enabled || grant.Revision != 1 || grant.Role != role {
 			t.Fatalf("SystemWorkspacePrincipalGrantCreate(%q) = (%#v, %v)", principal.alias, grant, err)
@@ -176,7 +176,7 @@ func TestSystemWorkspacePrincipalManagementIsPaginatedAndRevisioned(t *testing.T
 			t.Fatalf("SystemWorkspacePrincipalsSearch(cursor=%q) = (%#v, %q, %v)", cursor, page, next, err)
 		}
 		seen[page[0].ID] = true
-		if page[0].ID == principals[1].id && (len(page[0].Roles) != 1 || page[0].Roles[0] != authz.Contributor) {
+		if page[0].ID == principals[1].id && (len(page[0].Roles) != 1 || page[0].Roles[0] != authz.Member) {
 			t.Fatalf("workspace roles for bob = %#v", page[0].Roles)
 		}
 		cursor = next
@@ -196,7 +196,7 @@ func TestSystemWorkspacePrincipalManagementIsPaginatedAndRevisioned(t *testing.T
 		t.Fatal("SystemWorkspacePrincipalsSearch() accepted an invalid cursor")
 	}
 
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Member); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Guest); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
 		t.Fatalf("duplicate workspace grant error = %v", err)
 	}
 	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Role("owner")); !errors.Is(err, database.ErrWorkspaceGrantRoleInvalid) {
@@ -211,14 +211,14 @@ func TestSystemWorkspacePrincipalManagementIsPaginatedAndRevisioned(t *testing.T
 	if err := store.QueryRowContext(ctx, `SELECT enabled, revision FROM gatehouse_workspace_grants WHERE workspace = ? AND principal = ?`, workspace.Id, principals[0].id).Scan(&enabled, &revision); err != nil || enabled || revision != 2 {
 		t.Fatalf("removed workspace grant state = (%v, %d, %v)", enabled, revision, err)
 	}
-	if err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Member); err != nil || grant == nil || !grant.Enabled || grant.Revision != 3 {
+	if err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principals[0].id, authz.Guest); err != nil || grant == nil || !grant.Enabled || grant.Revision != 3 {
 		t.Fatalf("re-add workspace grant = (%#v, %v)", grant, err)
 	}
 
 	// A runtime removal advances the configured revision, so an unchanged
 	// repeatable config reconciliation does not silently restore access.
 	configuredAlias := principals[2].alias
-	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "engineering", Role: string(authz.Member), PrincipalID: &configuredAlias, Revision: 8, Enabled: true}}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "engineering", Role: string(authz.Guest), PrincipalID: &configuredAlias, Revision: 8, Enabled: true}}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}

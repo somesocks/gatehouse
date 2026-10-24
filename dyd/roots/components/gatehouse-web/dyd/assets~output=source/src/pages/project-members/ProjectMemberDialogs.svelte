@@ -2,6 +2,7 @@
   import * as UI from "../../ui"
   import { projectMemberName, projectRoles } from "../../app/project-members"
   import { reducesRoleAccess } from "../../app/role-access"
+  import { roleLabel, roleDescription } from "../../app/roles"
   import type { ProjectAccessController } from "./project-access-controller.svelte"
 
   let { controller }: {
@@ -35,6 +36,7 @@
               <UI.Select id={`${uid}-add-role`} bind:value={controller.state.role} disabled={controller.state.saving || !controller.state.canManage}>
                 {#each projectRoles as role}<UI.Option value={role.value}>{role.label}</UI.Option>{/each}
               </UI.Select>
+              <UI.Text tone="muted" size="small">{roleDescription(controller.state.role)}</UI.Text>
             </UI.Field>
             {#if controller.state.error}<UI.Notice variant="destructive" role="alert">{controller.state.error}</UI.Notice>{/if}
             <UI.Row justify="end">
@@ -65,9 +67,10 @@
                 <UI.Select id={`${uid}-edit-role`} bind:value={action.role} disabled={controller.state.saving || controller.state.reloadingAction || !controller.state.canManage}>
                   {#each projectRoles as role}<UI.Option value={role.value}>{role.label}</UI.Option>{/each}
                 </UI.Select>
+                <UI.Text tone="muted" size="small">{roleDescription(action.role)}</UI.Text>
               </UI.Field>
             {:else}
-              <UI.Dialog.Description>Remove the {action.grant.role} grant for {action.name}? Other direct or group grants will continue to apply.</UI.Dialog.Description>
+              <UI.Dialog.Description>Remove the {roleLabel(action.grant.role)} grant for {action.name}? Other direct or group grants will continue to apply.</UI.Dialog.Description>
             {/if}
             {#if controller.state.error}<UI.Notice variant="destructive" role="alert">{controller.state.error}<UI.Button variant="outline" disabled={controller.state.saving || controller.state.reloadingAction} onclick={() => void controller.reloadAction()}>Reload grant</UI.Button></UI.Notice>{/if}
             <UI.Row justify="end">

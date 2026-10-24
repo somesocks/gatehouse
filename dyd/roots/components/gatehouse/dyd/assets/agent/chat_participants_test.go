@@ -74,7 +74,7 @@ func testBotRemovalRejectsQueuedReply(t *testing.T, inherited bool, removeAuthor
 		if err := store.QueryRow(`SELECT id FROM gatehouse_groups WHERE workspace_id = ? AND alias = 'team'`, workspace.Id).Scan(&group); err != nil {
 			t.Fatal(err)
 		}
-		if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, nil, &group, "contributor"); err != nil {
+		if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, nil, &group, "member"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -176,7 +176,7 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 			{WorkspaceID: "engineering", Alias: "team", Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}}, Agents: []config.GroupAgent{{AgentID: "assistant", Enabled: true, Revision: 1}}},
 			{WorkspaceID: "engineering", Alias: "contacts", Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: "alice", Enabled: true}, {PrincipalID: bobAlias, Enabled: true}}},
 		},
-		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "engineering", PrincipalID: &bobAlias, Role: "member", Revision: 1, Enabled: true}},
+		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: "engineering", PrincipalID: &bobAlias, Role: "guest", Revision: 1, Enabled: true}},
 	}
 	err, registry := migrations.Build(configuration, admittedAgentTestState(state), ring)
 	if err != nil {
@@ -198,10 +198,10 @@ func TestGroupDerivedBotExecutesForChatOutsider(t *testing.T) {
 	if err := store.QueryRow(`SELECT id FROM gatehouse_workspace_agents WHERE workspace_id = ?`, workspace.Id).Scan(&bot); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreate(ctx, chat, alice, nil, &group, "contributor"); err != nil {
+	if err, _ := store.SessionParticipantGrantCreate(ctx, chat, alice, nil, &group, "member"); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreate(ctx, chat, alice, &bob.Id, nil, "contributor"); err != nil {
+	if err, _ := store.SessionParticipantGrantCreate(ctx, chat, alice, &bob.Id, nil, "member"); err != nil {
 		t.Fatal(err)
 	}
 	if err, directory := store.WorkspaceAgentsGet(ctx, workspace, bob); err != nil || len(directory) != 0 {

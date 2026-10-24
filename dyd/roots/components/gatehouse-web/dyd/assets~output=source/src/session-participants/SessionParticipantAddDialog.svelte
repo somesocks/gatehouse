@@ -2,6 +2,7 @@
   import { onMount } from "svelte"
   import * as UI from "../ui"
   import { useRuntime } from "../app/runtime.svelte"
+  import { roleDescription } from "../app/roles"
   import {
     participantName,
     participantNoun,
@@ -128,6 +129,7 @@
               >{role.label}</UI.Option
             >{/each}
         </UI.Select>
+        <UI.Text tone="muted" size="small">{roleDescription(controller.state.role)}</UI.Text>
       </UI.Field>
       {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
           >{controller.state.error}</UI.Notice

@@ -108,7 +108,7 @@ func TestClientStoresS3Objects(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := model.PrincipalRef{Id: principalID}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principalID, "member"); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principalID, "guest"); err != nil {
 		t.Fatal(err)
 	}
 	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}
@@ -231,7 +231,7 @@ func TestClientStreamsEmbeddedObjectsAtOffset(t *testing.T) {
 		t.Fatal(err)
 	}
 	principal := model.PrincipalRef{Id: principalID}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principalID, "member"); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principalID, "guest"); err != nil {
 		t.Fatal(err)
 	}
 	session := model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000000"}

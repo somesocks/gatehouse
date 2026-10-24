@@ -182,13 +182,13 @@ func TestCustomInputFieldTokenRevocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.store.Exec(`UPDATE gatehouse_session_grants SET role = 'member' WHERE principal = ?`, claims.Principal.Ref.Id); err != nil {
+	if _, err := fixture.store.Exec(`UPDATE gatehouse_session_grants SET role = 'guest' WHERE principal = ?`, claims.Principal.Ref.Id); err != nil {
 		t.Fatal(err)
 	}
 	if response := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input/field/files", token, ""); response.Code != http.StatusForbidden {
 		t.Fatalf("revoked session permission used field token = %d", response.Code)
 	}
-	if _, err := fixture.store.Exec(`UPDATE gatehouse_session_grants SET role = 'manager' WHERE principal = ?`, claims.Principal.Ref.Id); err != nil {
+	if _, err := fixture.store.Exec(`UPDATE gatehouse_session_grants SET role = 'admin' WHERE principal = ?`, claims.Principal.Ref.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.store.Exec(`UPDATE gatehouse_identities SET enabled = FALSE WHERE id = ?`, claims.Identity); err != nil {

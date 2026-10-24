@@ -15,7 +15,7 @@ func admittedAgentTestState(state config.State) config.State {
 			}
 			if !declared && principal.Enabled && workspace.Enabled {
 				alias := principal.Alias
-				state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace.Alias, PrincipalID: &alias, Role: "member", Revision: 1, Enabled: true})
+				state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace.Alias, PrincipalID: &alias, Role: "guest", Revision: 1, Enabled: true})
 			}
 		}
 	}

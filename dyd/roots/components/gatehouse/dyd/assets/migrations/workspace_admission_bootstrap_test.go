@@ -154,10 +154,10 @@ func testDefaultAdmissionFullRegistry(t *testing.T, configuration config.Databas
 		}
 		want := ""
 		if scenario == "fresh" {
-			want = "manager"
+			want = "admin"
 		}
 		if scenario == "downgraded" {
-			want = "contributor"
+			want = "member"
 		}
 		if strings.Join(roles, ",") != want {
 			t.Fatalf("restart %d changed root authority: %#v, want %q", restart, roles, want)

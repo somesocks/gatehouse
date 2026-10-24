@@ -2,11 +2,11 @@
 
 Open the **Members** card on the project page to manage project membership.
 The dedicated Members page has separate searchable, paginated People and Groups
-sections, following the group membership layout. Project managers can add
+sections, following the group membership layout. Project admins can add
 recipients, edit roles, and remove grants; other project members can view the
 roster. Dialogs are used for adding recipients and confirming changes.
 Each grant assigns
-one role: `member` (read only), `contributor`, or `manager`.
+one role: `guest` (read only), `member` (contribute content), or `admin` (manage settings and access).
 
 Grants are additive. A person's direct grants and the grants of their enabled
 groups all apply. Removing one grant does not remove other direct or inherited
@@ -24,7 +24,7 @@ Under `/api/v1/workspaces/{workspace}/projects/{project}`:
 - `GET /members?kind=principal|group&name=...&cursor=...&limit=50` lists active
   explicit recipients and their grants. Project members may read this roster.
 - `GET /principal-options` and `GET /group-options` search eligible recipients;
-  they accept the same pagination/search parameters and require project manager
+  they accept the same pagination/search parameters and require project admin
   access.
 - `POST /grants` accepts exactly one of `principal` or `group`, plus `role`.
 - `PATCH /grants/{grant}` accepts `role` and/or `enabled`, with a required
@@ -35,9 +35,9 @@ Roster and option responses contain `members`, optional `next_cursor`, and
 revision. A subject can have distinct grants for different roles. Re-adding a
 disabled role reuses its grant ID and increments its revision.
 
-Mutations re-check manager authorization inside a project-locked transaction.
+Mutations re-check admin authorization inside a project-locked transaction.
 Stale edits, duplicate role assignments, and removing/demoting the last effective
-manager return `409`. The remaining manager must be an enabled workspace-admitted
+admin return `409`. The remaining admin must be an enabled workspace-admitted
 person, directly or through an enabled group membership. Workspace administration
 does not bypass project grants.
 

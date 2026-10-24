@@ -14,9 +14,9 @@ import (
 var (
 	ErrProjectMemberInput     = errors.New("invalid project access input")
 	ErrProjectMemberNotFound  = errors.New("project or recipient is unavailable")
-	ErrProjectMemberForbidden = errors.New("project manager access is required")
+	ErrProjectMemberForbidden = errors.New("project admin access is required")
 	ErrProjectGrantExists     = errors.New("this role is already assigned to the recipient")
-	ErrProjectLastManager     = errors.New("the project must retain an enabled manager with workspace access")
+	ErrProjectLastAdmin       = errors.New("the project must retain an enabled admin with workspace access")
 )
 
 type ProjectGrant struct {
@@ -153,8 +153,8 @@ func (store *Store) ProjectMembersSearch(ctx context.Context, project model.Proj
 	return nil, items, ""
 }
 
-// Lock the project before checking authorization and the manager set. Competing
-// manager removals are serialized on PostgreSQL and SQLite.
+// Lock the project before checking authorization and the admin set. Competing
+// admin removals are serialized on PostgreSQL and SQLite.
 func (store *Store) projectGrantTransaction(ctx context.Context, project model.ProjectRef, actor model.PrincipalRef) (*sql.Tx, error) {
 	tx, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -172,7 +172,7 @@ func (store *Store) projectGrantTransaction(ctx context.Context, project model.P
 	if err == nil {
 		var allowed bool
 		err = tx.QueryRowContext(ctx, `SELECT `+workspacePrincipalAdmissionSQL(p(1), p(3))+` AND EXISTS (
-			SELECT 1 FROM gatehouse_project_grants grants WHERE grants.workspace = `+p(1)+` AND grants.project = `+p(2)+` AND grants.role = 'manager' AND grants.enabled = TRUE AND (
+			SELECT 1 FROM gatehouse_project_grants grants WHERE grants.workspace = `+p(1)+` AND grants.project = `+p(2)+` AND grants.role = 'admin' AND grants.enabled = TRUE AND (
 			grants.principal = `+p(3)+` OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
 			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE AND gm.principal_id = `+p(3)+`)))`, project.Workspace.Id, project.Id, actor.Id).Scan(&allowed)
 		if err == nil && !allowed {
@@ -298,19 +298,19 @@ func (store *Store) ProjectGrantUpdate(ctx context.Context, project model.Projec
 	if err != nil {
 		return err, nil
 	}
-	if grant.Enabled && grant.Role == authz.Manager && (!nextEnabled || nextRole != authz.Manager) {
-		var manager bool
+	if grant.Enabled && grant.Role == authz.Admin && (!nextEnabled || nextRole != authz.Admin) {
+		var admin bool
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_project_grants grants
-			WHERE grants.workspace = `+p(1)+` AND grants.project = `+p(2)+` AND grants.enabled = TRUE AND grants.role = 'manager' AND (
+			WHERE grants.workspace = `+p(1)+` AND grants.project = `+p(2)+` AND grants.enabled = TRUE AND grants.role = 'admin' AND (
 			`+workspacePrincipalAdmissionSQL("grants.workspace", "grants.principal")+`
 			OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
 			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE
-			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "gm.principal_id")+`)))`, project.Workspace.Id, project.Id).Scan(&manager)
+			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "gm.principal_id")+`)))`, project.Workspace.Id, project.Id).Scan(&admin)
 		if err != nil {
 			return err, nil
 		}
-		if !manager {
-			return ErrProjectLastManager, nil
+		if !admin {
+			return ErrProjectLastAdmin, nil
 		}
 	}
 	grant.Role, grant.Enabled, grant.Revision = nextRole, nextEnabled, grant.Revision+1

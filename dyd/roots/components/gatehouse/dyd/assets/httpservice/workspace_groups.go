@@ -64,7 +64,7 @@ func workspaceGroupCreate(w http.ResponseWriter, r *http.Request, store *databas
 		http.NotFound(w, r)
 		return
 	}
-	group.Role = authz.Manager
+	group.Role = authz.Admin
 	writeJSONStatus(w, http.StatusCreated, group)
 }
 

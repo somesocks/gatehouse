@@ -85,7 +85,7 @@ func ResolveGroups(document configschema.GatehouseConfig) (error, []Group) {
 						role = *configuredMember.Role
 					}
 					if !authz.ValidGroupRole(role) {
-						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].role must be member or manager", workspaceIndex, groupIndex, memberIndex), nil
+						return fmt.Errorf("workspaces[%d].groups[%d].members[%d].role must be member or admin", workspaceIndex, groupIndex, memberIndex), nil
 					}
 					memberRevision := 1
 					if configuredMember.Revision != nil {

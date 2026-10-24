@@ -21,7 +21,7 @@ export function createWorkspaceGrantRoleController({
   const state = $state({
     grant: null as SystemWorkspacePrincipalGrant | null,
     recipient: "",
-    role: "member" as WorkspaceRole,
+    role: "guest" as WorkspaceRole,
     error: "",
     notice: "",
     conflict: false,

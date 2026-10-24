@@ -42,7 +42,7 @@ func TestChatGroupInvitationAndDiscoveryAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Contributor); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	developers := groupID(t, ctx, store, "engineering", "developers")
@@ -91,7 +91,7 @@ func TestChatGroupInvitationAndDiscoveryAPI(t *testing.T) {
 	grant := func(group string) database.SessionParticipantGrant {
 		t.Helper()
 		var grant database.SessionParticipantGrant
-		if err := json.Unmarshal(request("POST", base+"/grants", fmt.Sprintf(`{"group":%q,"role":"contributor"}`, group), aliceToken, 201).Body.Bytes(), &grant); err != nil {
+		if err := json.Unmarshal(request("POST", base+"/grants", fmt.Sprintf(`{"group":%q,"role":"member"}`, group), aliceToken, 201).Body.Bytes(), &grant); err != nil {
 			t.Fatal(err)
 		}
 		return grant
@@ -136,7 +136,7 @@ func TestChatGroupInvitationAndDiscoveryAPI(t *testing.T) {
 		t.Fatalf("bot roster exposed editable source group grant IDs: %s", rosterResponse.Body.String())
 	}
 	for _, bot := range roster.Participants {
-		if len(bot.Grants) != 0 || len(bot.InheritedFrom) != 1 || bot.InheritedFrom[0].Role != "contributor" || (bot.InheritedFrom[0].Group != finance.ID && bot.InheritedFrom[0].Group != developers) {
+		if len(bot.Grants) != 0 || len(bot.InheritedFrom) != 1 || bot.InheritedFrom[0].Role != "member" || (bot.InheritedFrom[0].Group != finance.ID && bot.InheritedFrom[0].Group != developers) {
 			t.Fatalf("inherited participation missing read-only provenance: %#v", bot)
 		}
 	}
@@ -147,7 +147,7 @@ func TestChatGroupInvitationAndDiscoveryAPI(t *testing.T) {
 	}
 	separate := "/api/v1/workspaces/" + workspace.Id + "/sessions/" + created.ID
 	for _, subject := range []struct{ kind, id string }{{"principal", bob}, {"group", finance.ID}, {"agent", financeBot.ID}} {
-		request("POST", separate+"/grants", fmt.Sprintf(`{%q:%q,"role":"contributor"}`, subject.kind, subject.id), aliceToken, 404)
+		request("POST", separate+"/grants", fmt.Sprintf(`{%q:%q,"role":"member"}`, subject.kind, subject.id), aliceToken, 404)
 		request("POST", separate+"/messages", fmt.Sprintf(`{"text":"Hello","targets":[{"kind":%q,"id":%q}]}`, subject.kind, subject.id), aliceToken, 400)
 		options := request("GET", separate+"/"+subject.kind+"-options", "", aliceToken, 200)
 		if strings.Contains(options.Body.String(), subject.id) {
@@ -160,7 +160,7 @@ func TestChatGroupInvitationAndDiscoveryAPI(t *testing.T) {
 	assertAgents(directory, bobToken, financeBot.ID, general.ID)
 	request("PATCH", base+"/grants/"+financeGrant.ID, `{"enabled":false,"expected_revision":1}`, aliceToken, 200)
 	request("PATCH", base+"/grants/"+financeGrant.ID, `{"enabled":true,"expected_revision":2}`, aliceToken, 404)
-	request("POST", base+"/grants", fmt.Sprintf(`{"group":%q,"role":"contributor"}`, finance.ID), aliceToken, 404)
+	request("POST", base+"/grants", fmt.Sprintf(`{"group":%q,"role":"member"}`, finance.ID), aliceToken, 404)
 	if err := store.SystemGroupMemberUpdate(ctx, workspace.Id, finance.ID, alice.Id, true, 2); err != nil {
 		t.Fatal(err)
 	}

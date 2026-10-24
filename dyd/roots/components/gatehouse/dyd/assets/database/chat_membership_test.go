@@ -108,7 +108,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, &bob.Id, nil, authz.Contributor); err != nil {
+	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, &bob.Id, nil, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	send := func(actor model.PrincipalRef, refs []model.MessageTargetRef, invalidFile bool) error {
@@ -162,7 +162,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 			column = `"group"`
 		}
 		var count int
-		if err := store.QueryRow(`SELECT COUNT(*) FROM gatehouse_session_grants WHERE workspace = `+p(1)+` AND session = `+p(2)+` AND `+column+` = `+p(3)+` AND role = 'contributor' AND enabled = TRUE`, workspace.Id, session.Id, ref.Id).Scan(&count); err != nil || count != 1 {
+		if err := store.QueryRow(`SELECT COUNT(*) FROM gatehouse_session_grants WHERE workspace = `+p(1)+` AND session = `+p(2)+` AND `+column+` = `+p(3)+` AND role = 'member' AND enabled = TRUE`, workspace.Id, session.Id, ref.Id).Scan(&count); err != nil || count != 1 {
 			t.Fatalf("joined %#v = %d %v", ref, count, err)
 		}
 	}
@@ -201,7 +201,7 @@ func testChatSendJoinsOutsideParticipants(t *testing.T, configuration config.Dat
 				}
 				var direct *database.SessionParticipantGrant
 				if preserveDirect {
-					err, direct = store.SessionParticipantGrantCreate(ctx, chat, alice, &bob.Id, nil, authz.Member)
+					err, direct = store.SessionParticipantGrantCreate(ctx, chat, alice, &bob.Id, nil, authz.Guest)
 					if err != nil {
 						t.Fatal(err)
 					}

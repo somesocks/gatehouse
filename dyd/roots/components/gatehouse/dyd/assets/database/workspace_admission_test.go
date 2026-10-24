@@ -116,7 +116,7 @@ func testWorkspaceAdmissionRevokesRetainedResourceAndGroupAccess(t *testing.T, c
 	if err := f.store.QueryRow(`SELECT enabled FROM gatehouse_group_members WHERE workspace_id = `+f.p(1)+` AND group_id = `+f.p(2)+` AND principal_id = `+f.p(3), f.workspace.Id, f.groups["engineering"], alice.Id).Scan(&retained); err != nil || !retained {
 		t.Fatalf("revocation rewrote group membership: %t %v", retained, err)
 	}
-	if err, _ := f.store.SystemWorkspacePrincipalGrantCreate(f.ctx, f.workspace.Id, alice.Id, authz.Contributor); err != nil {
+	if err, _ := f.store.SystemWorkspacePrincipalGrantCreate(f.ctx, f.workspace.Id, alice.Id, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	if err, got := f.store.ProjectGet(f.ctx, project.Ref, alice); err != nil || got == nil {

@@ -111,10 +111,10 @@ describe("add participant child-dialog lifecycle", () => {
       expect(request.mock.calls[0][0]).toContain(`/${kind}-options?`)
       const item = controller.options.state.items[0]
       controller.select(item.id)
-      controller.state.role = "manager"
+      controller.state.role = "admin"
       expect(await controller.save()).toBe(true)
       expect(JSON.parse(request.mock.calls.at(-1)![1]!.body as string)).toEqual(
-        { [kind]: item.id, role: "manager" },
+        { [kind]: item.id, role: "admin" },
       )
       expect(onAdded).toHaveBeenCalledTimes(1)
       close()
@@ -128,14 +128,14 @@ describe("add participant child-dialog lifecycle", () => {
       expect(controller.options.state.items).toHaveLength(1),
     )
     controller.select("alice")
-    controller.state.role = "member"
+    controller.state.role = "guest"
     request.mockResolvedValueOnce(
       new Response("This role is already assigned.", { status: 409 }),
     )
     expect(await controller.save()).toBe(false)
     expect(controller.state.subject).toBe("alice")
     expect(controller.state.selectedName).toBe("Alice")
-    expect(controller.state.role).toBe("member")
+    expect(controller.state.role).toBe("guest")
     expect(controller.state.error).toContain("already assigned")
     expect(onAdded).not.toHaveBeenCalled()
     request.mockResolvedValueOnce(new Response(null, { status: 503 }))

@@ -92,7 +92,7 @@ func newNativeRuntime(ctx context.Context, prepared *Prepared, providers map[str
 	for index := range selections {
 		alias := fmt.Sprintf("benchmark-%d", index+1)
 		state.Workspaces = append(state.Workspaces, config.Workspace{Alias: alias, Enabled: true})
-		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: alias, PrincipalID: &principalAlias, Role: "contributor", Revision: 1, Enabled: true})
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: alias, PrincipalID: &principalAlias, Role: "member", Revision: 1, Enabled: true})
 		state.WorkspaceStorageProviders = append(state.WorkspaceStorageProviders, config.WorkspaceStorageProvider{WorkspaceID: alias, ProviderAlias: "embedded", Revision: 1, Priority: 1, Enabled: true})
 	}
 	err, set := migrations.Build(configuration, state, native.keyring)

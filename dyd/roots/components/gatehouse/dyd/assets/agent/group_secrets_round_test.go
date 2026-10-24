@@ -48,7 +48,7 @@ func TestGroupSecretsRespectRoundAdmissionAndLiveCredentialAccess(t *testing.T) 
 			alias := "credentials"
 			err, group := store.SystemGroupCreate(ctx, workspace.Id, database.SystemGroupInput{Alias: &alias})
 			if err != nil { t.Fatal(err) }
-			if err := store.GroupMemberCreate(ctx, workspace.Id, group.ID, alice.Id, authz.Manager, nil); err != nil { t.Fatal(err) }
+			if err := store.GroupMemberCreate(ctx, workspace.Id, group.ID, alice.Id, authz.Admin, nil); err != nil { t.Fatal(err) }
 			err, root := store.SessionEventGet(ctx, request)
 			if err != nil || root == nil { t.Fatalf("request is unavailable: %v", err) }
 			botID, _ := root.Payload["agent"].(string)

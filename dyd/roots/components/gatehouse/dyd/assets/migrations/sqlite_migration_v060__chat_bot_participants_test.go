@@ -9,7 +9,7 @@ import (
 func TestSQLiteMigrationV060PreservesGrantsAndBackfillsOnlyHistoricalBots(t *testing.T) {
 	ctx := context.Background()
 	db := openConfiguredMigrationTestDatabase(t)
-	registry := testSQLiteBaselineRegistry(t)
+	registry := testSchemaAtVersion(testSQLiteBaselineRegistry(t), 60)
 	registry.Repeatable = nil
 	old := testSchemaAtVersion(registry, 59)
 	if err := migrateSQLite(ctx, db, old); err != nil {

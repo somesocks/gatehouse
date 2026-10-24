@@ -49,15 +49,15 @@ function transport() {
 }
 
 describe("system group administration", () => {
-  it("keeps manager access and shows the error when the last manager cannot step down", async () => {
+  it("keeps admin access and shows the error when the last admin cannot step down", async () => {
     const fetch = transport()
-    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "admin" }))
     vi.stubGlobal("fetch", fetch)
     const { controller, onMembersChanged } = fixture("workspace")
     await controller.load()
     fetch.mockResolvedValueOnce(
       new Response(
-        "A group must retain at least one enabled manager. Promote another member to manager before demoting or removing this manager.",
+        "A group must retain at least one enabled admin. Promote another member to admin before demoting or removing this admin.",
         { status: 409 },
       ),
     )
@@ -65,7 +65,7 @@ describe("system group administration", () => {
       await controller.changeMemberRole(
         {
           principal: "prn_alice",
-          role: "manager",
+          role: "admin",
           enabled: true,
           principal_enabled: true,
           revision: 1,
@@ -73,9 +73,9 @@ describe("system group administration", () => {
         "member",
       ),
     ).toBe(false)
-    expect(controller.state.group?.role).toBe("manager")
+    expect(controller.state.group?.role).toBe("admin")
     expect(controller.state.feedback.members.error).toContain(
-      "at least one enabled manager",
+      "at least one enabled admin",
     )
     expect(controller.state.groupConflict).toBe(false)
     expect(onMembersChanged).not.toHaveBeenCalled()
@@ -83,7 +83,7 @@ describe("system group administration", () => {
   })
   it("rechecks workspace group authority after a role change without overwriting a details draft", async () => {
     const fetch = transport()
-    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "admin" }))
     vi.stubGlobal("fetch", fetch)
     const { controller, onMembersChanged } = fixture("workspace")
     await controller.load()
@@ -94,7 +94,7 @@ describe("system group administration", () => {
       await controller.changeMemberRole(
         {
           principal: "prn_alice",
-          role: "manager",
+          role: "admin",
           enabled: true,
           principal_enabled: true,
           revision: 3,
@@ -117,7 +117,7 @@ describe("system group administration", () => {
 
   it("refreshes lost group permissions without marking system access denied", async () => {
     const fetch = transport()
-    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "manager" }))
+    fetch.mockResolvedValueOnce(Response.json({ ...group, role: "admin" }))
     vi.stubGlobal("fetch", fetch)
     const { controller, onSystemAccessChange } = fixture("workspace")
     await controller.load()

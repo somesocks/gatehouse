@@ -56,7 +56,7 @@ func TestSessionFileUpdateChangesOnlyName(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
 		VALUES (?, ?, ?, ?, ?, NULL, TRUE)
-	`, memberGrantID, workspace.Id, session.Id, authz.Member, bob.Id); err != nil {
+	`, memberGrantID, workspace.Id, session.Id, authz.Guest, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	fileID, err := typed_id.New(typed_id.SessionFile)
@@ -161,16 +161,16 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES
-			('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000002', 'contributor', ?, NULL, TRUE),
-			('sgr_00000000000000000000000002', ?, 'ses_00000000000000000000000003', 'manager', ?, NULL, FALSE),
-			('sgr_00000000000000000000000003', ?, 'ses_00000000000000000000000004', 'member', ?, NULL, TRUE)
+			('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'guest', ?, NULL, TRUE),
+			('sgr_00000000000000000000000001', ?, 'ses_00000000000000000000000002', 'member', ?, NULL, TRUE),
+			('sgr_00000000000000000000000002', ?, 'ses_00000000000000000000000003', 'admin', ?, NULL, FALSE),
+			('sgr_00000000000000000000000003', ?, 'ses_00000000000000000000000004', 'guest', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, carol.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
-			VALUES ('sgr_00000000000000000000000004', ?, 'ses_00000000000000000000000001', 'manager', NULL, ?, TRUE)
+			VALUES ('sgr_00000000000000000000000004', ?, 'ses_00000000000000000000000001', 'admin', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}
@@ -178,8 +178,8 @@ func TestSessionsGetHonorsPrincipalAndGroupGrants(t *testing.T) {
 		principal model.PrincipalRef
 		roles     []authz.Role
 	}{
-		{principal: alice, roles: []authz.Role{authz.Manager}},
-		{principal: bob, roles: []authz.Role{authz.Manager}},
+		{principal: alice, roles: []authz.Role{authz.Admin}},
+		{principal: bob, roles: []authz.Role{authz.Admin}},
 		{principal: carol, roles: []authz.Role{}},
 	} {
 		err, roles := store.SessionRolesGet(ctx, model.SessionRef{Workspace: workspace, Id: "ses_00000000000000000000000001"}, test.principal)
@@ -262,9 +262,9 @@ func TestSessionsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES
-			('sgr_00000000000000000000000005', ?, 'ses_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			('sgr_00000000000000000000000006', ?, 'ses_00000000000000000000000001', 'member', ?, NULL, TRUE),
-			('sgr_00000000000000000000000007', ?, 'ses_00000000000000000000000002', 'member', ?, NULL, TRUE)
+			('sgr_00000000000000000000000005', ?, 'ses_00000000000000000000000000', 'guest', ?, NULL, TRUE),
+			('sgr_00000000000000000000000006', ?, 'ses_00000000000000000000000001', 'guest', ?, NULL, TRUE),
+			('sgr_00000000000000000000000007', ?, 'ses_00000000000000000000000002', 'guest', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestSessionsCreateAndEvents(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_session_grants
-		WHERE workspace = ? AND session = ? AND role = 'manager' AND principal = ?
+		WHERE workspace = ? AND session = ? AND role = 'admin' AND principal = ?
 	`, workspace.Id, session.Id, alice.Id).Scan(&managerBindings); err != nil {
 		t.Fatal(err)
 	}
@@ -713,8 +713,8 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 			Members:     []config.GroupMember{{PrincipalID: "bob", Enabled: true}},
 		}},
 		WorkspaceGrants: []config.WorkspaceGrant{{
-			WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true,
-		}, {WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("carol"), Revision: 1, Enabled: false}},
+			WorkspaceID: "engineering", Role: "guest", PrincipalID: stringPointer("bob"), Revision: 1, Enabled: true,
+		}, {WorkspaceID: "engineering", Role: "guest", PrincipalID: stringPointer("carol"), Revision: 1, Enabled: false}},
 	}
 	if err := migrateState(ctx, store, configuration, withTestWorkspaceMembers(state)); err != nil {
 		t.Fatal(err)
@@ -739,7 +739,7 @@ func TestActivityTopicCheckpointsGetAuthorizesContextRootsAndAdvancesIndependent
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled)
-		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'contributor', NULL, ?, TRUE)
+		VALUES ('sgr_00000000000000000000000000', ?, 'ses_00000000000000000000000000', 'member', NULL, ?, TRUE)
 	`, workspace.Id, developersID); err != nil {
 		t.Fatal(err)
 	}

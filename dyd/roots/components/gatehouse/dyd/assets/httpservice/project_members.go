@@ -17,7 +17,7 @@ func projectMemberError(w http.ResponseWriter, r *http.Request, err error) {
 		http.NotFound(w, r)
 	case errors.Is(err, database.ErrProjectMemberForbidden):
 		http.Error(w, "forbidden", http.StatusForbidden)
-	case errors.Is(err, database.ErrProjectGrantExists), errors.Is(err, database.ErrProjectLastManager):
+	case errors.Is(err, database.ErrProjectGrantExists), errors.Is(err, database.ErrProjectLastAdmin):
 		http.Error(w, err.Error(), http.StatusConflict)
 	case errors.Is(err, database.ErrRevisionConflict):
 		http.Error(w, "This grant changed elsewhere. Reload before retrying.", http.StatusConflict)

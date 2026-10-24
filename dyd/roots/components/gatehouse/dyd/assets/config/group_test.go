@@ -28,7 +28,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 						Revision: &groupRevision,
 						Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{
 							{Principal: "zebra"},
-							{Principal: "alpha", Role: stringPointer("manager"), Enabled: &disabled, Revision: &memberRevision},
+							{Principal: "alpha", Role: stringPointer("admin"), Enabled: &disabled, Revision: &memberRevision},
 						},
 					},
 				},
@@ -48,7 +48,7 @@ func TestResolveGroupsDefaultsEnabledAndSorts(t *testing.T) {
 			Enabled:     false,
 			Revision:    7,
 			Members: []GroupMember{
-				{PrincipalID: "alpha", Role: "manager", Enabled: false, Revision: 4},
+				{PrincipalID: "alpha", Role: "admin", Enabled: false, Revision: 4},
 				{PrincipalID: "zebra", Role: "member", Enabled: true, Revision: 1},
 			},
 		},
@@ -73,7 +73,7 @@ func TestDefaultBootstrapDoesNotCreateGroups(t *testing.T) {
 	if len(state.Groups) != 0 {
 		t.Fatalf("default configuration synthesized groups: %#v", state.Groups)
 	}
-	if len(state.WorkspaceGrants) != 1 || state.WorkspaceGrants[0].WorkspaceID != defaultWorkspaceAlias || state.WorkspaceGrants[0].PrincipalID == nil || *state.WorkspaceGrants[0].PrincipalID != defaultPrincipalAlias || state.WorkspaceGrants[0].Role != "manager" {
+	if len(state.WorkspaceGrants) != 1 || state.WorkspaceGrants[0].WorkspaceID != defaultWorkspaceAlias || state.WorkspaceGrants[0].PrincipalID == nil || *state.WorkspaceGrants[0].PrincipalID != defaultPrincipalAlias || state.WorkspaceGrants[0].Role != "admin" {
 		t.Fatalf("bootstrap must use a direct principal grant: %#v", state.WorkspaceGrants)
 	}
 }
@@ -136,7 +136,7 @@ func TestResolveGroupsRejectsInvalidValues(t *testing.T) {
 		{
 			name:       "invalid membership role",
 			workspaces: []configschema.GatehouseConfigWorkspacesValues{{Alias: "engineering", Groups: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValues{{Alias: "admins", Members: &[]configschema.GatehouseConfigWorkspacesValuesGroupsValuesMembersValues{{Principal: "alice", Role: stringPointer("contributor")}}}}}},
-			contains:   "role must be member or manager",
+			contains:   "role must be member or admin",
 		},
 		{
 			name:       "nonpositive group revision",

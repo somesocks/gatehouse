@@ -62,7 +62,7 @@ func TestStorageCapabilitiesRequireCurrentWorkspaceAdmission(t *testing.T) {
 	}
 	request("GET", download, "", false, 404)
 	request("PUT", pending.UploadURL, "must-not-upload", false, 404)
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, alice.Id, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, alice.Id, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	request("GET", download, "", false, 200)

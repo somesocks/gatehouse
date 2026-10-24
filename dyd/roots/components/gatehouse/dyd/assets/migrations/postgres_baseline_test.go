@@ -33,7 +33,7 @@ func TestPostgresBaselinesMatchVersionedSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	expected := postgresSchemaDefinitions(t, legacy)
-	followUp := VersionedMigration{Index: 69, Description: "baseline_follow_up", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_baseline_follow_up (id TEXT PRIMARY KEY);`)}
+	followUp := VersionedMigration{Index: 70, Description: "baseline_follow_up", Builder: staticMigrationBuilder(`CREATE TABLE gatehouse_baseline_follow_up (id TEXT PRIMARY KEY);`)}
 	for _, baseline := range registry.Baseline {
 		t.Run(fmt.Sprintf("B%03d", baseline.Index), func(t *testing.T) {
 			db := newPostgresBaselineTestDatabase(t)

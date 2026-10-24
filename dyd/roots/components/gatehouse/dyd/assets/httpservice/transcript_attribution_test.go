@@ -184,7 +184,7 @@ func TestTranscriptHydratesBotAttributionIndependentlyOfParticipation(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	err, outsiderToken := tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: model.PrincipalRef{Id: bob}, Enabled: true}, Identity: outsider.Identities[0].ID})

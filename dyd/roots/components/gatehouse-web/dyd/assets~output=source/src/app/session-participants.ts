@@ -1,7 +1,8 @@
 import { fetchGatehouse } from "./api"
+import { resourceRoles, type ResourceRole } from "./roles"
 
 export type ParticipantKind = "principal" | "group" | "agent"
-export type ParticipantRole = "member" | "contributor" | "manager"
+export type ParticipantRole = ResourceRole
 export type SessionParticipantGrant = {
   id: string
   principal?: string
@@ -28,11 +29,7 @@ export type SessionParticipantPage = {
   next_cursor?: string
   can_manage_participants: boolean
 }
-export const participantRoles: { value: ParticipantRole; label: string }[] = [
-  { value: "member", label: "Viewer" },
-  { value: "contributor", label: "Participant" },
-  { value: "manager", label: "Manager" },
-]
+export const participantRoles = resourceRoles
 export function participantName(
   item: SessionParticipant,
   kind: ParticipantKind,

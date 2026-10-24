@@ -12,6 +12,7 @@
   import { createWorkspaceGrantRoleController } from "./workspace-grant-role-controller.svelte"
   import { onMount } from "svelte"
   import { reducesRoleAccess } from "../../../app/role-access"
+  import { resourceRoles, roleLabel, roleDescription } from "../../../app/roles"
   let { workspaceID }: { workspaceID: string } = $props()
   const runtime = useRuntime()
   const confirmation = createConfirmation()
@@ -95,7 +96,7 @@
     }
     confirmation.request({
       title: "Reduce workspace access?",
-      description: `Change ${roleEditor.state.recipient} from ${grant.role} to ${roleEditor.state.role}? Permissions provided by this grant will be reduced. Other grants still apply.`,
+      description: `Change ${roleEditor.state.recipient} from ${roleLabel(grant.role)} to ${roleLabel(roleEditor.state.role)}? Permissions provided by this grant will be reduced. Other grants still apply.`,
       confirmLabel: "Change role",
       onConfirm: async () => {
         await roleEditor.save()
@@ -147,10 +148,9 @@
               bind:value={roleEditor.state.role}
               disabled={roleEditor.state.saving}
             >
-              <UI.Option value="member">Member</UI.Option>
-              <UI.Option value="contributor">Contributor</UI.Option>
-              <UI.Option value="manager">Manager</UI.Option>
+              {#each resourceRoles as role}<UI.Option value={role.value}>{role.label}</UI.Option>{/each}
             </UI.Select>
+            <UI.Text size="small" tone="muted">{roleDescription(roleEditor.state.role)}</UI.Text>
           </UI.Field>
           <UI.Text size="small" tone="muted"
             >Changes this grant only. Other direct
@@ -198,11 +198,11 @@
             ><UI.RecordCell label="Direct roles"
               ><UI.Row
                 >{#each principal.grants as grant (grant.id)}<UI.Row>
-                    <UI.Badge>{grant.role}</UI.Badge>
+                    <UI.Badge>{roleLabel(grant.role)}</UI.Badge>
                     <UI.Button
                       size="sm"
                       variant="outline"
-                      aria-label={`Edit ${grant.role} grant for ${principal.name ?? principal.alias ?? principal.id}`}
+                      aria-label={`Edit ${roleLabel(grant.role)} grant for ${principal.name ?? principal.alias ?? principal.id}`}
                       disabled={roleEditor.state.saving ||
                         removing.has(principal.id)}
                       onclick={() =>

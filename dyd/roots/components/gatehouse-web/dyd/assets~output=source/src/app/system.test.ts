@@ -74,7 +74,7 @@ describe("system workspace API", () => {
     await createSystemWorkspacePrincipalGrant(
       "wsp_detail",
       "prn_alice",
-      "member",
+      "guest",
     );
     await removeSystemWorkspacePrincipalGrants("wsp_detail", "prn_alice");
 
@@ -89,7 +89,7 @@ describe("system workspace API", () => {
     );
     expect(request.mock.calls[2][1]).toMatchObject({
       method: "POST",
-      body: JSON.stringify({ principal: "prn_alice", role: "member" }),
+      body: JSON.stringify({ principal: "prn_alice", role: "guest" }),
     });
     expect(request.mock.calls[3][0]).toBe(
       "/api/v1/system/workspaces/wsp_detail/principals/prn_alice",

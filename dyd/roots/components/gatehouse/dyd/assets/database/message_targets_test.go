@@ -38,7 +38,7 @@ func TestMessageTargetsSnapshotEffectiveParticipantsAndDispatchOnlyBots(t *testi
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, nil, &group, authz.Member); err != nil {
+	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, nil, &group, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	var bot, second string

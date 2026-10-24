@@ -8,7 +8,7 @@ beforeAll(async () => {
   client = await importClientModule(new URL("./project-access-controller.svelte.ts", import.meta.url))
 }, 30000)
 
-const grant = { id: "pgr_a", principal: "alice", role: "member", enabled: true, revision: 3 }
+const grant = { id: "pgr_a", principal: "alice", role: "guest", enabled: true, revision: 3 }
 const alice = { id: "alice", name: "Alice", enabled: true, grants: [grant] }
 const developers = { id: "developers", name: "Developers", enabled: true, grants: [{ ...grant, id: "pgr_g", principal: undefined, group: "developers" }] }
 
@@ -60,11 +60,11 @@ describe("project access management", () => {
       await controller.options(kind).retry()
       const subject = kind === "principal" ? "alice" : "developers"
       controller.select(subject)
-      controller.state.role = "contributor"
+      controller.state.role = "member"
       controller.options(kind).state.items = []
       expect(controller.state.selectedName).toBe(kind === "principal" ? "Alice" : "Developers")
       expect(await controller.add()).toBe(true)
-      expect(request.mock.calls.findLast(([, init]) => init?.method === "POST")?.[1]?.body).toBe(JSON.stringify({ [kind]: subject, role: "contributor" }))
+      expect(request.mock.calls.findLast(([, init]) => init?.method === "POST")?.[1]?.body).toBe(JSON.stringify({ [kind]: subject, role: "member" }))
       expect(controller.state.adding).toBeNull()
     }
     controller.stop()
@@ -74,21 +74,21 @@ describe("project access management", () => {
     const { controller, request } = setup()
     await controller.open()
     controller.beginAction("role", "principal", grant, "Alice")
-    controller.state.action.role = "manager"
+    controller.state.action.role = "admin"
     request.mockImplementation(async (path, init) => {
       if (init?.method === "PATCH") return new Response("This grant changed elsewhere.", { status: 409 })
       return Response.json({ members: [{ ...alice, grants: [{ ...grant, revision: 4 }] }], can_manage_access: true })
     })
     await controller.reload()
     expect(controller.state.action.grant.revision).toBe(3)
-    expect(controller.state.action.role).toBe("manager")
+    expect(controller.state.action.role).toBe("admin")
     expect(await controller.saveAction()).toBe(false)
-    expect(request.mock.calls.findLast(([, init]) => init?.method === "PATCH")?.[1]?.body).toBe(JSON.stringify({ role: "manager", expected_revision: 3 }))
+    expect(request.mock.calls.findLast(([, init]) => init?.method === "PATCH")?.[1]?.body).toBe(JSON.stringify({ role: "admin", expected_revision: 3 }))
     expect(controller.state.error).toContain("changed elsewhere")
-    expect(controller.state.action.role).toBe("manager")
+    expect(controller.state.action.role).toBe("admin")
     await controller.reloadAction()
     expect(controller.state.action.grant.revision).toBe(4)
-    expect(controller.state.action.role).toBe("member")
+    expect(controller.state.action.role).toBe("guest")
     controller.stop()
   })
 
@@ -135,7 +135,7 @@ describe("project access management", () => {
     const { controller, request, refresh, onAccessLost, unsubscribe } = setup()
     await controller.open()
     controller.beginAction("role", "principal", grant, "Alice")
-    controller.state.action.role = "manager"
+    controller.state.action.role = "admin"
     request.mockResolvedValue(new Response("forbidden", { status: 403 }))
     expect(await controller.saveAction()).toBe(false)
     expect(controller.state.canManage).toBe(false)

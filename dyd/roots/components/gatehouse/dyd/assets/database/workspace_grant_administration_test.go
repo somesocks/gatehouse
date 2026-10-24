@@ -34,16 +34,16 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 	if err := store.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&principal); err != nil {
 		t.Fatal(err)
 	}
-	err, member := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Member)
+	err, member := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Guest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, manager := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Manager)
+	err, manager := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Admin)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, updated := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Contributor, member.Revision)
-	if err != nil || updated == nil || updated.ID != member.ID || updated.Workspace != workspace.Id || updated.Principal == nil || *updated.Principal != principal || !updated.Enabled || updated.Role != authz.Contributor || updated.Revision != 2 {
+	err, updated := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Member, member.Revision)
+	if err != nil || updated == nil || updated.ID != member.ID || updated.Workspace != workspace.Id || updated.Principal == nil || *updated.Principal != principal || !updated.Enabled || updated.Role != authz.Member || updated.Revision != 2 {
 		t.Fatalf("role update = (%#v, %v)", updated, err)
 	}
 	err, page, _ := store.SystemWorkspacePrincipalsSearch(ctx, database.SystemWorkspacePrincipalSearch{WorkspaceID: workspace.Id, Limit: 1})
@@ -54,20 +54,20 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 		if grant.Principal != principal || grant.Workspace != workspace.Id || !grant.Enabled {
 			t.Fatalf("incorrect grant scope: %#v", grant)
 		}
-		if grant.ID == member.ID && (grant.Role != authz.Contributor || grant.Revision != 2) {
+		if grant.ID == member.ID && (grant.Role != authz.Member || grant.Revision != 2) {
 			t.Fatalf("stale grant metadata: %#v", grant)
 		}
 	}
-	if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Member, 1); !errors.Is(err, database.ErrRevisionConflict) {
+	if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Guest, 1); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("stale update = %v", err)
 	}
 	if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Role("owner"), 2); !errors.Is(err, database.ErrWorkspaceGrantRoleInvalid) {
 		t.Fatalf("invalid role = %v", err)
 	}
-	if err, missing := store.SystemWorkspaceGrantRoleUpdate(ctx, otherWorkspace.Id, member.ID, authz.Member, 2); err != nil || missing != nil {
+	if err, missing := store.SystemWorkspaceGrantRoleUpdate(ctx, otherWorkspace.Id, member.ID, authz.Guest, 2); err != nil || missing != nil {
 		t.Fatalf("wrong workspace = (%#v, %v)", missing, err)
 	}
-	if err, unchanged := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Contributor, 2); err != nil || unchanged == nil || unchanged.Revision != 2 {
+	if err, unchanged := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Member, 2); err != nil || unchanged == nil || unchanged.Revision != 2 {
 		t.Fatalf("no-op = (%#v, %v)", unchanged, err)
 	}
 	for _, disabled := range []bool{false, true} {
@@ -76,21 +76,21 @@ func TestSystemWorkspaceGrantRoleUpdate(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Manager, 2); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
+		if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, member.ID, authz.Admin, 2); !errors.Is(err, database.ErrWorkspaceGrantAlreadyExists) {
 			t.Fatalf("role collision (disabled=%t) = %v", disabled, err)
 		}
 	}
 	var role string
 	var revision, updates int
-	if err := store.QueryRow(`SELECT role, revision FROM gatehouse_workspace_grants WHERE id = ?`, member.ID).Scan(&role, &revision); err != nil || role != "contributor" || revision != 2 {
+	if err := store.QueryRow(`SELECT role, revision FROM gatehouse_workspace_grants WHERE id = ?`, member.ID).Scan(&role, &revision); err != nil || role != "member" || revision != 2 {
 		t.Fatalf("collision changed source grant: %s %d %v", role, revision, err)
 	}
 	if err := store.QueryRow(`SELECT COUNT(*) FROM gatehouse_activity_events WHERE event = 'workspace_grant.update' AND resource_workspace_grant = ?`, member.ID).Scan(&updates); err != nil || updates != 1 {
 		t.Fatalf("update activity count = %d: %v", updates, err)
 	}
 	// Editing a disabled grant must not re-enable it or change its recipient.
-	err, disabledGrant := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, manager.ID, authz.Member, 2)
-	if err != nil || disabledGrant == nil || disabledGrant.ID != manager.ID || disabledGrant.Enabled || disabledGrant.Role != authz.Member || disabledGrant.Revision != 3 {
+	err, disabledGrant := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, manager.ID, authz.Guest, 2)
+	if err != nil || disabledGrant == nil || disabledGrant.ID != manager.ID || disabledGrant.Enabled || disabledGrant.Role != authz.Guest || disabledGrant.Revision != 3 {
 		t.Fatalf("disabled grant update = (%#v, %v)", disabledGrant, err)
 	}
 }
@@ -114,11 +114,11 @@ func TestSystemWorkspaceGrantRemovalPreservesInterveningRevision(t *testing.T) {
 	if err := store.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'alice'`).Scan(&principal); err != nil {
 		t.Fatal(err)
 	}
-	err, member := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Member)
+	err, member := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Guest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, manager := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Manager)
+	err, manager := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Admin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestSystemWorkspaceGrantRemovalPreservesInterveningRevision(t *testing.T) {
 				WHERE event = 'workspace_grant.update'
 				AND resource_workspace_grant IN ('%s', '%s')) = 1
 		BEGIN
-			UPDATE gatehouse_workspace_grants SET role = 'contributor', revision = revision + 1
+			UPDATE gatehouse_workspace_grants SET role = 'member', revision = revision + 1
 			WHERE id IN ('%s', '%s') AND id <> NEW.resource_workspace_grant;
 		END;
 	`, member.ID, manager.ID, member.ID, manager.ID, member.ID, manager.ID))
@@ -149,10 +149,10 @@ func TestSystemWorkspaceGrantRemovalPreservesInterveningRevision(t *testing.T) {
 	var revision int
 	var enabled bool
 	if err := store.QueryRow(`SELECT id, revision, enabled FROM gatehouse_workspace_grants
-		WHERE workspace = ? AND principal = ? AND role = 'contributor'`, workspace.Id, principal).Scan(&editedID, &revision, &enabled); err != nil || revision != 3 || enabled {
+		WHERE workspace = ? AND principal = ? AND role = 'member'`, workspace.Id, principal).Scan(&editedID, &revision, &enabled); err != nil || revision != 3 || enabled {
 		t.Fatalf("grant after intervening edit and removal = (%s, %d, %t, %v), want revision 3 and disabled", editedID, revision, enabled, err)
 	}
-	if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, editedID, authz.Contributor, 2); !errors.Is(err, database.ErrRevisionConflict) {
+	if err, _ := store.SystemWorkspaceGrantRoleUpdate(ctx, workspace.Id, editedID, authz.Member, 2); !errors.Is(err, database.ErrRevisionConflict) {
 		t.Fatalf("edit with pre-removal revision = %v, want revision conflict", err)
 	}
 }

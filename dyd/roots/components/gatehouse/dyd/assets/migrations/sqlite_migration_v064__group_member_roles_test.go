@@ -8,7 +8,7 @@ import (
 func TestSQLiteGroupMemberRolesUpgrade(t *testing.T) {
 	ctx := context.Background()
 	db := openConfiguredMigrationTestDatabase(t)
-	registry := testSQLiteBaselineRegistry(t)
+	registry := testSchemaAtVersion(testSQLiteBaselineRegistry(t), 64)
 	registry.Repeatable = nil
 	old := testSchemaAtVersion(registry, 63)
 	if err := migrateSQLite(ctx, db, old); err != nil {

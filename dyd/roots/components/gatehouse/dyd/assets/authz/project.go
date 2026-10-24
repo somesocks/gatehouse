@@ -30,9 +30,9 @@ func ProjectAllows(roles []Role, action ProjectAction) bool {
 	}
 	for _, role := range roles {
 		switch role {
-		case Manager:
+		case Admin:
 			return true
-		case Contributor:
+		case Member:
 			switch action {
 			case ProjectNoteCreate, ProjectNoteEdit, ProjectNoteRemove,
 				ProjectTaskCreate, ProjectTaskEdit, ProjectTaskRemove,

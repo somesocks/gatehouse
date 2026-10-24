@@ -18,7 +18,7 @@ export function createSystemWorkspacePrincipalNewController({
     search: "",
     appliedSearch: "",
     selectedPrincipalID: "",
-    role: "member" as WorkspaceRole,
+    role: "guest" as WorkspaceRole,
     loading: false,
     loadingMore: false,
     adding: false,
@@ -38,7 +38,7 @@ export function createSystemWorkspacePrincipalNewController({
     state.search = ""
     state.appliedSearch = ""
     state.selectedPrincipalID = ""
-    state.role = "member"
+    state.role = "guest"
     state.error = ""
     return () => {
       if (currentGeneration === generation) {

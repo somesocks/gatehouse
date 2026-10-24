@@ -162,7 +162,7 @@ func TestProjectFilesUseProjectAuthorizationAndManagedStorage(t *testing.T) {
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
 		VALUES (?, ?, ?, ?, ?, NULL, TRUE)
-	`, memberGrantID, workspace.Id, project.Id, authz.Member, bob.Id); err != nil {
+	`, memberGrantID, workspace.Id, project.Id, authz.Guest, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	if err, visible, object := store.ProjectFileGet(ctx, newer, bob); err != nil || visible == nil || object == nil {
@@ -819,7 +819,7 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 		Principals: []config.Principal{{Alias: "alice", Enabled: true}, {Alias: "bob", Enabled: true}},
 		Groups:     []config.Group{{WorkspaceID: "engineering", Alias: "reviewers", Enabled: true}},
 		WorkspaceGrants: []config.WorkspaceGrant{{
-			WorkspaceID: "engineering", Role: "member", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true,
+			WorkspaceID: "engineering", Role: "guest", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true,
 		}},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -848,7 +848,7 @@ func TestProjectsAuthorizeSessionsAndPublishActivity(t *testing.T) {
 	if err := store.QueryRowContext(ctx, `
 		SELECT COUNT(*)
 		FROM gatehouse_project_grants
-		WHERE workspace = ? AND project = ? AND role = 'manager'
+		WHERE workspace = ? AND project = ? AND role = 'admin'
 			AND (principal = ? OR "group" = ?)
 	`, workspace.Id, projectRef.Id, alice.Id, reviewers.Id).Scan(&managerBindings); err != nil {
 		t.Fatal(err)
@@ -958,9 +958,9 @@ func TestProjectsSearchMatchesNamesAndPaginatesByID(t *testing.T) {
 	}
 	if _, err := store.ExecContext(ctx, `
 		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled) VALUES
-			('pgr_00000000000000000000000000', ?, 'prj_00000000000000000000000000', 'member', ?, NULL, TRUE),
-			('pgr_00000000000000000000000001', ?, 'prj_00000000000000000000000001', 'member', ?, NULL, TRUE),
-			('pgr_00000000000000000000000002', ?, 'prj_00000000000000000000000002', 'member', ?, NULL, TRUE)
+			('pgr_00000000000000000000000000', ?, 'prj_00000000000000000000000000', 'guest', ?, NULL, TRUE),
+			('pgr_00000000000000000000000001', ?, 'prj_00000000000000000000000001', 'guest', ?, NULL, TRUE),
+			('pgr_00000000000000000000000002', ?, 'prj_00000000000000000000000002', 'guest', ?, NULL, TRUE)
 	`, workspace.Id, alice.Id, workspace.Id, alice.Id, workspace.Id, alice.Id); err != nil {
 		t.Fatal(err)
 	}

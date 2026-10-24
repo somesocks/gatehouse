@@ -57,7 +57,7 @@ func postgresMigrationR014ReconcileSystemGrantsBuilder(grants []config.SystemGra
 			SELECT 1;
 			{{ range .Values }}
 			INSERT INTO gatehouse_system_grants (id, principal, role, enabled, revision)
-			VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), 'manager', {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
+			VALUES ({{ sqlLiteral .ID }}, (SELECT id FROM gatehouse_principals WHERE alias = {{ sqlLiteral .PrincipalID }}), 'admin', {{ sqlBool .Enabled }}, {{ sqlLiteral .Revision }})
 			ON CONFLICT (principal) DO UPDATE SET enabled = excluded.enabled, revision = excluded.revision
 			WHERE gatehouse_system_grants.revision < excluded.revision;
 			{{ end }}

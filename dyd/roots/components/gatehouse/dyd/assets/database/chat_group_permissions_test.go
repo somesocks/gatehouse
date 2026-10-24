@@ -77,10 +77,10 @@ func newChatGroupFixture(t *testing.T, configuration config.DatabaseConfig) *cha
 	}
 	state.WorkspaceAgents = append(state.WorkspaceAgents, config.WorkspaceAgent{WorkspaceID: foreign, Alias: "foreign", ModelAlias: agentModel, Revision: 1, Enabled: true})
 	for _, alias := range aliases {
-		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace, PrincipalID: stringPointer(alias), Role: "contributor", Enabled: true, Revision: 1})
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspace, PrincipalID: stringPointer(alias), Role: "member", Enabled: true, Revision: 1})
 	}
 	for _, name := range []string{"alice", "bob"} {
-		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: foreign, PrincipalID: stringPointer(aliases[name]), Role: "member", Enabled: true, Revision: 1})
+		state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: foreign, PrincipalID: stringPointer(aliases[name]), Role: "guest", Enabled: true, Revision: 1})
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
@@ -162,9 +162,9 @@ func (f *chatGroupFixture) send(chat model.SessionRef, author string, refs ...mo
 
 func (f *chatGroupFixture) sharedChat() (model.SessionRef, *database.SessionParticipantGrant, *database.SessionParticipantGrant) {
 	chat := f.chat("alice")
-	engineering := f.invite(chat, "alice", "group", f.groups["engineering"], authz.Contributor)
-	f.invite(chat, "alice", "principal", f.people["bridge"].Id, authz.Manager)
-	finance := f.invite(chat, "bridge", "group", f.groups["finance"], authz.Contributor)
+	engineering := f.invite(chat, "alice", "group", f.groups["engineering"], authz.Member)
+	f.invite(chat, "alice", "principal", f.people["bridge"].Id, authz.Admin)
+	finance := f.invite(chat, "bridge", "group", f.groups["finance"], authz.Member)
 	return chat, engineering, finance
 }
 
@@ -255,7 +255,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 				t.Fatalf("group-less user discovered groups: %#v", ids)
 			}
 		}
-		f.invite(lonely, "lonely", "agent", f.bots["general"], authz.Contributor)
+		f.invite(lonely, "lonely", "agent", f.bots["general"], authz.Member)
 		for _, target := range []model.MessageTargetRef{
 			{Kind: "principal", Id: f.people["bob"].Id}, {Kind: "principal", Id: f.people["disabled"].Id}, {Kind: "principal", Id: f.people["dana"].Id},
 			{Kind: "group", Id: f.groups["finance"]}, {Kind: "group", Id: f.groups["disabled"]}, {Kind: "group", Id: f.groups["paused"]}, {Kind: "group", Id: f.groups["foreign"]},
@@ -270,7 +270,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 			case "agent":
 				bot = &target.Id
 			}
-			if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], person, group, bot, authz.Contributor); !errors.Is(err, database.ErrSessionParticipantNotFound) {
+			if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], person, group, bot, authz.Member); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 				t.Fatalf("explicit invitation %#v = %v", target, err)
 			}
 			if err, _ := f.send(chat, "alice", target); !errors.Is(err, database.ErrMessageTarget) {
@@ -311,7 +311,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		if err := f.store.SystemGroupMemberUpdate(f.ctx, f.workspace.Id, f.groups["engineering"], f.people["alice"].Id, false, 1); err != nil {
 			t.Fatal(err)
 		}
-		if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["eng"]), authz.Contributor); !errors.Is(err, database.ErrSessionParticipantNotFound) {
+		if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["eng"]), authz.Member); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("revoked shared membership still invited bot: %v", err)
 		}
 	})
@@ -351,7 +351,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 				t.Fatalf("deduplicated shared bot = %#v", bot)
 			}
 			for _, source := range bot.InheritedFrom {
-				if (source.Group != f.groups["engineering"] && source.Group != f.groups["finance"]) || source.Role != authz.Contributor {
+				if (source.Group != f.groups["engineering"] && source.Group != f.groups["finance"]) || source.Role != authz.Member {
 					t.Fatalf("inherited participation lost provenance: %#v", source)
 				}
 			}
@@ -409,7 +409,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 				}
 				groups := []string{}
 				for _, source := range bot.InheritedFrom {
-					if source.Role != authz.Contributor {
+					if source.Role != authz.Member {
 						t.Fatalf("direct role edit changed inherited role: %#v", source)
 					}
 					groups = append(groups, source.Group)
@@ -427,12 +427,12 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 			t.Fatal("effective roster omitted shared bot")
 		}
 		assertSources(nil)
-		err, direct := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["shared"]), authz.Contributor)
+		err, direct := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["shared"]), authz.Member)
 		if err != nil {
 			t.Fatal(err)
 		}
 		assertSources(direct)
-		role := authz.Manager
+		role := authz.Admin
 		err, direct = f.store.SessionParticipantGrantUpdate(f.ctx, chat, f.people["alice"], direct.ID, &role, nil, direct.Revision)
 		if err != nil {
 			t.Fatal(err)
@@ -494,7 +494,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 			}
 			return changed
 		}
-		direct := f.invite(chat, "alice", "agent", f.bots["shared"], authz.Contributor)
+		direct := f.invite(chat, "alice", "agent", f.bots["shared"], authz.Member)
 		active("eng", true)
 		active("shared", true)
 		engineering = update("alice", engineering, false)
@@ -516,7 +516,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		if err, _ := f.store.SessionParticipantGrantUpdate(f.ctx, chat, f.people["alice"], finance.ID, nil, &enabled, finance.Revision); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("nonmember restored a group grant: %v", err)
 		}
-		if err, _ := f.store.SessionParticipantGrantCreate(f.ctx, chat, f.people["alice"], nil, stringPointer(f.groups["finance"]), authz.Contributor); !errors.Is(err, database.ErrSessionParticipantNotFound) {
+		if err, _ := f.store.SessionParticipantGrantCreate(f.ctx, chat, f.people["alice"], nil, stringPointer(f.groups["finance"]), authz.Member); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("nonmember restored a group through POST: %v", err)
 		}
 		finance = update("bridge", finance, true)
@@ -557,7 +557,7 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		if err, _ := f.store.SystemGroupUpdate(f.ctx, f.workspace.Id, f.groups["engineering"], 2, database.SystemGroupInput{Enabled: &enabled}); err != nil {
 			t.Fatal(err)
 		}
-		engDirect := f.invite(chat, "alice", "agent", f.bots["eng"], authz.Contributor)
+		engDirect := f.invite(chat, "alice", "agent", f.bots["eng"], authz.Member)
 		if err := f.store.SystemGroupAgentUpdate(f.ctx, f.workspace.Id, f.groups["engineering"], f.bots["eng"], false, 1); err != nil {
 			t.Fatal(err)
 		}
@@ -570,16 +570,16 @@ func testChatGroupPermissions(t *testing.T, configuration config.DatabaseConfig)
 		if err, _ := f.store.SessionParticipantGrantUpdate(f.ctx, chat, f.people["alice"], engDirect.ID, nil, &enabled, engDirect.Revision); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("revoked actor restored a private bot: %v", err)
 		}
-		if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["eng"]), authz.Contributor); !errors.Is(err, database.ErrSessionParticipantNotFound) {
+		if err, _ := f.store.SessionParticipantGrantCreateSubject(f.ctx, chat, f.people["alice"], nil, nil, stringPointer(f.bots["eng"]), authz.Member); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("revoked actor restored private bot through POST: %v", err)
 		}
-		person := f.invite(chat, "bridge", "principal", f.people["bob"].Id, authz.Contributor)
+		person := f.invite(chat, "bridge", "principal", f.people["bob"].Id, authz.Member)
 		person = update("alice", person, false)
 		if err, _ := f.store.SessionParticipantGrantUpdate(f.ctx, chat, f.people["alice"], person.ID, nil, &enabled, person.Revision); !errors.Is(err, database.ErrSessionParticipantNotFound) {
 			t.Fatalf("co-participation restored a new direct person grant: %v", err)
 		}
 		update("bridge", person, true)
-		general := f.invite(chat, "alice", "agent", f.bots["general"], authz.Contributor)
+		general := f.invite(chat, "alice", "agent", f.bots["general"], authz.Member)
 		general = update("alice", general, false)
 		update("alice", general, true) // Default bots remain eligible without a group.
 	})

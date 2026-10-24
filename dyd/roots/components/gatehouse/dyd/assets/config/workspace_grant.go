@@ -22,7 +22,7 @@ func ResolveWorkspaceGrants(document configschema.GatehouseConfig) (error, []Wor
 			return nil, []WorkspaceGrant{}
 		}
 		root := defaultPrincipalAlias
-		return nil, []WorkspaceGrant{{WorkspaceID: defaultWorkspaceAlias, Role: string(authz.Manager), PrincipalID: &root, Revision: 1, Enabled: true}}
+		return nil, []WorkspaceGrant{{WorkspaceID: defaultWorkspaceAlias, Role: string(authz.Admin), PrincipalID: &root, Revision: 1, Enabled: true}}
 	}
 
 	grants := make([]WorkspaceGrant, 0)
@@ -34,7 +34,7 @@ func ResolveWorkspaceGrants(document configschema.GatehouseConfig) (error, []Wor
 		for grantIndex, configured := range *workspace.Grants {
 			path := fmt.Sprintf("workspaces[%d].grants[%d]", workspaceIndex, grantIndex)
 			if !authz.ValidRole(configured.Role) {
-				return fmt.Errorf("%s.role must be member, contributor, or manager", path), nil
+				return fmt.Errorf("%s.role must be guest, member, or admin", path), nil
 			}
 			if !principalAlias.MatchString(configured.Principal) {
 				return fmt.Errorf("%s.principal must match %q", path, principalAlias.String()), nil

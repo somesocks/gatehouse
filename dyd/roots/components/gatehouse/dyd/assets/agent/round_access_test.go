@@ -182,7 +182,7 @@ func roundAccessFixture(t *testing.T, provider, removal string) (*database.Store
 		if err := store.QueryRow(`SELECT id FROM gatehouse_groups WHERE alias = 'team'`).Scan(&group); err != nil {
 			t.Fatal(err)
 		}
-		if err, _ := store.SessionParticipantGrantCreate(ctx, session.Ref, alice, nil, &group, "contributor"); err != nil {
+		if err, _ := store.SessionParticipantGrantCreate(ctx, session.Ref, alice, nil, &group, "member"); err != nil {
 			t.Fatal(err)
 		}
 	}

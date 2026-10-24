@@ -23,11 +23,11 @@ func TestGroupSecretsAPI(t *testing.T) {
 	if err != nil { t.Fatal(err) }
 	workspace := workspaces["engineering"]
 	group := groupID(t, ctx, store, "engineering", "developers")
-	manager, member := authz.Manager, authz.Member
+	manager, member := authz.Admin, authz.Member
 	if err := store.GroupMemberUpdate(ctx, workspace.Id, group, alice.Id, nil, &manager, 1, nil); err != nil { t.Fatal(err) }
 	var bob string
 	if err := store.QueryRow(`SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob); err != nil { t.Fatal(err) }
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil { t.Fatal(err) }
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Admin); err != nil { t.Fatal(err) }
 	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, group, bob); err != nil { t.Fatal(err) }
 	username, password := "secret-bob", "password"
 	err, principal := store.SystemPrincipalIdentityCreate(ctx, bob, database.SystemPrincipalIdentityInput{Username: &username, Password: &password})

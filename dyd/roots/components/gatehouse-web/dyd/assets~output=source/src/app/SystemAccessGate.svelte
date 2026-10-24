@@ -52,7 +52,7 @@
   <StatusPage
     eyebrow="System"
     title="System access required"
-    description="You do not currently have an enabled system manager grant."
+    description="You do not currently have an enabled system admin grant."
   />
 {:else}
   {#if auth.state.reloadError || access.state.reloadError}<UI.Notice

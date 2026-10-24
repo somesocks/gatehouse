@@ -56,7 +56,7 @@ func groupSecretError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, database.ErrGroupSecretNotFound), errors.Is(err, database.ErrGroupNotFound):
 		http.NotFound(w, r)
 	case errors.Is(err, database.ErrGroupForbidden):
-		http.Error(w, "group manager access is required", http.StatusForbidden)
+		http.Error(w, "group admin access is required", http.StatusForbidden)
 	case errors.Is(err, database.ErrRevisionConflict):
 		http.Error(w, "This secret changed elsewhere. Reload before retrying.", http.StatusConflict)
 	default:

@@ -1,6 +1,7 @@
 <script lang="ts">
   import * as UI from "../../../ui"
   import { useRuntime } from "../../../app/runtime.svelte"
+  import { resourceRoles, roleDescription } from "../../../app/roles"
   import { untrack } from "svelte"
   import PrincipalPicker from "../principals/PrincipalPicker.svelte"
   import SystemWorkspaceFrame from "./SystemWorkspaceFrame.svelte"
@@ -57,9 +58,8 @@
           ><UI.Label for="grant-role">Role</UI.Label><UI.Select
             id="grant-role"
             bind:value={controller.state.role}
-            ><UI.Option value="member">Member</UI.Option><UI.Option
-              value="contributor">Contributor</UI.Option
-            ><UI.Option value="manager">Manager</UI.Option></UI.Select
+            >{#each resourceRoles as role}<UI.Option value={role.value}>{role.label}</UI.Option>{/each}</UI.Select
+          ><UI.Text tone="muted" size="small">{roleDescription(controller.state.role)}</UI.Text
           ><UI.Text tone="muted" size="small"
             >Adds the selected workspace role. Any existing direct
             roles remain.</UI.Text

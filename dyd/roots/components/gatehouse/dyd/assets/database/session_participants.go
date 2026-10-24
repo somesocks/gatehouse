@@ -16,9 +16,9 @@ import (
 var (
 	ErrSessionParticipantInput     = errors.New("invalid chat participant input")
 	ErrSessionParticipantNotFound  = errors.New("chat or participant is unavailable")
-	ErrSessionParticipantForbidden = errors.New("chat manager access is required")
+	ErrSessionParticipantForbidden = errors.New("chat admin access is required")
 	ErrSessionGrantExists          = errors.New("this role is already assigned to the participant")
-	ErrSessionLastManager          = errors.New("the chat must retain an enabled manager")
+	ErrSessionLastAdmin            = errors.New("the chat must retain an enabled admin")
 )
 
 type SessionParticipantGrant struct {
@@ -206,8 +206,8 @@ func sessionWorkspacePrincipalEligibleSQL(workspace, principal string) string {
 }
 
 // Lock the session row before checking roles or modifying grants. This serializes
-// competing manager removals on PostgreSQL and acquires SQLite's write lock before
-// reading the manager set. Permission is checked again inside the transaction.
+// competing admin removals on PostgreSQL and acquires SQLite's write lock before
+// reading the admin set. Permission is checked again inside the transaction.
 func (store *Store) sessionParticipantTransaction(ctx context.Context, session model.SessionRef, actor model.PrincipalRef) (*sql.Tx, error) {
 	tx, err := store.BeginTx(ctx, nil)
 	if err != nil {
@@ -379,21 +379,21 @@ func (store *Store) SessionParticipantGrantUpdate(ctx context.Context, session m
 	if err != nil {
 		return err, nil
 	}
-	if grant.Enabled && grant.Role == authz.Manager && (!nextEnabled || nextRole != authz.Manager) {
-		var manager bool
+	if grant.Enabled && grant.Role == authz.Admin && (!nextEnabled || nextRole != authz.Admin) {
+		var admin bool
 		err = tx.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM gatehouse_session_grants grants
-			WHERE grants.workspace = `+p(1)+` AND grants.session = `+p(2)+` AND grants.enabled = TRUE AND grants.role = 'manager' AND (
+			WHERE grants.workspace = `+p(1)+` AND grants.session = `+p(2)+` AND grants.enabled = TRUE AND grants.role = 'admin' AND (
 			EXISTS (SELECT 1 FROM gatehouse_principals pr WHERE pr.id = grants.principal AND pr.enabled = TRUE)
 			OR EXISTS (SELECT 1 FROM gatehouse_groups g JOIN gatehouse_group_members gm ON gm.workspace_id = g.workspace_id AND gm.group_id = g.id
 			JOIN gatehouse_principals pr ON pr.id = gm.principal_id AND pr.enabled = TRUE
 			WHERE g.workspace_id = grants.workspace AND g.id = grants."group" AND g.enabled = TRUE AND gm.enabled = TRUE
 			AND `+workspacePrincipalAdmissionSQL("grants.workspace", "gm.principal_id")+`))
-			AND (grants.principal IS NULL OR `+workspacePrincipalAdmissionSQL("grants.workspace", "grants.principal")+`))`, session.Workspace.Id, session.Id).Scan(&manager)
+			AND (grants.principal IS NULL OR `+workspacePrincipalAdmissionSQL("grants.workspace", "grants.principal")+`))`, session.Workspace.Id, session.Id).Scan(&admin)
 		if err != nil {
 			return err, nil
 		}
-		if !manager {
-			return ErrSessionLastManager, nil
+		if !admin {
+			return ErrSessionLastAdmin, nil
 		}
 	}
 	grant.Role, grant.Enabled, grant.Revision = nextRole, nextEnabled, grant.Revision+1

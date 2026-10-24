@@ -163,7 +163,7 @@ func (store *Store) sessionMessageTargetsSnapshot(ctx context.Context, tx *sql.T
 			if err != nil {
 				return err
 			}
-			if _, err = store.sessionParticipantGrantInsert(ctx, tx, event.Ref.Session, target.Ref, authz.Contributor, true); err != nil {
+			if _, err = store.sessionParticipantGrantInsert(ctx, tx, event.Ref.Session, target.Ref, authz.Member, true); err != nil {
 				return err
 			}
 		}

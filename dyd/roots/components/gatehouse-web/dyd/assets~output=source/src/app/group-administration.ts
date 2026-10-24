@@ -2,7 +2,7 @@ import { systemAdministration } from "./system"
 import { fetchGatehouse } from "./api"
 
 export type GroupScope = "system" | "workspace"
-export type GroupRole = "member" | "manager"
+export type GroupRole = "member" | "admin"
 
 export function groupAdministration(
   path: string,

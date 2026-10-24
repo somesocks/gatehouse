@@ -27,7 +27,7 @@
         />
         <UI.NavigationCard
           title="System grants"
-          description="Grant or revoke system-manager access."
+          description="Grant or revoke system admin access."
           href="/app/system/grants"
         />
       </UI.NavigationGrid>

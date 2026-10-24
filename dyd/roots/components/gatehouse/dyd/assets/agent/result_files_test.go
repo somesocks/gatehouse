@@ -123,7 +123,7 @@ func newResultFileFixtureWithDatabase(t *testing.T, cutoff int, endpoint string,
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: f.session, AuthorPrincipal: &f.principal, Enabled: true}, f.principal); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreateSubject(ctx, f.session, f.principal, nil, nil, &f.agent.Id, authz.Contributor); err != nil {
+	if err, _ := store.SessionParticipantGrantCreateSubject(ctx, f.session, f.principal, nil, nil, &f.agent.Id, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	message := model.SessionEvent{Ref: model.SessionEventRef{Session: f.session, Id: "sev_00000000000000000000000000"}, Kind: "message.text", AuthorPrincipal: &model.Principal{Ref: f.principal, Enabled: true}, Payload: map[string]interface{}{"text": "test"}}

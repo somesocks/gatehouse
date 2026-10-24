@@ -37,7 +37,7 @@ func TestSystemGroupAdministrationAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["private"]
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Manager); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Admin); err != nil {
 		t.Fatal(err)
 	}
 	handler := Handler(config.HTTPService{API: true}, store, tokens)
@@ -214,7 +214,7 @@ func TestGroupMemberOptionsRequireCurrentWorkspaceAdmission(t *testing.T) {
 	}
 	options(0)
 	request("POST", "/members", `{"principal":"`+bob+`"}`, 400)
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	options(1)
@@ -225,10 +225,10 @@ func TestGroupMemberOptionsRequireCurrentWorkspaceAdmission(t *testing.T) {
 	options(0)
 	request("PATCH", "/members/"+bob, `{"enabled":false,"expected_revision":1}`, 204)
 	request("PATCH", "/members/"+bob, `{"enabled":true,"expected_revision":2}`, 400)
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	options(1)
 	request("PATCH", "/members/"+bob, `{"enabled":true,"expected_revision":2}`, 204)
-	request("POST", "/grants", `{"role":"manager"}`, 404)
+	request("POST", "/grants", `{"role":"admin"}`, 404)
 }

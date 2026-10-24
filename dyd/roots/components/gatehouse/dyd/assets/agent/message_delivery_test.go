@@ -196,7 +196,7 @@ func newDeliveryFixture(t *testing.T, configuration config.DatabaseConfig) *deli
 		AgentProviders:  []config.AgentProvider{{Alias: alias, Revision: 1, Protocol: "builtin", Enabled: true}},
 		AgentModels:     []config.AgentModel{{Alias: alias, Revision: 1, ProviderAlias: alias, Model: agent.BuiltinModelDummyFixedReply, Parameters: `{"text":"Delivered"}`, Compaction: defaultAgentModelCompaction, MaxTurns: 1, MaxOutputTokens: 1024, Enabled: true}},
 		WorkspaceAgents: []config.WorkspaceAgent{{WorkspaceID: alias, Alias: "first", ModelAlias: alias, Revision: 1, Default: true, Enabled: true}, {WorkspaceID: alias, Alias: "second", ModelAlias: alias, Revision: 1, Default: true, Enabled: true}},
-		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: alias, PrincipalID: &alias, Role: "contributor", Revision: 1, Enabled: true}},
+		WorkspaceGrants: []config.WorkspaceGrant{{WorkspaceID: alias, PrincipalID: &alias, Role: "member", Revision: 1, Enabled: true}},
 	}
 	err, registry := migrations.Build(configuration, state, ring)
 	if err != nil {

@@ -1,12 +1,12 @@
 # Principal and login administration
 
-System managers create accounts under **System → Principals → Create principal**.
+System admins create accounts under **System → Principals → Create principal**.
 The creation form accepts a display name, optional account alias, and enabled
 status. It does not accept login credentials. After creating the principal, use
 **Add username/password** on its detail page to add a login. Each principal can
 have multiple login identities.
 
-For each username/password login, managers can edit the username, set a new
+For each username/password login, admins can edit the username, set a new
 password, enable or disable the login, or delete it. Usernames are case-sensitive
 and globally unique, including disabled logins. They cannot contain whitespace,
 control characters, or colons. Login usernames are separate from principal
@@ -24,7 +24,7 @@ identity ID has no foreign key to the deleted login.
 
 ## Shareable set-password links
 
-For an enabled username/password login on an enabled principal, managers can use
+For an enabled username/password login on an enabled principal, admins can use
 **Create set-password link** and **Copy link**, then send the URL to the recipient.
 The recipient opens a standalone page, enters and confirms a new password, and
 can then sign in. A Gatehouse login session is not required to use the link.

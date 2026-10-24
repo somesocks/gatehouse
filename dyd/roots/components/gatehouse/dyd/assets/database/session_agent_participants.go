@@ -24,9 +24,9 @@ func (store *Store) sessionParticipantLock(ctx context.Context, tx *sql.Tx, sess
 
 func (store *Store) sessionPrincipalAllowed(ctx context.Context, tx *sql.Tx, session model.SessionRef, actor model.PrincipalRef, manage bool) (bool, error) {
 	p := store.sessionParticipantPlaceholder
-	roles := "'contributor', 'manager'"
+	roles := "'member', 'admin'"
 	if manage {
-		roles = "'manager'"
+		roles = "'admin'"
 	}
 	var allowed bool
 	err := tx.QueryRowContext(ctx, `SELECT `+sessionPrincipalAccessSQL(p(1), p(2), p(3), roles), session.Workspace.Id, session.Id, actor.Id).Scan(&allowed)
@@ -71,7 +71,7 @@ func (store *Store) sessionRequestAuthorizedGet(ref model.SessionEventRef, get f
 		if event.AuthorPrincipal != nil {
 			p := store.sessionParticipantPlaceholder
 			var allowed bool
-			err := query(`SELECT `+sessionPrincipalAccessSQL(p(1), p(2), p(3), "'contributor', 'manager'"), ref.Session.Workspace.Id, ref.Session.Id, event.AuthorPrincipal.Ref.Id).Scan(&allowed)
+			err := query(`SELECT `+sessionPrincipalAccessSQL(p(1), p(2), p(3), "'member', 'admin'"), ref.Session.Workspace.Id, ref.Session.Id, event.AuthorPrincipal.Ref.Id).Scan(&allowed)
 			return err, allowed
 		}
 		if event.Parent == nil || event.Parent.Session != ref.Session {

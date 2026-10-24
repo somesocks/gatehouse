@@ -152,10 +152,10 @@
         disabled={view.saving}
       >
         <UI.Option value="member">Member</UI.Option>
-        <UI.Option value="manager">Manager</UI.Option>
+        <UI.Option value="admin">Admin</UI.Option>
       </UI.Select>
       <UI.Text size="small" tone="muted"
-        >Managers can edit the group and manage its people, roles, and bots.</UI.Text
+        >Admins can edit the group and manage its people, roles, and bots.</UI.Text
       >
     </UI.Field>
   {/if}

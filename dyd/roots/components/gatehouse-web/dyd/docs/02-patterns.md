@@ -236,9 +236,9 @@ pagination. Project membership has separate People and Groups sections.
 
 ### Interaction behavior
 
-Project managers can add recipients, edit roles, and remove grants; other project
-members can view the roster. Workspace group managers manage group details,
-people, bots, and secrets. Workspace managers can create groups; system
+Project admins can add recipients, edit roles, and remove grants; other project
+members can view the roster. Workspace group admins manage group details,
+people, bots, and secrets. Workspace admins can create groups; system
 administrators also have the system group-management area.
 
 Domain roles, admission, API behavior, and permission rules are documented in
@@ -490,7 +490,7 @@ layout and lifecycle rules are owned by the sections above and by
 | Workspace overview | Workspace description, child navigation cards, workspace/access activity refresh, and workspace selection. |
 | Chat collection | Name search in the URL, results, pagination, chat creation, and project metadata. |
 | Project collection | Name search in the URL, results, pagination, and project creation. |
-| Groups | Search enabled memberships; create groups where permitted; inspect and manage group details, people, bots, managers, and secrets according to role. |
+| Groups | Search enabled memberships; create groups where permitted; inspect and manage group details, people, bots, admins, and secrets according to role. |
 | Project overview | Project metadata, Edit project destination, child navigation cards, and project-metadata activity refresh. |
 | Project members | Separate searchable, paginated People/Groups rosters; add recipients, edit roles, and remove grants where permitted; read-only access for other members. |
 | Project files | Upload multiple files, inspect metadata, download, remove, refresh, and collection/detail navigation. |
@@ -507,7 +507,7 @@ layout and lifecycle rules are owned by the sections above and by
 | Session file-picker tool | Capability-gated listing/upload/download, selected file chips, limits, name/media filters, pagination, saved selection, and expired/denied/resolved states. |
 | System overview | Entry points to all system administration areas. |
 | Principals | Inspect principals and identities, revisions, enable/disable actions, and in-flight state. |
-| System grants | Grant/revoke system-manager access, revisions, and activity refresh. |
+| System grants | Grant/revoke system-admin access, revisions, and activity refresh. |
 | Agent providers | Search, create, inspect, and edit protocols, endpoints, credentials, enabled state, and revisions; inspect keychain metadata. See the keychain-selector follow-up above. |
 | Agent models | Search, create, inspect, and edit provider/model selection, parameters, compaction, turn/token limits, enabled state, and revisions. |
 | Storage providers | Search, create, inspect, and edit embedded/S3 settings, credentials, enabled state, and revisions. |

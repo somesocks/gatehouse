@@ -11,7 +11,7 @@ const (
 )
 
 func ValidGroupRole(role string) bool {
-	return Role(role) == Member || Role(role) == Manager
+	return Role(role) == Member || Role(role) == Admin
 }
 
 func GroupAllows(roles []Role, action GroupAction) bool {
@@ -19,7 +19,7 @@ func GroupAllows(roles []Role, action GroupAction) bool {
 		return false
 	}
 	for _, role := range roles {
-		if role == Manager {
+		if role == Admin {
 			return true
 		}
 	}

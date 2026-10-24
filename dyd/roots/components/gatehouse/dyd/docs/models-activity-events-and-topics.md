@@ -155,14 +155,14 @@ activity history. Membership changes and their activity are committed atomically
 
 ### System Grant
 
-- `system_grant.create` - emitted when a principal receives a system manager grant.
+- `system_grant.create` - emitted when a principal receives a system admin grant.
   - `sys/syg_...`
   - `prn_.../syg_...`
-- `system_grant.update` - emitted when a system manager grant's enabled state or revision changes.
+- `system_grant.update` - emitted when a system admin grant's enabled state or revision changes.
   - `sys/syg_...`
   - `prn_.../syg_...`
 
-`sys/...` topics are available only to enabled system managers. The granted
+`sys/...` topics are available only to enabled system admins. The granted
 principal can always observe its own `prn_.../syg_...` topic.
 
 ### Keychain Version

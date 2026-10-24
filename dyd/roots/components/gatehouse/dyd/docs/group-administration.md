@@ -1,41 +1,43 @@
 # Workspace group administration
 
-Workspace managers can create groups from **Workspace → Groups**. Creation
-atomically adds the creator as a group manager. Group members can open a group
-to view its people and bots; group managers can edit details, manage people and
-bots, and appoint or demote other managers.
+See [Guest / Member / Admin upgrade](role-names-upgrade.md) when updating an existing deployment.
+
+Workspace admins can create groups from **Workspace → Groups**. Creation
+atomically adds the creator as a group admin. Group members can open a group
+to view its people and bots; group admins can edit details, manage people and
+bots, and appoint or demote other admins.
 
 Sysadmins retain full control under **System → Workspaces → [workspace] → Groups**.
-This area requires `system.manage`; workspace manager status alone does not
-grant access. Workspace managers do not automatically manage every group.
+This area requires `system.manage`; workspace admin status alone does not
+grant access. Workspace admins do not automatically manage every group.
 
 The workspace groups directory supports name/alias search and pagination. Create
 a group with a workspace-unique alias and optional display name. Edit its alias
 or display name from its detail page. **Delete group** soft-deletes the group and
 returns to the directory. Deleted groups are hidden from all workspace users,
-including their managers, and their workspace detail URLs return `404`.
+including their admins, and their workspace detail URLs return `404`.
 Edits retain the group's `grp_…` ID and therefore its memberships and grants.
 
 ## Members
 
 Add already-admitted workspace principals using the workspace-scoped picker.
 An enabled direct workspace grant is required to add or restore a human
-membership. Each human membership has one role: `member` or `manager`. Managers
+membership. Each human membership has one role: `member` or `admin`. Admins
 have all membership benefits plus group administration rights. The group role
 does not change workspace roles or the project/chat roles inherited through
 resource grants. Bots have no group management role.
 
-Membership edits cannot take an active group from one functioning manager to
-zero, including through system administration. A functioning manager has an
-enabled manager membership, an enabled account, and current workspace access.
+Membership edits cannot take an active group from one functioning admin to
+zero, including through system administration. A functioning admin has an
+enabled admin membership, an enabled account, and current workspace access.
 Promote another active workspace member before stepping down or removing that
-last manager. Rejected changes return `409` and leave the membership, revision,
+last admin. Rejected changes return `409` and leave the membership, revision,
 and activity history intact. Membership edits are serialized per group so
-simultaneous demotions cannot remove every functioning manager.
+simultaneous demotions cannot remove every functioning admin.
 
 Account disabling and workspace-access revocation remain available even when
-they leave a group without a functioning manager. Already-inactive managers can
-be demoted or removed, and system administrators can appoint a new manager to
+they leave a group without a functioning admin. Already-inactive admins can
+be demoted or removed, and system administrators can appoint a new admin to
 repair a group.
 
 **Remove** soft-deletes the membership and removes it from the roster. Adding
@@ -63,7 +65,7 @@ group workspace grants are disabled and immutable; they remain solely because
 activity history references their identities. New group workspace grants and
 restoration of retired grants are prohibited by the database and administration.
 The default root bootstrap also preserves prior revocation or role downgrades;
-its new direct Manager default cannot silently restore old authority.
+its direct Admin default cannot silently restore old authority.
 
 Disabling a group suspends all access inherited through it, including access to
 projects and chats. Re-enabling it restores access through enabled memberships
@@ -97,7 +99,7 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
 - `GET /groups/{group}/members` supports the same search/filter/pagination
   parameters and returns `members` and optional `next_cursor`.
 - `POST /groups/{group}/members` accepts `principal` and optional `role`, which
-  defaults to `member` and must be `member` or `manager`.
+  defaults to `member` and must be `member` or `admin`.
 - `PATCH /groups/{group}/members/{principal}` accepts `enabled` and/or `role`,
   plus `expected_revision`. Member entries include their current `role`.
 - `GET /groups/{group}/agents` supports the same search/filter/pagination
@@ -117,15 +119,15 @@ All paths below start with `/api/v1/system/workspaces/{workspace}`:
 
 The same detail and membership operations are available under
 `/api/v1/workspaces/{workspace}/groups/{group}` to enabled, admitted group
-members. Writes and the member/bot option pickers require the group's `manager`
+members. Writes and the member/bot option pickers require the group's `admin`
 role; the database rechecks authority inside each mutation transaction.
 `GET /groups/{group}/agent-options` returns paginated workspace bot identities
 and display data. `GET /group-capabilities` reports whether the caller may
 create a group. Workspace `GET /groups` returns the caller's memberships,
 including `role`, using collection pagination; deleted groups are excluded.
 Workspace rosters always exclude removed memberships and disabled accounts or
-bots, regardless of query filters. Workspace `POST /groups` requires workspace manager
-permission and returns the created group with the creator's `manager` role.
+bots, regardless of query filters. Workspace `POST /groups` requires workspace admin
+permission and returns the created group with the creator's `admin` role.
 
 Groups and membership changes use revisions, as grants already do. Changes and
 activity recording are atomic. Stale revisions and duplicate aliases,
@@ -145,14 +147,14 @@ workspaces:
   - alias: engineering
     grants:
       - principal: alice
-        role: contributor
+        role: member
     groups:
       - alias: developers
         name: Developers
         revision: 3
         members:
           - principal: alice
-            role: manager
+            role: admin
             revision: 2
             enabled: true
         agents:
@@ -176,14 +178,14 @@ otherwise reconciliation can recreate the old alias. Grant reconciliation keeps
 its existing revision-based behavior.
 
 V064 adds membership roles with a default of `member`, preserving existing
-resource access without appointing managers automatically. Configuration can
-declare `role: manager`; it follows the membership's higher-revision-wins policy.
+resource access without appointing admins automatically. Configuration can
+declare `role: admin`; it follows the membership's higher-revision-wins policy.
 For an existing membership, increment its configured revision to apply a role
-change, or appoint its manager through system administration.
+change, or appoint its admin through system administration.
 Configuration membership reconciliation uses the same one-to-zero rule. It
 evaluates the final roster using current accounts, workspace access, and
 membership revisions, so a single update can hand management to another
-functioning manager without blocking account disabling or workspace revocation.
+functioning admin without blocking account disabling or workspace revocation.
 
 Bot membership declarations identify the bot by its workspace-local binding
 alias. Their revisions follow the same higher-revision-wins policy, independently

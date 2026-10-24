@@ -39,12 +39,12 @@
   breadcrumbs={[
     { label: "System", href: "/app/system" },
     { label: "System grants", href: "/app/system/grants" },
-    { label: "Add manager" },
+    { label: "Add admin" },
   ]}
 >
   <UI.AdminContent mode="form"
     ><UI.AdminHeader
-      title="Add system manager"
+      title="Add system admin"
       description="Grant an existing principal permission to manage global Gatehouse state."
     />
     <UI.Form
@@ -56,7 +56,7 @@
       ><UI.FormSection title="Principal"
         ><PrincipalPicker bind:value={principal} /></UI.FormSection
       ><UI.FormSection title="Role"
-        ><UI.Badge>System manager</UI.Badge><UI.Text tone="muted" size="small"
+        ><UI.Badge>System admin</UI.Badge><UI.Text tone="muted" size="small"
           >This grants system administration access. Workspace access is
           assigned separately.</UI.Text
         ></UI.FormSection

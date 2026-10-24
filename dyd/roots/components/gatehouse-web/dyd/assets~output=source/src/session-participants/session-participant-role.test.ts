@@ -42,14 +42,14 @@ async function actionDialog() {
   )
 }
 
-const grant = { id: "grant", role: "member", revision: 1, enabled: true }
+const grant = { id: "grant", role: "guest", revision: 1, enabled: true }
 function callbacks() {
   return {
     onUpdate: vi.fn(async () => false),
     onRemove: vi.fn(async () => false),
     onReload: vi.fn(async () => ({
       ...grant,
-      role: "contributor",
+      role: "member",
       revision: 2,
     })),
     onClose: vi.fn(),
@@ -64,21 +64,21 @@ describe("participant action dialogs", () => {
     try {
       flushSync()
       expect(actions.onUpdate).not.toHaveBeenCalled()
-      state.select("manager")
-      state.refresh({ ...grant, role: "contributor", revision: 2 })
+      state.select("admin")
+      state.refresh({ ...grant, role: "member", revision: 2 })
       flushSync()
-      expect(state.draft).toBe("manager")
+      expect(state.draft).toBe("admin")
       expect(state.revision).toBe(1)
       await state.save()
       expect(actions.onUpdate).toHaveBeenCalledWith(
         expect.objectContaining({ revision: 1 }),
-        "manager",
+        "admin",
       )
       expect(actions.onClose).not.toHaveBeenCalled()
       await state.reload()
-      expect(state.draft).toBe("contributor")
+      expect(state.draft).toBe("member")
       expect(state.revision).toBe(2)
-      state.select("manager")
+      state.select("admin")
       actions.onUpdate.mockResolvedValueOnce(true)
       await state.save()
       expect(actions.onClose).toHaveBeenCalledWith(true)

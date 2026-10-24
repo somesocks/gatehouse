@@ -19,7 +19,7 @@ var (
 	ErrGroupMemberExists      = errors.New("membership already exists")
 	ErrGroupNotFound          = errors.New("group not found")
 	ErrGroupPrincipalNotFound = errors.New("principal not found")
-	ErrGroupLastManager       = errors.New("A group must retain at least one enabled manager. Promote another member to manager before demoting or removing this manager.")
+	ErrGroupLastAdmin         = errors.New("A group must retain at least one enabled admin. Promote another member to admin before demoting or removing this admin.")
 )
 
 type SystemGroup struct {
@@ -187,7 +187,7 @@ func (store *Store) GroupCreate(ctx context.Context, workspace string, input Sys
 		return err, nil
 	}
 	if actor != nil {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision, role) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1, 'manager')`, workspace, id, actor.Id); err != nil {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision, role) VALUES (`+p(1)+`, `+p(2)+`, `+p(3)+`, TRUE, 1, 'admin')`, workspace, id, actor.Id); err != nil {
 			return err, nil
 		}
 		if err := store.systemGroupMemberActivity(ctx, tx, workspace, id, actor.Id, "group_member.create"); err != nil {
@@ -352,7 +352,7 @@ func (store *Store) SystemGroupMemberCreate(ctx context.Context, workspace, grou
 
 func (store *Store) GroupMemberCreate(ctx context.Context, workspace, group, principal string, role authz.Role, actor *model.PrincipalRef) error {
 	if !authz.ValidGroupRole(string(role)) {
-		return fmt.Errorf("%w: role must be member or manager", ErrGroupInput)
+		return fmt.Errorf("%w: role must be member or admin", ErrGroupInput)
 	}
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) {
 		return ErrGroupNotFound
@@ -411,7 +411,7 @@ func (store *Store) SystemGroupMemberUpdate(ctx context.Context, workspace, grou
 
 func (store *Store) GroupMemberUpdate(ctx context.Context, workspace, group, principal string, enabled *bool, role *authz.Role, revision int, actor *model.PrincipalRef) error {
 	if (enabled == nil && role == nil) || (role != nil && !authz.ValidGroupRole(string(*role))) {
-		return fmt.Errorf("%w: enabled or a member/manager role is required", ErrGroupInput)
+		return fmt.Errorf("%w: enabled or a member/admin role is required", ErrGroupInput)
 	}
 	if !typed_id.Valid(typed_id.Workspace, workspace) || !typed_id.Valid(typed_id.Group, group) || !typed_id.Valid(typed_id.Principal, principal) {
 		return ErrGroupNotFound
@@ -452,8 +452,8 @@ func (store *Store) GroupMemberUpdate(ctx context.Context, workspace, group, pri
 		nextRole = *role
 	}
 	if nextEnabled != current || nextRole != currentRole {
-		if current && currentRole == authz.Manager && (!nextEnabled || nextRole != authz.Manager) {
-			var losesLastManager bool
+		if current && currentRole == authz.Admin && (!nextEnabled || nextRole != authz.Admin) {
+			var losesLastAdmin bool
 			if err := tx.QueryRowContext(ctx, `WITH input AS (
 				SELECT `+p(1)+` AS workspace, `+p(2)+` AS "group", `+p(3)+` AS principal
 			) SELECT `+workspacePrincipalAdmissionSQL("input.workspace", "input.principal")+`
@@ -461,16 +461,16 @@ func (store *Store) GroupMemberUpdate(ctx context.Context, workspace, group, pri
 					WHERE groups.workspace_id = input.workspace AND groups.id = input."group" AND groups.enabled = TRUE)
 				AND NOT EXISTS (SELECT 1 FROM gatehouse_group_members remaining
 					WHERE remaining.workspace_id = input.workspace AND remaining.group_id = input."group" AND remaining.principal_id <> input.principal
-					AND remaining.enabled = TRUE AND remaining.role = 'manager'
+					AND remaining.enabled = TRUE AND remaining.role = 'admin'
 					AND `+workspacePrincipalAdmissionSQL("remaining.workspace_id", "remaining.principal_id")+`)
-				FROM input`, workspace, group, principal).Scan(&losesLastManager); err != nil {
+				FROM input`, workspace, group, principal).Scan(&losesLastAdmin); err != nil {
 				return err
 			}
-			if losesLastManager {
-				return ErrGroupLastManager
+			if losesLastAdmin {
+				return ErrGroupLastAdmin
 			}
 		}
-		if nextEnabled && (!current || (nextRole == authz.Manager && currentRole != authz.Manager)) {
+		if nextEnabled && (!current || (nextRole == authz.Admin && currentRole != authz.Admin)) {
 			var admitted bool
 			if err := tx.QueryRowContext(ctx, `SELECT `+workspacePrincipalAdmissionSQL(p(1), p(2)), workspace, principal).Scan(&admitted); err != nil {
 				return err

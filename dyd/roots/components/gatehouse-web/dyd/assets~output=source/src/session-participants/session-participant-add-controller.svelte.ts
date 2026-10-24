@@ -31,7 +31,7 @@ export function createSessionParticipantAddController({
     open: false,
     subject: "",
     selectedName: "",
-    role: "contributor" as ParticipantRole,
+    role: "member" as ParticipantRole,
     saving: false,
     error: "",
   })
@@ -76,7 +76,7 @@ export function createSessionParticipantAddController({
       open: true,
       subject: "",
       selectedName: "",
-      role: "contributor",
+      role: "member",
       error: "",
     })
     void options.search()

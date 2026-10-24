@@ -369,7 +369,7 @@ let GroupMember =
               , role =
                   s.text.from
                     s.text.props::{ variant = s.text.variants.none }
-                    s.text.meta::{ description = Some "group membership role: member or manager" }
+                    s.text.meta::{ description = Some "group membership role: member or admin" }
               }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
@@ -1407,7 +1407,7 @@ let SystemGrantRef =
         , required = toMap { id = s.text.from s.text.props::{ variant = s.text.variants.none } s.text.meta::{ description = Some "durable typed system grant identity" } }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.record.meta::{ name = Some "SystemGrantRef", description = Some "The stable identity of a system manager grant." }
+        s.record.meta::{ name = Some "SystemGrantRef", description = Some "The stable identity of a system admin grant." }
 
 let SystemGrant =
       s.record.from
@@ -1415,12 +1415,12 @@ let SystemGrant =
         , required = toMap
             { ref = s.reference.from s.reference.props::{ to = "SystemGrantRef" } s.reference.meta::{ description = Some "system grant identity" }
             , principal = s.reference.from s.reference.props::{ to = "PrincipalRef" } s.reference.meta::{ description = Some "granted principal identity" }
-            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the system manager grant is enabled" }
+            , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the system admin grant is enabled" }
             , revision = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "monotonic system grant revision" }
             }
         , optional = [] : List { mapKey : Text, mapValue : s.type }
         }
-        s.record.meta::{ name = Some "SystemGrant", description = Some "A principal system manager grant." }
+        s.record.meta::{ name = Some "SystemGrant", description = Some "A principal system admin grant." }
 
 let ActivityEvent =
       s.record.from

@@ -46,7 +46,7 @@ func TestGroupAdministrationRequiresExplicitWorkspaceAdmission(t *testing.T) {
 	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, group.ID, principal); !errors.Is(err, database.ErrGroupInput) {
 		t.Fatalf("unadmitted member = %v", err)
 	}
-	err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Contributor)
+	err, grant := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, principal, authz.Member)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +89,7 @@ func TestGroupAdministrationRequiresExplicitWorkspaceAdmission(t *testing.T) {
 	}
 	assertAccess(true)
 	err, updatedGrant := store.SystemWorkspaceGrantUpdate(ctx, workspace.Id, grant.ID, nil, &disabled, 1)
-	if err != nil || updatedGrant.Enabled || updatedGrant.Role != authz.Contributor || updatedGrant.Revision != 2 {
+	if err != nil || updatedGrant.Enabled || updatedGrant.Role != authz.Member || updatedGrant.Revision != 2 {
 		t.Fatalf("revoke grant = %#v %v", updatedGrant, err)
 	}
 	assertAccess(false)
@@ -154,7 +154,7 @@ func TestConfiguredGroupMembershipRequiresExplicitAdmission(t *testing.T) {
 	if err := migrateState(ctx, store, configuration, state); err == nil {
 		t.Fatal("configuration admitted a person through group membership")
 	}
-	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "team", PrincipalID: &alias, Role: "member", Enabled: true, Revision: 1}}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: "team", PrincipalID: &alias, Role: "guest", Enabled: true, Revision: 1}}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -206,7 +206,7 @@ func verifyGroupReconciliationRevisions(t *testing.T, configuration config.Datab
 	principalAlias := "group-test-" + newTypedID(t, typed_id.Principal)
 	name := "Configured group"
 	state := config.State{Workspaces: []config.Workspace{{Alias: workspaceAlias, Enabled: true}}, Principals: []config.Principal{{Alias: principalAlias, Enabled: true}}, Groups: []config.Group{{WorkspaceID: workspaceAlias, Alias: "developers", Name: &name, Enabled: true, Revision: 1, Members: []config.GroupMember{{PrincipalID: principalAlias, Enabled: true, Revision: 1}}}}}
-	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: workspaceAlias, PrincipalID: &principalAlias, Role: "member", Revision: 1, Enabled: true}}
+	state.WorkspaceGrants = []config.WorkspaceGrant{{WorkspaceID: workspaceAlias, PrincipalID: &principalAlias, Role: "guest", Revision: 1, Enabled: true}}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
@@ -261,18 +261,18 @@ func verifyGroupReconciliationRevisions(t *testing.T, configuration config.Datab
 	state.Groups[0].Revision = 1
 	state.Groups[0].Name = &name
 	state.Groups[0].Members[0].Revision = 4
-	state.Groups[0].Members[0].Role = "manager"
+	state.Groups[0].Members[0].Role = "admin"
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)
 	}
 	assertRecords(5, 4, true, true, reconfiguredName)
-	if err, role := store.GroupRoleGet(ctx, workspace.Id, id, model.PrincipalRef{Id: principal}); err != nil || role != authz.Manager {
+	if err, role := store.GroupRoleGet(ctx, workspace.Id, id, model.PrincipalRef{Id: principal}); err != nil || role != authz.Admin {
 		t.Fatalf("configured manager role: %s %v", role, err)
 	}
 	// A new membership still gets created when group metadata has a newer DB revision.
 	newPrincipalAlias := "group-test-" + newTypedID(t, typed_id.Principal)
 	state.Principals = append(state.Principals, config.Principal{Alias: newPrincipalAlias, Enabled: true})
-	state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspaceAlias, PrincipalID: &newPrincipalAlias, Role: "member", Revision: 1, Enabled: true})
+	state.WorkspaceGrants = append(state.WorkspaceGrants, config.WorkspaceGrant{WorkspaceID: workspaceAlias, PrincipalID: &newPrincipalAlias, Role: "guest", Revision: 1, Enabled: true})
 	state.Groups[0].Members = append(state.Groups[0].Members, config.GroupMember{PrincipalID: newPrincipalAlias, Enabled: true, Revision: 9})
 	if err := migrateState(ctx, store, configuration, state); err != nil {
 		t.Fatal(err)

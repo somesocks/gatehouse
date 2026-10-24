@@ -19,13 +19,13 @@ workspaces:
     groups:
       - alias: operators
     grants:
-      - role: manager
+      - role: admin
         principal: alice
-      - role: member
+      - role: guest
         principal: bob
         revision: 2
         enabled: false
-      - role: contributor
+      - role: member
         principal: alice
 `), 0o600); err != nil {
 		t.Fatal(err)
@@ -40,9 +40,9 @@ workspaces:
 	}
 	disabled := false
 	want := []WorkspaceGrant{
-		{WorkspaceID: "zebra", Role: "contributor", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
-		{WorkspaceID: "zebra", Role: "manager", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
-		{WorkspaceID: "zebra", Role: "member", PrincipalID: stringPointer("bob"), Revision: 2, Enabled: disabled},
+		{WorkspaceID: "zebra", Role: "admin", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
+		{WorkspaceID: "zebra", Role: "guest", PrincipalID: stringPointer("bob"), Revision: 2, Enabled: disabled},
+		{WorkspaceID: "zebra", Role: "member", PrincipalID: stringPointer("alice"), Revision: 1, Enabled: true},
 	}
 	if !reflect.DeepEqual(state.WorkspaceGrants, want) {
 		t.Fatalf("WorkspaceGrants = %#v, want %#v", state.WorkspaceGrants, want)
@@ -60,7 +60,7 @@ func TestResolveWorkspaceGrantsRejectsInvalidValues(t *testing.T) {
 			bindings: `
       - role: owner
         principal: alice`,
-			contains: ".role must be member, contributor, or manager",
+			contains: ".role must be guest, member, or admin",
 		}, {
 			name: "missing subject",
 			bindings: `

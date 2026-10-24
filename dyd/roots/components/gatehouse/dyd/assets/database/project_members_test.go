@@ -48,9 +48,9 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 			{WorkspaceID: "elsewhere", Alias: "other", Enabled: true},
 		},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "engineering", PrincipalID: stringPointer("alice"), Role: "manager", Enabled: true, Revision: 1},
-			{WorkspaceID: "engineering", PrincipalID: stringPointer("bob"), Role: "member", Enabled: true, Revision: 1},
-			{WorkspaceID: "engineering", PrincipalID: stringPointer("outsider"), Role: "member", Enabled: true, Revision: 1},
+			{WorkspaceID: "engineering", PrincipalID: stringPointer("alice"), Role: "admin", Enabled: true, Revision: 1},
+			{WorkspaceID: "engineering", PrincipalID: stringPointer("bob"), Role: "guest", Enabled: true, Revision: 1},
+			{WorkspaceID: "engineering", PrincipalID: stringPointer("outsider"), Role: "guest", Enabled: true, Revision: 1},
 		},
 	}
 	if err := migrateState(ctx, store, configuration, state); err != nil {
@@ -97,31 +97,31 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 		t.Fatalf("admitted principal options: %#v %v", people, err)
 	}
 	for _, recipient := range []struct{ principal, group *string }{{&outsider.Id, nil}, {&disabled.Id, nil}, {nil, &otherGroup}, {nil, &disabledGroup}} {
-		if err, _ := store.ProjectGrantCreate(ctx, project, alice, recipient.principal, recipient.group, authz.Member); !errors.Is(err, database.ErrProjectMemberNotFound) {
+		if err, _ := store.ProjectGrantCreate(ctx, project, alice, recipient.principal, recipient.group, authz.Guest); !errors.Is(err, database.ErrProjectMemberNotFound) {
 			t.Fatalf("unavailable recipient: %v", err)
 		}
 	}
-	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, &group, authz.Member); !errors.Is(err, database.ErrProjectMemberInput) {
+	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, &group, authz.Guest); !errors.Is(err, database.ErrProjectMemberInput) {
 		t.Fatalf("mixed subjects: %v", err)
 	}
-	err, direct := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Contributor)
+	err, direct := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Member)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Contributor); !errors.Is(err, database.ErrProjectGrantExists) {
+	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Member); !errors.Is(err, database.ErrProjectGrantExists) {
 		t.Fatalf("duplicate: %v", err)
 	}
-	if err, _ := store.ProjectGrantCreate(ctx, project, bob, nil, &group, authz.Manager); !errors.Is(err, database.ErrProjectMemberForbidden) {
+	if err, _ := store.ProjectGrantCreate(ctx, project, bob, nil, &group, authz.Admin); !errors.Is(err, database.ErrProjectMemberForbidden) {
 		t.Fatalf("contributor escalated: %v", err)
 	}
 	if err, _, _ := store.ProjectMembersSearch(ctx, project, bob, database.ProjectMemberSearch{Kind: "group", Limit: 50}, true); !errors.Is(err, database.ErrProjectMemberForbidden) {
 		t.Fatalf("non-manager options: %v", err)
 	}
-	err, grouped := store.ProjectGrantCreate(ctx, project, alice, nil, &group, authz.Member)
+	err, grouped := store.ProjectGrantCreate(ctx, project, alice, nil, &group, authz.Guest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err, viewer := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Member)
+	err, viewer := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Guest)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 	if err != nil || len(people) != 1 || len(people[0].Grants) != 2 {
 		t.Fatalf("explicit roles: %#v %v", people, err)
 	}
-	member := authz.Member
+	member := authz.Guest
 	if err, _ := store.ProjectGrantUpdate(ctx, project, alice, direct.ID, &member, nil, 1); !errors.Is(err, database.ErrProjectGrantExists) {
 		t.Fatalf("role collision: %v", err)
 	}
@@ -170,7 +170,7 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 	if err, visible := store.ProjectGet(ctx, project, bob); err != nil || visible == nil {
 		t.Fatalf("group access lost with direct grants: %#v %v", visible, err)
 	}
-	err, restored := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Contributor)
+	err, restored := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Member)
 	if err != nil || restored.ID != direct.ID || restored.Revision != 3 {
 		t.Fatalf("reactivation: %#v %v", restored, err)
 	}
@@ -183,14 +183,14 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 		t.Fatalf("cross-project mutation: %v", err)
 	}
 	for _, nonManager := range []string{empty, outside} {
-		if err, _ := store.ProjectGrantCreate(ctx, project, alice, nil, &nonManager, authz.Manager); err != nil {
+		if err, _ := store.ProjectGrantCreate(ctx, project, alice, nil, &nonManager, authz.Admin); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err, _ := store.ProjectGrantUpdate(ctx, project, alice, manager.ID, nil, &removed, 1); !errors.Is(err, database.ErrProjectLastManager) {
+	if err, _ := store.ProjectGrantUpdate(ctx, project, alice, manager.ID, nil, &removed, 1); !errors.Is(err, database.ErrProjectLastAdmin) {
 		t.Fatalf("empty/non-admitted groups counted as effective managers: %v", err)
 	}
-	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Manager); err != nil {
+	if err, _ := store.ProjectGrantCreate(ctx, project, alice, &bob.Id, nil, authz.Admin); err != nil {
 		t.Fatal(err)
 	}
 	err, bobPage, _ := store.ProjectMembersSearch(ctx, project, alice, database.ProjectMemberSearch{Kind: "principal", Name: "bob", Limit: 50}, false)
@@ -199,7 +199,7 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 	}
 	var bobManager database.ProjectGrant
 	for _, grant := range bobPage[0].Grants {
-		if grant.Role == authz.Manager {
+		if grant.Role == authz.Admin {
 			bobManager = grant
 		}
 	}
@@ -218,7 +218,7 @@ func testProjectMemberGrants(t *testing.T, configuration config.DatabaseConfig) 
 		err := <-results
 		if err == nil {
 			succeeded++
-		} else if errors.Is(err, database.ErrProjectLastManager) {
+		} else if errors.Is(err, database.ErrProjectLastAdmin) {
 			blocked++
 		} else {
 			t.Fatalf("competing manager removals: %v", err)

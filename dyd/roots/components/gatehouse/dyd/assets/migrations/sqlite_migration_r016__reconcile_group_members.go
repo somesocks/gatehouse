@@ -30,7 +30,7 @@ func sqliteMigrationR016ReconcileGroupMembers(groups []config.Group) RepeatableM
 		LEFT JOIN gatehouse_group_members members ON members.workspace_id = workspace.id AND members.group_id = groups.id AND members.principal_id = principal.id
 		WHERE members.principal_id IS NULL OR members.revision < desired.revision;
 		CREATE TEMP TABLE gatehouse_migration_member_guard (
-			has_manager INTEGER NOT NULL CONSTRAINT group_requires_enabled_manager CHECK (has_manager = TRUE)
+			has_admin INTEGER NOT NULL CONSTRAINT group_requires_enabled_admin CHECK (has_admin = TRUE)
 		) STRICT;
 		WITH admitted AS (
 			SELECT DISTINCT grants.workspace, grants.principal FROM gatehouse_workspace_grants grants
@@ -43,12 +43,12 @@ func sqliteMigrationR016ReconcileGroupMembers(groups []config.Group) RepeatableM
 			SELECT 1 FROM gatehouse_migration_member_state replacement
 			JOIN admitted ON admitted.workspace = replacement.workspace AND admitted.principal = replacement.principal
 			WHERE replacement.workspace = changes.workspace AND replacement."group" = changes."group"
-			AND replacement.enabled = TRUE AND replacement.role = 'manager'
+			AND replacement.enabled = TRUE AND replacement.role = 'admin'
 		) OR EXISTS (
 			SELECT 1 FROM gatehouse_group_members remaining
 			JOIN admitted ON admitted.workspace = remaining.workspace_id AND admitted.principal = remaining.principal_id
 			WHERE remaining.workspace_id = changes.workspace AND remaining.group_id = changes."group"
-			AND remaining.enabled = TRUE AND remaining.role = 'manager'
+			AND remaining.enabled = TRUE AND remaining.role = 'admin'
 			AND NOT EXISTS (SELECT 1 FROM gatehouse_migration_member_state edited
 				WHERE edited.workspace = remaining.workspace_id AND edited."group" = remaining.group_id AND edited.principal = remaining.principal_id)
 		)
@@ -56,7 +56,7 @@ func sqliteMigrationR016ReconcileGroupMembers(groups []config.Group) RepeatableM
 		JOIN gatehouse_group_members current ON current.workspace_id = changes.workspace AND current.group_id = changes."group" AND current.principal_id = changes.principal
 		JOIN gatehouse_groups groups ON groups.workspace_id = current.workspace_id AND groups.id = current.group_id AND groups.enabled = TRUE
 		JOIN admitted ON admitted.workspace = current.workspace_id AND admitted.principal = current.principal_id
-		WHERE current.enabled = TRUE AND current.role = 'manager' AND (changes.enabled = FALSE OR changes.role <> 'manager');
+		WHERE current.enabled = TRUE AND current.role = 'admin' AND (changes.enabled = FALSE OR changes.role <> 'admin');
 		DROP TABLE gatehouse_migration_member_guard;
 		INSERT INTO gatehouse_group_members (workspace_id, group_id, principal_id, enabled, revision, role)
 		SELECT workspace, "group", principal, enabled, revision, role FROM gatehouse_migration_member_state WHERE TRUE

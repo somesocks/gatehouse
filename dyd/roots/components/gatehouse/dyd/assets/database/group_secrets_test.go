@@ -36,12 +36,12 @@ func testGroupSecrets(t *testing.T, configuration config.DatabaseConfig) {
 		Workspaces: []config.Workspace{{Alias: "team", Enabled: true}, {Alias: "other", Enabled: true}},
 		Principals: []config.Principal{{Alias: owner, Enabled: true}, {Alias: alice, Enabled: true}, {Alias: bob, Enabled: true}, {Alias: outsider, Enabled: true}},
 		WorkspaceGrants: []config.WorkspaceGrant{
-			{WorkspaceID: "team", PrincipalID: &owner, Role: "manager", Revision: 1, Enabled: true},
-			{WorkspaceID: "team", PrincipalID: &alice, Role: "member", Revision: 1, Enabled: true},
-			{WorkspaceID: "team", PrincipalID: &bob, Role: "member", Revision: 1, Enabled: true},
-			{WorkspaceID: "team", PrincipalID: &outsider, Role: "manager", Revision: 1, Enabled: true},
-			{WorkspaceID: "other", PrincipalID: &owner, Role: "manager", Revision: 1, Enabled: true},
-			{WorkspaceID: "other", PrincipalID: &alice, Role: "member", Revision: 1, Enabled: true},
+			{WorkspaceID: "team", PrincipalID: &owner, Role: "admin", Revision: 1, Enabled: true},
+			{WorkspaceID: "team", PrincipalID: &alice, Role: "guest", Revision: 1, Enabled: true},
+			{WorkspaceID: "team", PrincipalID: &bob, Role: "guest", Revision: 1, Enabled: true},
+			{WorkspaceID: "team", PrincipalID: &outsider, Role: "admin", Revision: 1, Enabled: true},
+			{WorkspaceID: "other", PrincipalID: &owner, Role: "admin", Revision: 1, Enabled: true},
+			{WorkspaceID: "other", PrincipalID: &alice, Role: "guest", Revision: 1, Enabled: true},
 		},
 		AgentProviders: []config.AgentProvider{{Alias: "builtin", Protocol: "builtin", Revision: 1, Enabled: true}},
 		AgentModels: []config.AgentModel{{Alias: "model", ProviderAlias: "builtin", Model: "dummy.fixed-reply", Parameters: `{"text":"Done"}`, MaxTurns: 1, MaxOutputTokens: config.DefaultAgentModelMaxOutputTokens, Revision: 1, Enabled: true}},
@@ -54,7 +54,7 @@ func testGroupSecrets(t *testing.T, configuration config.DatabaseConfig) {
 	for _, alias := range []string{"human", "bot", "shared", "neither", "disabled", "contacts", "foreign"} {
 		workspace := "team"
 		if alias == "foreign" { workspace = "other" }
-		group := config.Group{WorkspaceID: workspace, Alias: alias, Enabled: true, Members: []config.GroupMember{{PrincipalID: owner, Role: "manager", Enabled: true}}}
+		group := config.Group{WorkspaceID: workspace, Alias: alias, Enabled: true, Members: []config.GroupMember{{PrincipalID: owner, Role: "admin", Enabled: true}}}
 		if alias == "human" || alias == "shared" || alias == "disabled" || alias == "contacts" || alias == "foreign" {
 			group.Members = append(group.Members, config.GroupMember{PrincipalID: alice, Enabled: true})
 		}
@@ -100,8 +100,8 @@ func testGroupSecrets(t *testing.T, configuration config.DatabaseConfig) {
 	id, _ := typed_id.New(typed_id.Session)
 	session := model.SessionRef{Workspace: workspace, Id: id}
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &actor, Enabled: true}, actor); err != nil { t.Fatal(err) }
-	if err, _ := store.SessionParticipantGrantCreateSubject(ctx, session, actor, nil, nil, &bot.Id, authz.Contributor); err != nil { t.Fatal(err) }
-	if err, _ := store.SessionParticipantGrantCreate(ctx, session, actor, &otherPerson.Id, nil, authz.Contributor); err != nil { t.Fatal(err) }
+	if err, _ := store.SessionParticipantGrantCreateSubject(ctx, session, actor, nil, nil, &bot.Id, authz.Member); err != nil { t.Fatal(err) }
+	if err, _ := store.SessionParticipantGrantCreate(ctx, session, actor, &otherPerson.Id, nil, authz.Member); err != nil { t.Fatal(err) }
 	assertAvailable := func(alias string, want bool) {
 		t.Helper()
 		err, detail := store.GroupSecretForBotGet(ctx, workspace, actor, bot, refs[alias].Id)

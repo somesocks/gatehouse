@@ -48,7 +48,7 @@ export function createProjectAccessController({
     adding: null as ProjectMemberKind | null,
     subject: "",
     selectedName: "",
-    role: "contributor" as ProjectRole,
+    role: "member" as ProjectRole,
     action: null as GrantAction | null,
   })
   const current = (value: number, signal: AbortSignal) =>
@@ -161,7 +161,7 @@ export function createProjectAccessController({
     if (!state.canManage || state.saving) return
     cancelAction()
     Object.assign(state, {
-      adding: kind, subject: "", selectedName: "", role: "contributor",
+      adding: kind, subject: "", selectedName: "", role: "member",
     })
     choices[kind].reset()
     void choices[kind].search()

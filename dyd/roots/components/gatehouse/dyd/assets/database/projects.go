@@ -53,7 +53,7 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 	if _, err := transaction.ExecContext(ctx, `
 		INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
 		VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, `+placeholder(5)+`, NULL, TRUE)
-	`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, creator.Id); err != nil {
+	`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Admin, creator.Id); err != nil {
 		return fmt.Errorf("bind project creator role: %w", err), model.Project{}
 	}
 	if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{
@@ -72,7 +72,7 @@ func (store *Store) ProjectsCreate(ctx context.Context, project model.Project, c
 		if _, err := transaction.ExecContext(ctx, `
 			INSERT INTO gatehouse_project_grants (id, workspace, project, role, principal, "group", enabled)
 			VALUES (`+placeholder(1)+`, `+placeholder(2)+`, `+placeholder(3)+`, `+placeholder(4)+`, NULL, `+placeholder(5)+`, TRUE)
-		`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Manager, group.Id); err != nil {
+		`, grantID, project.Ref.Workspace.Id, project.Ref.Id, authz.Admin, group.Id); err != nil {
 			return fmt.Errorf("bind project group role: %w", err), model.Project{}
 		}
 		if err, _ := store.ActivityEventAppend(ctx, transaction, model.ActivityEvent{

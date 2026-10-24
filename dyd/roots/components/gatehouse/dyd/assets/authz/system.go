@@ -9,7 +9,7 @@ func SystemAllows(roles []Role, action SystemAction) bool {
 		return false
 	}
 	for _, role := range roles {
-		if role == Manager {
+		if role == Admin {
 			return true
 		}
 	}

@@ -62,8 +62,8 @@ func TestSQLiteNewBaselinePreservesExistingHistory(t *testing.T) {
 	if got := historyIndexes(t, latest, migrationTypeBaseline); !reflect.DeepEqual(got, []int64{68}) {
 		t.Fatalf("fresh database baseline = %v, want [68]", got)
 	}
-	if got := historyIndexes(t, latest, migrationTypeVersioned); len(got) != 0 {
-		t.Fatalf("fresh B068 database executed versioned migrations: %v", got)
+	if got := historyIndexes(t, latest, migrationTypeVersioned); !reflect.DeepEqual(got, []int64{69}) {
+		t.Fatalf("fresh B068 database versioned migrations = %v, want [69]", got)
 	}
 	if got, want := sqliteSchemaDefinitions(t, latest), sqliteSchemaDefinitions(t, db); !reflect.DeepEqual(got, want) {
 		t.Fatal("new baseline schema differs from upgraded B049 database")

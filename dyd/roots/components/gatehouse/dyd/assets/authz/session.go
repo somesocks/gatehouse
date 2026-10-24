@@ -31,9 +31,9 @@ func SessionAllows(roles []Role, action SessionAction) bool {
 	}
 	for _, role := range roles {
 		switch role {
-		case Manager:
+		case Admin:
 			return true
-		case Contributor:
+		case Member:
 			switch action {
 			case SessionMessageCreate, SessionMessageCancel,
 				SessionNoteCreate, SessionNoteEdit, SessionNoteRemove,

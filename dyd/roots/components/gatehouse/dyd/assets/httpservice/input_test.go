@@ -434,7 +434,7 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	if err := fixture.store.QueryRowContext(ctx, `SELECT id FROM gatehouse_principals WHERE alias = 'bob'`).Scan(&bob.Id); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := fixture.store.SystemWorkspacePrincipalGrantCreate(ctx, fixture.input.Session.Workspace.Id, bob.Id, authz.Member); err != nil {
+	if err, _ := fixture.store.SystemWorkspacePrincipalGrantCreate(ctx, fixture.input.Session.Workspace.Id, bob.Id, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	identity, err := typed_id.New(typed_id.Identity)
@@ -446,7 +446,7 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.store.ExecContext(ctx, `INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES (?, ?, ?, 'contributor', ?, NULL, TRUE)`, "sgr_00000000000000000000000009", fixture.input.Session.Workspace.Id, fixture.input.Session.Id, bob.Id); err != nil {
+	if _, err := fixture.store.ExecContext(ctx, `INSERT INTO gatehouse_session_grants (id, workspace, session, role, principal, "group", enabled) VALUES (?, ?, ?, 'member', ?, NULL, TRUE)`, "sgr_00000000000000000000000009", fixture.input.Session.Workspace.Id, fixture.input.Session.Id, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	err, login := fixture.tokens.Mint(ctx, auth.Claims{Principal: model.Principal{Ref: bob, Enabled: true}, Identity: identity})
@@ -464,7 +464,7 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", managerToken, ""); read.Code != http.StatusOK || !strings.Contains(read.Body.String(), `"name":"Bob"`) {
 		t.Fatalf("shared draft across responders = %d %s", read.Code, read.Body.String())
 	}
-	if _, err := fixture.store.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = 'member' WHERE principal = ?`, bob.Id); err != nil {
+	if _, err := fixture.store.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = 'guest' WHERE principal = ?`, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	for _, denied := range []struct{ path, token string }{{open, login}, {"/api/v1/input", capability}} {
@@ -478,7 +478,7 @@ func TestInputHTTPResponderPermissionsAndCancel(t *testing.T) {
 	if read := inputTestRequest(fixture.handler, http.MethodGet, "/api/v1/input", capability, ""); read.Code != http.StatusForbidden {
 		t.Fatalf("revoked responder can read = %d", read.Code)
 	}
-	if _, err := fixture.store.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = 'contributor', enabled = TRUE WHERE principal = ?`, bob.Id); err != nil {
+	if _, err := fixture.store.ExecContext(ctx, `UPDATE gatehouse_session_grants SET role = 'member', enabled = TRUE WHERE principal = ?`, bob.Id); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := fixture.store.ExecContext(ctx, `UPDATE gatehouse_identities SET enabled = FALSE WHERE id = ?`, identity); err != nil {

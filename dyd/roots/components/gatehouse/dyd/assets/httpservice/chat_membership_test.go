@@ -40,7 +40,7 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	workspace := workspaces["engineering"]
-	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Member); err != nil {
+	if err, _ := store.SystemWorkspacePrincipalGrantCreate(ctx, workspace.Id, bob, authz.Guest); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.SystemGroupMemberCreate(ctx, workspace.Id, groupID(t, ctx, store, "engineering", "developers"), bob); err != nil {
@@ -51,7 +51,7 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 	if err, _ := store.SessionsCreate(ctx, model.Session{Ref: session, AuthorPrincipal: &alice, Enabled: true}, alice); err != nil {
 		t.Fatal(err)
 	}
-	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, &bob, nil, authz.Contributor); err != nil {
+	if err, _ := store.SessionParticipantGrantCreate(ctx, session, alice, &bob, nil, authz.Member); err != nil {
 		t.Fatal(err)
 	}
 	handler := HandlerWithReplyDispatcher(config.HTTPService{API: true}, store, messageTestDispatcher{store}, tokens)
@@ -92,7 +92,7 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 	var participants struct {
 		Participants []database.SessionParticipant `json:"participants"`
 	}
-	if err := json.Unmarshal(roster.Body.Bytes(), &participants); err != nil || len(participants.Participants) != 1 || participants.Participants[0].Grants[0].Role != authz.Contributor {
+	if err := json.Unmarshal(roster.Body.Bytes(), &participants); err != nil || len(participants.Participants) != 1 || participants.Participants[0].Grants[0].Role != authz.Member {
 		t.Fatalf("joined roster = %#v %v", participants, err)
 	}
 	grant := participants.Participants[0].Grants[0]
@@ -100,5 +100,5 @@ func TestRecipientScopesAndAutomaticBotMembership(t *testing.T) {
 	request("POST", "/messages", body, contributor, 403)
 	request("GET", "/agent-options", "", contributor, 403)
 	request("GET", "/agent-options", "", manager, 200)
-	request("POST", "/grants", `{"agent":"`+bot+`","role":"contributor"}`, manager, 201)
+	request("POST", "/grants", `{"agent":"`+bot+`","role":"member"}`, manager, 201)
 }

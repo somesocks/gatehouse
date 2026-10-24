@@ -36,11 +36,11 @@ func (store *Store) groupMutationAllowed(ctx context.Context, tx *sql.Tx, worksp
 	query := workspacePrincipalAdmissionSQL(p(1), p(2))
 	args := []any{workspace, actor.Id}
 	if group == "" {
-		query += ` AND EXISTS (SELECT 1 FROM gatehouse_workspace_grants WHERE workspace = ` + p(1) + ` AND principal = ` + p(2) + ` AND role = 'manager' AND enabled = TRUE)`
+		query += ` AND EXISTS (SELECT 1 FROM gatehouse_workspace_grants WHERE workspace = ` + p(1) + ` AND principal = ` + p(2) + ` AND role = 'admin' AND enabled = TRUE)`
 	} else {
 		query += ` AND EXISTS (SELECT 1 FROM gatehouse_group_members members
 			JOIN gatehouse_groups groups ON groups.workspace_id = members.workspace_id AND groups.id = members.group_id
-			WHERE members.workspace_id = ` + p(1) + ` AND members.principal_id = ` + p(2) + ` AND members.group_id = ` + p(3) + ` AND members.role = 'manager' AND members.enabled = TRUE AND groups.enabled = TRUE)`
+			WHERE members.workspace_id = ` + p(1) + ` AND members.principal_id = ` + p(2) + ` AND members.group_id = ` + p(3) + ` AND members.role = 'admin' AND members.enabled = TRUE AND groups.enabled = TRUE)`
 		args = append(args, group)
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT `+query, args...).Scan(&allowed); err != nil {

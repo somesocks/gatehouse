@@ -9,14 +9,14 @@ func TestWorkspaceAllows(t *testing.T) {
 		action  WorkspaceAction
 		allowed bool
 	}{
-		{name: "member denied", roles: []Role{Member}, action: WorkspaceProjectCreate},
-		{name: "contributor creates project", roles: []Role{Contributor}, action: WorkspaceProjectCreate, allowed: true},
-		{name: "contributor creates session", roles: []Role{Contributor}, action: WorkspaceSessionCreate, allowed: true},
-		{name: "contributor cannot edit", roles: []Role{Contributor}, action: WorkspaceEdit},
-		{name: "manager edits", roles: []Role{Manager}, action: WorkspaceEdit, allowed: true},
-		{name: "manager creates group", roles: []Role{Manager}, action: WorkspaceGroupCreate, allowed: true},
-		{name: "manager manages grants", roles: []Role{Manager}, action: WorkspaceGrantManage, allowed: true},
-		{name: "manager rejects unrelated action", roles: []Role{Manager}, action: "workspace.project.session.create"},
+		{name: "guest denied", roles: []Role{Guest}, action: WorkspaceProjectCreate},
+		{name: "member creates project", roles: []Role{Member}, action: WorkspaceProjectCreate, allowed: true},
+		{name: "member creates session", roles: []Role{Member}, action: WorkspaceSessionCreate, allowed: true},
+		{name: "member cannot edit", roles: []Role{Member}, action: WorkspaceEdit},
+		{name: "admin edits", roles: []Role{Admin}, action: WorkspaceEdit, allowed: true},
+		{name: "admin creates group", roles: []Role{Admin}, action: WorkspaceGroupCreate, allowed: true},
+		{name: "admin manages grants", roles: []Role{Admin}, action: WorkspaceGrantManage, allowed: true},
+		{name: "admin rejects unrelated action", roles: []Role{Admin}, action: "workspace.project.session.create"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := WorkspaceAllows(test.roles, test.action); got != test.allowed {

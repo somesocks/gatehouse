@@ -23,7 +23,7 @@ activity events refresh open administration views.
 
 ## API
 
-Both endpoints require current system-manager authorization, accept JSON POST
+Both endpoints require current system-admin authorization, accept JSON POST
 bodies, and return `Cache-Control: no-store`:
 
 - `/api/v1/system/agent-providers/openai-codex/login/start`: body
