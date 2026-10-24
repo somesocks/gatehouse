@@ -112,9 +112,15 @@ export function createGroupSecretsController({ activity, onAuthenticationLost, o
     state.snapshot = secret ? { ...secret } : null
     state.description = secret?.description ?? ""
   }
-  async function reloadSecret() {
+  function beginEdit(id: string) {
+    if (!state.active || !state.canManage || state.saving) return
+    cancelDialog()
+    state.dialog = "edit"
+    void reloadSecret(id)
+  }
+  async function reloadSecret(id = state.snapshot?.id) {
     const snapshot = state.snapshot
-    if (!snapshot || state.saving || state.reloading) return
+    if (!id || state.saving || state.reloading) return
     metadata?.abort()
     const own = new AbortController()
     metadata = own
@@ -122,11 +128,10 @@ export function createGroupSecretsController({ activity, onAuthenticationLost, o
     state.reloading = true
     state.error = ""
     try {
-      const response = await fetchGroupSecret(workspace, group, snapshot.id, own.signal)
+      const response = await fetchGroupSecret(workspace, group, id, own.signal)
       if (!current(value, own.signal)) return
       if (response.status === 401) { onAuthenticationLost(); return }
       if (response.status === 404) {
-        clearDialog()
         state.error = "This secret is no longer available."
         void directory.reload()
         return
@@ -145,7 +150,7 @@ export function createGroupSecretsController({ activity, onAuthenticationLost, o
   }
   async function save() {
     const { dialog, snapshot, description, value } = state
-    if (!state.active || !state.canManage || !dialog || state.saving || state.reloading) return false
+    if (!state.active || !state.canManage || !dialog || state.saving || state.reloading || (dialog !== "create" && !snapshot)) return false
     if (dialog !== "remove" && (!description.trim() || (dialog === "create" && !value))) return false
     operation?.abort()
     const own = new AbortController()
@@ -181,5 +186,5 @@ export function createGroupSecretsController({ activity, onAuthenticationLost, o
       if (current(selected, own.signal)) state.saving = false
     }
   }
-  return { state, directory, start, stop, begin, cancelDialog, reloadSecret, save }
+  return { state, directory, start, stop, begin, beginEdit, cancelDialog, reloadSecret, save }
 }

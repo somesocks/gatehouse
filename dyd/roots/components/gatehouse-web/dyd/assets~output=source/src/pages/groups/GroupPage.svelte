@@ -15,6 +15,8 @@
   import SystemGroupDetailsDialog from "../system/workspaces/SystemGroupDetailsDialog.svelte"
   import SystemGroupMembershipDialog from "../system/workspaces/SystemGroupMembershipDialog.svelte"
   import GroupSecretsSection from "./GroupSecretsSection.svelte"
+  import GroupMemberRoleDialog from "./GroupMemberRoleDialog.svelte"
+  import { routePath } from "../../route"
 
   let {
     workspaceID,
@@ -23,7 +25,17 @@
   }: { workspaceID: string; groupID: string; scope?: GroupScope } = $props()
   const runtime = useRuntime()
   const confirmation = createConfirmation()
-  let dialog = $state<"details" | "members" | "bots" | null>(null)
+  let editingMember = $state<SystemGroupMember | null>(null)
+  let systemDialog = $state<"details" | "members" | "bots" | null>(null)
+  const dialog = $derived(scope === "system" ? systemDialog
+    : runtime.state.route.kind === "group" && runtime.state.route.groupID === groupID
+      ? runtime.state.route.dialog ?? null : null)
+  const groupPath = () => routePath({ kind: "group", workspaceID, groupID })
+  const dialogPath = (dialog: "details" | "members" | "bots") => routePath({ kind: "group", workspaceID, groupID, dialog })
+  function closeDialog() {
+    if (scope === "system") systemDialog = null
+    else runtime.navigate(groupPath(), true)
+  }
   const members = createDirectoryController<SystemGroupMember>({
     onAuthenticationLost: runtime.requireLogin,
     onSystemAccessChange: (next) => {
@@ -84,7 +96,15 @@
     }),
   )
   const view = controller.state
+  const groupLoaded = $derived(view.group !== null)
   let canManage = $derived(scope === "system" || view.group?.role === "admin")
+  $effect.pre(() => {
+    runtime.state.route
+    untrack(() => (editingMember = null))
+  })
+  $effect(() => {
+    if (!canManage) editingMember = null
+  })
   onMount(() => {
     void controller.load()
     void members.search()
@@ -112,7 +132,7 @@
               if (!controller.state.group) {
                 members.reset()
                 agents.reset()
-                dialog = null
+                if (dialog) closeDialog()
                 return
               }
               const refreshed = await Promise.all([
@@ -132,14 +152,24 @@
     }
   })
   function editDetails() {
-    controller.beginDetails()
-    dialog = "details"
+    systemDialog = "details"
   }
   function addMembership(kind: "members" | "bots") {
-    view.memberRole = "member"
-    controller.clearFeedback(kind)
-    dialog = kind
+    systemDialog = kind
   }
+  $effect(() => {
+    const activeDialog = dialog
+    const ready = groupLoaded
+    return untrack(() => {
+      if (!ready || !activeDialog || activeDialog.startsWith("secret-")) return
+      if (activeDialog === "details") controller.beginDetails()
+      else if (activeDialog === "members" || activeDialog === "bots") {
+        view.memberRole = "member"
+        controller.clearFeedback(activeDialog)
+      }
+      return controller.cancelMutation
+    })
+  })
   function deleteGroup() {
     if (!view.group) return
     const group = { ...view.group }
@@ -180,21 +210,9 @@
       },
     })
   }
-  function changeMemberRole(member: SystemGroupMember, role: "member" | "admin") {
-    if (member.role !== "admin" || role !== "member") {
-      void controller.changeMemberRole(member, role)
-      return
-    }
-    const snapshot = { ...member }
-    confirmation.request({
-      title: "Remove group management access?",
-      description: `${member.name ?? member.alias ?? "This person"} will remain a member but will no longer be able to manage this group.`,
-      confirmLabel: "Change to member",
-      onConfirm: async () => {
-        if (!(await controller.changeMemberRole(snapshot, role)))
-          return view.feedback.members.error || "The role could not be changed."
-      },
-    })
+  function editMember(member: SystemGroupMember) {
+    controller.clearFeedback("members")
+    editingMember = { ...member }
   }
 </script>
 
@@ -215,11 +233,12 @@
   <UI.ManagementLayout>
     {#snippet header()}
       <UI.AdminHeader kind="Group" title={group.name ?? group.alias ?? "Group"}>
-        {#snippet actions()}{#if canManage}<UI.Button
-              variant="outline"
+        {#snippet actions()}{#if canManage}
+            {#if scope === "workspace"}<UI.RouterLink variant="default" href={dialogPath("details")} disabled={view.saving}>Edit details</UI.RouterLink>
+            {:else}<UI.Button
               disabled={view.saving}
               onclick={editDetails}>Edit details</UI.Button
-            >
+            >{/if}
             {#if group.enabled}<UI.ActionButton
                 variant="outline"
                 disabled={view.saving}
@@ -229,20 +248,25 @@
           {/if}
         {/snippet}
       </UI.AdminHeader>
-      {#if view.feedback.details.error || view.loadError}
+      {#if dialog !== "details" && !confirmation.state.request && (view.feedback.details.error || view.loadError)}
         <UI.ActionFeedback
-          error={view.feedback.details.error || view.loadError}
+          error={view.loadError || view.feedback.details.error}
         />
+      {/if}
+      {#if dialog && !canManage}
+        <UI.Notice role="alert">Group admin access is required to use this view.
+          <UI.RouterLink variant="outline" href={groupPath()} replace>Close</UI.RouterLink>
+        </UI.Notice>
       {/if}
     {/snippet}
 
     <UI.ManagementSection title="Members" loading={members.state.busy}>
-      {#snippet actions()}{#if canManage}<UI.Button
-            size="sm"
-            variant="outline"
+      {#snippet actions()}{#if canManage}
+          {#if scope === "workspace"}<UI.RouterLink variant="default" href={dialogPath("members")} disabled={view.saving}>Add member</UI.RouterLink>
+          {:else}<UI.Button
             disabled={view.saving}
             onclick={() => addMembership("members")}>Add member</UI.Button
-          >{/if}{/snippet}
+          >{/if}{/if}{/snippet}
       {#snippet toolbar()}
         <UI.SearchToolbar
           framed={false}
@@ -276,39 +300,34 @@
           member,
         )}{#if member.alias}@{member.alias}{/if}{/snippet}
         {#snippet actions(member)}
-          {#if canManage}
-            <UI.Select
-              aria-label={`Role for ${member.label}`}
-              value={member.role}
-              disabled={view.saving}
-              onchange={(event) => {
-                const role = event.currentTarget.value as "member" | "admin"
-                event.currentTarget.value = member.role
-                changeMemberRole(member, role)
-              }}
-            >
-              <UI.Option value="member">Member</UI.Option>
-              <UI.Option value="admin">Admin</UI.Option>
-            </UI.Select>
-            <UI.ActionButton
-              size="sm"
-              variant="ghost"
-              aria-label={`Remove ${member.label}`}
-              pending={view.pendingAction === `member:${member.principal}`}
-              disabled={view.saving}
-              onclick={() => removeMember(member)}
-              >Remove</UI.ActionButton
-            >
-          {:else}
+          <UI.Row justify="end">
             <UI.Text size="small" tone="muted"
               >{member.role === "admin" ? "Admin" : "Member"}</UI.Text
             >
-          {/if}
+            {#if canManage}
+              <UI.Button
+                size="icon-sm"
+                variant="outline"
+                aria-label={`Edit ${member.label}`}
+                title="Edit member role"
+                disabled={view.saving}
+                onclick={() => editMember(member)}
+              ><UI.Pencil aria-hidden="true" /></UI.Button>
+              <UI.Button
+                size="icon-sm"
+                variant="outline"
+                aria-label={`Remove ${member.label}`}
+                title="Remove member"
+                disabled={view.saving}
+                onclick={() => removeMember(member)}
+              ><UI.Trash2 aria-hidden="true" /></UI.Button>
+            {/if}
+          </UI.Row>
         {/snippet}
       </UI.RecordList>
       {#snippet footer()}
         <UI.ActionFeedback
-          error={view.feedback.members.error || members.state.error}
+          error={members.state.error || (dialog !== "members" && !editingMember && !confirmation.state.request ? view.feedback.members.error : "")}
           notice={view.feedback.members.notice}
           pending={members.state.busy ||
             view.pendingAction.startsWith("member")}
@@ -334,12 +353,12 @@
     </UI.ManagementSection>
 
     <UI.ManagementSection title="Bots" loading={agents.state.busy}>
-      {#snippet actions()}{#if canManage}<UI.Button
-            size="sm"
-            variant="outline"
+      {#snippet actions()}{#if canManage}
+          {#if scope === "workspace"}<UI.RouterLink variant="default" href={dialogPath("bots")} disabled={view.saving}>Add bot</UI.RouterLink>
+          {:else}<UI.Button
             disabled={view.saving}
             onclick={() => addMembership("bots")}>Add bot</UI.Button
-          >{/if}{/snippet}
+          >{/if}{/if}{/snippet}
       {#snippet toolbar()}
         <UI.SearchToolbar
           framed={false}
@@ -372,21 +391,20 @@
         {#snippet details(agent)}@{agent.alias}{/snippet}
         {#snippet actions(agent)}
           {#if canManage}
-            <UI.ActionButton
-              size="sm"
-              variant="ghost"
-              aria-label={`Remove ${agent.label}`}
-              pending={view.pendingAction === `bot:${agent.agent}`}
+            <UI.Button
+              size="icon-sm"
+              variant="outline"
+              aria-label={`Remove ${agent.label ?? agent.alias}`}
+              title="Remove bot"
               disabled={view.saving}
               onclick={() => removeBot(agent)}
-              >Remove</UI.ActionButton
-            >
+              ><UI.Trash2 aria-hidden="true" /></UI.Button>
           {/if}
         {/snippet}
       </UI.RecordList>
       {#snippet footer()}
         <UI.ActionFeedback
-          error={view.feedback.bots.error || agents.state.error}
+          error={agents.state.error || (dialog !== "bots" && !confirmation.state.request ? view.feedback.bots.error : "")}
           notice={view.feedback.bots.notice}
           pending={agents.state.busy || view.pendingAction.startsWith("bot")}
           label={agents.state.busy
@@ -417,7 +435,7 @@
   </UI.ManagementLayout>
   {#if canManage && dialog === "details"}<SystemGroupDetailsDialog
       {controller}
-      onClose={() => (dialog = null)}
+      onClose={closeDialog}
     />
   {:else if canManage && (dialog === "members" || dialog === "bots")}<SystemGroupMembershipDialog
       {controller}
@@ -425,7 +443,19 @@
       {groupID}
       {scope}
       kind={dialog}
-      onClose={() => (dialog = null)}
+      onClose={closeDialog}
+    />
+  {/if}
+  {#if canManage && editingMember}
+    {@const member = editingMember}
+    <GroupMemberRoleDialog
+      {controller}
+      {member}
+      onReload={async () => {
+        if (!(await members.reload())) return undefined
+        return members.state.items.find((candidate) => candidate.principal === member.principal)
+      }}
+      onClose={() => (editingMember = null)}
     />
   {/if}
 {/if}

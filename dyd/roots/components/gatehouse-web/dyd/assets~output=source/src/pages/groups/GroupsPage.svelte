@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { PageBody, PageHeading } from "../../ui"
   import * as UI from "../../ui"
   import { untrack, onDestroy } from "svelte"
   import { useRuntime } from "../../app/runtime.svelte"
@@ -7,6 +6,7 @@
   import type { ActivityClient } from "../../app/activity"
   import type { Workspace } from "../../app/access"
   import { createGroupsController } from "./groups-controller.svelte"
+  import { routePath } from "../../route"
 
   let {
     workspace,
@@ -23,7 +23,11 @@
     createGroupsController({ activity, onAuthenticationLost }),
   )
   const runtime = useRuntime()
-  let creating = $state(false)
+  const collectionPath = () => routePath({ kind: "group-collection", workspaceID: workspace.id })
+  const creating = $derived(runtime.state.route.kind === "group-collection" && runtime.state.route.dialog === "create")
+  function closeCreate() {
+    if (!form.state.saving) runtime.navigate(collectionPath(), true)
+  }
   const form = createSystemGroupController({
     workspaceID: () => workspace.id,
     groupID: () => "",
@@ -32,6 +36,16 @@
     onSystemAccessChange: () => {},
   })
   onDestroy(form.stop)
+  $effect(() => {
+    const open = creating
+    untrack(() => {
+      if (!open) form.cancelMutation()
+      else {
+        form.clearFeedback("details")
+        form.state.error = ""
+      }
+    })
+  })
   async function create() {
     const group = await form.create()
     if (group)
@@ -52,20 +66,25 @@
     title="Groups"
     description="Your group memberships in this workspace."
   >
-    {#snippet actions()}{#if controller.state.canCreate}<UI.Button
-          onclick={() => (creating = true)}>Create group</UI.Button
+    {#snippet actions()}{#if controller.state.canCreate}<UI.RouterLink
+          variant="default"
+          href={routePath({ kind: "group-collection", workspaceID: workspace.id, dialog: "create" })}>Create group</UI.RouterLink
         >{/if}{/snippet}
   </UI.AdminHeader>
+  {#if creating && controller.state.hasLoaded && !controller.state.canCreate}
+    <UI.Notice role="alert">Workspace admin access is required to create a group.
+      <UI.RouterLink variant="outline" href={collectionPath()} replace>Close</UI.RouterLink>
+    </UI.Notice>
+  {/if}
   {#if creating && controller.state.canCreate}
     <UI.ResourceDialog
       open
       compact
+      includeClose={false}
       title="Create group"
       viewKey="create"
       busy={form.state.saving}
-      onClose={() => {
-        if (!form.state.saving) creating = false
-      }}
+      onClose={closeCreate}
     >
       <UI.Form
         id="create-group"
@@ -74,52 +93,50 @@
           void create()
         }}
       >
-        <UI.FormSection title="Group details" dialog>
-          <UI.Field>
-            <UI.Label for="create-group-alias">Alias</UI.Label>
-            <UI.Input
-              id="create-group-alias"
-              required
-              maxlength={256}
-              bind:value={form.state.form.alias}
-              disabled={form.state.saving}
-            />
-            <UI.Text size="small" tone="muted"
-              >Lowercase letters, numbers, underscores, and hyphens; start with
-              a letter.</UI.Text
-            >
-          </UI.Field>
-          <UI.Field>
-            <UI.Label for="create-group-name">Display name</UI.Label>
-            <UI.Input
-              id="create-group-name"
-              maxlength={256}
-              bind:value={form.state.form.name}
-              disabled={form.state.saving}
-            />
-          </UI.Field>
+        <UI.Field>
+          <UI.Label for="create-group-alias">Alias</UI.Label>
+          <UI.Input
+            id="create-group-alias"
+            required
+            maxlength={256}
+            bind:value={form.state.form.alias}
+            disabled={form.state.saving}
+          />
           <UI.Text size="small" tone="muted"
-            >You will be added as a group admin.</UI.Text
+            >Lowercase letters, numbers, underscores, and hyphens; start with
+            a letter.</UI.Text
           >
-        </UI.FormSection>
+        </UI.Field>
+        <UI.Field>
+          <UI.Label for="create-group-name">Display name (optional)</UI.Label>
+          <UI.Input
+            id="create-group-name"
+            maxlength={256}
+            bind:value={form.state.form.name}
+            disabled={form.state.saving}
+          />
+        </UI.Field>
+        <UI.Text size="small" tone="muted"
+          >You will be added as a group admin.</UI.Text
+        >
         <UI.ActionFeedback
           error={form.state.error}
           pending={form.state.saving}
           label="Creating group…"
         />
       </UI.Form>
-      <UI.ResourceActions>
+      {#snippet footer()}
         <UI.Button
           variant="outline"
           disabled={form.state.saving}
-          onclick={() => (creating = false)}>Cancel</UI.Button
+          onclick={closeCreate}>Cancel</UI.Button
         >
         <UI.ActionButton
           type="submit"
           form="create-group"
           pending={form.state.saving}>Create group</UI.ActionButton
         >
-      </UI.ResourceActions>
+      {/snippet}
     </UI.ResourceDialog>
   {/if}
   <UI.SearchToolbar

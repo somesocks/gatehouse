@@ -205,6 +205,18 @@ describe("routes", () => {
       route: { kind: "group-collection", workspaceID: "wsp_a" },
     },
     {
+      path: "/app/wsp/wsp_a/grp?view=create",
+      route: { kind: "group-collection", workspaceID: "wsp_a", dialog: "create" },
+    },
+    ...(["details", "members", "bots", "secret-create"] as const).map((dialog) => ({
+      path: `/app/wsp/wsp_a/grp/grp_a?view=${dialog}`,
+      route: { kind: "group" as const, workspaceID: "wsp_a", groupID: "grp_a", dialog },
+    })),
+    {
+      path: "/app/wsp/wsp_a/grp/grp_a?view=secret-edit&secret=credential%2Fa",
+      route: { kind: "group", workspaceID: "wsp_a", groupID: "grp_a", dialog: "secret-edit", secretID: "credential/a" },
+    },
+    {
       path: "/app/wsp/wsp_a/ses/ses_a",
       route: {
         kind: "session-chat",

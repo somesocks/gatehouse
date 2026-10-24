@@ -61,8 +61,13 @@ export type Route =
       projectID?: string
     } & WorkspaceRoute)
   | ({ kind: "project-collection"; search: string } & WorkspaceRoute)
-  | ({ kind: "group-collection" } & WorkspaceRoute)
-  | ({ kind: "group"; groupID: string } & WorkspaceRoute)
+  | ({ kind: "group-collection"; dialog?: "create" } & WorkspaceRoute)
+  | ({
+      kind: "group"
+      groupID: string
+      dialog?: "details" | "members" | "bots" | "secret-create" | "secret-edit"
+      secretID?: string
+    } & WorkspaceRoute)
   | ({ kind: "session-chat" } & SessionRoute)
   | ({ kind: "session-files" } & SessionRoute)
   | ({ kind: "session-notes" } & SessionRoute)
@@ -472,7 +477,11 @@ export function parseRoute(url: URL): Route {
       }
     }
     if (collection === "grp") {
-      return { kind: "group-collection", workspaceID }
+      return {
+        kind: "group-collection",
+        workspaceID,
+        ...(url.searchParams.get("view") === "create" ? { dialog: "create" as const } : {}),
+      }
     }
     return notFound()
   }
@@ -481,8 +490,16 @@ export function parseRoute(url: URL): Route {
   if (resourceID === "") {
     return notFound()
   }
-  if (collection === "grp" && segments.length === 5)
-    return { kind: "group", workspaceID, groupID: resourceID }
+  if (collection === "grp" && segments.length === 5) {
+    const view = url.searchParams.get("view")
+    const secretID = url.searchParams.get("secret")
+    return {
+      kind: "group", workspaceID, groupID: resourceID,
+      ...(view === "details" || view === "members" || view === "bots" || view === "secret-create"
+        ? { dialog: view }
+        : view === "secret-edit" && secretID ? { dialog: view, secretID } : {}),
+    }
+  }
   if (collection === "ses") {
     if (segments.length === 5) {
       return {
@@ -920,9 +937,9 @@ export function routePath(route: NavigableRoute): string {
         route.search,
       )
     case "group-collection":
-      return `/app/wsp/${segment(route.workspaceID)}/grp`
+      return `/app/wsp/${segment(route.workspaceID)}/grp${route.dialog ? `?view=${route.dialog}` : ""}`
     case "group":
-      return `/app/wsp/${segment(route.workspaceID)}/grp/${segment(route.groupID)}`
+      return `/app/wsp/${segment(route.workspaceID)}/grp/${segment(route.groupID)}${route.dialog ? `?${new URLSearchParams({ view: route.dialog, ...(route.dialog === "secret-edit" && route.secretID ? { secret: route.secretID } : {}) })}` : ""}`
     case "session-chat":
       return `/app/wsp/${segment(route.workspaceID)}/ses/${segment(route.sessionID)}`
     case "session-files":

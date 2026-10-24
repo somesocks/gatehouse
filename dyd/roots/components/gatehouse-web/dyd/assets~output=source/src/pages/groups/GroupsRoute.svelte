@@ -17,6 +17,7 @@
   let generation = 0
   let abortController: AbortController | null = null
   let routeSignal = $state<AbortSignal | null>(null)
+  let collectionContext = $state("")
 
   const currentRoute = $derived(runtime.state.route as GroupsRoute)
   const workspace = $derived(
@@ -29,7 +30,7 @@
 
   const activation = $derived(
     JSON.stringify([
-      currentRoute,
+      currentRoute.workspaceID,
       auth.state.status,
       auth.state.claims?.principal.ref.id,
       access.state.workspaceStatus,
@@ -39,6 +40,10 @@
   $effect(() => {
     activation
     return untrack(() => activate(currentRoute))
+  })
+  const context = $derived(`${currentRoute.workspaceID}/${auth.state.claims?.principal.ref.id ?? ""}`)
+  $effect(() => {
+    if (currentRoute.kind === "group-collection") collectionContext = context
   })
 
   function activate(route: GroupsRoute): () => void {
@@ -165,15 +170,21 @@
           ></UI.Breadcrumb.Root
         ></SidebarPage.Header
       ><SidebarPage.Body
-        >{#if routeSignal !== null}{#key currentRoute.kind === "group" ? currentRoute.groupID : "collection"}{#if currentRoute.kind === "group"}<GroupPage
+        >{#if routeSignal !== null}{#key context}
+            {#if collectionContext === context}
+              <UI.Group hidden={currentRoute.kind !== "group-collection"}>
+                <GroupsPage
+                  {workspace}
+                  signal={routeSignal}
+                  {activity}
+                  onAuthenticationLost={() => runtime.requireLogin()}
+                />
+              </UI.Group>
+            {/if}
+            {#if currentRoute.kind === "group"}{#key currentRoute.groupID}<GroupPage
                 workspaceID={workspace.id}
                 groupID={currentRoute.groupID}
-              />{:else}<GroupsPage
-                {workspace}
-                signal={routeSignal}
-                {activity}
-                onAuthenticationLost={() => runtime.requireLogin()}
-              />{/if}{/key}{/if}</SidebarPage.Body
+              />{/key}{/if}{/key}{/if}</SidebarPage.Body
       ></SidebarPage.Page
     ></SidebarPage.Root
   >

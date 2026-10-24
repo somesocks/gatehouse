@@ -22,6 +22,7 @@
 <UI.ResourceDialog
   open
   compact
+  includeClose={false}
   busy={state.saving || state.reloading}
   title="Edit group details"
   viewKey="details"
@@ -34,7 +35,6 @@
       void save()
     }}
   >
-    <UI.FormSection title="Group details" dialog>
       <UI.Field>
         <UI.Label for={`${uid}-alias`}>Alias</UI.Label>
         <UI.Input
@@ -50,7 +50,7 @@
         >
       </UI.Field>
       <UI.Field>
-        <UI.Label for={`${uid}-name`}>Display name</UI.Label>
+        <UI.Label for={`${uid}-name`}>Display name (optional)</UI.Label>
         <UI.Input
           id={`${uid}-name`}
           maxlength={256}
@@ -58,7 +58,6 @@
           disabled={state.saving || state.reloading}
         />
       </UI.Field>
-    </UI.FormSection>
     <UI.ActionFeedback
       error={state.feedback.details.error || state.loadError}
       pending={state.pendingAction === "details:save"}
@@ -76,7 +75,7 @@
       >
     {/if}
   </UI.Form>
-  <UI.ResourceActions>
+  {#snippet footer()}
     <UI.Button
       variant="outline"
       disabled={state.saving || state.reloading}
@@ -91,5 +90,5 @@
         state.groupConflict ||
         !state.dirty}>Save details</UI.ActionButton
     >
-  </UI.ResourceActions>
+  {/snippet}
 </UI.ResourceDialog>

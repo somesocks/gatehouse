@@ -22,7 +22,8 @@ describe("Groups lifecycle", () => {
     const effect = ast.instance!.content.body.find(
       (node: any) =>
         node.type === "ExpressionStatement" &&
-        node.expression.callee?.name === "$effect",
+        node.expression.callee?.name === "$effect" &&
+        source.slice(node.start, node.end).includes("controller.start"),
     ) as any
     const callback = effect.expression.arguments[0]
     const compiled =

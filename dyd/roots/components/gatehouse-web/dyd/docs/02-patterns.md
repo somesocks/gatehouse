@@ -233,6 +233,10 @@ Chat participants use the separate dialog pattern below.
 
 Section-based rosters use integrated search, lists, section actions, and
 pagination. Project membership has separate People and Groups sections.
+Group member rows display the current role with Edit and Remove icon actions.
+Edit opens a role editor; Remove opens a confirmation. Bot rows use the Remove
+icon and confirmation. Role drafts and their expected revisions remain fixed
+across background refreshes until explicitly reloaded.
 
 ### Interaction behavior
 
@@ -240,6 +244,12 @@ Project admins can add recipients, edit roles, and remove grants; other project
 members can view the roster. Workspace group admins manage group details,
 people, bots, and secrets. Workspace admins can create groups; system
 administrators also have the system group-management area.
+
+Workspace group dialogs use URL query views: `?view=create` on the directory,
+and `?view=details`, `members`, `bots`, `secret-create`, or
+`secret-edit&secret=<id>` on a group. Dialog forms place Cancel and submission
+controls in the stationary footer. The directory retains its search and cursor
+history while navigating to group details and back within the workspace.
 
 Domain roles, admission, API behavior, and permission rules are documented in
 [Project access](../../../gatehouse/dyd/docs/project-access.md),

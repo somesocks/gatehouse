@@ -321,6 +321,10 @@ export function createSystemGroupController({
     mutation.stop()
     state.pendingAction = ""
   }
+  function cancelMutation() {
+    mutation.stop()
+    state.pendingAction = ""
+  }
   async function changeMemberRole(member: SystemGroupMember, role: GroupRole) {
     const result = await mutate(
       groupAdminPath(
@@ -365,6 +369,7 @@ export function createSystemGroupController({
       ),
     toggleAgent: (agent: SystemGroupAgent) =>
       toggleMembership("bots", agent.agent, agent.enabled, agent.revision),
+    cancelMutation,
     stop,
   }
 }

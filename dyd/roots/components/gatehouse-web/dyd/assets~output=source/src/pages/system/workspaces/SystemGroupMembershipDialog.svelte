@@ -106,6 +106,8 @@
 
 <UI.ResourceDialog
   open
+  compact
+  includeClose={false}
   busy={view.saving}
   title={`Add ${noun}`}
   viewKey={kind}
@@ -171,7 +173,7 @@
         onclick={() => void directory.retry()}>Retry search</UI.Button
       ></UI.Row
     >{/if}
-  <UI.ResourceActions>
+  {#snippet footer()}
     <UI.Button variant="outline" disabled={view.saving} onclick={close}
       >Cancel</UI.Button
     >
@@ -183,5 +185,5 @@
         !!directory.state.error}
       onclick={() => void save()}>Add {noun}</UI.ActionButton
     >
-  </UI.ResourceActions>
+  {/snippet}
 </UI.ResourceDialog>
