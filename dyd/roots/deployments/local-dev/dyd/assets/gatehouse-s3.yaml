@@ -103,6 +103,8 @@ workspaces:
         name: Admins
         members:
           - principal: root
+            role: admin
+            revision: 2
     grants:
       - role: admin
         principal: root
