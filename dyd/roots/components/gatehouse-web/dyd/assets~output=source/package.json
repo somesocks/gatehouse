@@ -25,6 +25,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.6.4",
     "clsx": "^2.1.1",
+    "happy-dom": "^21.0.4",
     "svelte": "^5.0.0",
     "svelte-check": "^4.7.6",
     "tailwind-merge": "^3.7.0",

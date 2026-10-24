@@ -171,7 +171,7 @@
         onclick={() => void directory.retry()}>Retry search</UI.Button
       ></UI.Row
     >{/if}
-  <UI.ResourceActions includeClose={false}>
+  <UI.ResourceActions>
     <UI.Button variant="outline" disabled={view.saving} onclick={close}
       >Cancel</UI.Button
     >

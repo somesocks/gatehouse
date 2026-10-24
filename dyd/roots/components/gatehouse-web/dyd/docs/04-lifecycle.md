@@ -56,12 +56,30 @@ Chat refreshes preserve composer state and keep agent branches, input cards, and
 scrolling behavior independent of metadata reloads.
 
 `SessionWorkspace` keeps one conversation mounted per session while resource
-routes change inside its dialog. The conversation retains its draft, selected
+routes change inside resource-owned dialogs. The conversation retains its draft, selected
 attachments, scroll position, delivery mode, and activity subscription. A new
 session or principal establishes a new conversation.
 
-Closing a resource returns to the saved conversation route, including direct-agent
-selection. In-dialog navigation moves focus to the dialog header and restores
+The resource presentation owner retains its last displayed route while the
+dialog exits. Resource route owners receive that route explicitly, so returning
+the URL to the conversation does not reset the still-visible resource into a
+different view. Closing suspends request ownership immediately while preserving
+the visible snapshot. The dialog's close-completion callback releases retained
+content. Reopening cancels pending dismissal;
+session/principal changes and access loss discard retained content immediately.
+
+Resource readers and creation views return to their collection on dismissal;
+edit views return to the item being edited. Cancel, Close, Escape, and outside
+clicks use the same destination. Note history and historical readers return to
+the current note. All shell dismissal paths use the same navigation decision.
+Removal confirmations are independent nested dialogs. The reader and its actions
+remain mounted, and the owner disables parent dismissal while the child is open.
+Closing the child clears only the confirmation state and restores trigger focus;
+it does not navigate the reader or replace its content.
+Escape and outside clicks prevent the dialog primitive's automatic close so that
+returning to the collection keeps the shared modal shell open. Pending writes
+block dismissal. Dismissing a collection returns to the saved
+conversation route. In-dialog navigation moves focus to the dialog header and restores
 each view's scroll position when returning.
 
 Collection snapshots, search drafts, applied filters, continuation cursors, and
@@ -73,8 +91,8 @@ Participant grant changes refresh open rosters and chat-directory visibility.
 Confirmed revocation leaves the affected chat without resetting drafts during
 ordinary refreshes.
 
-See [chat-resource dialogs](02-patterns.md#chat-resource-dialogs) for URL, Back,
-Close, and layout behavior.
+See [chat-resource dialogs](02-patterns.md#chat-resource-dialogs) for URL,
+dismissal, and layout behavior.
 
 ## Verification
 
@@ -82,5 +100,12 @@ Lifecycle regressions compile the real rune modules and route activation scripts
 against Svelte's client runtime with controlled promises. These checks require no
 browser or DOM and cover failed reloads, access updates, conflicts, overlapping
 responses, late decoding, and disposal.
+
+Mounted component regressions run separately in Happy DOM with Svelte's browser
+runtime. Resource workflows mount the real workspace, route owners, and dialog
+components for notes, tasks, and secrets. They exercise search/view/edit/create,
+all dismissal methods, nested confirmation cancellation and focus restoration,
+pending/failed writes, form association, route back/forward, preserved search and
+cursor/scroll state, background draft refresh, and late responses after navigation.
 
 Commands for running checks are in [Development](05-development.md#build-and-check).

@@ -81,7 +81,7 @@
   }}
 >
   <UI.Dialog.Content
-    showCloseButton={!saving && !reloading}
+    showCloseButton={false}
     onEscapeKeydown={(event) => { if (saving || reloading) event.preventDefault() }}
     onInteractOutside={(event) => { if (saving || reloading) event.preventDefault() }}
   >

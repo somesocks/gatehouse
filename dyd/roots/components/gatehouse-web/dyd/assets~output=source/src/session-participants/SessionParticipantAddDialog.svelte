@@ -43,14 +43,30 @@
   }
 </script>
 
-<UI.Dialog.Root
+{#snippet searchControls()}
+  <UI.SearchToolbar integrated label={`Search ${participantPlural(kind)}`} placeholder="Search by name…"
+    bind:value={controller.options.state.search} loading={controller.options.state.busy || controller.state.saving}
+    onsearch={() => void controller.options.search()} />
+{/snippet}
+
+{#snippet addActions()}
+  <UI.Button variant="outline" disabled={controller.state.saving} onclick={onClose}>Cancel</UI.Button>
+  <UI.Button type="submit" form={`${uid}-add`} disabled={controller.state.saving || !controller.state.subject || !canManage}
+    >{controller.state.saving ? "Adding…" : `Add ${label}`}</UI.Button>
+{/snippet}
+
+<UI.ResourceDialog
   open={true}
-  onOpenChange={(open) => {
-    if (!open) onClose()
-  }}
+  title={`Add ${label}`}
+  viewKey={`add-${kind}`}
+  compact
+  includeClose={false}
+  search={searchControls}
+  footer={addActions}
+  busy={controller.state.saving}
+  {onClose}
 >
-  <UI.Dialog.Content showCloseButton size="wide">
-    <UI.Dialog.Title>Add {label}</UI.Dialog.Title>
+  <UI.Stack>
     {#if controller.options.state.error}<UI.Notice
         variant="destructive"
         role="alert"
@@ -61,6 +77,9 @@
         ></UI.Notice
       >{/if}
     <UI.RecordList
+      plain
+      icon={kind === "principal" ? "person" : kind === "agent" ? "bot" : "group"}
+      scrollable={false}
       label={`Choose ${label}`}
       selectable
       value={controller.state.subject}
@@ -77,14 +96,6 @@
           ? `No matching ${participantPlural(kind)}.`
           : "Options could not be loaded."}
     >
-      {#snippet toolbar()}<UI.SearchToolbar
-          framed={false}
-          label={`Search ${participantPlural(kind)}`}
-          placeholder="Search"
-          bind:value={controller.options.state.search}
-          loading={controller.options.state.busy || controller.state.saving}
-          onsearch={() => void controller.options.search()}
-        />{/snippet}
     </UI.RecordList>
     {#if controller.options.state.history.length > 0 || controller.options.state.next}<UI.PaginationFooter
         showCount={false}
@@ -97,6 +108,7 @@
         onnext={() => void controller.options.next()}
       />{/if}
     <UI.Form
+      id={`${uid}-add`}
       onsubmit={(event) => {
         event.preventDefault()
         void save()
@@ -120,16 +132,6 @@
       {#if controller.state.error}<UI.Notice variant="destructive" role="alert"
           >{controller.state.error}</UI.Notice
         >{/if}
-      <UI.Row justify="end">
-        <UI.Button variant="outline" onclick={onClose}>Cancel</UI.Button>
-        <UI.Button
-          type="submit"
-          disabled={controller.state.saving ||
-            !controller.state.subject ||
-            !canManage}
-          >{controller.state.saving ? "Adding…" : `Add ${label}`}</UI.Button
-        >
-      </UI.Row>
     </UI.Form>
-  </UI.Dialog.Content>
-</UI.Dialog.Root>
+  </UI.Stack>
+</UI.ResourceDialog>

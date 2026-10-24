@@ -165,8 +165,8 @@ Main collection, dialog, connection, and recovery actions retain primary emphasi
 even when they open another view. This includes creation actions, Add person or
 group, Sign in, and the main recovery action on an error page. Save remains
 primary when a destructive change requires a subsequent confirmation.
-Supporting controls such as Close and Cancel use secondary treatment; compact
-utility actions may use ghost treatment.
+Supporting controls such as Close, Cancel, History, and pagination use outlined
+secondary treatment, including compact row actions.
 Success-specific styling is reserved for final affirmative actions such as
 Create, Save, Add, or Submit. Header actions use the default control size; compact
 row actions may use smaller sizes.
@@ -184,7 +184,7 @@ pending, and retains failures for retry or cancellation. A context change or
 unmount resets the confirmation, and late results cannot affect a new request.
 Targets and expected revisions are captured when the confirmation opens.
 
-Chat-resource removals retain their in-dialog `ResourceRemoval` view. Participant,
+Chat-resource removals use a nested `ResourceRemoval` confirmation dialog. Participant,
 project-grant, and group-secret dialogs already provide final confirmations;
 their final action is destructive for removals and permission reductions.
 
@@ -310,27 +310,81 @@ creation/editing, note history/revisions, and styled removal confirmations.
 
 ### Layout
 
-Dialogs are content-sized and viewport-bounded, with the Participants collection
-width; note content and editing can use a wider layout. Headers and action footers
-remain stationary around one scrolling body.
+Dialogs are content-sized and viewport-bounded. Collections and note history use
+the same compact width as Participants; readers have more space, and note editors
+can use a wider layout. Headers and compact action footers remain
+stationary around one scrolling body. Dialog dimensions change immediately between
+views, without resizing or zoom animations. The chat-resource shell uses consistent
+compact horizontal gutters, without additional row insets, and separators between
+header, body, and footer. Body
+content has vertical padding above and below it, clear of both separators.
 
-Collections and note history reuse the headerless `RecordList`: integrated
-search, the same row typography/spacing/dividers, secondary metadata, relevant
-badges, and file download icon actions. There are no collection table headings,
-horizontal table scrolling, or result counts. Pagination controls appear only
-when more than one page is available.
+Collections and note history have visible headers such as “Search notes” and
+“Search files”. Search and any associated filters stay together at the top of the
+dialog body, directly above the results. Entries share a
+leading resource icon, a prominent name above secondary metadata, and trailing
+badges or actions. Spacing and full-row hover/selection states distinguish entries
+without individual outlines. Header controls and rows follow the same compact
+gutters. Linked entries are complete link targets. There are no redundant collection
+labels, table headings, shared row rules, enclosing result frames, horizontal table
+scrolling, or result counts.
+Pagination uses outlined controls only when more than one page is available.
 
-Creation actions live beside Close in the footer. Details have consistent footer
-actions, and compact editors use Cancel/Save without nested form cards or
-explanatory section headings. Write-only secret guidance remains explicit.
+Search uses a bordered field with a decorative, non-focusable icon inside it, alongside
+its placeholder. The field's focus indicator encloses both icon and text, and
+Enter submits the search. Progress replaces the icon without changing the field's
+dimensions or adding a separate control.
+Searches preserve existing results until the response arrives. Background refresh
+does not insert a diagnostic paragraph or disable search controls. Collection loading
+and empty results are presented within the results area.
+
+Note readers use the displayed note's name as the dialog header. The body begins
+with its optional description and a compact author/date line with sensitivity
+when relevant, followed by the rendered content at normal reading size. The body
+does not repeat the title or display revision metadata.
+Task readers use the task title in the dialog header, with status and description
+in the body and quiet provenance after the content. Secret readers use the secret
+description as the dialog header, with write-only guidance and provenance in the
+body. The resource owner supplies the header title explicitly; `ResourceArticle`
+renders only the description, metadata, and content supplied to it. These views use
+document content rather than divided property grids.
+
+Creation actions remain primary beside the outlined Close control in the footer.
+Details keep Edit as the primary action; History and removal entry points are
+outlined secondary actions. Compact editors use Cancel/Save without nested form cards or
+explanatory section headings. The dialog header identifies the operation, such as
+“New note” or “Edit note”; editors do not repeat that heading in the body.
+Write-only secret guidance remains explicit.
 Footer submit buttons retain their native form association.
+Each view has one dismissal control: Close for readers and collections, or Cancel
+for editors and confirmations. These return to the parent view. Dialog
+headers have neither a back arrow nor an X icon.
 
 ### Interaction behavior
 
 All resource views stay within the dialog. Existing URLs support direct opening
-and browser Back/Forward; the dialog's Back action goes to the parent view, and
-closing returns to the conversation. Removal confirmations retain their opening
-item name and show failed mutations without dismissing the confirmation.
+and browser Back/Forward. Closing readers or cancelling creation returns to the
+resource list; cancelling an edit returns to the item being edited. Close, Cancel,
+Escape, and outside clicks use the same destination. Note history and historical
+readers return to the current note; collections dismiss to the conversation.
+Each resource owner composes one dialog for its search/reader/editor views;
+returning to a parent resource view keeps that dialog open. Pending writes block
+dismissal. Removal opens a separate nested confirmation while the reader remains
+mounted. The parent cannot dismiss while that confirmation is active. Cancel,
+Escape, and outside clicks close only the confirmation and restore focus to its
+Remove trigger. Confirmations retain their opening item name and show failed
+mutations without dismissing the confirmation.
+
+The logical route and displayed resource have separate lifetimes. The URL returns
+to the conversation immediately on dismissal, while the last resource route,
+dimensions, content, and actions remain mounted and inactive through the exit
+animation. `onOpenChangeComplete` releases that view after dismissal. Reopening
+cannot be cleared by an obsolete completion callback; changing session, principal,
+or access releases retained content immediately. Resource owners accept an
+explicit displayed route and do not reinterpret the conversation URL while exiting.
+Closing suspends their request ownership immediately without resetting the visible
+snapshot, preventing late requests or mutations from navigating back into a
+dismissed resource.
 
 See [Lifecycle](04-lifecycle.md#chat-and-resource-navigation) for retained conversation
 and collection state, focus movement, and scroll restoration. Shared request
@@ -339,23 +393,30 @@ ownership through `ResourcePage` is described in
 
 ### Component references
 
-`ResourcePage`, `ResourceDialog`, `ResourceActions`, `ResourceRemoval`,
-`RecordList`, and `FormActions`.
+`ResourcePage`, `ResourceDialog`, `ResourceRemoval`, `ResourceArticle`, `RecordList`,
+`SearchToolbar`, and `FormActions`. Resource owners pass the dialog title, search
+and footer snippets, pending state, and dismissal callback as explicit props.
+`ResourceArticle`, `ResourceActions`, and `FormActions` are presentational; they do
+not register content or behavior with a containing dialog.
 
 ## Participant dialogs
 
 ### Scope
 
-The chat toolbar's Participants dialog, its People/Groups tabs, and its add, role,
+The chat toolbar's Participants dialog, its People/Groups/Bots tabs, and its add, role,
 and removal dialogs.
 
 ### Layout
 
-People/Groups and Add person/Add group reuse the same headerless `RecordList`:
-integrated search, identical name styling, row spacing, dividers, and scrolling.
+Participant collections and add dialogs use the compact resource-dialog shell,
+with visible headers, body search controls, and a stationary footer. Their unboxed `RecordList`
+entries share leading type icons, name styling, spacing, and full-row
+hover/selection treatment with chat resources. Content scrolls in the dialog body
+rather than inside a separately capped roster.
 Existing participants have role labels and icon actions; add dialogs have
 selection markers. There is no explanatory boilerplate or result count, and
 pagination controls appear only when needed. Add actions live in the footer.
+Participant dialogs also use footer dismissal controls without a header X icon.
 
 ### Interaction behavior
 
@@ -431,7 +492,7 @@ layout and lifecycle rules are owned by the sections above and by
 | Project overview | Project metadata, Edit project destination, child navigation cards, and project-metadata activity refresh. |
 | Project members | Separate searchable, paginated People/Groups rosters; add recipients, edit roles, and remove grants where permitted; read-only access for other members. |
 | Project files | Upload multiple files, inspect metadata, download, remove, refresh, and collection/detail navigation. |
-| Session files | Inspect and download chat attachments, with chat navigation and rename. |
+| Session files | Search, inspect, and download human- and agent-generated chat files in one list, with chat navigation and rename. |
 | Project notes | Create/edit/delete notes, sensitive content, Markdown, author metadata, revision history, and historical viewing. |
 | Session notes | Create/edit/delete notes, sensitivity, Markdown, history, and dedicated edit/revision routes. |
 | Tasks | Project/session collections and details, create/edit/delete, workflow status, sensitivity, Markdown, and authorship. |

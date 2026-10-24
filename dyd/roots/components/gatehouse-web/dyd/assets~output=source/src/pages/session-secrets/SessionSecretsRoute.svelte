@@ -14,7 +14,10 @@
 
   import * as SidebarPage from "../../ui/sidebar-page"
 
-  import type { Route } from "../../route"
+  import { routePath, type Route } from "../../route"
+  import { sessionToolDismissPath } from "../session-chat/session-tools"
+  import { createSessionSecretsController } from "./session-secrets-controller.svelte"
+  import type { SessionSecret } from "../../app/session-secrets"
   import SessionSecretsPage from "./SessionSecretsPage.svelte"
 
   type SecretsRoute = Extract<
@@ -35,20 +38,34 @@
   }
   type Status = "checking" | "ready" | "unavailable"
 
-  let { embedded = false }: { embedded?: boolean } = $props()
+  let { embedded = false, route, suspended = false, dialog }: { embedded?: boolean; route?: Route; suspended?: boolean; dialog?: UI.ResourceDialogControls } = $props()
   const runtime = useRuntime()
   const resource = createLoadState()
   const { access, activity, auth } = runtime
   let session = $state<Session | null>(null)
   const sessionStatus = $derived(resource.status)
-  let secretBreadcrumb = $state<string | null>(null)
+  const sessionReady = $derived(sessionStatus === "ready" && session !== null)
+  const controller = createSessionSecretsController({
+    activity: runtime.activity,
+    onAuthenticationLost: () => runtime.requireLogin(),
+    onNavigate: (path, replace) => runtime.navigate(path, replace),
+  })
+  let removal = $state<SessionSecret | null>(null)
+  let secretBreadcrumb = $derived(controller.state.creating ? "New Secret" : controller.state.active?.description ?? null)
   let generation = 0
   let sessionOwner = ""
   let abortController: AbortController | null = null
   let routeSignal = $state<AbortSignal | null>(null)
   let unsubscribe: (() => void) | undefined
 
-  const currentRoute = $derived(runtime.state.route as SecretsRoute)
+  const currentRoute = $derived((route ?? runtime.state.route) as SecretsRoute)
+  const editor = $derived(currentRoute.kind === "session-secret-new" || currentRoute.kind === "session-secret-edit")
+  const collection = $derived(currentRoute.kind === "session-secrets")
+  const dialogTitle = $derived(
+    currentRoute.kind === "session-secret-new" ? "New secret"
+      : currentRoute.kind === "session-secret-edit" ? "Edit secret"
+      : collection ? "Search secrets" : controller.state.active?.description ?? "Secret",
+  )
   const workspace = $derived(
     access.state.workspaces.find(
       (candidate) => candidate.id === currentRoute.workspaceID,
@@ -89,8 +106,22 @@
   )
   $effect(() => {
     activation
+    if (suspended) return
     return untrack(() => activate(currentRoute))
   })
+
+  $effect(() => {
+    const selected = currentRoute
+    const signal = routeSignal
+    if (suspended || !sessionReady || !signal) return
+    return untrack(() => controller.start(selected.workspaceID, selected.sessionID, selected, signal))
+  })
+
+  function requestRemove() {
+    if (!controller.state.active || controller.state.deleting) return
+    controller.state.error = ""
+    removal = { ...controller.state.active }
+  }
 
   function activate(route: SecretsRoute): () => void {
     const value = ++generation
@@ -105,7 +136,7 @@
     routeSignal = abortController.signal
     unsubscribe?.()
     unsubscribe = undefined
-    secretBreadcrumb = null
+    removal = null
     if (
       auth.state.status === "authenticated" &&
       access.state.workspaceStatus === "ready"
@@ -225,6 +256,24 @@
   }
 </script>
 
+{#snippet searchControls()}
+  <UI.SearchToolbar integrated label="Search secrets" placeholder="Search by description…"
+    bind:value={controller.page.state.search} loading={controller.page.state.busy || controller.state.status === "checking"}
+    onsearch={() => void controller.page.search(controller.reload)} />
+{/snippet}
+
+{#snippet viewActions()}
+  {#if editor}
+    <UI.RouterLink variant="outline" disabled={controller.state.saving} href={sessionToolDismissPath(currentRoute)}>Cancel</UI.RouterLink>
+    <UI.Button type="submit" form="session-secret-form" disabled={controller.state.saving || !controller.state.editing || sessionStatus !== "ready"}>{controller.state.saving ? "Saving..." : "Save secret"}</UI.Button>
+  {:else if collection}
+    <UI.RouterLink variant="default" href={`${sessionSecretsPath(currentRoute.workspaceID, currentRoute.sessionID)}/new`}>New secret</UI.RouterLink>
+  {:else if controller.state.active}
+    <UI.Button variant="outline" disabled={controller.state.deleting} onclick={requestRemove}>Remove</UI.Button>
+    <UI.RouterLink variant={embedded ? "default" : "outline"} href={`${sessionSecretsPath(currentRoute.workspaceID, currentRoute.sessionID)}/${encodeURIComponent(controller.state.active.id)}/edit`}>Edit</UI.RouterLink>
+  {/if}
+{/snippet}
+
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
     {#snippet children()}
@@ -273,7 +322,18 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <UI.ResourcePage {embedded}>
+  <UI.ResourcePage {embedded} dialog={dialog ? {
+    ...dialog,
+    title: dialogTitle,
+    viewKey: routePath(currentRoute),
+    pageKey: collection ? JSON.stringify([controller.page.state.query, controller.page.state.cursor]) : undefined,
+    compact: collection,
+    busy: controller.state.saving || controller.state.deleting,
+    dismissible: removal === null,
+    includeClose: !editor,
+    search: collection ? searchControls : undefined,
+    footer: viewActions,
+  } : undefined}>
     {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
       />{/snippet}
@@ -362,12 +422,14 @@
             workspaceID={workspace.id}
             sessionID={session.id}
             route={currentRoute}
-            signal={routeSignal}
-            {activity}
-            onAuthenticationLost={() => runtime.requireLogin()}
-            onNavigate={(path, replace) => runtime.navigate(path, replace)}
-            onBreadcrumbChange={(title) => (secretBreadcrumb = title)}
+            {controller}
+            actions={viewActions}
           />
+    {/if}
+    {#if removal !== null}
+      <UI.ResourceRemoval noun="secret" name={removal.description} busy={controller.state.deleting} error={controller.state.error}
+        onCancel={() => { removal = null; controller.state.error = "" }}
+        onConfirm={() => { if (removal?.id === controller.state.active?.id) void controller.remove() }} />
     {/if}
   </UI.ResourcePage>
 {/if}

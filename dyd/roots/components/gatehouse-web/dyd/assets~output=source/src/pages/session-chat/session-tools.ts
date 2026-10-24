@@ -12,34 +12,38 @@ export function sessionTool(route: SessionWorkspaceRoute): SessionTool | null {
   return null
 }
 
-export function sessionToolBack(route: SessionWorkspaceRoute): {
-  path: string
-  label: string
-} | undefined {
+export function sessionToolDismissPath(
+  route: SessionWorkspaceRoute,
+  conversation: ConversationRoute = {
+    kind: "session-chat",
+    workspaceID: route.workspaceID,
+    sessionID: route.sessionID,
+  },
+): string {
   const base = routePath({
     kind: "session-chat",
     workspaceID: route.workspaceID,
     sessionID: route.sessionID,
   })
   switch (route.kind) {
-    case "session-note-edit":
     case "session-note-history":
     case "session-note-revision":
-      return { path: `${base}/notes/${encodeURIComponent(route.noteID)}`, label: "Back to note" }
+    case "session-note-edit":
+      return `${base}/notes/${encodeURIComponent(route.noteID)}`
     case "session-task-edit":
-      return { path: `${base}/tasks/${encodeURIComponent(route.taskID)}`, label: "Back to task" }
+      return `${base}/tasks/${encodeURIComponent(route.taskID)}`
     case "session-secret-edit":
-      return { path: `${base}/secrets/${encodeURIComponent(route.secretID)}`, label: "Back to secret" }
+      return `${base}/secrets/${encodeURIComponent(route.secretID)}`
     case "session-note":
     case "session-note-new":
-      return { path: `${base}/notes`, label: "Back to notes" }
+      return `${base}/notes`
     case "session-task":
     case "session-task-new":
-      return { path: `${base}/tasks`, label: "Back to tasks" }
+      return `${base}/tasks`
     case "session-secret":
     case "session-secret-new":
-      return { path: `${base}/secrets`, label: "Back to secrets" }
+      return `${base}/secrets`
     default:
-      return undefined
+      return routePath(conversation)
   }
 }

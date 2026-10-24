@@ -34,12 +34,16 @@ async function routeHarness(
   for (const statement of [...imports].reverse())
     body = body.slice(0, statement.getStart(ast)) + body.slice(statement.end)
   body = body.replace(/const runtime = useRuntime\(\)/, "")
-  // Script-only fixtures use the default component props without mounting a DOM.
-  body = body.replace(/\$props\(\)/g, "({})")
+  // Lower the resource owners' reactive component props for this DOM-free module.
+  body = body.replace(
+    /let \{ embedded = false, route, suspended = false(?:, dialog)? \}:[^\n]+? = \$props\(\)/,
+    "const embedded = $derived(props.embedded ?? false); const route = $derived(props.route); const suspended = $derived(props.suspended ?? false); const dialog = $derived(props.dialog)",
+  )
+  body = body.replace(/\$props\(\)/g, "props")
   const module = await import(
     /* @vite-ignore */ clientModuleURL(
       url,
-      `${kept.join("\n")}\nexport function createHarness(runtime) { ${body}\nreturn { get draft() { return ${draft} }, setDraft(value) { ${draft} = value }, get detailStatus() { return ${status} }, get active() { return active }, get error() { return ${failure} }, ${extra} } }`,
+      `${kept.join("\n")}\nexport function createHarness(runtime, props = {}) { ${body}\nreturn { get draft() { return ${draft} }, setDraft(value) { ${draft} = value }, get detailStatus() { return ${status} }, get currentRoute() { return currentRoute }, get active() { return active }, get error() { return ${failure} }, ${extra} } }`,
     )
   )
   const fixture = await import(
@@ -152,6 +156,60 @@ describe("workspace edit route lifecycle", () => {
     },
     60000,
   )
+})
+
+describe("closing resource route ownership", () => {
+  it.each([
+    { path: "./session-files/SessionFilesRoute.svelte", draft: "page.state.search", status: "filesStatus", failure: "filesLoad.state.error", route: { kind: "session-files", workspaceID: "workspace", sessionID: "owner" } },
+    { path: "./session-notes/SessionNotesRoute.svelte", draft: "title", status: "detailStatus", failure: "detailLoad.state.error", route: { kind: "session-note", workspaceID: "workspace", sessionID: "owner", noteID: "item" } },
+    { path: "./tasks/TasksRoute.svelte", draft: "title", status: "detailStatus", failure: "detailLoad.state.error", route: { kind: "session-task", workspaceID: "workspace", sessionID: "owner", taskID: "item" } },
+    { path: "./session-secrets/SessionSecretsRoute.svelte", draft: "secretBreadcrumb", status: "sessionStatus", failure: "resource.state.error", route: { kind: "session-secret", workspaceID: "workspace", sessionID: "owner", secretID: "item" } },
+  ])("$path suspends requests while retaining its displayed route and snapshot during dismissal", async ({ path, draft, status, failure, route }) => {
+    const { module, fixture, svelte } = await routeHarness(path, draft, status, failure)
+    const subscriptions: ReturnType<typeof vi.fn>[] = []
+    const runtime = Object.assign(fixture.createRuntime(route), {
+      activity: { subscribe: vi.fn(() => {
+        const unsubscribe = vi.fn()
+        subscriptions.push(unsubscribe)
+        return unsubscribe
+      }), poll: vi.fn(async () => {}) },
+      navigate: vi.fn(), requireLogin: vi.fn(), refresh: vi.fn(async () => true),
+    })
+    const request = vi.fn(async (url: string, _options: RequestInit) => Response.json(
+      url.includes("/files") ? [] : url.endsWith("/item") ? item : { id: "owner", name: "Chat" },
+    ))
+    vi.stubGlobal("fetch", request)
+    const props = fixture.createRuntime(route).state
+    props.embedded = true
+    props.suspended = false
+    let controller!: ReturnType<typeof module.createHarness>
+    const dispose = fixture.root(() => {
+      controller = module.createHarness(runtime, props)
+    })
+    try {
+      svelte.flushSync()
+      await vi.waitFor(() => expect(controller.detailStatus).toBe("ready"))
+      if (route.kind === "session-files") {
+        const filesRequest = request.mock.calls.find(([url]) => url.includes("/files"))
+        expect(new URL(filesRequest![0], "http://localhost").searchParams.get("author")).toBe("all")
+      }
+      controller.setDraft("Retained draft")
+      const calls = request.mock.calls.length
+      expect(runtime.activity.subscribe).toHaveBeenCalled()
+      runtime.state.route = { kind: "session-chat", workspaceID: "workspace", sessionID: "owner" }
+      props.suspended = true
+      svelte.flushSync()
+      expect(controller.currentRoute).toEqual(route)
+      expect(controller.detailStatus).toBe("ready")
+      expect(controller.draft).toBe("Retained draft")
+      expect(request).toHaveBeenCalledTimes(calls)
+      for (const unsubscribe of subscriptions) expect(unsubscribe).toHaveBeenCalledOnce()
+      expect(request.mock.calls.every(([, options]) => options.signal?.aborted)).toBe(true)
+      expect(runtime.navigate).not.toHaveBeenCalled()
+    } finally {
+      dispose()
+    }
+  }, 60000)
 })
 
 describe("native record loading and pagination", () => {

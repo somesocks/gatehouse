@@ -20,7 +20,7 @@
 
   import * as SidebarPage from "../../ui/sidebar-page"
 
-  import type { Route } from "../../route"
+  import { routePath, type Route } from "../../route"
 
   type FilesRoute = Extract<Route, { kind: "session-files" }>
   type Session = {
@@ -31,7 +31,7 @@
   }
   type Status = "checking" | "ready" | "unavailable"
 
-  let { embedded = false }: { embedded?: boolean } = $props()
+  let { embedded = false, route, suspended = false, dialog }: { embedded?: boolean; route?: Route; suspended?: boolean; dialog?: UI.ResourceDialogControls } = $props()
   const runtime = useRuntime()
   const sessionLoad = createLoadState()
   const filesLoad = createLoadState()
@@ -47,13 +47,12 @@
   let session = $state<Session | null>(null)
   const sessionStatus = $derived(sessionLoad.status)
   let files = $state<ChatFile[]>([])
-  let includeAgentFiles = $state(false)
   const filesStatus = $derived(filesLoad.status)
   let generation = 0
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
-  const currentRoute = $derived(runtime.state.route as FilesRoute)
+  const currentRoute = $derived((route ?? runtime.state.route) as FilesRoute)
   const workspace = $derived(
     access.state.workspaces.find(
       (candidate) => candidate.id === currentRoute.workspaceID,
@@ -92,11 +91,11 @@
   )
   $effect(() => {
     activation
+    if (suspended) return
     return untrack(() => activate(currentRoute))
   })
 
   function activate(route: FilesRoute): () => void {
-    includeAgentFiles = false
     page.reset()
     sessionLoad.reset()
     filesLoad.reset()
@@ -216,13 +215,13 @@
     )
     signal = request.signal
     try {
-      const requested = `${page.key()}:${includeAgentFiles}`
+      const requested = page.key()
       const response = await fetchChatFiles(
         workspaceID,
         sessionID,
         signal,
         page.params(),
-        { author: includeAgentFiles ? "all" : "principal" },
+        { author: "all" },
       )
       if (!isCurrent(value, workspaceID, sessionID, signal)) return false
       if (response.status === 401) {
@@ -233,7 +232,7 @@
       const loaded = (await response.json()) as ChatFile[]
       if (
         !isCurrent(value, workspaceID, sessionID, signal) ||
-        requested !== `${page.key()}:${includeAgentFiles}`
+        requested !== page.key()
       )
         return false
       return request.commit(() => {
@@ -261,6 +260,10 @@
     return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
   }
 </script>
+
+{#snippet collectionSearch()}
+  <UI.SearchToolbar integrated={embedded} framed={false} label="Search files" placeholder="Search by name…" bind:value={page.state.search} loading={page.state.busy || filesLoad.loading} onsearch={() => void page.search(reloadFiles)} />
+{/snippet}
 
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage eyebrow="Gatehouse" busy live="polite">
@@ -298,7 +301,14 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <UI.ResourcePage {embedded}>
+  <UI.ResourcePage {embedded} dialog={dialog ? {
+    ...dialog,
+    title: "Search files",
+    viewKey: routePath(currentRoute),
+    pageKey: JSON.stringify([page.state.query, page.state.cursor]),
+    compact: true,
+    search: collectionSearch,
+  } : undefined}>
     {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(runtime, workspace, "chats")}
       />{/snippet}
@@ -347,10 +357,10 @@
               )}
           />{/if}
     {/snippet}
-        {#if filesLoad.reloading || sessionLoad.reloading}<UI.Text role="status"
+        {#if !embedded && (filesLoad.reloading || sessionLoad.reloading)}<UI.Text role="status"
             >Refreshing files…</UI.Text
           >{/if}
-        {#if filesLoad.state.error || sessionLoad.state.error}<UI.Notice
+        {#if sessionLoad.state.error || (!embedded && filesLoad.state.error)}<UI.Notice
             variant="destructive"
             role="alert"
             >{filesLoad.state.error || sessionLoad.state.error}<UI.Button
@@ -375,32 +385,31 @@
               title="Files"
               description="Inspect and download chat attachments."
             />{/if}
-            {#if filesStatus === "unavailable"}<UI.Notice
+            {#if !embedded && filesStatus === "unavailable"}<UI.Notice
                 variant="destructive"
                 role="alert">Files could not be loaded.</UI.Notice
               ><UI.Button variant="outline" onclick={() => void reloadFiles()}
                 >Try again</UI.Button
               >{/if}
+            {#if embedded && filesLoad.state.error}
+              <UI.Notice variant="destructive" role="alert">
+                {filesLoad.state.error}
+                <UI.Button variant="outline" onclick={() => void reloadFiles()}>Retry</UI.Button>
+              </UI.Notice>
+            {/if}
             <UI.RecordList
+              plain={embedded}
+              icon="file"
               label="Files"
+              toolbar={embedded ? undefined : collectionSearch}
               items={files.map((file) => ({ ...file, label: file.name }))}
               loading={page.state.busy || filesLoad.state.pending}
               scrollable={false}
-              pageKey={JSON.stringify([page.state.query, page.state.cursor, includeAgentFiles])}
-              emptyMessage={filesStatus === "checking" ? "Loading…" : filesStatus === "unavailable" ? "Files could not be loaded." : "No matching files."}
+              emptyMessage={filesStatus === "checking" ? "Loading…" : filesStatus === "unavailable" ? embedded ? "" : "Files could not be loaded." : "No matching files."}
             >
-              {#snippet toolbar()}
-                <UI.Stack gap="small">
-                  <UI.SearchToolbar framed={false} label="Search files" placeholder="Search" bind:value={page.state.search} loading={page.state.busy || filesLoad.state.pending} onsearch={() => void page.search(reloadFiles)} />
-                  <UI.Label layout="choice">
-                    <UI.Checkbox checked={includeAgentFiles} onCheckedChange={(checked) => { includeAgentFiles = checked; page.reset(); void reloadFiles() }} />
-                    Include agent-authored files
-                  </UI.Label>
-                </UI.Stack>
-              {/snippet}
               {#snippet details(file)}{file.media_type ?? "Unknown type"} · {sizeLabel(file.size)}{/snippet}
               {#snippet actions(file)}
-                <UI.Link variant="ghost" size="icon" href={chatFileDownloadPath(workspace.id, currentRoute.sessionID, file.id)} target="_blank" rel="noopener" aria-label={`Download ${file.name}`} title="Download">
+                <UI.Link variant="outline" size="icon" href={chatFileDownloadPath(workspace.id, currentRoute.sessionID, file.id)} target="_blank" rel="noopener" aria-label={`Download ${file.name}`} title="Download">
                   <UI.Download size={16} aria-hidden="true" />
                 </UI.Link>
               {/snippet}

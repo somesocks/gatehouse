@@ -76,7 +76,7 @@
       >
     {/if}
   </UI.Form>
-  <UI.ResourceActions includeClose={false}>
+  <UI.ResourceActions>
     <UI.Button
       variant="outline"
       disabled={state.saving || state.reloading}

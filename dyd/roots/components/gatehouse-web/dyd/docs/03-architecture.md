@@ -64,11 +64,31 @@ Resource-specific pickers own their API requests. Selected references are
 hydrated by ID; candidate collections load only when a selector opens or the
 user searches/paginates. Closing aborts pending search requests.
 
-Resource content reuses its request ownership, pagination, mutation, and refresh
-behavior through `ResourcePage` without nesting another page shell. Opening and
-closing mount/unmount the selected resource's requests and subscriptions.
-`SessionWorkspace` keeps the conversation mounted while its resource routes
-change. See [Lifecycle](04-lifecycle.md) for the ownership and state-retention rules.
+Resource route owners retain their request, pagination, mutation, and refresh
+behavior. `ResourcePage` renders their full-page shell or explicitly configured
+resource dialog. Opening and closing establish and release the selected
+resource's request ownership and subscriptions. `SessionWorkspace` keeps the
+conversation mounted while selecting the resource and its displayed route. See
+[Lifecycle](04-lifecycle.md) for ownership and state-retention rules.
+
+### Dialog composition
+
+The resource owner supplies `ResourceDialogOptions`: title, search and footer
+snippets, view/page keys, pending state, and dismissal callback. It has the data
+needed to choose reader titles and editor actions. `SessionWorkspace` supplies
+only open/dismiss/close-completion controls and the explicit displayed route.
+Dialog configuration flows down through props; children do not register or
+override a parent's title, actions, search, or dismissal through context/effects.
+`ResourceArticle`, `ResourceActions`, and `FormActions` only render their content.
+
+Search, readers, and editors are successive views in the resource's dialog.
+`sessionToolDismissPath` defines their parent destinations and is shared by Cancel
+links and shell dismissal. Removal is a separate nested `ResourceRemoval` dialog,
+owned by the route that captures its target and performs the mutation. The reader
+stays mounted, its dismissal is disabled while the child is active, and the child
+dialog's focus scope handles initial Cancel focus and restoration to the trigger.
+`SessionSecretsRoute` owns its secret controller and confirmation; its page
+component receives the controller and action snippet explicitly.
 
 Capability-based file tools retain their capability transport and shared-draft
 completion behavior; their presentation is described in

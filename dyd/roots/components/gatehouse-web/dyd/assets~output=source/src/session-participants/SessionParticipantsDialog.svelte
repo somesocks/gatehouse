@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte"
   import * as UI from "../ui"
   import {
     participantName,
@@ -25,6 +26,9 @@
     modal?: UI.DialogHandle
   } = $props()
   let tab = $state("principal")
+  let open = $state(false)
+  const activeDirectory = $derived(controller.directory(tab as ParticipantKind))
+  const activeNoun = $derived(participantPlural(tab as ParticipantKind))
   let adding = $state<ParticipantKind | null>(null)
   let action = $state<{
     mode: "role" | "remove"
@@ -40,10 +44,19 @@
   ]
 
   function close() {
+    open = false
     adding = null
     action = null
     controller.close()
   }
+  onMount(() => {
+    modal = {
+      get open() { return open },
+      showModal() { open = true },
+      close() { if (open) close() },
+    }
+    return () => { modal = undefined }
+  })
   function closeAction(saved = false) {
     controller.cancelMutation()
     if (!saved) controller.state.error = ""
@@ -76,8 +89,26 @@
   }
 </script>
 
-<UI.Modal bind:modal title="Participants" size="wide" onClose={close}>
-  {#if controller.state.open}
+{#snippet searchControls()}
+    <UI.SearchToolbar
+      integrated
+      label={`Search ${activeNoun}`}
+      placeholder="Search by name…"
+      bind:value={activeDirectory.state.search}
+      loading={activeDirectory.state.busy}
+      onsearch={() => void activeDirectory.search()}
+    />
+{/snippet}
+
+{#snippet participantActions()}
+  {#if controller.state.canManage}<UI.Button disabled={controller.state.saving}
+    onclick={() => { adding = tab as ParticipantKind }}>Add {participantNoun(tab as ParticipantKind)}</UI.Button>{/if}
+{/snippet}
+
+<UI.ResourceDialog {open} title="Search participants" viewKey="participants" compact onClose={close}
+  dismissible={adding === null && action === null}
+  search={searchControls} footer={participantActions}>
+  <UI.Stack>
     {#if controller.state.error && action === null}<UI.Notice
         variant="destructive"
         role="alert"
@@ -103,6 +134,9 @@
               ></UI.Notice
             >{/if}
           <UI.RecordList
+            plain
+            icon={kind === "principal" ? "person" : kind === "agent" ? "bot" : "group"}
+            scrollable={false}
             label={noun}
             loading={directory.state.busy}
             items={directory.state.items.map((item) => ({
@@ -116,14 +150,6 @@
                 ? "Participants could not be loaded."
                 : `No matching ${noun}.`}
           >
-            {#snippet toolbar()}<UI.SearchToolbar
-                framed={false}
-                label={`Search ${noun}`}
-                placeholder="Search"
-                bind:value={directory.state.search}
-                loading={directory.state.busy}
-                onsearch={() => void directory.search()}
-              />{/snippet}
             {#snippet actions(item)}
               <UI.Stack>
                 {#each item.grants as grant (grant.id)}<SessionParticipantRole
@@ -186,17 +212,6 @@
         </UI.Stack>
       {/snippet}
     </UI.Tabs>
-    <UI.Row justify="end">
-      <UI.Button variant="outline" onclick={() => modal?.close()}
-        >Close</UI.Button
-      >
-      {#if controller.state.canManage}<UI.Button
-          disabled={controller.state.saving}
-          onclick={() => {
-            adding = tab as ParticipantKind
-          }}>Add {participantNoun(tab as ParticipantKind)}</UI.Button
-        >{/if}
-    </UI.Row>
     {#if adding !== null}
       <SessionParticipantAddDialog
         {workspaceID}
@@ -228,5 +243,5 @@
         onClose={closeAction}
       />
     {/if}
-  {/if}
-</UI.Modal>
+  </UI.Stack>
+</UI.ResourceDialog>

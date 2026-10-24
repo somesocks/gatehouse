@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte"
+  import { sessionToolDismissPath } from "../session-chat/session-tools"
   import { createLoadState } from "../../utils/load-state.svelte"
   import {
     PageBody,
@@ -41,7 +42,7 @@
 
   import * as SidebarPage from "../../ui/sidebar-page"
 
-  import type { Route } from "../../route"
+  import { routePath, type Route } from "../../route"
 
   type TaskRoute = Extract<
     Route,
@@ -76,7 +77,7 @@
   type Owner = Project | Session
   type Status = "checking" | "ready" | "unavailable"
 
-  let { embedded = false }: { embedded?: boolean } = $props()
+  let { embedded = false, route, suspended = false, dialog }: { embedded?: boolean; route?: Route; suspended?: boolean; dialog?: UI.ResourceDialogControls } = $props()
   const runtime = useRuntime()
   const ownerLoad = createLoadState()
   const tasksLoad = createLoadState()
@@ -111,7 +112,14 @@
   let abortController: AbortController | null = null
   let unsubscribe: (() => void) | undefined
 
-  const currentRoute = $derived(runtime.state.route as TaskRoute)
+  const currentRoute = $derived((route ?? runtime.state.route) as TaskRoute)
+  const editor = $derived(currentRoute.kind.endsWith("-task-new") || currentRoute.kind.endsWith("-task-edit"))
+  const collection = $derived(currentRoute.kind === "session-tasks" || currentRoute.kind === "project-tasks")
+  const dialogTitle = $derived(
+    currentRoute.kind.endsWith("-task-new") ? "New task"
+      : currentRoute.kind.endsWith("-task-edit") ? "Edit task"
+      : collection ? "Search tasks" : active?.title ?? "Task",
+  )
   const detailStatus = $derived(
     "taskID" in currentRoute ? detailLoad.status : "ready",
   )
@@ -170,6 +178,7 @@
   )
   $effect(() => {
     activation
+    if (suspended) return
     return untrack(() => activate(currentRoute))
   })
 
@@ -565,6 +574,34 @@
   }
 </script>
 
+{#snippet searchControls()}
+    <UI.SearchToolbar integrated label="Search tasks" placeholder="Search by title…" bind:value={page.state.search} loading={page.state.busy || tasksLoad.loading} onsearch={() => void page.search(reloadTasks)} />
+{/snippet}
+
+{#snippet editorActions()}
+  <UI.RouterLink variant="outline" disabled={saving}
+    href={embedded && "sessionID" in currentRoute ? sessionToolDismissPath(currentRoute)
+      : currentRoute.kind.endsWith("-task-new") || active === null ? listPath(currentRoute) : detailPath(currentRoute, active.id)}>Cancel</UI.RouterLink>
+  <UI.Button type="submit" form="task-form" disabled={saving || !editing || ownerStatus !== "ready"}>{saving ? "Saving..." : "Save task"}</UI.Button>
+{/snippet}
+
+{#snippet taskActions()}
+  {#if active}
+    <UI.Button variant="outline" disabled={deleting} onclick={requestRemove}>Remove</UI.Button>
+    <UI.RouterLink variant={embedded ? "default" : "outline"} href={`${detailPath(currentRoute, active.id)}/edit`}>Edit</UI.RouterLink>
+  {/if}
+{/snippet}
+
+{#snippet collectionActions()}
+  <UI.RouterLink variant="default" href={`${listPath(currentRoute)}/new`}>New task</UI.RouterLink>
+{/snippet}
+
+{#snippet dialogActions()}
+  {#if editor}{@render editorActions()}
+  {:else if collection}{@render collectionActions()}
+  {:else}{@render taskActions()}{/if}
+{/snippet}
+
 {#if auth.state.status === "checking" || (auth.state.status === "authenticated" && access.state.workspaceStatus === "checking")}
   <StatusPage busy>
     {#snippet children()}
@@ -601,7 +638,18 @@
       >{/snippet}
   </StatusPage>
 {:else}
-  <UI.ResourcePage {embedded}>
+  <UI.ResourcePage {embedded} dialog={dialog ? {
+    ...dialog,
+    title: dialogTitle,
+    viewKey: routePath(currentRoute),
+    pageKey: collection ? JSON.stringify([page.state.query, page.state.cursor]) : undefined,
+    compact: collection,
+    busy: saving || deleting,
+    dismissible: removal === null,
+    includeClose: !editor,
+    search: collection ? searchControls : undefined,
+    footer: dialogActions,
+  } : undefined}>
     {#snippet sidebar()}<UI.Navigation
         {...workspaceNavigation(
           runtime,
@@ -684,7 +732,7 @@
           />{/if}
     {/snippet}
     <PageBody fluid>
-          {#if ownerLoad.reloading || tasksLoad.reloading || detailLoad.reloading}<UI.Text
+          {#if !embedded && (ownerLoad.reloading || tasksLoad.reloading || detailLoad.reloading)}<UI.Text
               role="status">Refreshing tasks…</UI.Text
             >{/if}
           {#if ownerLoad.state.error || tasksLoad.state.error || detailLoad.state.error}<UI.Notice
@@ -718,15 +766,12 @@
                   void loadRoute(currentRoute, generation, signal)
               }}>Try again</UI.Button
             >
-          {:else if removal !== null}
-            <UI.ResourceRemoval noun="task" scope={isProjectRoute(currentRoute) ? "project" : "chat"} name={removal.title} busy={deleting} {error} onCancel={() => { removal = null; error = "" }} onConfirm={() => void remove()} />
-          {:else if editing}<UI.AdminHeader
-              compact={embedded}
+          {:else if editing}{#if !embedded}<UI.AdminHeader
               title={currentRoute.kind.endsWith("new")
                 ? "New task"
                 : `Edit ${active?.title ?? "task"}`}
-              description={embedded ? undefined : "Update task information, workflow, and sensitivity."}
-            /><UI.Form
+              description="Update task information, workflow, and sensitivity."
+            />{/if}<UI.Form
               id="task-form"
               surface={!embedded}
               compact={embedded}
@@ -792,17 +837,7 @@
                 >
                   {error}
                 </UI.Text>{/if}
-              <UI.FormActions dialog={embedded}>
-                <UI.RouterLink
-                  variant="outline"
-                  disabled={saving}
-                  href={currentRoute.kind.endsWith("-task-new") || active === null
-                    ? listPath(currentRoute)
-                    : detailPath(currentRoute, active.id)}>Cancel</UI.RouterLink
-                ><UI.Button variant="default" type="submit" form="task-form" disabled={saving}
-                  >{saving ? "Saving..." : "Save task"}</UI.Button
-                >
-              </UI.FormActions>
+              {#if !embedded}<UI.FormActions>{@render editorActions()}</UI.FormActions>{/if}
             </UI.Form>
           {:else if isDetailRoute(currentRoute) && detailStatus === "checking"}<UI.Text
               as="p"
@@ -830,24 +865,34 @@
                   )
               }}>Try again</UI.Button
             >
-          {:else if active !== null}{@const taskID = active.id}{#snippet taskActions()}<UI.Button
-                variant="outline"
-                type="button"
-                disabled={deleting}
-                onclick={requestRemove}
-                >{deleting ? "Removing..." : "Remove"}</UI.Button
-              ><UI.RouterLink variant={embedded ? "default" : "outline"} href={`${detailPath(currentRoute, taskID)}/edit`}>Edit</UI.RouterLink>{/snippet}
+          {:else if active !== null}{@const task = active}
+            {#if embedded}
+              <UI.ResourceArticle>
+                {#snippet metadata()}
+                  <UI.Badge variant="secondary">{statusLabel(task.status)}</UI.Badge>
+                  {#if task.sensitive}<UI.Badge variant="secondary">Sensitive</UI.Badge>{/if}
+                {/snippet}
+                {#if active.description}
+                  <UI.RichText size="normal" html={renderMarkdown(active.description)} />
+                {:else}
+                  <UI.Text as="p" tone="muted">No description.</UI.Text>
+                {/if}
+                {#snippet provenance()}
+                  <UI.Text as="p" size="small">Updated {dateLabel(task.updated_at)} · {authorLabel(task.updater)}</UI.Text>
+                  <UI.Text as="p" size="small">Created {dateLabel(task.created_at)} · {authorLabel(task.creator)}</UI.Text>
+                {/snippet}
+              </UI.ResourceArticle>
+              {#if error}<UI.Notice variant="destructive" role="alert">{error}</UI.Notice>{/if}
+            {:else}
             <UI.Stack as="article">
               <UI.AdminHeader
-                compact={embedded}
-                kind={embedded ? undefined : isProjectRoute(currentRoute)
+                kind={isProjectRoute(currentRoute)
                   ? "Project task"
                   : "Chat task"}
                 title={active.title}
-                actions={embedded ? undefined : taskActions}
+                actions={taskActions}
               />
-              {#if embedded}<UI.ResourceActions>{@render taskActions()}</UI.ResourceActions>{/if}
-              <UI.DetailSection title="Task information" compact={embedded}>
+              <UI.DetailSection title="Task information">
                 <UI.Property label="Status"
                   ><UI.Badge>{statusLabel(active.status)}</UI.Badge
                   ></UI.Property
@@ -879,14 +924,9 @@
                   {error}
                 </UI.Text>{/if}
             </UI.Stack>
-          {:else}{#snippet collectionActions()}<UI.RouterLink
-                variant="default"
-                href={`${listPath(currentRoute)}/new`}
-                >New task</UI.RouterLink
-              >{/snippet}
-            {#if embedded}
-              <UI.ResourceActions>{@render collectionActions()}</UI.ResourceActions>
-            {:else}
+            {/if}
+          {:else}
+            {#if !embedded}
               <UI.AdminHeader
                 title="Tasks"
                 description="Track work and workflow status."
@@ -895,15 +935,15 @@
             {/if}
             {#if embedded}
               <UI.RecordList
+                plain
+                icon="task"
                 label="Tasks"
                 items={tasks.map((task) => ({ ...task, label: task.title }))}
                 href={(task) => detailPath(currentRoute, task.id)}
                 loading={page.state.busy || tasksLoad.state.pending}
                 scrollable={false}
-                pageKey={JSON.stringify([page.state.query, page.state.cursor])}
                 emptyMessage={tasksStatus === "checking" ? "Loading…" : tasksStatus === "unavailable" ? "Tasks could not be loaded." : "No matching tasks."}
               >
-                {#snippet toolbar()}<UI.SearchToolbar framed={false} label="Search tasks" placeholder="Search" bind:value={page.state.search} loading={page.state.busy || tasksLoad.state.pending} onsearch={() => void page.search(reloadTasks)} />{/snippet}
                 {#snippet badges(task)}<UI.Badge>{statusLabel(task.status)}</UI.Badge>{#if task.sensitive}<UI.Badge>Sensitive</UI.Badge>{/if}{/snippet}
                 {#snippet details(task)}{dateLabel(task.updated_at)} · {authorLabel(task.updater)}{/snippet}
               </UI.RecordList>
@@ -969,5 +1009,10 @@
               >{/if}
           {/if}
     </PageBody>
+    {#if removal !== null}
+      <UI.ResourceRemoval noun="task" scope={isProjectRoute(currentRoute) ? "project" : "chat"}
+        name={removal.title} busy={deleting} {error}
+        onCancel={() => { removal = null; error = "" }} onConfirm={() => void remove()} />
+    {/if}
   </UI.ResourcePage>
 {/if}

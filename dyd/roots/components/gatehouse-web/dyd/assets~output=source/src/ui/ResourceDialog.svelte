@@ -1,48 +1,44 @@
 <script lang="ts">
   import type { Snippet } from "svelte"
   import { tick, untrack } from "svelte"
-  import { ArrowLeft, X } from "@lucide/svelte"
   import * as Dialog from "./dialog"
   import Button from "./Button.svelte"
-  import RouterLink from "./RouterLink.svelte"
-  import {
-    provideResourceDialog,
-    type ResourceFooter,
-  } from "./resource-dialog-context"
+  import type { ResourceDialogOptions } from "./resource-dialog"
 
   let {
     open,
     title,
     viewKey,
+    pageKey,
     expanded = false,
     compact = false,
     busy = false,
-    backLabel,
-    backHref,
+    dismissible = true,
+    includeClose = true,
+    search,
+    footer,
+    initialFocus,
     onClose,
+    onClosed,
     children,
-  }: {
-    open: boolean
-    title: string
-    viewKey: string
-    expanded?: boolean
-    compact?: boolean
-    busy?: boolean
-    backLabel?: string
-    backHref?: string
-    onClose: () => void
-    children: Snippet
-  } = $props()
+  }: ResourceDialogOptions & { children: Snippet } = $props()
   let headerElement = $state<HTMLElement>()
   let bodyElement = $state<HTMLElement>()
   let previousView: string | undefined
   const scrollPositions = new Map<string, number>()
-  const dialog = $state<{ footer?: ResourceFooter; resetScroll: () => void }>({
-    footer: undefined,
-    resetScroll: () => bodyElement?.scrollTo({ top: 0 }),
-  })
-  provideResourceDialog(dialog)
-  const blocked = $derived(busy || dialog.footer?.busy === true)
+  let previousPage: { view: string; page?: string } | undefined
+  const inactive = $derived(busy || !open || !dismissible)
+
+  function close() {
+    if (!inactive) onClose()
+  }
+
+  function dismiss(event: Event) {
+    // The owner may return to a parent view without closing this dialog shell.
+    // Keep the primitive open until its controlled `open` prop actually changes.
+    event.preventDefault()
+    close()
+  }
 
   $effect.pre(() => {
     const view = viewKey
@@ -65,13 +61,22 @@
         headerElement?.focus({ preventScroll: true })
       })
   })
+
+  $effect(() => {
+    const view = viewKey
+    const page = pageKey
+    if (previousPage?.view === view && previousPage.page !== page)
+      bodyElement?.scrollTo({ top: 0 })
+    previousPage = { view, page }
+  })
 </script>
 
 <Dialog.Root
   {open}
   onOpenChange={(value) => {
-    if (!value && !blocked) onClose()
+    if (!value) close()
   }}
+  onOpenChangeComplete={(value) => { if (!value && !open) onClosed?.() }}
 >
   <Dialog.Content
     size={expanded
@@ -80,57 +85,43 @@
         ? "resource-compact"
         : "resource"}
     showCloseButton={false}
-    onEscapeKeydown={(event) => {
-      if (blocked) event.preventDefault()
+    onOpenAutoFocus={(event) => {
+      const target = initialFocus?.() ?? bodyElement?.querySelector<HTMLInputElement>('input[type="search"]')
+      if (target) {
+        event.preventDefault()
+        target.focus({ preventScroll: true })
+      }
     }}
-    onInteractOutside={(event) => {
-      if (blocked) event.preventDefault()
-    }}
+    onEscapeKeydown={dismiss}
+    onInteractOutside={dismiss}
   >
     <header
       bind:this={headerElement}
+      inert={!open}
       tabindex="-1"
-      class="flex shrink-0 items-center gap-3 border-b px-4 py-3 outline-none"
+      class="flex shrink-0 items-start gap-2 border-b px-3 py-3 outline-none"
     >
-      {#if backHref}
-        <RouterLink
-          variant="ghost"
-          size="icon"
-          aria-label={backLabel ?? "Back"}
-          title={backLabel ?? "Back"}
-          href={backHref}
-          disabled={blocked}
-        >
-          <ArrowLeft size={18} aria-hidden="true" />
-        </RouterLink>
-      {/if}
-      <Dialog.Title class="min-w-0 flex-1">{title}</Dialog.Title>
-      <Button
-        variant="ghost"
-        size="icon"
-        aria-label={`Close ${title.toLowerCase()}`}
-        title="Close"
-        disabled={blocked}
-        onclick={onClose}
-      >
-        <X size={18} aria-hidden="true" />
-      </Button>
+      <Dialog.Title class="min-w-0 flex-1 self-center [overflow-wrap:anywhere]">{title}</Dialog.Title>
     </header>
     <div
       bind:this={bodyElement}
-      class="min-h-0 flex-auto overflow-y-auto overscroll-contain p-4"
+      data-slot="resource-dialog-body"
+      inert={!open}
+      class="min-h-0 flex-auto overflow-y-auto overscroll-contain px-3 py-4"
     >
+      {#if search}<div class="pb-4">{@render search()}</div>{/if}
       {@render children()}
     </div>
     <footer
-      class="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-4 py-3"
+      inert={!open}
+      class="flex shrink-0 flex-wrap items-center justify-end gap-2 border-t px-3 py-3"
     >
-      {#if dialog.footer?.includeClose !== false}
-        <Button variant="outline" disabled={blocked} onclick={onClose}
+      {#if includeClose}
+        <Button variant="outline" disabled={inactive} onclick={close}
           >Close</Button
         >
       {/if}
-      {#if dialog.footer}{@render dialog.footer.children()}{/if}
+      {#if footer}{@render footer()}{/if}
     </footer>
   </Dialog.Content>
 </Dialog.Root>

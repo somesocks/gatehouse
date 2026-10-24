@@ -108,7 +108,7 @@
           label="Creating group…"
         />
       </UI.Form>
-      <UI.ResourceActions includeClose={false}>
+      <UI.ResourceActions>
         <UI.Button
           variant="outline"
           disabled={form.state.saving}

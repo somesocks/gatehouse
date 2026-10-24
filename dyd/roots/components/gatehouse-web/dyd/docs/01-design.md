@@ -121,8 +121,9 @@ Visual emphasis distinguishes primary, secondary, and destructive actions.
 Actions with equivalent importance and consequences receive equivalent treatment.
 
 Primary emphasis identifies the main action in a view, including actions that
-open an editor. Supporting actions use secondary or neutral treatment. Primary
-emphasis is distinct from success-specific styling, which is reserved for final
+open an editor. Secondary buttons retain visible outlines so that their interactive
+boundaries are clear. Primary emphasis is distinct from success-specific styling,
+which is reserved for final
 affirmative actions, including form submissions.
 
 Destructive operations require explicit confirmation before they are committed.

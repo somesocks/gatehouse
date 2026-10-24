@@ -29,6 +29,8 @@ type SessionSecretsControllerOptions = {
   onNavigate: (path: string, replace?: boolean) => void
 }
 
+export type SessionSecretsController = ReturnType<typeof createSessionSecretsController>
+
 export function createSessionSecretsController({
   activity,
   onAuthenticationLost,

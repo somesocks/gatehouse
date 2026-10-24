@@ -29,7 +29,7 @@
   >
   {#if canManage}
     <UI.Button
-      variant="ghost"
+      variant="outline"
       size="icon-sm"
       disabled={saving}
       aria-label={`Edit role for ${name}`}
@@ -37,7 +37,7 @@
       onclick={onEdit}><UI.Pencil aria-hidden="true" /></UI.Button
     >
     <UI.Button
-      variant="ghost"
+      variant="outline"
       size="icon-sm"
       disabled={saving}
       aria-label={`Remove ${name} from chat`}

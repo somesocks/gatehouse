@@ -24,11 +24,14 @@
       | "card"
       | "navigation"
       | "record"
+      | "resource-row"
     size?: "default" | "sm" | "icon"
   } = $props()
   const classes = $derived(cn(
     variant === "default" || variant === "outline" || variant === "secondary" || variant === "ghost"
       ? buttonVariants({ variant, size })
+      : variant === "resource-row"
+        ? "flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md py-2 text-left text-sm text-foreground hover:bg-muted/50 focus-visible:outline-2 focus-visible:outline-ring"
       : variant === "record"
         ? "flex min-w-0 flex-1 flex-col gap-1 rounded-sm text-sm text-foreground focus-visible:outline-2 focus-visible:outline-ring"
         : variant === "navigation"
