@@ -65,8 +65,8 @@
     {#snippet actions(secret)}
       {#if view.canManage}
         <UI.Row justify="end">
-        <UI.RouterLink size="sm" variant="outline" aria-label={`Edit ${secret.description}`} title="Edit secret" disabled={view.saving} href={dialogPath("secret-edit", secret.id)}><UI.Pencil aria-hidden="true" /></UI.RouterLink>
-        <UI.Button size="icon-sm" variant="outline" aria-label={`Remove ${secret.description}`} title="Remove secret" disabled={view.saving} onclick={() => controller.begin("remove", secret)}><UI.Trash2 aria-hidden="true" /></UI.Button>
+        <UI.RouterLink size="sm" variant="ghost" aria-label={`Edit ${secret.description}`} title="Edit secret" disabled={view.saving} href={dialogPath("secret-edit", secret.id)}><UI.Pencil aria-hidden="true" /></UI.RouterLink>
+        <UI.Button size="icon-sm" variant="ghost" aria-label={`Remove ${secret.description}`} title="Remove secret" disabled={view.saving} onclick={() => controller.begin("remove", secret)}><UI.Trash2 aria-hidden="true" /></UI.Button>
         </UI.Row>
       {/if}
     {/snippet}

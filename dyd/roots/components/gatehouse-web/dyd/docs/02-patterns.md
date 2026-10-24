@@ -165,8 +165,9 @@ Main collection, dialog, connection, and recovery actions retain primary emphasi
 even when they open another view. This includes creation actions, Add person or
 group, Sign in, and the main recovery action on an error page. Save remains
 primary when a destructive change requires a subsequent confirmation.
-Supporting controls such as Close, Cancel, History, and pagination use outlined
-secondary treatment, including compact row actions.
+Supporting text controls such as Close, Cancel, History, and pagination use outlined
+secondary treatment. Supporting icon-only controls, including compact row actions,
+use ghost styling with visible hover and keyboard-focus states.
 Success-specific styling is reserved for final affirmative actions such as
 Create, Save, Add, or Submit. Header actions use the default control size; compact
 row actions may use smaller sizes.
@@ -233,7 +234,8 @@ Chat participants use the separate dialog pattern below.
 
 Section-based rosters use integrated search, lists, section actions, and
 pagination. Project membership has separate People and Groups sections.
-Group member rows display the current role with Edit and Remove icon actions.
+Group members use a table with separate Name, Role, and Actions columns. The
+Actions column contains Edit and Remove icons and is shown to group managers.
 Edit opens a role editor; Remove opens a confirmation. Bot rows use the Remove
 icon and confirmation. Role drafts and their expected revisions remain fixed
 across background refreshes until explicitly reloaded.

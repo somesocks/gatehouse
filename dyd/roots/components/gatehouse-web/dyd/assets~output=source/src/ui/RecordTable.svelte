@@ -5,17 +5,19 @@
     children,
     toolbar,
     showHeader = true,
+    embedded = false,
   }: {
     headers: string[]
     children: Snippet
     toolbar?: Snippet
     showHeader?: boolean
+    embedded?: boolean
   } = $props()
 </script>
 
-<div class="w-full overflow-x-auto rounded-lg border bg-card">
+<div class={embedded ? "w-full overflow-x-auto" : "w-full overflow-x-auto rounded-lg border bg-card"}>
   {#if toolbar}<div class="border-b p-3">{@render toolbar()}</div>{/if}
-  <table class="w-full min-w-[40rem] border-collapse text-left text-sm">
+  <table class={embedded ? "w-full border-collapse text-left text-sm" : "w-full min-w-[40rem] border-collapse text-left text-sm"}>
     <thead
       class={showHeader
         ? "border-b bg-muted/40 text-muted-foreground"

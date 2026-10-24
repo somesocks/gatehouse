@@ -121,8 +121,9 @@ Visual emphasis distinguishes primary, secondary, and destructive actions.
 Actions with equivalent importance and consequences receive equivalent treatment.
 
 Primary emphasis identifies the main action in a view, including actions that
-open an editor. Secondary buttons retain visible outlines so that their interactive
-boundaries are clear. Primary emphasis is distinct from success-specific styling,
+open an editor. Secondary text buttons retain visible outlines so that their interactive
+boundaries are clear. Supporting icon-only actions use ghost styling with clear
+hover and keyboard-focus states. Primary emphasis is distinct from success-specific styling,
 which is reserved for final
 affirmative actions, including form submissions.
 

@@ -277,54 +277,56 @@
           onsearch={() => void members.search()}
         />
       {/snippet}
-      <UI.RecordList
-        label="Group members"
-        framed={false}
-        scrollable={false}
-        items={members.state.items.map((member) => ({
-          ...member,
-          id: member.principal,
-          label: member.name ?? member.alias ?? "Unnamed person",
-        }))}
-        href={scope === "system"
-          ? (member) =>
-              `/app/system/principals/${encodeURIComponent(member.principal)}`
-          : undefined}
-        emptyMessage={members.state.loading
-          ? "Loading members…"
-          : members.state.error
-            ? "Members could not be loaded."
-            : "No memberships match your search."}
+      <UI.RecordTable
+        embedded
+        headers={canManage ? ["Name", "Role", "Actions"] : ["Name", "Role"]}
       >
-        {#snippet details(
-          member,
-        )}{#if member.alias}@{member.alias}{/if}{/snippet}
-        {#snippet actions(member)}
-          <UI.Row justify="end">
-            <UI.Text size="small" tone="muted"
-              >{member.role === "admin" ? "Admin" : "Member"}</UI.Text
-            >
+        {#each members.state.items as member (member.principal)}
+          {@const name = member.name ?? member.alias ?? "Unnamed person"}
+          <UI.RecordRow>
+            <UI.RecordCell primary>
+              {#if scope === "system"}
+                <UI.RouterLink variant="record" href={`/app/system/principals/${encodeURIComponent(member.principal)}`}>{name}</UI.RouterLink>
+              {:else}
+                <UI.Text>{name}</UI.Text>
+              {/if}
+              {#if member.alias}<UI.Text size="small" tone="muted">@{member.alias}</UI.Text>{/if}
+            </UI.RecordCell>
+            <UI.RecordCell label="Role">{member.role === "admin" ? "Admin" : "Member"}</UI.RecordCell>
             {#if canManage}
-              <UI.Button
-                size="icon-sm"
-                variant="outline"
-                aria-label={`Edit ${member.label}`}
-                title="Edit member role"
-                disabled={view.saving}
-                onclick={() => editMember(member)}
-              ><UI.Pencil aria-hidden="true" /></UI.Button>
-              <UI.Button
-                size="icon-sm"
-                variant="outline"
-                aria-label={`Remove ${member.label}`}
-                title="Remove member"
-                disabled={view.saving}
-                onclick={() => removeMember(member)}
-              ><UI.Trash2 aria-hidden="true" /></UI.Button>
+              <UI.RecordCell actions>
+                <UI.Row justify="end" wrap={false}>
+                  <UI.Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Edit ${name}`}
+                    title="Edit member role"
+                    disabled={view.saving}
+                    onclick={() => editMember(member)}
+                  ><UI.Pencil aria-hidden="true" /></UI.Button>
+                  <UI.Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Remove ${name}`}
+                    title="Remove member"
+                    disabled={view.saving}
+                    onclick={() => removeMember(member)}
+                  ><UI.Trash2 aria-hidden="true" /></UI.Button>
+                </UI.Row>
+              </UI.RecordCell>
             {/if}
-          </UI.Row>
-        {/snippet}
-      </UI.RecordList>
+          </UI.RecordRow>
+        {:else}
+          <UI.TableEmpty
+            columns={canManage ? 3 : 2}
+            message={members.state.loading
+              ? "Loading members…"
+              : members.state.error
+                ? "Members could not be loaded."
+                : "No memberships match your search."}
+          />
+        {/each}
+      </UI.RecordTable>
       {#snippet footer()}
         <UI.ActionFeedback
           error={members.state.error || (dialog !== "members" && !editingMember && !confirmation.state.request ? view.feedback.members.error : "")}
@@ -393,7 +395,7 @@
           {#if canManage}
             <UI.Button
               size="icon-sm"
-              variant="outline"
+              variant="ghost"
               aria-label={`Remove ${agent.label ?? agent.alias}`}
               title="Remove bot"
               disabled={view.saving}
