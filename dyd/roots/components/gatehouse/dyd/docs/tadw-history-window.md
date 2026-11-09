@@ -5,6 +5,9 @@ and aligning its first event with a known cross-request cache base. It uses the
 exact weights from the standalone TADW renderer, not stored payload JSON sizes.
 It is not wired into the runtime or active compaction profiles yet. Retrieval,
 cache-table reads/writes, DBOS checkpoints and tooling compaction remain separate.
+The standalone SQLite traversal component is documented in
+[tadw-history-cursor.md](tadw-history-cursor.md); the agent-side adapter connecting
+that cursor to this policy is not implemented yet.
 
 ## Inputs and limits
 
