@@ -3,8 +3,10 @@
 This first TADW increment is a standalone, full-fidelity renderer in
 `agent/transcript_tadw.go`. It is not wired into provider requests or selected by
 compaction profiles. Existing MCMTR rendering and agent execution are unchanged.
-History retrieval, DBOS checkpoints, budgeting, cache-base selection and tooling
-compaction are separate increments.
+The separate pure history-window budget/base-selection policy is described in
+[tadw-history-window.md](tadw-history-window.md). Neither component is wired into
+the runtime yet. History retrieval, DBOS checkpoints, cache-table access and
+tooling compaction remain separate increments.
 
 ## Event fragments
 
