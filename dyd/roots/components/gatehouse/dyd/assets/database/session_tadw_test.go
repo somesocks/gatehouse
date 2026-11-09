@@ -138,7 +138,7 @@ func TestTADWHistoryCursorSelection(t *testing.T) {
 			t.Fatal(err)
 		}
 		var want []string
-		for _, id := range []int{12, 11, 3, 4, 8, 5, 9, 6, 2, 15, 1} {
+		for _, id := range []int{12, 11, 6, 9, 5, 8, 4, 3, 2, 15, 1} {
 			want = append(want, tadwCursorID(id))
 		}
 		if !slices.Equal(tadwCursorIDs(got), want) {
@@ -161,7 +161,7 @@ func TestTADWHistoryCursorSelection(t *testing.T) {
 				t.Fatalf("lost parent: %+v", item)
 			}
 		}
-		for _, index := range []int{3, 4, 5, 6, 7} {
+		for _, index := range []int{2, 3, 4, 5, 6, 7} {
 			if got[index].OwnerID != tadwCursorID(3) {
 				t.Fatal("local tree lost its owner block")
 			}
@@ -337,7 +337,7 @@ func TestTADWSelectedTreeUsesGenericParentLinks(t *testing.T) {
 			t.Fatal("owner changed")
 		}
 	}
-	if !slices.Equal(ids, []string{"request", "thinking", "trace", "tool", "result"}) {
+	if !slices.Equal(ids, []string{"result", "tool", "trace", "thinking", "request"}) {
 		t.Fatal(ids)
 	}
 	children["result"] = []tadwHistoryNode{meta("request", "result", "agent.request")}
@@ -348,10 +348,10 @@ func TestTADWSelectedTreeUsesGenericParentLinks(t *testing.T) {
 
 // Work instrumentation exists only in the test binary, applied to the same
 // query texts used by the cursor. It counts logical work, not physical I/O.
-var tadwCursorWork struct{ nodes, previews, keys, candidates, children, payloads atomic.Int64 }
+var tadwCursorWork struct{ nodes, lookups, previews, keys, candidates, children, payloads atomic.Int64 }
 
 func init() {
-	for name, counter := range map[string]*atomic.Int64{"gh_test_tadw_node": &tadwCursorWork.nodes, "gh_test_tadw_preview": &tadwCursorWork.previews, "gh_test_tadw_key": &tadwCursorWork.keys, "gh_test_tadw_candidate": &tadwCursorWork.candidates, "gh_test_tadw_child": &tadwCursorWork.children, "gh_test_tadw_payload": &tadwCursorWork.payloads} {
+	for name, counter := range map[string]*atomic.Int64{"gh_test_tadw_node": &tadwCursorWork.nodes, "gh_test_tadw_lookup": &tadwCursorWork.lookups, "gh_test_tadw_preview": &tadwCursorWork.previews, "gh_test_tadw_key": &tadwCursorWork.keys, "gh_test_tadw_candidate": &tadwCursorWork.candidates, "gh_test_tadw_child": &tadwCursorWork.children, "gh_test_tadw_payload": &tadwCursorWork.payloads} {
 		counter := counter
 		sqlite.MustRegisterScalarFunction(name, 1, func(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
 			counter.Add(1)
@@ -360,10 +360,11 @@ func init() {
 	}
 }
 func tadwCursorInstrument(cursor *TADWHistoryCursor) {
-	for _, counter := range []*atomic.Int64{&tadwCursorWork.nodes, &tadwCursorWork.previews, &tadwCursorWork.keys, &tadwCursorWork.candidates, &tadwCursorWork.children, &tadwCursorWork.payloads} {
+	for _, counter := range []*atomic.Int64{&tadwCursorWork.nodes, &tadwCursorWork.lookups, &tadwCursorWork.previews, &tadwCursorWork.keys, &tadwCursorWork.candidates, &tadwCursorWork.children, &tadwCursorWork.payloads} {
 		counter.Store(0)
 	}
 	cursor.seedQuery = strings.ReplaceAll(cursor.seedQuery, "/* node */ n.id", "gh_test_tadw_node(n.id)")
+	cursor.seedQuery = strings.ReplaceAll(cursor.seedQuery, "n.session = :session", "n.session = :session AND gh_test_tadw_lookup(n.id) IS NOT NULL")
 	cursor.seedQuery = strings.ReplaceAll(cursor.seedQuery, "/* preview-scan */", "AND gh_test_tadw_preview(c.id) IS NOT NULL")
 	cursor.childQuery = strings.Replace(cursor.childQuery, "SELECT id FROM inputs", "SELECT gh_test_tadw_key(id) FROM inputs", 1)
 	cursor.childQuery = strings.Replace(cursor.childQuery, "SELECT e.id,", "SELECT gh_test_tadw_child(e.id),", 1)
@@ -420,7 +421,14 @@ func TestTADWHistoryCursorStopsOnWideAndDeepHistory(t *testing.T) {
 			if !cursor.Next() {
 				t.Fatal(cursor.Err())
 			}
-			if cursor.Event().Event.Ref.Id != tadwCursorID(10001) {
+			firstID := 10001
+			if shape == "wide-pending" {
+				firstID = 20000
+			}
+			if shape == "wide-success" {
+				firstID = 40000
+			}
+			if cursor.Event().Event.Ref.Id != tadwCursorID(firstID) {
 				t.Fatal("wrong first event")
 			}
 			if err := cursor.Close(); err != nil {
@@ -428,6 +436,9 @@ func TestTADWHistoryCursorStopsOnWideAndDeepHistory(t *testing.T) {
 			}
 			if n := tadwCursorWork.nodes.Load(); n != 5 {
 				t.Fatalf("main work=%d", n)
+			}
+			if n := tadwCursorWork.lookups.Load(); n != 5 {
+				t.Fatalf("node lookup candidates=%d", n)
 			}
 			if n := tadwCursorWork.previews.Load(); n > 15 {
 				t.Fatalf("preview work=%d", n)
@@ -557,11 +568,14 @@ func tadwCursorOracle(nodes []tadwCursorFixtureNode, anchor int) []string {
 			}
 		}
 	}
+	// Construct final prompt order independently: outer ancestry first, each
+	// level oldest-first, and each subtree parent-first. Then reverse ONCE.
+	var levels [][]string
 	for root := anchor; root != 0; root = byID[root].parent {
+		result = nil
 		branch := byID[root]
 		siblings := byParent[branch.parent]
-		for index := len(siblings) - 1; index >= 0; index-- {
-			owner := siblings[index]
+		for _, owner := range siblings {
 			if owner.at > branch.at {
 				continue
 			}
@@ -573,6 +587,12 @@ func tadwCursorOracle(nodes []tadwCursorFixtureNode, anchor int) []string {
 				}
 			}
 		}
+		levels = append(levels, result)
 	}
+	result = nil
+	for index := len(levels) - 1; index >= 0; index-- {
+		result = append(result, levels[index]...)
+	}
+	slices.Reverse(result)
 	return result
 }

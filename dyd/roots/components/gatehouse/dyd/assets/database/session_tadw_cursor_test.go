@@ -48,6 +48,57 @@ func TestTADWHistoryCursorEveryEarlyStopPrefix(t *testing.T) {
 	}
 }
 
+func TestTADWHistoryCursorSingleReversalProducesPromptOrder(t *testing.T) {
+	store := tadwCursorStore(t)
+	tadwCursorBoundary(t, store)
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	got, err := tadwCursorCollect(t, store, tx, tadwCursorRef(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Reverse(got)
+	var want []string
+	for _, id := range []int{1, 15, 2, 3, 4, 8, 5, 9, 6, 11, 12} {
+		want = append(want, tadwCursorID(id))
+	}
+	if !slices.Equal(tadwCursorIDs(got), want) {
+		t.Fatalf("whole-list reversal gave %v", tadwCursorIDs(got))
+	}
+	positions := map[string]int{}
+	for index, item := range got {
+		positions[item.Event.Ref.Id] = index
+	}
+	for index, item := range got {
+		if item.Event.Parent != nil {
+			if parent, exists := positions[item.Event.Parent.Id]; exists && parent >= index {
+				t.Fatalf("parent follows child: %+v", item)
+			}
+		}
+	}
+	// A cutoff can fall inside a subtree. Keep actual parent identities even
+	// when that parent falls outside the accepted suffix; do not regroup it.
+	err, cursor := store.SessionTADWHistoryCursor(context.Background(), tx, tadwCursorRef(11))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cursor.Close()
+	var prefix []TADWHistoryEvent
+	for len(prefix) < 4 && cursor.Next() {
+		prefix = append(prefix, cursor.Event())
+	}
+	if cursor.Err() != nil {
+		t.Fatal(cursor.Err())
+	}
+	slices.Reverse(prefix)
+	if prefix[0].Event.Ref.Id != tadwCursorID(9) || prefix[0].Event.Parent.Id != tadwCursorID(5) {
+		t.Fatal("wrong partial-subtree suffix", prefix)
+	}
+}
+
 func TestTADWHistoryCursorPayloadErrorClosesReader(t *testing.T) {
 	store := tadwCursorStore(t)
 	tadwCursorBoundary(t, store)
@@ -147,6 +198,21 @@ func TestTADWHistoryQueryPlans(t *testing.T) {
 		if !strings.Contains(seeds, fragment) {
 			t.Fatalf("missing %q in plan:\n%s", fragment, seeds)
 		}
+	}
+	pointLookups := 0
+	for _, line := range strings.Split(seeds, "\n") {
+		if strings.HasPrefix(line, "SEARCH n ") {
+			pointLookups++
+			if !strings.Contains(line, "id=?") {
+				t.Fatalf("recursive node lookup scans a scope instead of seeking by ID:\n%s", seeds)
+			}
+		}
+		if strings.HasPrefix(line, "SEARCH p ") && !strings.Contains(line, "id=?") {
+			t.Fatalf("parent/preview lookup is not an ID seek:\n%s", seeds)
+		}
+	}
+	if pointLookups != 3 {
+		t.Fatalf("expected three node ID seeks, got %d:\n%s", pointLookups, seeds)
 	}
 	if strings.Contains(seeds, "MATERIALIZE branch_walk") || strings.Contains(seeds, "USE TEMP B-TREE FOR ORDER BY") {
 		t.Fatalf("eager history plan:\n%s", seeds)

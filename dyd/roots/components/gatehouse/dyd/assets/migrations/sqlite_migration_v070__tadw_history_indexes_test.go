@@ -125,7 +125,7 @@ func TestSQLiteMigrationV070TADWHistoryIndexes(t *testing.T) {
 	if err := cursor.Err(); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"sev_00000000000000000000000003", "sev_00000000000000000000000002", "sev_00000000000000000000000004", "sev_00000000000000000000000005", "sev_00000000000000000000000001"}
+	want := []string{"sev_00000000000000000000000003", "sev_00000000000000000000000005", "sev_00000000000000000000000004", "sev_00000000000000000000000002", "sev_00000000000000000000000001"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("migrated cursor=%v want=%v", got, want)
 	}

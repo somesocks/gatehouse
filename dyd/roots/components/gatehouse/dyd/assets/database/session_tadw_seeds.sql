@@ -4,13 +4,14 @@
 -- Equal timestamps are included even when sibling.id > branch_root.id.
 -- Index sought: (workspace, session, parent, created_at DESC, id DESC).
 -- NULL-parent siblings are handled with IS, not =.
--- This is retrieval order. Reverse owner blocks, not their local tree order,
--- when assembling older history first. No outer history sort is permitted.
+-- This is owner retrieval order. The selected-tree walker emits descendants
+-- in reverse prompt order too, so consumers reverse the whole event list once.
+-- No outer history sort is permitted.
 WITH RECURSIVE branch_walk(root_id, root_parent, cutoff, depth, id, parent, created_at) AS (
     SELECT /* root */ a.id, a.parent, a.created_at, 0,
            /* node */ n.id, n.parent, n.created_at
     FROM gatehouse_session_events AS a
-    JOIN gatehouse_session_events AS n
+    CROSS JOIN gatehouse_session_events AS n
       ON n.workspace = :workspace AND n.session = :session
      AND n.id = (
          SELECT b.id FROM gatehouse_session_events AS b
@@ -25,7 +26,7 @@ WITH RECURSIVE branch_walk(root_id, root_parent, cutoff, depth, id, parent, crea
     SELECT r.root_id, r.root_parent, r.cutoff, r.depth,
            /* node */ n.id, n.parent, n.created_at
     FROM branch_walk AS r
-    JOIN gatehouse_session_events AS n
+    CROSS JOIN gatehouse_session_events AS n
       ON n.workspace = :workspace AND n.session = :session
      AND n.id = COALESCE(
          -- Explicit equality + ID range avoids scanning a large timestamp tie.
@@ -45,9 +46,9 @@ WITH RECURSIVE branch_walk(root_id, root_parent, cutoff, depth, id, parent, crea
     SELECT /* root */ p.id, p.parent, p.created_at, r.depth + 1,
            /* node */ n.id, n.parent, n.created_at
     FROM branch_walk AS r
-    JOIN gatehouse_session_events AS p
+    CROSS JOIN gatehouse_session_events AS p
       ON p.workspace = :workspace AND p.session = :session AND p.id = r.root_parent
-    JOIN gatehouse_session_events AS n
+    CROSS JOIN gatehouse_session_events AS n
       ON n.workspace = :workspace AND n.session = :session
      AND n.id = (
          SELECT b.id FROM gatehouse_session_events AS b

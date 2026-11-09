@@ -45,8 +45,9 @@ const tadwHistoryEventSQL = `SELECT ` + sessionEventColumns + `
  WHERE events.workspace=:workspace AND events.session=:session AND events.id=:event`
 
 // TADWHistoryEvent is one real event, not a request with an embedded outcome.
-// OwnerID identifies its retrieval block: assembly may reverse owner blocks to
-// put older history first, but must preserve each block's parent-first order.
+// The cursor emits reverse prompt order: reverse the entire accepted event list
+// once to obtain parent-first history. OwnerID is diagnostic selection metadata,
+// not an instruction to regroup or reorder the returned events.
 type TADWHistoryEvent struct {
 	Event   model.SessionEvent
 	OwnerID string
@@ -356,7 +357,6 @@ func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNo
 			return fmt.Errorf("duplicate/cyclic selected tree event %s", node.ID)
 		}
 		seen[node.ID] = true
-		result = append(result, tadwSelectedNode{node, group.Owner.ID})
 		selected := children[node.ID]
 		if node.ID == group.Owner.ID && node.Kind != model.SessionEventKindAgentRequest {
 			selected = group.Previews
@@ -364,9 +364,9 @@ func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNo
 		selected = append([]tadwHistoryNode(nil), selected...)
 		sort.Slice(selected, func(a, b int) bool {
 			if selected[a].CreatedAt != selected[b].CreatedAt {
-				return selected[a].CreatedAt < selected[b].CreatedAt
+				return selected[a].CreatedAt > selected[b].CreatedAt
 			}
-			return selected[a].ID < selected[b].ID
+			return selected[a].ID > selected[b].ID
 		})
 		terminals := 0
 		for _, child := range selected {
@@ -385,6 +385,7 @@ func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNo
 				return err
 			}
 		}
+		result = append(result, tadwSelectedNode{node, group.Owner.ID})
 		return nil
 	}
 	err := walk(group.Owner)

@@ -21,7 +21,8 @@ Each value is a `TADWHistoryEvent`:
 
 - `Event`: one decoded `model.SessionEvent`, with its actual parent, authors,
   payload and metrics. An outcome is its own event, not a nullable request field.
-- `OwnerID`: the retrieval block to which this event belongs.
+- `OwnerID`: diagnostic selection provenance. Consumers do not need to regroup
+  events by this ID.
 
 All selection, selected-child queries, and payload reads use the supplied
 transaction. Further file-metadata hydration must also use that transaction,
@@ -48,19 +49,30 @@ initial-window ID checkpointing remain future integration work.
 - An outcome already on the anchor ancestry retains its own owner block and is
   not emitted twice when its ancestor request is expanded.
 
-Within each owner block, output is parent-first DFS, with selected children
-ordered by `(created_at, id)`. Child selection is separate from the generic
-selected-tree walker: future selected tool/result subtrees need not change the
-output representation. No such additional child-selection policy is activated.
+The complete event stream is **reverse prompt order**: visit selected children
+newest-first and descendants-before-parent. Child selection is separate from the
+generic selected-tree walker: future selected tool/result subtrees need not
+change the output representation. No such additional child-selection policy is
+activated.
 
-This is **retrieval order, not final prompt order**. An agent adapter can reverse
-owner blocks while preserving local parent-first order. Blindly reversing the
-flat event stream would reverse requests and their outcomes.
+Reverse the entire accepted event list **once** to obtain final prompt order:
+older history first, with parent-first DFS and selected children ordered by
+`(created_at ASC, id ASC)`. No regrouping, block-wise reversal or global timestamp
+sort is needed. Request outcomes stay next to their request in final prompt
+order; their completion timestamps do not reorder requests.
+
+A byte cutoff may stop inside a selected subtree. In that case the accepted
+history is still a suffix of the full prompt-order stream. A selected descendant
+may retain a parent reference whose event lies outside that suffix. Do not force
+that parent into the window or skip the crossing event to fill spare space.
 
 ## Bounded work and indexes
 
 The seed query is a recursive successor cursor with split timestamp/ID seeks,
-not a complete history query followed by sorting and truncation. Four-owner
+not a complete history query followed by sorting and truncation. Explicit
+`CROSS JOIN` fences keep the current recursive row before node/parent ID lookups;
+otherwise SQLite can scan a whole scope through the thread index before testing
+those IDs. This uses existing ID indexes, not an extra covering index. Four-owner
 frontiers bound request-child selection to twelve keys. A valid frontier has at
 most 28 selected metadata nodes, plus one owner lookahead. `Next` fetches only
 its own event payload; there is no payload prefetch. ID guards grow with the
@@ -92,10 +104,12 @@ Tests cover scope collisions, missing anchors, parentless siblings, timestamp
 and ID ties, oldest-three membership, separate outcomes and pending requests,
 ancestral outcomes, generic selected tools/results, invalid data, cancellation,
 resource/transaction ownership, read-transaction consistency, every early-stop
-prefix, query-plan shape, and deterministic randomized parent-map oracles.
+prefix, whole-list reversal into final prompt order, query-plan shape (including
+actual node/parent ID seeks), and deterministic randomized parent-map oracles.
 
 Small-record fixtures with 10,000 tied siblings, a 10,000-node ancestry, and
-10,000 execution children verify bounded logical work on early close. A negative
+10,000 execution children verify bounded logical work on early close, including
+lookup-candidate probes rather than only emitted-node counts. A negative
 control removes the partial index and its enforcement to demonstrate the
 otherwise hidden execution-child scan. These counters are not physical I/O or
 end-to-end throughput measurements. A full-schema migration test verifies both
