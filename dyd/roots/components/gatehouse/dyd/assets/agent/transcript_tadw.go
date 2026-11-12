@@ -83,22 +83,31 @@ func renderTADWTranscript(history, tooling []model.SessionEvent) (tadwTranscript
 	return result, nil
 }
 
+// tadwEventIncluded lets selection omit bookkeeping before file hydration, using
+// the exact same visibility rules as the renderer.
+func tadwEventIncluded(event model.SessionEvent) bool {
+	switch event.Kind {
+	case model.SessionEventKindAgentFailure:
+		return event.Payload["code"] != "cancelled"
+	case model.SessionEventKindMessageText, model.SessionEventKindAgentRequest,
+		model.SessionEventKindAgentSuccess, model.SessionEventKindToolRequest,
+		model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
+		return true
+	default:
+		return false
+	}
+}
+
 // renderTADWEvent renders only the explicit transcript allowlist. Other event
 // kinds (including provider bookkeeping) have no fragment and cost zero bytes;
 // there is deliberately no fallback that serializes arbitrary event payloads.
 func renderTADWEvent(event model.SessionEvent) (tadwRenderedEvent, bool, error) {
-	tag := event.Kind
-	switch event.Kind {
-	case model.SessionEventKindMessageText:
-		tag = "message"
-	case model.SessionEventKindAgentRequest, model.SessionEventKindAgentSuccess,
-		model.SessionEventKindAgentFailure, model.SessionEventKindToolRequest,
-		model.SessionEventKindToolSuccess, model.SessionEventKindToolFailure:
-	default:
+	if !tadwEventIncluded(event) {
 		return tadwRenderedEvent{}, false, nil
 	}
-	if event.Kind == model.SessionEventKindAgentFailure && event.Payload["code"] == "cancelled" {
-		return tadwRenderedEvent{}, false, nil
+	tag := event.Kind
+	if event.Kind == model.SessionEventKindMessageText {
+		tag = "message"
 	}
 	if event.Ref.Id == "" || event.Parent != nil && event.Parent.Id == "" {
 		return tadwRenderedEvent{}, false, fmt.Errorf("render TADW event %q: event/parent ID is empty", event.Ref.Id)

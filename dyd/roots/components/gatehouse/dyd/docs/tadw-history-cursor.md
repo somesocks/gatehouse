@@ -93,10 +93,10 @@ There is **no additional ID-metadata covering index or payload-size index**.
 Existing ID indexes handle metadata and payload point lookups. Inline records
 are expected to stay small, with large content represented by file references.
 
-No byte quota is implemented in this database cursor. The next adapter must
-hydrate file metadata, render exact UTF-8 bytes, stop consumption at the history
-maximum, establish final prompt order, and call the pure window policy. It must
-not materialize the whole session first.
+No byte quota is implemented in this database cursor. The standalone
+[agent adapter](tadw-history-adapter.md) hydrates file metadata, renders exact
+UTF-8 bytes, stops consumption at the history maximum, establishes final prompt
+order, and calls the pure window policy. Neither component is activated.
 
 ## Validation
 

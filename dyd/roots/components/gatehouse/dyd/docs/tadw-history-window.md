@@ -6,8 +6,9 @@ exact weights from the standalone TADW renderer, not stored payload JSON sizes.
 It is not wired into the runtime or active compaction profiles yet. Retrieval,
 cache-table reads/writes, DBOS checkpoints and tooling compaction remain separate.
 The standalone SQLite traversal component is documented in
-[tadw-history-cursor.md](tadw-history-cursor.md); the agent-side adapter connecting
-that cursor to this policy is not implemented yet.
+[tadw-history-cursor.md](tadw-history-cursor.md). The standalone agent-side adapter
+connecting that cursor, metadata hydration, rendering and this policy is described
+in [tadw-history-adapter.md](tadw-history-adapter.md); it remains inactive.
 
 ## Inputs and limits
 
