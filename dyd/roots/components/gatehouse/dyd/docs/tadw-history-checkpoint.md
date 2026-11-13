@@ -29,6 +29,9 @@ Do not pass it as a durable thinking workflow input or return it as a durable
 step/workflow result. Calling this helper independently inside every round would
 create multiple selection checkpoints and is **not** its intended lifecycle.
 
+The separate [tooling context assembler](tadw-tooling-context.md) accepts this
+worker-local history and appends request-only execution fragments in memory.
+
 This increment does not wire history into the current reference-valued child
 round workflows or implement cross-worker memory sharing. That integration must
 preserve the single request checkpoint rather than copy its IDs into every
