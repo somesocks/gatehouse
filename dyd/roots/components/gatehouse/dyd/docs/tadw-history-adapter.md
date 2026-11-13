@@ -3,7 +3,9 @@
 `agent/history_tadw.go` connects the SQLite cursor, file-metadata projection,
 TADW renderer and pure history-window policy. It is a standalone component:
 **TADW is not activated**, MCMTR remains unchanged, and no configuration defaults,
-cache tables, DBOS checkpoints, provider controls or tooling compaction are added.
+cache tables, provider controls or tooling compaction are added. The separate,
+also inactive [request checkpoint helper](tadw-history-checkpoint.md) wraps this
+adapter with a single ordered-ID DBOS checkpoint and replay rehydration.
 
 ## Inputs and output
 
@@ -27,8 +29,8 @@ The returned `tadwInitialHistory` contains:
 
 The adapter retains no raw event payloads in its result. The candidate fragments
 not selected by the policy are released, rather than retained through a subslice
-backing array. Nothing is persisted; future durable selection should checkpoint
-ordered IDs, not this rendered buffer.
+backing array. The adapter itself persists nothing. The request checkpoint helper
+persists only ordered IDs, never this rendered buffer.
 
 ## Read and cutoff sequence
 

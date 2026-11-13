@@ -1399,6 +1399,19 @@ func (store *Store) SessionEventGet(ctx context.Context, event model.SessionEven
 	})
 }
 
+// SessionEventGetInSQLTransaction is the ordinary scoped event point-read on a
+// caller-owned database/sql transaction. Unlike SessionEventGetInTransaction,
+// which accepts a DBOS transaction, it creates no durable checkpoint and does
+// not acquire another pooled connection. A missing event returns (nil, nil).
+func (store *Store) SessionEventGetInSQLTransaction(ctx context.Context, tx *sql.Tx, event model.SessionEventRef) (error, *model.SessionEvent) {
+	if tx == nil || event.Session.Workspace.Id == "" || event.Session.Id == "" || event.Id == "" {
+		return fmt.Errorf("get session event: invalid transaction or event scope"), nil
+	}
+	return store.sessionEventGet(event, func(query string, args ...any) sessionEventRow {
+		return tx.QueryRowContext(ctx, query, args...)
+	})
+}
+
 func (store *Store) sessionEventGet(event model.SessionEventRef, queryRow sessionRowQuery) (error, *model.SessionEvent) {
 	placeholder := keychainPlaceholder(store.kind)
 	row := queryRow(`
