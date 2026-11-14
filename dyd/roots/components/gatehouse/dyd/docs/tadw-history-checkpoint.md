@@ -27,19 +27,13 @@ On fresh execution:
 3. After the checkpoint succeeds, the helper returns the already-rendered
    `tadwInitialHistory` from ordinary memory. It does not fetch/render it again.
 
-Keep that result in worker memory and reuse its `History` fragments throughout
-execution, with growing tooling represented separately in `tadwTranscript`.
-Do not pass it as a durable thinking workflow input or return it as a durable
-step/workflow result. Calling this helper independently inside every round would
-create multiple selection checkpoints and is **not** its intended lifecycle.
+The rendered result belongs to this selection call. Request state consists of the
+recorded IDs; each provider attempt renders those IDs on demand. The selection
+checkpoint belongs once at request entry, outside the round loop.
 
-The separate [tooling context assembler](tadw-tooling-context.md) accepts this
-worker-local history and appends request-only execution fragments in memory.
-
-This increment does not wire history into the current reference-valued child
-round workflows or implement cross-worker memory sharing. That integration must
-preserve the single request checkpoint rather than copy its IDs into every
-child input/result.
+The [tooling assembler](tadw-tooling-context.md) accepts rendered history for one
+assembly. The [inactive handoff](tadw-request-handoff.md) passes checkpoint
+references between children and reads the original IDs for provider preparation.
 
 ## Optional shared hints
 
@@ -76,7 +70,7 @@ That flag must not be treated as durable evidence of a provider cache hit.
 ## Durability boundary
 
 The committed ordered IDs fix membership and ordering. Event storage remains
-authoritative; XML is rebuilt in ordinary memory after a restart. Read snapshots
+authoritative; XML is rebuilt on demand for each provider attempt. Read snapshots
 are local to each load/rehydration transaction. Mutable file metadata can change
 the rebuilt fragments, exact byte count and tooling budget. IDs alone do **not**
 guarantee byte-identical recovery or provider KV reuse. Rendering-profile and
@@ -102,9 +96,9 @@ simulated thinking checkpoints. A second process recovers the PENDING workflow
 with changed hints, both traversal indexes removed and an unrelated corrupt new
 event. It verifies unchanged IDs/order/fragments, empty-history recovery, and an
 explicit failure if a selected event was deleted. A trigger changes file metadata
-at checkpoint insertion to prove the fresh caller reuses its existing buffer;
-that metadata is restored before restart. Three simulated rounds reuse worker
-history while tooling grows. DBOS records contain exactly one ID-list selection
-checkpoint and boolean-only thinking results; a scan of all DBOS tables rejects
+at checkpoint insertion to verify that the fresh result reflects the selection's
+read snapshot; that metadata is restored before restart. DBOS records contain
+exactly one ID-list selection checkpoint and boolean-only thinking results; a
+scan of all DBOS tables rejects
 payload, rendered-history and tooling markers. This tests the component contract,
 not activation of the production round/provider lifecycle.

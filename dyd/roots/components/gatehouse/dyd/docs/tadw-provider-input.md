@@ -115,8 +115,10 @@ and caches can expire. Rebuilding an earlier attempt after later rollover must
 use that earlier attempt's recorded boundary; given unchanged source metadata and
 configuration it yields the same provider body, not the latest suffix.
 
-Only ordinary worker memory holds the returned `agentProviderRequest` and its
-content. Do not put it in DBOS workflow/step inputs or outputs. Existing durable
+The returned `agentProviderRequest` and its content belong to one provider
+attempt. Each retry prepares its own request. Durable workflow/step inputs and
+outputs carry event references and checkpoint decisions; the provider body is
+attempt-local working data. Existing durable
 state remains the initial ordered ID list once/request and one small tooling
 boundary per thinking attempt. The adapter performs no storage/DBOS operations,
 never publishes/touches shared hints and does not read file content or credentials

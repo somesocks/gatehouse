@@ -1,14 +1,10 @@
 package agent
 
 import (
-	"container/list"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
-	"slices"
-	"sync"
 
 	"gatehouse/database"
 	"gatehouse/model"
@@ -16,7 +12,7 @@ import (
 	"github.com/dbos-inc/dbos-transact-golang/dbos"
 )
 
-// These locators contain no event lists, boundary decisions or rendered context.
+// tadwCheckpointRef identifies a committed DBOS step.
 // StepID is also a row offset only after capture verifies a dense committed prefix.
 type tadwCheckpointRef struct {
 	WorkflowID string
@@ -38,57 +34,21 @@ type tadwRoundHandoff struct {
 	Previous *tadwToolingHandoff
 }
 
-// Worker-only result. Never return this from a DBOS workflow/step.
+// tadwRoundContext holds the IDs and decisions used by one thinking attempt.
+// The provider loop uses it locally; child workflows exchange handoff references.
 type tadwRoundContext struct {
-	Prepared tadwPreparedHistory
-	Window   tadwToolingWindow
-	Provider agentProviderRequest
-	Handoff  tadwToolingHandoff
-	prepare  func(context.Context) error
-	ready    bool
+	Handoff    tadwToolingHandoff
+	history    tadwHistoryHandoff
+	historyIDs []string
+	boundary   string
+	limits     tadwWindowConfig
 }
 
-// Call inside the existing provider step callback, not before RunAsStep. A
-// completed provider step then needs neither XML reconstruction nor assembly on
-// replay. Sequential retries reuse the successful worker-local preparation.
-func (round *tadwRoundContext) Prepare(ctx context.Context) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if round.ready {
-		return nil
-	}
-	if err := round.prepare(ctx); err != nil {
-		return err
-	}
-	round.ready = true
-	return nil
-}
-
-type tadwHistoryMemoKey struct {
-	History tadwHistoryHandoff
-	Limits  tadwWindowConfig
-}
-type tadwHistoryMemoEntry struct {
-	done     chan struct{}
-	history  tadwInitialHistory
-	err      error
-	position *list.Element
-}
-
-// Worker memory management, not a transcript-retention setting. Eviction only
-// causes exact-ID recovery; it cannot change the request's history selection.
-const tadwHandoffWorkerHistoryEntries = 32
-
-// One instance per worker, not per child. No production workflow constructs it
-// yet. Local Release is eager cleanup only: remote workers cannot depend on the
-// parent running there. The LRU bounds idle entries on every worker.
+// tadwHandoffWorker provides checkpoint access through a non-workflow DBOS
+// context and assembles provider requests from authoritative event storage.
 type tadwHandoffWorker struct {
-	root      dbos.Context
-	store     *database.Store
-	mu        sync.Mutex
-	histories map[tadwHistoryMemoKey]*tadwHistoryMemoEntry
-	order     list.List
+	root  dbos.Context
+	store *database.Store
 }
 
 func newTADWHandoffWorker(root dbos.Context, store *database.Store) (*tadwHandoffWorker, error) {
@@ -98,7 +58,7 @@ func newTADWHandoffWorker(root dbos.Context, store *database.Store) (*tadwHandof
 	if _, err := dbos.GetWorkflowID(root); err == nil {
 		return nil, fmt.Errorf("TADW handoff reader requires a non-workflow DBOS context")
 	}
-	return &tadwHandoffWorker{root: root, store: store, histories: make(map[tadwHistoryMemoKey]*tadwHistoryMemoEntry)}, nil
+	return &tadwHandoffWorker{root: root, store: store}, nil
 }
 
 func tadwHistoryOwnerWorkflowID(request model.SessionEventRef) string {
@@ -187,12 +147,6 @@ func (worker *tadwHandoffWorker) output(ctx context.Context, ref tadwCheckpointR
 	return steps[0].Output, nil
 }
 
-func cloneTADWInitialHistory(history tadwInitialHistory) tadwInitialHistory {
-	history.Window.EventIDs = slices.Clone(history.Window.EventIDs)
-	history.History = slices.Clone(history.History)
-	return history
-}
-
 func (handoff tadwHistoryHandoff) validate() error {
 	if handoff.Request.Session != handoff.Anchor.Session || handoff.Request.Session.Id == "" || handoff.Request.Session.Workspace.Id == "" || !typed_id.Valid(typed_id.SessionEvent, handoff.Request.Id) || !typed_id.Valid(typed_id.SessionEvent, handoff.Anchor.Id) || handoff.Request.Id == handoff.Anchor.Id || handoff.Checkpoint.StepID < 0 || handoff.Checkpoint.WorkflowID != tadwHistoryOwnerWorkflowID(handoff.Request) {
 		return fmt.Errorf("invalid TADW history handoff")
@@ -200,9 +154,9 @@ func (handoff tadwHistoryHandoff) validate() error {
 	return nil
 }
 
-// Called exactly once in a request's dedicated owner workflow. The workflow's
-// durable result may be this handoff, not the prepared history. It can be a child
-// of the reply coordinator, so its GetResult also checkpoints only references.
+// Prepare checkpoints initial history once in the request's history-owner workflow.
+// Selection measures rendered bytes and records the ordered event IDs. The returned
+// handoff identifies that checkpoint and its selected configuration.
 func (worker *tadwHandoffWorker) Prepare(ctx dbos.Context, request, anchor model.SessionEventRef, selected *database.WorkspaceAgentModel, projectChat bool, limits tadwWindowConfig) (tadwHistoryHandoff, error) {
 	workflowID, err := dbos.GetWorkflowID(ctx)
 	if err != nil {
@@ -227,11 +181,6 @@ func (worker *tadwHandoffWorker) Prepare(ctx dbos.Context, request, anchor model
 	if err != nil {
 		return tadwHistoryHandoff{}, err
 	}
-	entry := &tadwHistoryMemoEntry{done: make(chan struct{}), history: cloneTADWInitialHistory(prepared.History)}
-	close(entry.done)
-	worker.mu.Lock()
-	worker.remember(tadwHistoryMemoKey{History: handoff, Limits: limits}, entry)
-	worker.mu.Unlock()
 	return handoff, nil
 }
 
@@ -249,78 +198,29 @@ func (worker *tadwHandoffWorker) validateRequest(ctx context.Context, handoff ta
 	return nil
 }
 
-func (worker *tadwHandoffWorker) load(ctx context.Context, handoff tadwHistoryHandoff, limits tadwWindowConfig) (tadwInitialHistory, error) {
+// historyIDs reads the request's recorded history membership and order.
+func (worker *tadwHandoffWorker) historyIDs(ctx context.Context, handoff tadwHistoryHandoff) ([]string, error) {
 	if err := handoff.validate(); err != nil {
-		return tadwInitialHistory{}, err
-	}
-	if err := limits.validate(); err != nil {
-		return tadwInitialHistory{}, err
-	}
-	if err := ctx.Err(); err != nil {
-		return tadwInitialHistory{}, err
+		return nil, err
 	}
 	if len(handoff.Compatibility) != 64 {
-		return tadwInitialHistory{}, fmt.Errorf("invalid TADW handoff compatibility")
+		return nil, fmt.Errorf("invalid TADW handoff compatibility")
 	}
-	key := tadwHistoryMemoKey{History: handoff, Limits: limits}
-	var entry *tadwHistoryMemoEntry
-	for {
-		worker.mu.Lock()
-		var exists bool
-		entry, exists = worker.histories[key]
-		if !exists {
-			entry = &tadwHistoryMemoEntry{done: make(chan struct{})}
-			worker.remember(key, entry)
-		} else {
-			worker.order.MoveToFront(entry.position)
-		}
-		worker.mu.Unlock()
-		if !exists {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return tadwInitialHistory{}, ctx.Err()
-		case <-entry.done:
-		}
-		if err := ctx.Err(); err != nil {
-			return tadwInitialHistory{}, err
-		}
-		// Cancellation belongs to the caller that owned the cold read, not to
-		// another healthy child waiting for the same immutable history.
-		if errors.Is(entry.err, context.Canceled) || errors.Is(entry.err, context.DeadlineExceeded) {
-			continue
-		}
-		return cloneTADWInitialHistory(entry.history), entry.err
-	}
-	history, err := worker.restore(ctx, handoff, limits)
-	worker.mu.Lock()
-	entry.history, entry.err = cloneTADWInitialHistory(history), err
-	if err != nil && worker.histories[key] == entry {
-		delete(worker.histories, key)
-		worker.order.Remove(entry.position)
-	}
-	close(entry.done)
-	worker.mu.Unlock()
-	return history, err
-}
-
-func (worker *tadwHandoffWorker) restore(ctx context.Context, handoff tadwHistoryHandoff, limits tadwWindowConfig) (tadwInitialHistory, error) {
 	output, err := worker.output(ctx, handoff.Checkpoint, tadwHistoryCheckpointName)
 	if err != nil {
-		return tadwInitialHistory{}, err
+		return nil, err
 	}
 	var ids []string
 	if output != nil {
 		encoded, ok := output.(string)
 		if !ok {
-			return tadwInitialHistory{}, fmt.Errorf("TADW checkpoint reader requires DBOS JSON listing output")
+			return nil, fmt.Errorf("TADW checkpoint reader requires DBOS JSON listing output")
 		}
 		if err := json.Unmarshal([]byte(encoded), &ids); err != nil {
-			return tadwInitialHistory{}, fmt.Errorf("decode TADW history checkpoint: %w", err)
+			return nil, fmt.Errorf("decode TADW history checkpoint: %w", err)
 		}
 	}
-	return rehydrateTADWHistory(ctx, worker.store, handoff.Request.Session, ids, limits)
+	return ids, nil
 }
 
 // Called once per thinking attempt, outside its provider-retry loop. Admission
@@ -360,10 +260,12 @@ func (worker *tadwHandoffWorker) Round(ctx dbos.Context, input tadwRoundHandoff,
 	if (payload.Previous == nil) != (input.Previous == nil) {
 		return nil, fmt.Errorf("TADW predecessor handoff does not match the thinking chain")
 	}
-	var freshHistory tadwInitialHistory
-	var freshWindow *tadwToolingWindow
-	// Unlike the eager standalone wrapper, replay only reads the decision here.
-	// XML recovery belongs inside an actually executing provider step callback.
+	ids, err := worker.historyIDs(ctx, input.History)
+	if err != nil {
+		return nil, err
+	}
+	// Measure rendered history and tooling to select this attempt's boundary.
+	// The checkpoint records the boundary string.
 	boundary, err := dbos.RunAsStep(ctx, func(stepCtx context.Context) (string, error) {
 		if _, err := input.History.compatible(selected, projectChat, limits); err != nil {
 			return "", err
@@ -372,7 +274,7 @@ func (worker *tadwHandoffWorker) Round(ctx dbos.Context, input tadwRoundHandoff,
 		if err != nil {
 			return "", err
 		}
-		history, err := worker.load(stepCtx, input.History, limits)
+		history, err := rehydrateTADWHistory(stepCtx, worker.store, input.History.Request.Session, ids, limits)
 		if err != nil {
 			return "", err
 		}
@@ -380,7 +282,6 @@ func (worker *tadwHandoffWorker) Round(ctx dbos.Context, input tadwRoundHandoff,
 		if err != nil {
 			return "", err
 		}
-		freshHistory, freshWindow = history, &window
 		return window.FromEventID, nil
 	}, dbos.WithStepName(tadwToolingCheckpointName))
 	if err != nil {
@@ -390,35 +291,37 @@ func (worker *tadwHandoffWorker) Round(ctx dbos.Context, input tadwRoundHandoff,
 	if err != nil {
 		return nil, err
 	}
-	round := &tadwRoundContext{Handoff: tadwToolingHandoff{Request: input.History.Request, Thinking: thinking, Checkpoint: checkpoint}}
-	round.prepare = func(prepareCtx context.Context) error {
-		scope, err := input.History.compatible(selected, projectChat, limits)
-		if err != nil {
-			return err
-		}
-		history, window := freshHistory, freshWindow
-		if window == nil {
-			var err error
-			history, err = worker.load(prepareCtx, input.History, limits)
-			if err != nil {
-				return err
-			}
-			transcript, err := loadTADWContextFrom(prepareCtx, worker.store, history, input.History.Request, selected.Ref, thinking, limits, boundary)
-			if err != nil {
-				return err
-			}
-			restored := tadwToolingWindow{FromEventID: boundary, Transcript: transcript}
-			window = &restored
-		}
-		prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}
-		err, provider := agentProviderRequestPrepareTADW(selected, projectChat, prepared, window.Transcript, limits)
-		if err != nil {
-			return err
-		}
-		round.Prepared, round.Window, round.Provider = prepared, *window, provider
-		return nil
+	return &tadwRoundContext{
+		Handoff: tadwToolingHandoff{Request: input.History.Request, Thinking: thinking, Checkpoint: checkpoint},
+		history: input.History, historyIDs: ids, boundary: boundary, limits: limits,
+	}, nil
+}
+
+// Render assembles one provider attempt from the recorded IDs and boundary.
+// The caller owns the returned request for the duration of that attempt. Call on
+// each retry, inside the provider step callback so completed steps skip assembly.
+func (worker *tadwHandoffWorker) Render(ctx context.Context, round *tadwRoundContext, selected *database.WorkspaceAgentModel, projectChat bool) (agentProviderRequest, error) {
+	if err := ctx.Err(); err != nil {
+		return agentProviderRequest{}, err
 	}
-	return round, nil
+	scope, err := round.history.compatible(selected, projectChat, round.limits)
+	if err != nil {
+		return agentProviderRequest{}, err
+	}
+	if err := worker.validateRequest(ctx, round.history, selected); err != nil {
+		return agentProviderRequest{}, err
+	}
+	history, err := rehydrateTADWHistory(ctx, worker.store, round.history.Request.Session, round.historyIDs, round.limits)
+	if err != nil {
+		return agentProviderRequest{}, err
+	}
+	transcript, err := loadTADWContextFrom(ctx, worker.store, history, round.Handoff.Request, selected.Ref, round.Handoff.Thinking, round.limits, round.boundary)
+	if err != nil {
+		return agentProviderRequest{}, err
+	}
+	prepared := tadwPreparedHistory{Agent: selected.Ref, Scope: scope, History: history}
+	err, provider := agentProviderRequestPrepareTADW(selected, projectChat, prepared, transcript, round.limits)
+	return provider, err
 }
 
 // A small hash preserves the owner's effective selected-agent/configuration
@@ -507,32 +410,4 @@ func (worker *tadwHandoffWorker) admission(ctx context.Context, workflowID strin
 		return fmt.Errorf("TADW checkpoint belongs to another admitted thinking request")
 	}
 	return nil
-}
-
-// Caller holds worker.mu. Pending entries can be evicted too: active callers
-// retain their entry, and a later miss may duplicate recovery, never selection.
-func (worker *tadwHandoffWorker) remember(key tadwHistoryMemoKey, entry *tadwHistoryMemoEntry) {
-	if old := worker.histories[key]; old != nil {
-		worker.order.Remove(old.position)
-	}
-	entry.position = worker.order.PushFront(key)
-	worker.histories[key] = entry
-	if len(worker.histories) > tadwHandoffWorkerHistoryEntries {
-		oldest := worker.order.Back()
-		delete(worker.histories, oldest.Value.(tadwHistoryMemoKey))
-		worker.order.Remove(oldest)
-	}
-}
-
-// Release only removes worker-owned memo references. In-flight callers can finish
-// using their immutable entry; a later cold load restores IDs, never reselects.
-func (worker *tadwHandoffWorker) Release(handoff tadwHistoryHandoff) {
-	worker.mu.Lock()
-	defer worker.mu.Unlock()
-	for key := range worker.histories {
-		if key.History == handoff {
-			worker.order.Remove(worker.histories[key].position)
-			delete(worker.histories, key)
-		}
-	}
 }

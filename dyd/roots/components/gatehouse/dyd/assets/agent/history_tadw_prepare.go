@@ -16,8 +16,8 @@ import (
 
 const tadwHistoryPreparationVersion = "tadw-history-preparation-v1"
 
-// Ordinary worker memory only, never a workflow/step input or result. Agent is
-// the existing selected workspace agent, not a new identity/profile resource.
+// tadwPreparedHistory contains working data for one preparation call.
+// Agent identifies the selected workspace agent.
 type tadwPreparedHistory struct {
 	Agent   model.WorkspaceAgentRef
 	Scope   tadwHistoryCacheScope

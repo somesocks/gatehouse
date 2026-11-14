@@ -11,8 +11,8 @@ import (
 	"gatehouse/model"
 )
 
-// tadwInitialHistory is worker-local state. Only Window.EventIDs crosses the
-// durable selection checkpoint in checkpointTADWHistory, never this buffer.
+// tadwInitialHistory contains rendered history and byte accounting for one
+// selection or assembly call. checkpointTADWHistory persists Window.EventIDs.
 type tadwInitialHistory struct {
 	Window  tadwHistoryWindow
 	History []tadwRenderedEvent

@@ -74,37 +74,13 @@ func TestTADWHandoffProcess(t *testing.T) {
 	}
 	t.Cleanup(func() { store.Close() })
 	root := tadwHandoffRoot(t, store)
-	// These independent worker objects share the DBOS database, never memory.
-	// Attempt 40 uses B to exercise a cold cross-worker read before the crash.
+	// Attempt 40 uses a second reader to exercise handoff through recorded IDs.
 	a, b := tadwHandoffTestWorker(t, root, store), tadwHandoffTestWorker(t, root, store)
 	request := model.SessionEventRef{Session: model.SessionRef{Workspace: model.WorkspaceRef{Id: "w"}, Id: "s"}, Id: fmt.Sprintf("sev_%026d", 10)}
 	ref := func(id int) model.SessionEventRef { return tadwToolingThinking(request, id) }
 	selected := tadwPreparationTestAgent(request.Session)
-	if phase == "fresh" {
-		if _, err := store.Exec(`CREATE TRIGGER handoff_history_probe AFTER INSERT ON operation_outputs WHEN NEW.function_name='gatehouse.tadw-initial-history'
-   BEGIN UPDATE gatehouse_session_files SET name='POST_CHECKPOINT_FILE_NAME'; END;
-   CREATE TRIGGER handoff_tooling_probe AFTER INSERT ON operation_outputs WHEN NEW.function_name='gatehouse.tadw-tooling-window'
-   BEGIN UPDATE gatehouse_session_files SET name='POST_CHECKPOINT_FILE_NAME'; END;`); err != nil {
-			t.Fatal(err)
-		}
-	}
 	owner := func(ctx dbos.Context, request model.SessionEventRef) (tadwHistoryHandoff, error) {
-		handoff, err := a.Prepare(ctx, request, ref(5), selected, false, expected.Limits)
-		if err != nil {
-			return tadwHistoryHandoff{}, err
-		}
-		if phase == "fresh" {
-			// The checkpoint trigger changed metadata. A fresh callback must seed its
-			// already-rendered history, not hydrate it again after persistence.
-			history, err := a.load(ctx, handoff, expected.Limits)
-			if err != nil || !strings.Contains((tadwTranscript{History: history.History}).String(), "résumé&lt;&amp;.txt") {
-				return tadwHistoryHandoff{}, fmt.Errorf("fresh history buffer not reused: %v", err)
-			}
-			if _, err := store.ExecContext(ctx, `UPDATE gatehouse_session_files SET name='résumé<&.txt'`); err != nil {
-				return tadwHistoryHandoff{}, err
-			}
-		}
-		return handoff, nil
+		return a.Prepare(ctx, request, ref(5), selected, false, expected.Limits)
 	}
 	round := func(ctx dbos.Context, input tadwHandoffTestInput) (tadwHandoffTestResult, error) {
 		thinking, err := dbos.RunAsStep(ctx, func(context.Context) (model.SessionEventRef, error) { return input.Thinking, nil }, dbos.WithStepName("gatehouse.agent-round-prepare"))
@@ -128,31 +104,21 @@ func TestTADWHandoffProcess(t *testing.T) {
 		if phase == "fresh" && thinking == ref(80) && testCase != "full" && testCase != "completed-history-missing" {
 			os.Exit(0)
 		}
-		// Prepare only inside the provider callback: a checkpointed provider must
-		// not reconstruct XML even if its child crashed before returning.
-		firstPreparation := true
+		// Assembly runs inside the provider callback so DBOS can replay a completed
+		// result without preparing another request.
 		outcome, err := dbos.RunAsStep(ctx, func(stepCtx context.Context) (model.SessionEventRef, error) {
-			if err := window.Prepare(stepCtx); err != nil {
+			provider, err := worker.Render(stepCtx, window, selected, false)
+			if err != nil {
 				return model.SessionEventRef{}, err
 			}
 			want := expected.Attempts[index]
-			if window.Window.FromEventID != want.From || window.Window.Transcript.String() != want.XML {
+			if window.boundary != want.From {
 				return model.SessionEventRef{}, fmt.Errorf("attempt %d lost its recorded window", index)
 			}
-			content, _ := tadwProviderUserContent(t, window.Provider)
+			content, _ := tadwProviderUserContent(t, provider)
 			if content != want.XML {
 				return model.SessionEventRef{}, fmt.Errorf("assembled provider input changed")
 			}
-			if phase == "fresh" && firstPreparation {
-				var name string
-				if err := store.QueryRowContext(stepCtx, `SELECT name FROM gatehouse_session_files`).Scan(&name); err != nil || name != "POST_CHECKPOINT_FILE_NAME" {
-					return model.SessionEventRef{}, fmt.Errorf("fresh window probe failed: %q %v", name, err)
-				}
-				if _, err := store.ExecContext(stepCtx, `UPDATE gatehouse_session_files SET name='résumé<&.txt'`); err != nil {
-					return model.SessionEventRef{}, err
-				}
-			}
-			firstPreparation = false
 			var calls int
 			if err := store.QueryRowContext(stepCtx, `INSERT INTO gatehouse_handoff_calls(id,calls) VALUES(?,1) ON CONFLICT(id) DO UPDATE SET calls=calls+1 RETURNING calls`, thinking.Id).Scan(&calls); err != nil {
 				return model.SessionEventRef{}, err
@@ -160,7 +126,7 @@ func TestTADWHandoffProcess(t *testing.T) {
 			if thinking == ref(11) && calls == 1 {
 				return model.SessionEventRef{}, errors.New("simulated transient provider failure")
 			}
-			if encoded, err := json.Marshal(window.Provider.body()); err != nil || len(encoded) == 0 {
+			if encoded, err := json.Marshal(provider.body()); err != nil || len(encoded) == 0 {
 				return model.SessionEventRef{}, fmt.Errorf("empty provider request: %v", err)
 			}
 			outcome := thinking
@@ -187,8 +153,6 @@ func TestTADWHandoffProcess(t *testing.T) {
 		if err != nil {
 			return false, err
 		}
-		defer a.Release(history)
-		defer b.Release(history)
 		var prior *tadwToolingHandoff
 		var earlier tadwToolingHandoff
 		for _, attempt := range []int{11, 40, 60, 80, 90} {
@@ -217,7 +181,11 @@ func TestTADWHandoffProcess(t *testing.T) {
 				if err := json.Unmarshal([]byte(output.(string)), &boundary); err != nil {
 					return false, err
 				}
-				frozen, err := a.load(ctx, history, expected.Limits)
+				ids, err := a.historyIDs(ctx, history)
+				if err != nil {
+					return false, err
+				}
+				frozen, err := rehydrateTADWHistory(ctx, store, request.Session, ids, expected.Limits)
 				if err != nil {
 					return false, err
 				}
@@ -278,15 +246,6 @@ func TestTADWHandoffProcess(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "TADW tooling exceeds budget") {
 			t.Fatal("window silently rolled forward", err)
 		}
-	}
-	a.mu.Lock()
-	aCount := len(a.histories)
-	a.mu.Unlock()
-	b.mu.Lock()
-	bCount := len(b.histories)
-	b.mu.Unlock()
-	if aCount != 0 || bCount != 0 {
-		t.Fatal("request cache not released")
 	}
 }
 
@@ -389,7 +348,7 @@ func TestTADWHandoffChildCrashRecovery(t *testing.T) {
 			if err := store.QueryRow(`SELECT status FROM workflow_status WHERE workflow_uuid='handoff-round:80'`).Scan(&status); err != nil || status != "PENDING" {
 				t.Fatal("not a real child crash", status, err)
 			}
-			if _, err := store.Exec(`DROP TRIGGER handoff_history_probe; DROP TRIGGER handoff_tooling_probe; DROP TABLE gatehouse_context_cache_hints; DROP INDEX gatehouse_session_events_thread_order; DROP INDEX gatehouse_session_events_agent_terminals;
+			if _, err := store.Exec(`DROP TABLE gatehouse_context_cache_hints; DROP INDEX gatehouse_session_events_thread_order; DROP INDEX gatehouse_session_events_agent_terminals;
     UPDATE gatehouse_session_files SET name='résumé<&.txt';
     UPDATE gatehouse_session_events SET payload='invalid JSON' WHERE id=?`, ref(20).Id); err != nil {
 				t.Fatal(err)
@@ -505,7 +464,7 @@ func assertTADWHandoffStorage(t *testing.T, store *database.Store, expected tadw
 	}
 }
 
-func TestTADWHandoffReferenceValidationAndMemo(t *testing.T) {
+func TestTADWHandoffReferenceValidationAndIDs(t *testing.T) {
 	t.Setenv("DBOS__APPVERSION", "")
 	t.Setenv("DBOS__VMID", "tadw-handoff-unit")
 	store, _, cfg, request, _ := tadwToolingDB(t)
@@ -544,36 +503,32 @@ func TestTADWHandoffReferenceValidationAndMemo(t *testing.T) {
 	if _, err := handoff.compatible(selected, false, changedLimits); err == nil {
 		t.Fatal("handoff accepted limits drift")
 	}
-	original, err := worker.load(context.Background(), handoff, cfg)
+	original, err := worker.historyIDs(context.Background(), handoff)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Concurrent callers receive independent slice ownership and shared immutable
-	// strings. No failed/cancelled caller can poison a later cold load.
-	worker.Release(handoff)
+	// Concurrent ID reads preserve recorded order and return independently owned slices.
 	var group sync.WaitGroup
 	for i := 0; i < 16; i++ {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			history, err := worker.load(context.Background(), handoff, cfg)
+			history, err := worker.historyIDs(context.Background(), handoff)
 			if err != nil {
 				t.Error(err)
 				return
 			}
-			if !reflect.DeepEqual(history.History, original.History) {
+			if !reflect.DeepEqual(history, original) {
 				t.Error("changed history")
 			}
-			history.History[0].XML = "changed"
-			history.Window.EventIDs[0] = "changed"
+			history[0] = "changed"
 		}()
 	}
 	group.Wait()
-	got, err := worker.load(context.Background(), handoff, cfg)
-	if err != nil || !reflect.DeepEqual(got.History, original.History) {
-		t.Fatal("memo aliases caller", err)
+	got, err := worker.historyIDs(context.Background(), handoff)
+	if err != nil || !reflect.DeepEqual(got, original) {
+		t.Fatal("ID reads alias caller", err)
 	}
-	worker.Release(handoff)
 	// Hold the application's sole connection so a real SDK read blocks. Child
 	// cancellation must interrupt it even though no workflow values are copied.
 	connection, err := store.DB.Conn(context.Background())
@@ -587,42 +542,6 @@ func TestTADWHandoffReferenceValidationAndMemo(t *testing.T) {
 	if !errors.Is(readErr, context.DeadlineExceeded) {
 		t.Fatal("reader ignored child deadline", readErr)
 	}
-	// A cancelled cold-reader leader must not cancel a healthy child sharing
-	// that request's history. Keep the connection held until its leader exits.
-	connection, err = store.DB.Conn(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	leaderCtx, cancelLeader := context.WithCancel(context.Background())
-	leaderDone, followerDone := make(chan error, 1), make(chan error, 1)
-	go func() { _, err := worker.load(leaderCtx, handoff, cfg); leaderDone <- err }()
-	until := time.Now().Add(time.Second)
-	for {
-		worker.mu.Lock()
-		pending := len(worker.histories) > 0
-		worker.mu.Unlock()
-		if pending {
-			break
-		}
-		if time.Now().After(until) {
-			connection.Close()
-			cancelLeader()
-			t.Fatal("cold reader did not start")
-		}
-		time.Sleep(time.Millisecond)
-	}
-	go func() { _, err := worker.load(context.Background(), handoff, cfg); followerDone <- err }()
-	time.Sleep(5 * time.Millisecond)
-	cancelLeader()
-	leaderErr := <-leaderDone
-	connection.Close()
-	if !errors.Is(leaderErr, context.Canceled) {
-		t.Fatal(leaderErr)
-	}
-	if err := <-followerDone; err != nil {
-		t.Fatal("leader cancellation poisoned healthy child", err)
-	}
-	worker.Release(handoff)
 	readContext, closeReader := worker.reader(context.Background())
 	if _, err := dbos.GetWorkflowID(readContext); err == nil {
 		t.Fatal("reader inherited workflow state")
@@ -630,7 +549,7 @@ func TestTADWHandoffReferenceValidationAndMemo(t *testing.T) {
 	closeReader()
 	canceled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := worker.load(canceled, handoff, cfg); !errors.Is(err, context.Canceled) {
+	if _, err := worker.historyIDs(canceled, handoff); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	// Lookup limits one output and validates ID/name/error, never falls back to a
@@ -643,26 +562,30 @@ func TestTADWHandoffReferenceValidationAndMemo(t *testing.T) {
 	} {
 		bad := handoff
 		change(&bad)
-		if _, err := worker.load(context.Background(), bad, cfg); err == nil {
+		if _, err := worker.historyIDs(context.Background(), bad); err == nil {
 			t.Fatal("accepted bad locator", bad)
 		}
 	}
-	// A store change is visible on cold restore, never by reselecting membership.
-	if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='{"text":"changed after checkpoint"}' WHERE id=?`, original.Window.EventIDs[0]); err != nil {
+	// Reading IDs neither renders payloads nor reselects missing history.
+	if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='invalid JSON' WHERE id=?`, original[0]); err != nil {
 		t.Fatal(err)
 	}
-	got, err = worker.load(context.Background(), handoff, cfg)
-	if err != nil || reflect.DeepEqual(got.History, original.History) {
-		t.Fatal("cold load did not rehydrate", err)
+	got, err = worker.historyIDs(context.Background(), handoff)
+	if err != nil || !reflect.DeepEqual(got, original) {
+		t.Fatal("ID read fetched payloads or changed membership", err)
 	}
-	worker.Release(handoff)
-	if _, err := store.Exec(`DELETE FROM gatehouse_session_events WHERE id=?`, original.Window.EventIDs[0]); err != nil {
+	if _, err := rehydrateTADWHistory(context.Background(), store, request.Session, got, cfg); err == nil {
+		t.Fatal("render accepted malformed history")
+	}
+	if _, err := store.Exec(`DELETE FROM gatehouse_session_events WHERE id=?`, original[0]); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := worker.load(context.Background(), handoff, cfg); err == nil {
+	got, err = worker.historyIDs(context.Background(), handoff)
+	if err != nil || !reflect.DeepEqual(got, original) {
+		t.Fatal("missing source changed recorded IDs", err)
+	}
+	if _, err := rehydrateTADWHistory(context.Background(), store, request.Session, got, cfg); err == nil {
 		t.Fatal("missing history silently reselected")
 	}
-	if len(worker.histories) != 0 {
-		t.Fatal("failed load retained poisoned entry")
-	}
+
 }

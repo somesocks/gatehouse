@@ -110,11 +110,10 @@ lookup and window reselection, rehydrating the recorded IDs even if hints change
 or the table is absent. No provider body, prompt, credential fingerprint, keys,
 rendered XML or repeated history-ID lists enter DBOS through this adapter.
 
-Do not pass the prepared object as a durable step/workflow input or result. Keep
-its frozen history buffer through the request. Request-loop/child-workflow memory
-sharing and thinking-boundary coordination are not wired here. Provider input
-assembly is available through a separate inactive adapter. The existing standalone
-tooling helpers remain unchanged.
+The prepared object belongs to this preparation call. Request state consists of
+the selected IDs. The [inactive handoff](tadw-request-handoff.md) passes references
+to that checkpoint between children and renders on demand for each actual provider
+attempt. Rendered history and provider bodies have attempt-local ownership.
 
 Preparation **never publishes or touches a shared hint**. The existing publication
 API remains explicit and must follow actual provider use. Future integration must

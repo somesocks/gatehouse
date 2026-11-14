@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"encoding/base64"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -51,15 +50,17 @@ func TestTADWHandoffEmptyCheckpointAndDensePrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	worker.Release(handoff)
 	if _, err := store.Exec(`DROP TABLE gatehouse_context_cache_hints; DROP INDEX gatehouse_session_events_thread_order; DROP INDEX gatehouse_session_events_agent_terminals`); err != nil {
 		t.Fatal(err)
 	}
-	history, err := worker.load(context.Background(), handoff, limits)
+	ids, err := worker.historyIDs(context.Background(), handoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := rehydrateTADWHistory(context.Background(), store, request.Session, ids, limits)
 	if err != nil || len(history.History) != 0 || len(history.Window.EventIDs) != 0 || history.Window.ToolingBudgetBytes != limits.ContextMaxBytes {
 		t.Fatal("empty checkpoint was reselected", history, err)
 	}
-	worker.Release(handoff)
 	var original string
 	if err := store.QueryRow(`SELECT output FROM operation_outputs WHERE workflow_uuid=? AND function_id=0`, handoff.Checkpoint.WorkflowID).Scan(&original); err != nil {
 		t.Fatal(err)
@@ -72,7 +73,7 @@ func TestTADWHandoffEmptyCheckpointAndDensePrefix(t *testing.T) {
 		if _, err := store.Exec(`UPDATE operation_outputs SET `+update+` WHERE workflow_uuid=? AND function_id=0`, handoff.Checkpoint.WorkflowID); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := worker.load(context.Background(), handoff, limits); err == nil {
+		if _, err := worker.historyIDs(context.Background(), handoff); err == nil {
 			t.Fatal("accepted damaged checkpoint", update)
 		}
 		if _, err := store.Exec(`UPDATE operation_outputs SET function_name=?,error=NULL,output=? WHERE workflow_uuid=? AND function_id=0`, tadwHistoryCheckpointName, original, handoff.Checkpoint.WorkflowID); err != nil {
@@ -88,36 +89,5 @@ func TestTADWHandoffEmptyCheckpointAndDensePrefix(t *testing.T) {
 	}
 	if _, err := worker.output(context.Background(), tadwCheckpointRef{WorkflowID: "handoff-gap", StepID: 1}, "test.gap-target"); err == nil {
 		t.Fatal("row offset treated as function ID")
-	}
-}
-
-func TestTADWHandoffWorkerMemoIsBounded(t *testing.T) {
-	store, _, _, _, _ := tadwToolingDB(t)
-	root := tadwHandoffRoot(t, store)
-	worker := tadwHandoffTestWorker(t, root, store)
-	// Only map/list mechanics are probed here; these synthetic entries never touch
-	// DBOS or pretend to be recoverable checkpoints.
-	var keys []tadwHistoryMemoKey
-	worker.mu.Lock()
-	for i := 0; i < tadwHandoffWorkerHistoryEntries; i++ {
-		key := tadwHistoryMemoKey{History: tadwHistoryHandoff{Checkpoint: tadwCheckpointRef{WorkflowID: fmt.Sprint(i)}}}
-		entry := &tadwHistoryMemoEntry{done: make(chan struct{})}
-		close(entry.done)
-		keys = append(keys, key)
-		worker.remember(key, entry)
-	}
-	worker.order.MoveToFront(worker.histories[keys[0]].position)
-	extra := tadwHistoryMemoKey{History: tadwHistoryHandoff{Checkpoint: tadwCheckpointRef{WorkflowID: "extra"}}}
-	worker.remember(extra, &tadwHistoryMemoEntry{done: make(chan struct{})})
-	if len(worker.histories) != tadwHandoffWorkerHistoryEntries || worker.order.Len() != len(worker.histories) || worker.histories[keys[0]] == nil || worker.histories[keys[1]] != nil {
-		t.Fatal("LRU is not bounded or evicted the hot entry")
-	}
-	worker.mu.Unlock()
-	for _, key := range keys {
-		worker.Release(key.History)
-	}
-	worker.Release(extra.History)
-	if len(worker.histories) != 0 || worker.order.Len() != 0 {
-		t.Fatal("release left cache entries")
 	}
 }

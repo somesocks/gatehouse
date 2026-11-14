@@ -7,11 +7,11 @@ Source events are never deleted or rewritten by window selection.
 
 ## Fixed history and growing tooling
 
-The worker keeps `tadwInitialHistory` from the history adapter/checkpoint helper.
+The assembler accepts `tadwInitialHistory` as working data for one assembly call.
 The history anchor is the triggering event, **not** the new `agent.request`.
 Tooling belongs to that new request and is bounded by its current thinking event.
 
-The assembler validates the frozen history's fragment IDs/order, uniqueness,
+The assembler validates the supplied history's fragment IDs/order, uniqueness,
 base and exact byte accounting. It does not traverse, reselect, hydrate or render
 history again. Configuration must satisfy the existing three-limit invariant:
 
@@ -142,18 +142,21 @@ workflow position. The caller carries the returned boundary to the next attempt.
 
 DBOS persists this request-private state in its own database. No separate
 application table is needed. The initial-history IDs are still checkpointed once
-per request by `checkpointTADWHistory`. Callers must keep rendered history/context
-out of durable thinking inputs/results. Production child-round integration and
-cross-worker memory sharing are not implemented here.
+per request by `checkpointTADWHistory`. Rendered history/context belongs to one
+selection or assembly call. The [inactive handoff](tadw-request-handoff.md) passes
+checkpoint references between children and renders each actual provider attempt
+on demand.
+Production child-round integration is not implemented here.
 
 ## Durability and remaining boundaries
 
 Read snapshots are local to each selection/replay transaction, not durable
 insertion-visibility snapshots. The exclusive thinking-ID cutoff does not exclude
 late insertions of older IDs. Existing payload/metadata edits can change rebuilt
-XML, byte counts, or even a boundary's position. Fixed historical XML stays frozen
-in the worker's initial buffer, but recovery rehydrates it from authoritative
-storage. IDs/boundaries do not guarantee byte-identical reconstruction or KV reuse.
+XML, byte counts, or even a boundary's position. History membership/order are
+fixed, not historical XML: each actual provider attempt renders the recorded IDs
+from authoritative storage. IDs/boundaries do not guarantee byte-identical
+reconstruction or KV reuse.
 A replay window that no longer fits fails explicitly instead of reselecting.
 
 A crash before a DBOS decision commits may repeat fresh selection. Preserving
