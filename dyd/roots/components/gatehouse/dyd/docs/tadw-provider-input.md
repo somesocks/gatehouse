@@ -72,7 +72,10 @@ salt if role, envelope or message-boundary semantics change incompatibly.
 This check is not a transport/configuration lock: callers must still use the same
 route/credentials/configuration when actually sending the built body. Nor is it a
 durable replay-time configuration guard. Provider calls and their integration
-with request lifetime, cancellation and child workflows remain separate work.
+with live request lifetime, cancellation and child workflows remain separate work.
+The [inactive request handoff](tadw-request-handoff.md) adds a separate small
+compatibility guard across child workflows; this pure adapter itself still has
+no durable state.
 
 ## Frozen history and hard byte checks
 
