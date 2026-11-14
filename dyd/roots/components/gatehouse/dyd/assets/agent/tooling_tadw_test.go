@@ -339,6 +339,28 @@ func TestLoadTADWContextEmptyHistory(t *testing.T) {
 	}
 }
 
+func TestTADWToolingWindowPinsRequestAcrossOrderingAndReplay(t *testing.T) {
+	store, history, cfg, request, agent := tadwToolingDB(t)
+	// Test independently of the normal parent-before-child timestamp invariant.
+	if _, err := store.Exec(`UPDATE gatehouse_session_events SET created_at='zz' WHERE id=?`, request.Id); err != nil {
+		t.Fatal(err)
+	}
+	thinking := tadwToolingThinking(request, 40)
+	full, err := loadTADWContext(context.Background(), store, history, request, agent, thinking, cfg)
+	if err != nil || full.Tooling[0].ID != request.Id {
+		t.Fatal("request is not pinned first", full, err)
+	}
+	history, cfg = tadwTideBudget(history, full.ToolingBytes()-1)
+	selected, err := loadTADWToolingWindow(context.Background(), store, history, request, agent, thinking, cfg, "")
+	if err != nil || selected.Transcript.Tooling[0].ID != request.Id || selected.FromEventID == "" {
+		t.Fatal(selected, err)
+	}
+	recovered, err := loadTADWContextFrom(context.Background(), store, history, request, agent, thinking, cfg, selected.FromEventID)
+	if err != nil || !reflect.DeepEqual(recovered, selected.Transcript) {
+		t.Fatal("fresh/replay request position differs", recovered, err)
+	}
+}
+
 func TestTADWFixedHistoryValidation(t *testing.T) {
 	_, initial, cfg, request, agent := tadwToolingDB(t)
 	for _, name := range []string{"config", "id-count", "id-order", "duplicate", "empty-id", "empty-fragment", "history-max", "base", "weight", "tooling-budget"} {

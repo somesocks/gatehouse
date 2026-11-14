@@ -14,18 +14,37 @@ import (
 // Sort IDs/metadata only, not payloads. Work is scoped to this request's owned
 // subtree before the thinking-ID boundary, never historical requests/session
 // history. Nested agent requests and foreign-agent subtrees are not ours.
-const tadwToolingIDsSQL = `WITH RECURSIVE active(id) AS (
+const tadwToolingActiveSQL = `WITH RECURSIVE active(id) AS (
  SELECT :request
  UNION
  SELECT child.id FROM active CROSS JOIN gatehouse_session_events AS child
  WHERE child.workspace=:workspace AND child.session=:session AND child.parent=active.id
  AND child.id<:thinking AND child.kind<>'agent.request'
  AND (child.author_agent IS NULL OR child.author_agent=:agent)
-)
+) `
+
+const tadwToolingSelectedSQL = tadwToolingActiveSQL + `
  SELECT events.id FROM active CROSS JOIN gatehouse_session_events AS events
  WHERE events.workspace=:workspace AND events.session=:session AND events.id=active.id
- AND events.kind IN ('agent.request','tool.request','tool.success','tool.failure')
- ORDER BY events.created_at ASC,events.id ASC`
+ AND events.kind IN ('agent.request','tool.request','tool.success','tool.failure')`
+
+const tadwToolingIDsSQL = tadwToolingSelectedSQL + ` ORDER BY events.created_at ASC,events.id ASC`
+
+// Resolve a retained boundary through the same owned subtree, without decoding
+// its payload. An arbitrary event elsewhere in the session is not a valid base.
+const tadwToolingFromSQL = tadwToolingActiveSQL + `
+ SELECT events.created_at FROM active CROSS JOIN gatehouse_session_events AS events
+ WHERE events.workspace=:workspace AND events.session=:session AND events.id=active.id
+ AND events.id=:from AND events.kind IN ('tool.request','tool.success','tool.failure')`
+
+// TADWToolingReadOptions controls prompt-order suffix reads. FromEventID is an
+// inclusive tool-event boundary in (created_at,id) order; the owning request is
+// always included. Reverse reverses the entire cursor order for newest-first
+// rollover selection. Neither option prunes ancestors out of the recursive walk.
+type TADWToolingReadOptions struct {
+	FromEventID string
+	Reverse     bool
+}
 
 // TADWToolingCursor emits the active request and its tool events in prompt order.
 // SQLite may collect/sort request-subtree metadata before emitting IDs; payloads
@@ -47,12 +66,22 @@ type TADWToolingCursor struct {
 // is an exclusive boundary, as in SessionAgentRoundEventsGet. This is a live
 // snapshot, not durable reconstruction of visibility at thinking creation.
 // Callers must Close before ending the transaction. Authorization is external.
-func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef) (error, *TADWToolingCursor) {
+func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, options ...TADWToolingReadOptions) (error, *TADWToolingCursor) {
 	if store.kind != config.DatabaseKindSQLite {
 		return fmt.Errorf("TADW tooling cursor currently supports SQLite only"), nil
 	}
 	if tx == nil || request.Session.Id == "" || request.Session.Workspace.Id == "" || agent.Id == "" || agent.Workspace != request.Session.Workspace || thinking.Session != request.Session || !typed_id.Valid(typed_id.SessionEvent, request.Id) || !typed_id.Valid(typed_id.SessionEvent, thinking.Id) || thinking.Id <= request.Id {
 		return fmt.Errorf("open TADW tooling cursor: invalid transaction, request scope or thinking boundary"), nil
+	}
+	if len(options) > 1 {
+		return fmt.Errorf("open TADW tooling cursor: expected at most one read options value"), nil
+	}
+	var option TADWToolingReadOptions
+	if len(options) == 1 {
+		option = options[0]
+	}
+	if option.FromEventID != "" && !typed_id.Valid(typed_id.SessionEvent, option.FromEventID) {
+		return fmt.Errorf("open TADW tooling cursor: invalid retained boundary ID"), nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err, nil
@@ -71,9 +100,24 @@ func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, re
 	if boundary == nil || boundary.Kind != model.SessionEventKindThinkingRequest || boundary.Parent == nil || *boundary.Parent != request || boundary.AuthorAgent == nil || *boundary.AuthorAgent != agent {
 		return fmt.Errorf("open TADW tooling cursor: thinking request is unavailable or mismatched"), nil
 	}
-	rows, err := tx.QueryContext(ctx, tadwToolingIDsSQL,
-		sql.Named("request", request.Id), sql.Named("workspace", request.Session.Workspace.Id),
-		sql.Named("session", request.Session.Id), sql.Named("thinking", thinking.Id), sql.Named("agent", agent.Id))
+	args := []any{sql.Named("request", request.Id), sql.Named("workspace", request.Session.Workspace.Id),
+		sql.Named("session", request.Session.Id), sql.Named("thinking", thinking.Id), sql.Named("agent", agent.Id)}
+	query := tadwToolingSelectedSQL
+	if option.FromEventID != "" {
+		args = append(args, sql.Named("from", option.FromEventID))
+		var fromAt string
+		if err := tx.QueryRowContext(ctx, tadwToolingFromSQL, args...).Scan(&fromAt); err != nil {
+			return fmt.Errorf("open TADW tooling cursor: retained boundary %q is unavailable: %w", option.FromEventID, err), nil
+		}
+		args = append(args, sql.Named("from_at", fromAt))
+		query += ` AND (events.id=:request OR events.created_at>:from_at OR (events.created_at=:from_at AND events.id>=:from))`
+	}
+	if option.Reverse {
+		query += ` ORDER BY events.created_at DESC,events.id DESC`
+	} else {
+		query += ` ORDER BY events.created_at ASC,events.id ASC`
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return fmt.Errorf("open TADW tooling cursor: %w", err), nil
 	}
@@ -113,8 +157,12 @@ func (cursor *TADWToolingCursor) Next() bool {
 	return false
 }
 
-func (cursor *TADWToolingCursor) Event() model.SessionEvent { return cursor.current }
-func (cursor *TADWToolingCursor) Err() error                { return cursor.err }
+// RequestEvent returns the validated request before or during iteration. It lets
+// assemblers pin the request independently of tool-event ordering. Do not mutate
+// its payload. Close releases the cursor's copy along with its current event.
+func (cursor *TADWToolingCursor) RequestEvent() model.SessionEvent { return cursor.root }
+func (cursor *TADWToolingCursor) Event() model.SessionEvent        { return cursor.current }
+func (cursor *TADWToolingCursor) Err() error                       { return cursor.err }
 func (cursor *TADWToolingCursor) Close() error {
 	if !cursor.closed {
 		cursor.closed = true

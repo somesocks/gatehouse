@@ -1,149 +1,178 @@
-# TADW tooling context assembly
+# TADW tooling windows and context assembly
 
-`agent/tooling_tadw.go` assembles fixed initial history followed by the current
-agent request's tooling. This is a **standalone, inactive component**. No reply,
-round or provider execution path calls it; MCMTR is unchanged. There are no new
-configuration defaults, indexes, DBOS checkpoints, cache tables, provider cache
-controls or tooling-compaction rules.
+These are **standalone, inactive components**. No production reply, round or
+provider path calls them; MCMTR is unchanged. No migration, application checkpoint
+table, cache-base storage, provider cache control or configuration knob is added.
+Source events are never deleted or rewritten by window selection.
 
-## Assembly contract
+## Fixed history and growing tooling
 
-`loadTADWContext(ctx, store, history, request, agent, thinking, config)` accepts:
-
-- Worker-local `tadwInitialHistory` from the history adapter/checkpoint helper.
-- The current `agent.request` reference, its selected agent and the current
-  `thinking.request` reference. The agent request is **not** the history anchor;
-  the triggering event supplied to initial-history selection remains the anchor.
-- The same validated three-limit TADW configuration used for initial history.
+The worker keeps `tadwInitialHistory` from the history adapter/checkpoint helper.
+The history anchor is the triggering event, **not** the new `agent.request`.
+Tooling belongs to that new request and is bounded by its current thinking event.
 
 The assembler validates the frozen history's fragment IDs/order, uniqueness,
-base and exact byte accounting, without traversing, reselecting, hydrating or
-rendering it again. It recomputes the budget from the actual fragment bytes:
+base and exact byte accounting. It does not traverse, reselect, hydrate or render
+history again. Configuration must satisfy the existing three-limit invariant:
 
 ```text
-tooling_budget_bytes = context_max_bytes - actual_history_bytes
+0 < history_min_bytes <= history_max_bytes <= context_max_bytes
+B = context_max_bytes - actual_history_bytes
 ```
 
-The stored window accounting must agree. Invalid limits, history that no longer
-fits, or inconsistent worker accounting fail rather than silently changing the
-history window. This is not a configuration/rendering-profile fingerprint: the
-caller still owns consistency of settings that do not change these checks.
+Stored window accounting must agree. These checks are not a complete
+configuration/rendering-profile fingerprint; the caller owns that consistency.
 
-On success it returns `tadwTranscript{History, Tooling}`. History is first,
-tooling second, with no envelope or extra separators. Slice elements are copied
-for ownership, while immutable historical XML strings are reused. No raw events
-are retained in the returned context. The assembler does not mutate its inputs.
+The prompt contains fixed history, then the owning `agent.request`, then retained
+tool events in ascending `(created_at, id)` order. The request is pinned first,
+even if inconsistent stored timestamps place a tool before it in raw query order.
+Actual parent IDs are preserved when parents lie outside the window. There is no
+extra envelope, sorting of request/result blocks, or splitting of XML fragments.
+History slice elements are copied for ownership; immutable XML strings are reused.
 
-## Request-only reader
+## High-tide policy: drop the old prefix, no lower tier
 
-`database.SessionTADWToolingCursor` is a SQLite-only reader on the assembler's
-caller-owned read transaction. Unlike the existing MCMTR round query, it does
-**not** fetch other requests, historical context or the triggering message.
+`loadTADWToolingWindow(..., from)` is fresh selection. `from` is the prior window's
+inclusive first retained **tool event** ID; empty means nothing has been dropped.
+The owning request is always retained independently of this boundary.
 
-Before opening its ID stream it point-reads and validates:
+1. Read/render the prior retained suffix plus new eligible tooling. If it fits
+   within `B`, keep `from` unchanged. Exact fit does not trigger rollover.
+2. Only on a byte overflow, reopen a newest-first cursor **in the same read
+   transaction**. Do not try to truncate the forward collector's accepted prefix:
+   it stopped before reaching the newest events.
+3. Keep the owning request and the newest tool event, then add whole older tool
+   events until their combined bytes reach `floor(B / 2)`. This fixed 50% soft
+   target includes the request; it is not 50% of the entire context.
+4. Include the event crossing the soft target if it fits within `B`. If it would
+   exceed the hard maximum, stop before it, even if that leaves less than half.
+   Never skip it to search older events for a better fit. Event granularity can
+   also leave more than half, or even the entire hard budget, retained.
+5. Reverse the accepted tool suffix once and prepend the pinned request. Advance
+   `from` to the oldest retained tool event. Subsequent growth starts there;
+   shrinking data or spare space does not refill previously dropped tooling.
 
-- A persisted `agent.request` whose target matches the supplied agent.
-- A persisted `thinking.request` with that agent as author and the owning
-  request as its direct parent.
-- Matching workspace/session scope, valid event IDs and a thinking ID greater
-  than the request ID.
+The pure `selectTADWToolingRollover` policy takes rendered fragments through a
+newest-first callback. It performs no DB/DBOS calls. Subtract-before-add comparisons
+are safe with `INT64_MAX` limits. `tadwToolingWindow` holds the boundary and rendered
+transcript in worker memory, not durable serialized context.
 
-Membership is the owning request plus eligible descendants. The recursive query:
+The owning request and newest tool event must fit together. Otherwise return
+`*tadwToolingBudgetError`, not a successful empty/partial window. An oversized
+older event may be dropped by rollover if the newest suffix fits. Hydration,
+decoding, rendering and source failures are errors, not compaction signals. Only
+a budget overflow triggers selection. Selection is at whole-event boundaries,
+not paired request/result or batch boundaries; an outcome can retain a parent
+reference to a dropped request. There are no stubs, summaries or lower-tier text.
 
-- Uses `child.id < thinking.id` as an exclusive attempt boundary, matching the
-  existing round-query convention. The current thinking event and later-ID
-  tools/results cannot enter the context, even with backdated `created_at`.
-- Does not cross nested `agent.request` nodes, including requests targeting the
-  same agent. Those executions have their own request ownership.
-- Does not cross foreign-agent-authored nodes, matching the existing active
-  subtree's author boundary. Principal-authored intermediate bookkeeping can
-  remain traversable.
-- Emits only the owning `agent.request`, `tool.request`, `tool.success` and
-  `tool.failure`. Intermediate thinking, approval, input, cancel, message,
-  agent-outcome and unknown nodes have no tooling fragment. Actual parent IDs
-  are preserved even when a bookkeeping parent is omitted.
+## Strict rendering versus selection
 
-Tooling uses ascending `(created_at, id)` prompt order. Parallel tool requests
-and results can interleave chronologically; there is no request/result block
-regrouping or history-style reversal. Tools with empty output remain real,
-self-closing events; cancelled tool failures still render.
+- `loadTADWContext(...)` strictly renders all eligible tooling; it still errors on
+  overflow and does not invoke rollover implicitly.
+- `loadTADWContextFrom(..., from)` strictly renders a recorded retained window.
+  Missing, foreign, omitted-kind or future boundaries fail explicitly. If changed
+  data no longer fits, it errors rather than advancing the recorded boundary.
+- `loadTADWToolingWindow(..., from)` may advance the prior boundary on fresh
+  execution, using the policy above.
 
-The recursive walk uses scoped child-index seeks and event-ID point lookups.
-SQLite may collect/sort **current-request metadata** before returning IDs; this
-is not the bounded-frontier history algorithm. Payloads are point-read only when
-`Next` requests an emitted event, except for the request/thinking validation
-reads. The validated root is reused rather than fetched twice. Omitted execution
-bookkeeping and unrelated/future payloads are not decoded. Early budget failure
-can avoid later payload reads, but does not bound all metadata work by accepted
-bytes. No extra indexes or payload weights are introduced.
+All failures return an empty result. The typed budget error reports the hard
+budget, bytes accepted before crossing, crossing ID and fragment size—not the
+size of all remaining tooling. Rendering charges exact UTF-8 XML bytes, including
+escaping, file metadata, separators and trailing newlines. File contents are not
+loaded. Empty tool output is a real self-closing event; cancelled tool failures
+still render. A zero tooling budget cannot fit the owning request.
 
-## Hydration and exact budgets
+## Request-only SQLite reader
 
-Tooling event reads and canonical file-reference hydration use the same read
-transaction. Hydration requests metadata only, not file contents or providers,
-and never acquires a second pooled connection. Disabled historical files remain
-renderable. The returned tooling fragments use the existing TADW renderer,
-including escaping, metadata and each event's trailing newline.
+`database.SessionTADWToolingCursor` operates on a caller-owned live transaction.
+It validates the persisted request target and the thinking request's kind, agent
+author, direct parent, scope and exclusive ID boundary. The recursive walk:
 
-`collectTADWTooling` accepts prompt-order events and whole fragments only:
+- Traverses only the owning request subtree, before `thinking.id`.
+- Does not cross nested `agent.request` nodes, even for the same agent, or
+  foreign-agent-authored subtrees. Principal-authored bookkeeping may be crossed.
+- Emits only the owning request, `tool.request`, `tool.success` and `tool.failure`.
+  Thinking, approval, input, cancel, message, agent-outcome and unknown payloads
+  are not emitted/decoded, except the thinking validation read.
 
-- Every tooling ID must be unique and disjoint from the fixed history IDs.
-- The first event exceeding the remaining budget produces a
-  `*tadwToolingBudgetError`, discoverable through `errors.As`.
-- The error contains the budget, bytes accepted before crossing, crossing event
-  ID and that fragment's bytes. It does not claim to know all remaining tooling's
-  size and does not return a usable partial transcript.
-- There is no splitting, skipping a crossing event, dropping older tooling,
-  shrinking history, or automatic compaction.
-- Exact fit succeeds **only if no further renderable tooling exists**. Unlike
-  bounded history selection, merely filling the budget cannot justify stopping
-  and omitting remaining execution. Detecting overflow may render one crossing
-  event. A zero budget cannot accommodate the nonempty owning request fragment.
-- Subtract-before-add comparisons remain safe with `INT64_MAX` limits.
+Optional `TADWToolingReadOptions{FromEventID, Reverse}` controls suffix selection
+and direction. A retained boundary must itself be an eligible tool event in the
+owned subtree before the thinking boundary. Its `(created_at, id)` position is
+resolved using metadata, without decoding its payload. The cutoff filters emitted
+IDs, **not recursion**: a retained result can have an older, dropped ancestor.
+The request bypasses the cutoff. Default cursor order is ascending; reverse order
+is descending. `RequestEvent()` exposes the already-validated root for pinning.
 
-Cancellation, invalid ownership, source/decoding/hydration/rendering failures and
-budget errors all return an empty result. Cursors close on exhaustion/error;
-early consumers must close explicitly. Closing a cursor never ends its caller's
-transaction. The assembler rolls back its own read transaction and releases the
-store's sole connection on every return path.
+Payloads are point-read only on `Next`, apart from request/thinking validation;
+the validated root is reused. Payloads before an already-recorded retained
+boundary are not decoded or hydrated. The forward fit check may read events that
+a new rollover subsequently drops, and reverse selection may render one older
+hard-limit-crossing event before rejecting it.
+However, SQLite may walk/sort current-request metadata before producing IDs.
+Boundary validation also walks owned metadata, and rollover opens another cursor.
+This is not the bounded-frontier history algorithm or an accepted-byte bound on
+metadata work. Scoped child-index and ID seeks are used; no new indexes or payload
+weight indexes are introduced.
 
-## Worker memory and durable boundaries
+Event reads and canonical file-reference hydration use the same transaction.
+Hydration reads only file ID/name/media type/int64 size metadata, not contents,
+providers or credentials. Disabled historical files remain renderable. Cursors
+close on exhaustion/error; early consumers must close them before ending their
+transaction. Closing a cursor never ends the caller's transaction. Assemblers
+release their owned read transaction and the store's sole connection on every
+return path, including cancellation.
 
-Call the history checkpoint helper once per request workflow. Keep that result
-in ordinary worker memory, then call this assembler for each thinking attempt.
-Only tooling is rebuilt; the historical fragments stay fixed. Do not pass the
-transcript/history through durable thinking inputs or results. This component
-creates no new DBOS operation or repeated history-ID checkpoint.
+## DBOS: one small boundary decision per thinking attempt
 
-This is not yet wired into the production reference-valued child-round
-workflows, nor does it provide cross-worker memory sharing. Tooling is rebuilt
-from event storage per call; it is not an incremental rendered-tooling cache.
-Mutable historical file metadata stays frozen in the worker's initial-history
-buffer, while tooling file references reflect their own current read snapshot.
-Consequently tooling XML/weights can change when metadata changes; growing event
-membership alone is not a guarantee of byte-stable prefixes or provider KV reuse.
+`checkpointTADWTooling(..., from)` belongs once per thinking attempt at a stable
+workflow position. The caller carries the returned boundary to the next attempt.
 
-The exclusive ID boundary is not a durable insertion-visibility snapshot. Late
-insertion of an older-ID record, edits to existing payloads and metadata changes
-are not reconstructed as of thinking creation. Those visibility/rendering-profile
-concerns, activation, scoped cache-base persistence, provider controls and tooling
-compaction remain separate increments. The previously deferred history traversal
-and ignored-file-field hydration issues are unchanged.
+- The named DBOS step `gatehouse.tadw-tooling-window` returns **only the boundary
+  string**, including an empty/unchanged decision. No rendered context, tooling
+  payloads or repeated initial-history ID lists are checkpointed.
+- Fresh execution selects a window and reuses its rendered buffer after the step
+  succeeds. It does not rehydrate after committing the boundary.
+- Replay gets that attempt's recorded boundary and strictly renders from it.
+  It does not rerun selection or substitute a later attempt's boundary.
+- Record a decision on every attempt, even if unchanged. Conditionally adding a
+  durable step after an uncheckpointed overflow could change step order on replay.
+
+DBOS persists this request-private state in its own database. No separate
+application table is needed. The initial-history IDs are still checkpointed once
+per request by `checkpointTADWHistory`. Callers must keep rendered history/context
+out of durable thinking inputs/results. Production child-round integration and
+cross-worker memory sharing are not implemented here.
+
+## Durability and remaining boundaries
+
+Read snapshots are local to each selection/replay transaction, not durable
+insertion-visibility snapshots. The exclusive thinking-ID cutoff does not exclude
+late insertions of older IDs. Existing payload/metadata edits can change rebuilt
+XML, byte counts, or even a boundary's position. Fixed historical XML stays frozen
+in the worker's initial buffer, but recovery rehydrates it from authoritative
+storage. IDs/boundaries do not guarantee byte-identical reconstruction or KV reuse.
+A replay window that no longer fits fails explicitly instead of reselecting.
+
+A crash before a DBOS decision commits may repeat fresh selection. Preserving
+historical visibility/metadata, production activation, shared history cache-base
+hints and provider controls remain separate increments. The previously deferred
+history-traversal and ignored-file-field hydration issues are unchanged.
 
 ## Validation
 
-Tests cover exact/crossing/zero budgets, UTF-8 and escaping, empty output/history,
-`INT64_MAX`, skipped kinds, overlap/duplicate IDs and failures without partial
-contexts. SQLite tests check same-time ordering, request and scope isolation,
-nested same-agent requests, foreign-agent subtrees, omitted intermediate parents,
-exclusive thinking boundaries, snapshot reads, lazy payload decoding, cancellation
-and cursor/connection release. Concurrent file renaming verifies metadata and
-events share the tooling transaction, including exact sizes above 2^53.
+Tests cover 50% rounding above/below the target, request cost, newest-event
+protection, exact-fit growth, monotonic boundary advancement, no refill, dropped
+payload exclusion, scope/ownership/kind validation, ties, reverse iteration,
+omitted ancestors, frozen history, empty output/history, `INT64_MAX`, cancellation,
+connection release and exact UTF-8 accounting. The pure policy is checked against
+an independent suffix oracle over 1,000 randomized cases.
 
-Assembly tests reuse frozen history across three attempt boundaries, verify
-chronological tooling growth and repeat an earlier attempt without later events.
-Changing file metadata does not rerender fixed history. A first-crossing test
-leaves later corrupt payloads unread. A DBOS test combines the real initial-history
-checkpoint with three ordinary-memory tooling assemblies: durable records contain
-one ordered history-ID selection and boolean-only simulated thinking results; a
-scan of DBOS tables rejects history/tooling payload and XML markers.
+Real subprocess crash/recovery tests cross two rollovers and replay earlier
+attempts before completing a later one. They verify per-attempt boundaries,
+unchanged fresh/recovered XML when data is unchanged, dropped corrupt payloads
+remaining unread, explicit failure for missing boundaries, and failure rather
+than reselection after a retained window grows. A metadata-change trigger at
+checkpoint insertion proves fresh execution reuses its existing buffer. Durable
+records are inspected for one initial-history ID list, boundary strings only,
+and boolean-only simulated thinking results; a scan of DBOS tables rejects
+history/tooling payload and XML markers.

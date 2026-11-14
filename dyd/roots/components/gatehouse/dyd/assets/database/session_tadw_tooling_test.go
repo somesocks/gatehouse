@@ -271,6 +271,80 @@ func TestTADWToolingCursorAndFileMetadataShareSnapshot(t *testing.T) {
 	}
 }
 
+func TestTADWToolingCursorRetainedBoundariesAndReverse(t *testing.T) {
+	store, request, agent, _ := tadwToolingFixture(t)
+	if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='invalid JSON' WHERE id=?`, tadwCursorID(20)); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		from     int
+		reverse  bool
+		thinking int
+		want     []int
+	}{
+		{25, false, 60, []int{10, 25, 40, 50, 57}},
+		{25, true, 60, []int{57, 50, 40, 25, 10}},
+		{40, false, 60, []int{10, 40, 50, 57}},
+		// A newer-ID event with an older timestamp stays before this cutoff;
+		// its newer result is retained, so do not prune ancestors at the cutoff.
+		{40, false, 80, []int{10, 40, 50, 57, 71}},
+	} {
+		tx, err := store.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err, cursor := store.SessionTADWToolingCursor(context.Background(), tx, request, agent, tadwCursorRef(test.thinking), TADWToolingReadOptions{FromEventID: tadwCursorID(test.from), Reverse: test.reverse})
+		if err != nil {
+			tx.Rollback()
+			t.Fatal(err)
+		}
+		if cursor.RequestEvent().Ref != request {
+			t.Fatal("validated request unavailable")
+		}
+		events := collectTADWToolingCursor(t, cursor)
+		var ids, want []string
+		for _, event := range events {
+			ids = append(ids, event.Ref.Id)
+		}
+		for _, id := range test.want {
+			want = append(want, tadwCursorID(id))
+		}
+		if !slices.Equal(ids, want) {
+			t.Fatal(ids, want)
+		}
+		if cursor.RequestEvent().Ref.Id != "" {
+			t.Fatal("closed cursor retains request")
+		}
+		tx.Rollback()
+	}
+}
+
+func TestTADWToolingCursorRejectsForeignOrMissingRetainedBoundary(t *testing.T) {
+	store, request, agent, thinking := tadwToolingFixture(t)
+	for _, id := range []int{1, 10, 15, 31, 36, 45, 60, 70, 999} {
+		tx, err := store.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		err, cursor := store.SessionTADWToolingCursor(context.Background(), tx, request, agent, thinking, TADWToolingReadOptions{FromEventID: tadwCursorID(id)})
+		if err == nil || cursor != nil {
+			t.Fatal("accepted invalid retained boundary", id, err)
+		}
+		tx.Rollback()
+	}
+	tx, err := store.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	if err, _ := store.SessionTADWToolingCursor(context.Background(), tx, request, agent, thinking, TADWToolingReadOptions{FromEventID: "bad"}); err == nil {
+		t.Fatal("invalid ID accepted")
+	}
+	if err, _ := store.SessionTADWToolingCursor(context.Background(), tx, request, agent, thinking, TADWToolingReadOptions{}, TADWToolingReadOptions{}); err == nil {
+		t.Fatal("multiple options accepted")
+	}
+}
+
 func TestTADWToolingQueryScopedSeeks(t *testing.T) {
 	store, request, agent, thinking := tadwToolingFixture(t)
 	rows, err := store.Query(`EXPLAIN QUERY PLAN `+tadwToolingIDsSQL,
