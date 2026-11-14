@@ -20,6 +20,14 @@ const tadwHistoryCheckpointName = "gatehouse.tadw-initial-history"
 // Fresh execution reuses the selection's rendered buffer. Replay skips selection
 // altogether and rehydrates the checkpointed IDs, including an empty selection.
 func checkpointTADWHistory(ctx dbos.Context, store *database.Store, anchor model.SessionEventRef, cachedBaseIDs []string, config tadwWindowConfig) (tadwInitialHistory, error) {
+	return checkpointTADWHistorySelection(ctx, store, anchor, config, func(stepCtx context.Context) (tadwInitialHistory, error) {
+		return loadTADWHistory(stepCtx, store, anchor, cachedBaseIDs, config)
+	})
+}
+
+// selectFresh runs only inside the original named step's callback. Alternate
+// hint sources must not do reads outside it, especially on checkpoint replay.
+func checkpointTADWHistorySelection(ctx dbos.Context, store *database.Store, anchor model.SessionEventRef, config tadwWindowConfig, selectFresh func(context.Context) (tadwInitialHistory, error)) (tadwInitialHistory, error) {
 	if err := config.validate(); err != nil {
 		return tadwInitialHistory{}, err
 	}
@@ -28,7 +36,7 @@ func checkpointTADWHistory(ctx dbos.Context, store *database.Store, anchor model
 	}
 	var fresh *tadwInitialHistory
 	ids, err := dbos.RunAsStep(ctx, func(stepCtx context.Context) ([]string, error) {
-		selected, err := loadTADWHistory(stepCtx, store, anchor, cachedBaseIDs, config)
+		selected, err := selectFresh(stepCtx)
 		if err != nil {
 			return nil, err
 		}

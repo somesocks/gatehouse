@@ -203,7 +203,13 @@ func TestTADWHistoryCheckpointProcess(t *testing.T) {
 		if testCase == "empty" {
 			cfg = tadwAdapterConfig(1)
 		}
-		history, err := checkpointTADWHistory(workflowContext, store, anchor, hints, cfg)
+		var history tadwInitialHistory
+		var err error
+		if strings.HasPrefix(testCase, "cache-") {
+			history, err = checkpointTADWHistoryWithCacheHints(workflowContext, store, anchor, tadwCacheTestScope(anchor.Session), cfg)
+		} else {
+			history, err = checkpointTADWHistory(workflowContext, store, anchor, hints, cfg)
+		}
 		if err != nil {
 			return false, err
 		}
@@ -263,9 +269,16 @@ func TestTADWHistoryCheckpointProcess(t *testing.T) {
 }
 
 func TestTADWHistoryCheckpointRecovery(t *testing.T) {
-	for _, testCase := range []string{"full", "empty", "missing"} {
+	for _, testCase := range []string{"full", "empty", "missing", "cache-changed", "cache-missing"} {
 		t.Run(testCase, func(t *testing.T) {
 			store, anchor := tadwAdapterDB(t)
+			if strings.HasPrefix(testCase, "cache-") {
+				tadwCacheTestTable(t, store)
+				base := model.SessionEventRef{Session: anchor.Session, Id: fmt.Sprintf("sev_%026d", 1)}
+				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCacheTestScope(anchor.Session), base); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='{"text":"TADW_PRIVATE_PAYLOAD<&"}' WHERE id=?`, fmt.Sprintf("sev_%026d", 1)); err != nil {
 				t.Fatal(err)
 			}
@@ -300,7 +313,25 @@ func TestTADWHistoryCheckpointRecovery(t *testing.T) {
 					t.Fatalf("%s worker: %v\n%s", phase, err, out)
 				}
 			}
+			var hintsBefore []database.ContextCacheHint
+			if strings.HasPrefix(testCase, "cache-") {
+				// An accidental touch/publication in the fresh callback must be
+				// observable even on systems with coarse wall-clock resolution.
+				if _, err := store.Exec(`UPDATE gatehouse_context_cache_hints SET last_used_at=1`); err != nil {
+					t.Fatal(err)
+				}
+				hintsBefore, err = store.ContextCacheHintsList(context.Background(), tadwCacheTestScope(anchor.Session).databaseScope())
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
 			run("fresh")
+			if strings.HasPrefix(testCase, "cache-") {
+				hintsAfter, err := store.ContextCacheHintsList(context.Background(), tadwCacheTestScope(anchor.Session).databaseScope())
+				if err != nil || !reflect.DeepEqual(hintsBefore, hintsAfter) {
+					t.Fatal("checkpointing published/touched hints", hintsBefore, hintsAfter, err)
+				}
+			}
 			assertTADWCheckpointStorage(t, store, initial.Window.EventIDs, 2)
 			var status string
 			if err := store.QueryRow(`SELECT status FROM workflow_status WHERE workflow_uuid='tadw-request'`).Scan(&status); err != nil || status != "PENDING" {
@@ -317,6 +348,19 @@ func TestTADWHistoryCheckpointRecovery(t *testing.T) {
 				INSERT INTO gatehouse_session_events(workspace,session,id,parent,kind,author_principal,payload,created_at)
 				VALUES('w','s','new-sibling',NULL,'message.text','user','invalid JSON','00');`); err != nil {
 				t.Fatal(err)
+			}
+			if testCase == "cache-missing" {
+				if _, err := store.Exec(`DROP TABLE gatehouse_context_cache_hints`); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase == "cache-changed" {
+				if _, err := store.Exec(`DELETE FROM gatehouse_context_cache_hints`); err != nil {
+					t.Fatal(err)
+				}
+				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCacheTestScope(anchor.Session), anchor); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if testCase == "missing" {
 				if _, err := store.Exec(`DELETE FROM gatehouse_session_events WHERE id=?`, anchor.Id); err != nil {

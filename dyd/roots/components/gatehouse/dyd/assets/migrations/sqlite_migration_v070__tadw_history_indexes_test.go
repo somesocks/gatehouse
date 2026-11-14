@@ -50,7 +50,7 @@ func TestSQLiteMigrationV070TADWHistoryIndexes(t *testing.T) {
 	}
 	before := sqliteSchemaDefinitions(t, store.DB)
 	for range 2 {
-		if err := migrateSQLite(ctx, store.DB, registry); err != nil {
+		if err := migrateSQLite(ctx, store.DB, testSchemaAtVersion(registry, 70)); err != nil {
 			t.Fatal(err)
 		}
 	}

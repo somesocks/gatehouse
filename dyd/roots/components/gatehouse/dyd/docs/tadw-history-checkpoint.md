@@ -2,8 +2,10 @@
 
 `agent/history_tadw_checkpoint.go` adds an **inactive** request-entry helper over
 [the history adapter](tadw-history-adapter.md). No existing reply, round, provider
-or MCMTR execution path calls it. There are no new configuration defaults,
-indexes, cache tables, workflow registrations or tooling-compaction rules.
+or MCMTR execution path calls it. The checkpoint helper adds no configuration
+defaults, application recovery tables or workflow registrations. The separate
+[shared cache-hint store](context-cache-hints.md) supplies an optional fresh-only
+hint source; it is not recovery state.
 
 ## One selection checkpoint per request
 
@@ -36,6 +38,14 @@ This increment does not wire history into the current reference-valued child
 round workflows or implement cross-worker memory sharing. That integration must
 preserve the single request checkpoint rather than copy its IDs into every
 child input/result.
+
+## Optional shared hints
+
+`checkpointTADWHistoryWithCacheHints` uses the same named step and ID-only output,
+but reads shared hints inside its fresh callback before selecting history. The
+original explicit-hints API remains available. Neither helper publishes a cache
+hint just because it selected a base; publication must follow actual provider
+use. See [shared context-cache hints](context-cache-hints.md).
 
 ## Recovery uses recorded IDs, not selection
 
@@ -73,8 +83,9 @@ configuration consistency remain the caller's responsibility.
 The event/file read transaction and the subsequent DBOS checkpoint are separate.
 A crash before the checkpoint commits can rerun selection; this is not a durable
 request-creation visibility snapshot. Freezing historical metadata/visibility,
-scoped cache-base persistence, provider cache controls and runtime activation
-remain separate increments. The explicitly deferred execution-sibling traversal
+provider cache controls and runtime activation remain separate increments.
+Shared cache-base hints are now available through a separate inactive adapter,
+but are never consulted during recovery. The explicitly deferred execution-sibling traversal
 and ignored-file-field hydration issues are unchanged.
 
 ## Validation
