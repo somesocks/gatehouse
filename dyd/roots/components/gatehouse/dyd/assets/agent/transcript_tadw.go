@@ -10,6 +10,10 @@ import (
 	"gatehouse/model"
 )
 
+// Bump when XML serialization/ordering semantics change incompatibly. This is
+// an internal compatibility salt, not a workspace-agent identity or resource.
+const tadwTranscriptFormatVersion = "tadw-flat-xml-v1"
+
 // tadwRenderedEvent is an independent XML fragment. Its trailing newline belongs
 // to the event, so appending another event never changes an existing fragment or
 // its byte weight. Cache breakpoints can fall immediately after any fragment.

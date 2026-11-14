@@ -5,7 +5,9 @@
 or MCMTR execution path calls it. The checkpoint helper adds no configuration
 defaults, application recovery tables or workflow registrations. The separate
 [shared cache-hint store](context-cache-hints.md) supplies an optional fresh-only
-hint source; it is not recovery state.
+hint source; it is not recovery state. The inactive
+[selected-workspace-agent adapter](tadw-history-preparation.md) derives its
+compatibility keys without adding another durable checkpoint.
 
 ## One selection checkpoint per request
 

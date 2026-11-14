@@ -19,8 +19,11 @@ A scope consists of:
 - `profile`: a caller-supplied compatible prompt/rendering fingerprint.
 
 The caller must account for provider routing/cache namespaces, system prompts,
-tools, rendering and other relevant differences. This component does not generate
-or prove the completeness of those keys. Do not put credentials in them.
+tools, rendering and other relevant differences. The generic store does not
+generate or prove the completeness of those keys. Do not put credentials in them.
+The separate inactive [selected-agent TADW preparation adapter](tadw-history-preparation.md)
+now derives keys from resolved workspace-agent configuration and the actual static
+provider request, without changing the storage API or adding another identity.
 
 Rows add a stable `hint_key`, small JSON-object `hint`, and integer `last_used_at`
 (Unix microseconds). The scoped key is the primary key. A separate index is:
@@ -116,7 +119,7 @@ No MCMTR consumer, state migration or behavior change is implemented here.
 TADW initial-history IDs and per-thinking tooling boundaries remain request-private
 DBOS decisions. The shared table is disposable cross-request hint storage, not a
 replacement for either checkpoint. It does not freeze historical visibility or
-metadata, establish a rendering-profile fingerprint, or activate TADW.
+metadata, derive configuration fingerprints itself, or activate TADW.
 
 ## Validation
 

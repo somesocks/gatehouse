@@ -205,8 +205,16 @@ func TestTADWHistoryCheckpointProcess(t *testing.T) {
 		}
 		var history tadwInitialHistory
 		var err error
-		if strings.HasPrefix(testCase, "cache-") {
-			history, err = checkpointTADWHistoryWithCacheHints(workflowContext, store, anchor, tadwCacheTestScope(anchor.Session), cfg)
+		if strings.HasPrefix(testCase, "cache-prepared-") {
+			selected := tadwPreparationTestAgent(anchor.Session)
+			var prepared tadwPreparedHistory
+			prepared, err = prepareTADWHistory(workflowContext, store, anchor, selected, false, cfg)
+			if err == nil && (prepared.Agent != selected.Ref || prepared.Scope != tadwCheckpointTestCacheScope(t, testCase, anchor.Session)) {
+				return false, fmt.Errorf("preparation lost selected workspace agent or compatibility scope")
+			}
+			history = prepared.History
+		} else if strings.HasPrefix(testCase, "cache-") {
+			history, err = checkpointTADWHistoryWithCacheHints(workflowContext, store, anchor, tadwCheckpointTestCacheScope(t, testCase, anchor.Session), cfg)
 		} else {
 			history, err = checkpointTADWHistory(workflowContext, store, anchor, hints, cfg)
 		}
@@ -269,13 +277,13 @@ func TestTADWHistoryCheckpointProcess(t *testing.T) {
 }
 
 func TestTADWHistoryCheckpointRecovery(t *testing.T) {
-	for _, testCase := range []string{"full", "empty", "missing", "cache-changed", "cache-missing"} {
+	for _, testCase := range []string{"full", "empty", "missing", "cache-changed", "cache-missing", "cache-prepared-changed", "cache-prepared-missing"} {
 		t.Run(testCase, func(t *testing.T) {
 			store, anchor := tadwAdapterDB(t)
 			if strings.HasPrefix(testCase, "cache-") {
 				tadwCacheTestTable(t, store)
 				base := model.SessionEventRef{Session: anchor.Session, Id: fmt.Sprintf("sev_%026d", 1)}
-				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCacheTestScope(anchor.Session), base); err != nil {
+				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCheckpointTestCacheScope(t, testCase, anchor.Session), base); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -320,14 +328,14 @@ func TestTADWHistoryCheckpointRecovery(t *testing.T) {
 				if _, err := store.Exec(`UPDATE gatehouse_context_cache_hints SET last_used_at=1`); err != nil {
 					t.Fatal(err)
 				}
-				hintsBefore, err = store.ContextCacheHintsList(context.Background(), tadwCacheTestScope(anchor.Session).databaseScope())
+				hintsBefore, err = store.ContextCacheHintsList(context.Background(), tadwCheckpointTestCacheScope(t, testCase, anchor.Session).databaseScope())
 				if err != nil {
 					t.Fatal(err)
 				}
 			}
 			run("fresh")
 			if strings.HasPrefix(testCase, "cache-") {
-				hintsAfter, err := store.ContextCacheHintsList(context.Background(), tadwCacheTestScope(anchor.Session).databaseScope())
+				hintsAfter, err := store.ContextCacheHintsList(context.Background(), tadwCheckpointTestCacheScope(t, testCase, anchor.Session).databaseScope())
 				if err != nil || !reflect.DeepEqual(hintsBefore, hintsAfter) {
 					t.Fatal("checkpointing published/touched hints", hintsBefore, hintsAfter, err)
 				}
@@ -349,16 +357,16 @@ func TestTADWHistoryCheckpointRecovery(t *testing.T) {
 				VALUES('w','s','new-sibling',NULL,'message.text','user','invalid JSON','00');`); err != nil {
 				t.Fatal(err)
 			}
-			if testCase == "cache-missing" {
+			if strings.HasPrefix(testCase, "cache-") && strings.HasSuffix(testCase, "-missing") {
 				if _, err := store.Exec(`DROP TABLE gatehouse_context_cache_hints`); err != nil {
 					t.Fatal(err)
 				}
 			}
-			if testCase == "cache-changed" {
+			if strings.HasPrefix(testCase, "cache-") && strings.HasSuffix(testCase, "-changed") {
 				if _, err := store.Exec(`DELETE FROM gatehouse_context_cache_hints`); err != nil {
 					t.Fatal(err)
 				}
-				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCacheTestScope(anchor.Session), anchor); err != nil {
+				if err := publishTADWHistoryCacheHint(context.Background(), store, tadwCheckpointTestCacheScope(t, testCase, anchor.Session), anchor); err != nil {
 					t.Fatal(err)
 				}
 			}
