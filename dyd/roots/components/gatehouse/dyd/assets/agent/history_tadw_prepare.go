@@ -43,21 +43,28 @@ func prepareTADWHistory(ctx dbos.Context, store *database.Store, anchor model.Se
 // preparation with no conversation supplies the actual system prompt, tools,
 // response schema and protocol settings. Only hashes enter the shared table.
 func tadwHistoryCacheScopeForAgent(session model.SessionRef, selected *database.WorkspaceAgentModel, projectChat bool) (tadwHistoryCacheScope, error) {
+	scope, _, err := tadwHistoryProviderTemplate(session, selected, projectChat)
+	return scope, err
+}
+
+// Return the very template fingerprinted here so provider assembly need not
+// independently reconstruct its static prompt/tools/settings after validation.
+func tadwHistoryProviderTemplate(session model.SessionRef, selected *database.WorkspaceAgentModel, projectChat bool) (tadwHistoryCacheScope, agentProviderRequest, error) {
 	if selected == nil || selected.Ref.Workspace != session.Workspace || !typed_id.Valid(typed_id.WorkspaceAgent, selected.Ref.Id) || !typed_id.Valid(typed_id.AgentModel, selected.AgentModel.Id) || !typed_id.Valid(typed_id.AgentProvider, selected.ProviderID) || strings.TrimSpace(selected.Model) == "" {
-		return tadwHistoryCacheScope{}, fmt.Errorf("prepare TADW history: invalid selected workspace agent")
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, fmt.Errorf("prepare TADW history: invalid selected workspace agent")
 	}
 	if selected.Protocol == "builtin" {
-		return tadwHistoryCacheScope{}, fmt.Errorf("prepare TADW history: builtin agents have no provider cache scope")
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, fmt.Errorf("prepare TADW history: builtin agents have no provider cache scope")
 	}
 	if selected.Endpoint == nil || strings.TrimSpace(*selected.Endpoint) == "" || selected.Keychain == nil || selected.Keychain.Id == "" || selected.Keychain.Version <= 0 || selected.APIKey == nil || strings.TrimSpace(*selected.APIKey) == "" {
-		return tadwHistoryCacheScope{}, fmt.Errorf("prepare TADW history: incomplete provider configuration")
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, fmt.Errorf("prepare TADW history: incomplete provider configuration")
 	}
 	if selected.Protocol == config.AgentProviderProtocolOpenAICodex && *selected.Endpoint != config.OpenAICodexEndpoint {
-		return tadwHistoryCacheScope{}, fmt.Errorf("prepare TADW history: Codex requires its fixed endpoint")
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, fmt.Errorf("prepare TADW history: Codex requires its fixed endpoint")
 	}
 	err, template := agentProviderRequestPrepare(selected, projectChat, nil)
 	if err != nil {
-		return tadwHistoryCacheScope{}, err
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
 	// Reuse the existing opaque credential-bundle fingerprint. Do not decrypt,
 	// persist ciphertext, or add credential metadata reads. Account/key changes,
@@ -70,17 +77,17 @@ func tadwHistoryCacheScopeForAgent(session model.SessionRef, selected *database.
 		Provider, Protocol, Endpoint, Model, CredentialFingerprint string
 	}{tadwHistoryPreparationVersion, selected.Ref, selected.AgentModel, selected.ProviderID, selected.Protocol, *selected.Endpoint, selected.Model, credential.Fingerprint()})
 	if err != nil {
-		return tadwHistoryCacheScope{}, err
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
 	profile, err := tadwPreparationProfileFingerprint(template)
 	if err != nil {
-		return tadwHistoryCacheScope{}, err
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
 	scope := tadwHistoryCacheScope{Session: session, CacheScope: cacheScope, Profile: profile}
 	if err := scope.databaseScope().Validate(); err != nil {
-		return tadwHistoryCacheScope{}, err
+		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
-	return scope, nil
+	return scope, template, nil
 }
 
 // template must come from agentProviderRequestPrepare with nil conversation.
@@ -88,9 +95,9 @@ func tadwHistoryCacheScopeForAgent(session model.SessionRef, selected *database.
 // intermediate Responses request (which has settings Codex does not send).
 func tadwPreparationProfileFingerprint(template agentProviderRequest) (string, error) {
 	return tadwPreparationDigest(struct {
-		Version, Algorithm, TranscriptFormat string
-		StaticRequest                        any
-	}{tadwHistoryPreparationVersion, tadwHistoryCacheAlgorithm, tadwTranscriptFormatVersion, template.body()})
+		Version, Algorithm, TranscriptFormat, ConversationFormat string
+		StaticRequest                                            any
+	}{tadwHistoryPreparationVersion, tadwHistoryCacheAlgorithm, tadwTranscriptFormatVersion, tadwProviderConversationVersion, template.body()})
 }
 
 func tadwPreparationDigest(value any) (string, error) {

@@ -29,6 +29,9 @@ even if inconsistent stored timestamps place a tool before it in raw query order
 Actual parent IDs are preserved when parents lie outside the window. There is no
 extra envelope, sorting of request/result blocks, or splitting of XML fragments.
 History slice elements are copied for ownership; immutable XML strings are reused.
+The separate inactive [provider-input adapter](tadw-provider-input.md) places this
+assembled transcript in one user message without additional XML or native tool
+conversation blocks.
 
 ## High-tide policy: drop the old prefix, no lower tier
 

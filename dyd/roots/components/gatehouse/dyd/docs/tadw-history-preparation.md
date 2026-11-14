@@ -54,6 +54,8 @@ check, and an unobservable provider-side routing/model change cannot be detected
 - `tadw-history-preparation-v1`.
 - The existing `tadw-history-v1` selection/hint algorithm identifier.
 - `tadw-flat-xml-v1`, an internal transcript-format compatibility salt.
+- `tadw-single-user-xml-v1`, the provider conversation-packaging salt introduced
+  by the inactive [provider-input adapter](tadw-provider-input.md).
 - The **actual static provider wire body**, obtained by calling
   `agentProviderRequestPrepare(selected, projectChat, nil)` and then `.body()`.
 
@@ -83,10 +85,13 @@ history in the profile input. The no-conversation template construction must be
 preserved; hashing an actual growing request would prevent cross-request reuse.
 
 The transcript-format constant is declared beside the renderer without changing
-its output. Bump compatibility versions when serialization/ordering or future
-TADW-to-provider message packaging changes incompatibly. This helper does not yet
-implement that conversation packaging or prove future callers use the same
-settings; full provider/request-loop integration remains separate work.
+its output. Bump compatibility versions when serialization/ordering or
+TADW-to-provider message packaging changes incompatibly. The separate
+[provider-input adapter](tadw-provider-input.md) now implements single-user-message
+packaging and checks that its selected configuration matches the prepared scope.
+The profile includes the new packaging salt; previous preparation-only hints
+become cold without a schema migration. Full provider/request-loop integration
+remains separate work.
 
 ## Preparation and DBOS lifecycle
 
@@ -107,8 +112,9 @@ rendered XML or repeated history-ID lists enter DBOS through this adapter.
 
 Do not pass the prepared object as a durable step/workflow input or result. Keep
 its frozen history buffer through the request. Request-loop/child-workflow memory
-sharing, thinking-boundary coordination and provider input assembly are not wired
-here. The existing standalone tooling helpers remain unchanged.
+sharing and thinking-boundary coordination are not wired here. Provider input
+assembly is available through a separate inactive adapter. The existing standalone
+tooling helpers remain unchanged.
 
 Preparation **never publishes or touches a shared hint**. The existing publication
 API remains explicit and must follow actual provider use. Future integration must
