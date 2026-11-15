@@ -66,16 +66,7 @@ func tadwHistoryProviderTemplate(session model.SessionRef, selected *database.Wo
 	if err != nil {
 		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
-	// Reuse the existing opaque credential-bundle fingerprint. Do not decrypt,
-	// persist ciphertext, or add credential metadata reads. Account/key changes,
-	// refresh and re-encryption conservatively separate scopes.
-	credential := database.AgentProviderCredential{Provider: database.SystemAgentProvider{Protocol: selected.Protocol, Keychain: selected.Keychain}, Encrypted: selected.APIKey}
-	cacheScope, err := tadwPreparationDigest(struct {
-		Version                                                    string
-		Agent                                                      model.WorkspaceAgentRef
-		AgentModel                                                 model.AgentModelRef
-		Provider, Protocol, Endpoint, Model, CredentialFingerprint string
-	}{tadwHistoryPreparationVersion, selected.Ref, selected.AgentModel, selected.ProviderID, selected.Protocol, *selected.Endpoint, selected.Model, credential.Fingerprint()})
+	cacheScope, err := tadwPreparationCacheScope(selected)
 	if err != nil {
 		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
@@ -88,6 +79,19 @@ func tadwHistoryProviderTemplate(session model.SessionRef, selected *database.Wo
 		return tadwHistoryCacheScope{}, agentProviderRequest{}, err
 	}
 	return scope, template, nil
+}
+
+// selected is the validated provider snapshot used for request preparation.
+// The opaque credential fingerprint separates refreshed/re-encrypted credentials
+// without decryption or additional credential metadata reads.
+func tadwPreparationCacheScope(selected *database.WorkspaceAgentModel) (string, error) {
+	credential := database.AgentProviderCredential{Provider: database.SystemAgentProvider{Protocol: selected.Protocol, Keychain: selected.Keychain}, Encrypted: selected.APIKey}
+	return tadwPreparationDigest(struct {
+		Version                                                    string
+		Agent                                                      model.WorkspaceAgentRef
+		AgentModel                                                 model.AgentModelRef
+		Provider, Protocol, Endpoint, Model, CredentialFingerprint string
+	}{tadwHistoryPreparationVersion, selected.Ref, selected.AgentModel, selected.ProviderID, selected.Protocol, *selected.Endpoint, selected.Model, credential.Fingerprint()})
 }
 
 // template must come from agentProviderRequestPrepare with nil conversation.

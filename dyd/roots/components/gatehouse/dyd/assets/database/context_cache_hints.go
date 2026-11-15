@@ -93,7 +93,7 @@ func (store *Store) ContextCacheHintsList(ctx context.Context, scope ContextCach
 // ContextCacheHintPut publishes/touches one already-used hint and prunes this
 // scope in the same transaction. The first statement is a write, avoiding a
 // deferred SQLite read-to-write snapshot upgrade under concurrent publishers.
-// No active provider path calls this API. Authorization is the caller's job.
+// Authorization and confirming actual provider use are the caller's job.
 func (store *Store) ContextCacheHintPut(ctx context.Context, scope ContextCacheHintScope, key string, hint json.RawMessage) error {
 	if err := scope.Validate(); err != nil {
 		return err

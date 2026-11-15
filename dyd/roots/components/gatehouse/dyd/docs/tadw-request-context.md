@@ -70,5 +70,9 @@ execution and checkpoint sequence. Their parent continues coordinating round
 children. New admissions record the context choice and own the full request loop;
 this distinction comes from the admission step's ordinary return value.
 
-Shared alignment hints are consulted only in fresh initial selection. Publishing
-hints after actual provider use is a separate concern.
+Shared alignment hints are consulted only in fresh initial selection. Successful
+fresh provider execution publishes its used history base after its application
+decision commits, using the selected snapshot and actual static wire fields, with
+best-effort storage. A crash in this gap may lose the hint. Completed-step replay
+and application-outcome recovery neither backfill hints nor refresh recency. See
+[runtime publication](context-cache-hints.md#runtime-publication).

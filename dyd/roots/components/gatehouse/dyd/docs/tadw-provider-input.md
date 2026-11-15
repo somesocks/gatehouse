@@ -125,9 +125,10 @@ never publishes/touches shared hints and does not read file content or credentia
 from a provider/keychain. Credential compatibility hashing uses already-selected
 encrypted configuration through the existing opaque fingerprint helper.
 
-The output contains no hint metadata or credentials. Future publication must
-follow actual provider use, not assembly, using the matching prepared scope/base.
-No publication timing/failure policy or live provider hook is introduced here.
+The output contains no hint metadata or credentials. The normal execution
+callback derives publication identity locally from the selected snapshot and sent
+static wire fields, publishing only after successful provider use and the
+application-decision commit. That hook is outside this pure adapter. See [runtime publication](context-cache-hints.md#runtime-publication).
 
 ## Validation
 

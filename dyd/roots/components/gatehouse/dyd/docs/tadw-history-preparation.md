@@ -116,12 +116,12 @@ the selected IDs. The [request workflow](tadw-request-context.md) consumes the
 ID-only step result directly and renders on demand inside fresh provider steps.
 Rendered history and provider bodies have attempt-local ownership.
 
-Preparation **never publishes or touches a shared hint**. The existing publication
-API remains explicit and must follow actual provider use. Future integration must
-ensure that the configuration used for the provider request still matches the
-keys used for publication; a mutable selected-model pointer is not a configuration
-lock. Publication timing, replay-only touches and optional-publication failure
-handling belong to that future provider hook.
+Preparation **never publishes or touches a shared hint**. The normal provider
+execution callback derives publication identity from the selected snapshot and
+actual sent static wire fields after successful use. Best-effort publication
+follows the application-decision commit; a crash in between may lose the hint.
+It does not reread model configuration after HTTP. Replay of a completed attempt
+does not publish or refresh recency. See [runtime publication](context-cache-hints.md#runtime-publication).
 
 ## Limits and recovery consistency
 

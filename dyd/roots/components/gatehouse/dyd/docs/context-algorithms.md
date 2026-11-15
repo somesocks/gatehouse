@@ -122,7 +122,10 @@ legacy admission results. Durable-state checks verify one initial history list,
 one boundary per thinking attempt and transcript-free workflow inputs/results.
 Existing MCMTR, database, migration and benchmark suites remain regression coverage.
 
-Compatible shared hints are read only during fresh initial selection. Publishing
-or refreshing hints after actual provider use remains separate work. Durable
+Compatible shared hints are read only during fresh initial selection. Successful
+fresh provider turns publish or refresh their used history base on a best-effort
+basis after their application decisions commit. Recovery does not backfill a hint
+lost in that gap, and completed-attempt replay does not touch hint recency. See
+[runtime publication](context-cache-hints.md#runtime-publication). Durable
 visibility snapshots, provider cache controls, execution-sibling traversal and
 ignored-file-field hydration retain their existing limitations.

@@ -60,6 +60,45 @@ func publishTADWHistoryCacheHint(ctx context.Context, store *database.Store, sco
 	return store.ContextCacheHintPut(ctx, scope.databaseScope(), base.Id, hint)
 }
 
+// Derive publication identity from the validated selected snapshot and the wire
+// request used by this attempt. Only the conversation is removed; actual static
+// fields, including output caps, remain. Neither events nor configuration are read.
+func tadwHistoryCacheScopeForSentRequest(session model.SessionRef, selected *database.WorkspaceAgentModel, request agentProviderRequest) (tadwHistoryCacheScope, error) {
+	if selected == nil || selected.Endpoint == nil || selected.Ref.Workspace != session.Workspace {
+		return tadwHistoryCacheScope{}, fmt.Errorf("invalid TADW publication provider snapshot")
+	}
+	template := agentProviderRequest{codex: request.codex}
+	switch {
+	case request.Chat != nil && request.Responses == nil && !request.codex:
+		chat := *request.Chat
+		switch {
+		case len(chat.Messages) == 1 && chat.Messages[0].Role == "user":
+			chat.Messages = nil
+		case len(chat.Messages) == 2 && chat.Messages[0].Role == "system" && chat.Messages[1].Role == "user":
+			chat.Messages = chat.Messages[:1:1]
+		default:
+			return tadwHistoryCacheScope{}, fmt.Errorf("invalid TADW publication conversation")
+		}
+		template.Chat = &chat
+	case request.Responses != nil && request.Chat == nil && len(request.Responses.Input) == 1:
+		responses := *request.Responses
+		responses.Input = []json.RawMessage{}
+		template.Responses = &responses
+	default:
+		return tadwHistoryCacheScope{}, fmt.Errorf("invalid TADW publication request")
+	}
+	cacheScope, err := tadwPreparationCacheScope(selected)
+	if err != nil {
+		return tadwHistoryCacheScope{}, err
+	}
+	profile, err := tadwPreparationProfileFingerprint(template)
+	if err != nil {
+		return tadwHistoryCacheScope{}, err
+	}
+	scope := tadwHistoryCacheScope{Session: session, CacheScope: cacheScope, Profile: profile}
+	return scope, scope.databaseScope().Validate()
+}
+
 // checkpointTADWHistoryWithCacheHints keeps exactly the original ID-only step.
 // Hint lookup is fresh-only, before opening the history read transaction, so
 // replay does not depend on the hints table and the sole connection is not nested.

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"gatehouse/database"
 	"gatehouse/model"
@@ -86,6 +87,17 @@ func (runtime *SessionEventReplyRuntime) agentProviderAttempt(ctx dbos.Context, 
 				turn.Failure = sendErr
 			}
 		}
+		var hintScope tadwHistoryCacheScope
+		var hintBase model.SessionEventRef
+		if state != nil && len(state.historyIDs) > 0 && turn.Failure == nil {
+			var hintErr error
+			hintScope, hintErr = tadwHistoryCacheScopeForSentRequest(parent.Session, selected, request)
+			if hintErr == nil {
+				hintBase = model.SessionEventRef{Session: parent.Session, Id: state.historyIDs[0]}
+			} else {
+				slog.WarnContext(step, "derive TADW history alignment hint", "error", hintErr)
+			}
+		}
 		request = agentProviderRequest{}
 		if err := runtime.replyCancellationCheck(step, parent); err != nil {
 			return model.SessionEventRef{}, err
@@ -114,6 +126,13 @@ func (runtime *SessionEventReplyRuntime) agentProviderAttempt(ctx dbos.Context, 
 				return reserved, nil
 			}
 			return model.SessionEventRef{}, err
+		}
+		// Optional alignment work follows the durable application decision. A crash
+		// before publication may lose a hint, but cannot repeat a committed send.
+		if hintBase.Id != "" {
+			if err := publishTADWHistoryCacheHint(step, runtime.store, hintScope, hintBase); err != nil {
+				slog.WarnContext(step, "publish TADW history alignment hint", "error", err)
+			}
 		}
 		return ref, nil
 	}, dbos.WithStepName("gatehouse.agent-provider-execute"))

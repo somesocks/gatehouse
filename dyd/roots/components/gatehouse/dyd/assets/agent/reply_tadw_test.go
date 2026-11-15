@@ -378,8 +378,8 @@ func TestTADWNormalReplyToolingAndRetry(t *testing.T) {
 			if err := f.store.QueryRow(`SELECT COUNT(*) FROM gatehouse_agent_contexts`).Scan(&contexts); err != nil {
 				t.Fatal(err)
 			}
-			if hints != 0 || contexts != 0 {
-				t.Fatal("unexpected hint publication or MCMTR checkpoints", hints, contexts)
+			if hints != 1 || contexts != 0 {
+				t.Fatal("want one shared hint and no MCMTR checkpoints", hints, contexts)
 			}
 		})
 	}
@@ -414,6 +414,9 @@ func TestTADWRuntimeRecoveryProcess(t *testing.T) {
 	}
 	if point == "completed" {
 		trigger = `CREATE TRIGGER tadw_live_crash BEFORE UPDATE ON workflow_status WHEN NEW.name='gatehouse.session-agent-round' AND NEW.status='SUCCESS' BEGIN SELECT gh_tadw_live_crash(); END`
+	}
+	if point == "hint" {
+		trigger = `CREATE TRIGGER tadw_live_crash BEFORE INSERT ON gatehouse_context_cache_hints BEGIN SELECT gh_tadw_live_crash(); END`
 	}
 	if _, err := store.Exec(trigger); err != nil {
 		t.Fatal(err)
@@ -465,6 +468,9 @@ func TestTADWNormalReplyCrashRecovery(t *testing.T) {
 		{"committed tool decision", "application", false, false, 1, 2},
 		{"tooling rollover across restart", "rounds", false, false, 3, 4},
 		{"completed decision", "completed", false, false, 1, 1},
+		{"hint completed replay", "completed", false, false, 1, 1},
+		{"hint application replay", "application", false, false, 1, 1},
+		{"hint publication gap", "hint", false, false, 1, 1},
 		{"completed decision with rate wait", "completed", false, false, 1, 1},
 		{"algorithm change before provider", "boundary", true, false, 0, 0},
 		{"algorithm change after decision", "completed", true, false, 1, 1},
@@ -511,6 +517,10 @@ func TestTADWNormalReplyCrashRecovery(t *testing.T) {
 				policy = liveTADWRatePolicy()
 			}
 			f := newTADWLiveFixture(t, path, server.URL, "openai-responses", compaction, policy)
+			hintReplay := strings.HasPrefix(test.name, "hint ")
+			if hintReplay {
+				captureLiveTADWHintWrites(t, f.store)
+			}
 			f.submit(t, false)
 			executable, err := os.Executable()
 			if err != nil {
@@ -535,8 +545,30 @@ func TestTADWNormalReplyCrashRecovery(t *testing.T) {
 			if calls.Load() != test.before {
 				t.Fatal("calls before crash", calls.Load(), test.before)
 			}
-			if _, err := f.store.Exec(`DROP TRIGGER tadw_live_crash; DROP TABLE gatehouse_context_cache_hints; DROP INDEX gatehouse_session_events_thread_order; DROP INDEX gatehouse_session_events_agent_terminals`); err != nil {
+			var hintUsedAt int64
+			wantHintWrites := 1
+			if test.point == "hint" {
+				wantHintWrites = 0
+			}
+			if hintReplay {
+				var decisions int
+				if err := f.store.QueryRow(`SELECT COUNT(*) FROM gatehouse_session_events WHERE kind='thinking.success'`).Scan(&decisions); err != nil || decisions != 1 {
+					t.Fatal("provider decision must be committed before hint publication", decisions, err)
+				}
+				if err := f.store.QueryRow(`SELECT COALESCE(MAX(last_used_at),0) FROM gatehouse_context_cache_hints`).Scan(&hintUsedAt); err != nil {
+					t.Fatal(err)
+				}
+				if got := liveTADWHintWrites(t, f.store); got != wantHintWrites {
+					t.Fatal("hint writes before crash", got, wantHintWrites)
+				}
+			}
+			if _, err := f.store.Exec(`DROP TRIGGER tadw_live_crash; DROP INDEX gatehouse_session_events_thread_order; DROP INDEX gatehouse_session_events_agent_terminals`); err != nil {
 				t.Fatal(err)
+			}
+			if !hintReplay {
+				if _, err := f.store.Exec(`DROP TABLE gatehouse_context_cache_hints`); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if test.legacy {
 				if _, err := f.store.Exec(`UPDATE gatehouse_agent_models SET compaction='{"algorithm":"tadw","context_max_bytes":8192,"history_max_bytes":2048,"history_min_bytes":1024}'`); err != nil {
@@ -544,7 +576,7 @@ func TestTADWNormalReplyCrashRecovery(t *testing.T) {
 				}
 			} else {
 				text := "UPDATED_HISTORY_AFTER_CRASH"
-				if test.point == "completed" || (test.point == "application" && test.name != "committed retry" && test.name != "committed tool decision") {
+				if test.point == "completed" || test.point == "hint" || (test.point == "application" && test.name != "committed retry" && test.name != "committed tool decision") {
 					text = strings.Repeat("oversized history ", 300)
 				}
 				if _, err := f.store.Exec(`UPDATE gatehouse_session_events SET payload=json_object('text',?) WHERE id=?`, text, f.older.Id); err != nil {
@@ -607,6 +639,15 @@ func TestTADWNormalReplyCrashRecovery(t *testing.T) {
 			}
 			if calls.Load() != test.after {
 				t.Fatal("calls after recovery", calls.Load(), test.after)
+			}
+			if hintReplay {
+				var after int64
+				if err := f.store.QueryRow(`SELECT COALESCE(MAX(last_used_at),0) FROM gatehouse_context_cache_hints`).Scan(&after); err != nil || after != hintUsedAt {
+					t.Fatal("replay must not refresh hint recency", after, hintUsedAt, err)
+				}
+				if got := liveTADWHintWrites(t, f.store); got != wantHintWrites {
+					t.Fatal("replay must not publish a hint", got, wantHintWrites)
+				}
 			}
 			if want == model.SessionEventKindAgentSuccess {
 				var executor string

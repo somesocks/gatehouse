@@ -52,6 +52,10 @@ func TestTADWNormalReplyRateLimitWait(t *testing.T) {
 	if !delayed {
 		t.Fatal("provider attempt did not wait for its rate-limit claim")
 	}
+	var earlyHints int
+	if err := f.store.QueryRow(`SELECT COUNT(*) FROM gatehouse_context_cache_hints`).Scan(&earlyHints); err != nil || earlyHints != 0 {
+		t.Fatal("estimation and rate-limit waiting must not publish hints", earlyHints, err)
+	}
 	if _, err := f.store.Exec(`UPDATE gatehouse_session_events SET payload=json_object('text','HISTORY_UPDATED_DURING_RATE_WAIT') WHERE id=?`, f.older.Id); err != nil {
 		t.Fatal(err)
 	}
@@ -107,6 +111,10 @@ func TestTADWNormalReplyRequiresSuccessfulEstimation(t *testing.T) {
 	}
 	if calls.Load() != 0 {
 		t.Fatal("provider execution requires successful estimation", calls.Load())
+	}
+	var hints int
+	if err := f.store.QueryRow(`SELECT COUNT(*) FROM gatehouse_context_cache_hints`).Scan(&hints); err != nil || hints != 0 {
+		t.Fatal("failed preparation must not publish a hint", hints, err)
 	}
 }
 
@@ -190,6 +198,12 @@ func TestTADWNormalReplyAdmissionAndCancellation(t *testing.T) {
 			}
 			if mode == "cancel provider" && outcome.Payload["code"] != "cancelled" {
 				t.Fatal("missing cancellation classification", outcome.Payload)
+			}
+			if mode == "cancel provider" || mode == "deny admission" {
+				var hints int
+				if err := f.store.QueryRow(`SELECT COUNT(*) FROM gatehouse_context_cache_hints`).Scan(&hints); err != nil || hints != 0 {
+					t.Fatal("an unused prefix must not be published", mode, hints, err)
+				}
 			}
 			if mode == "revoke during tools" {
 				var completed int

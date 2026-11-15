@@ -3,8 +3,8 @@
 SQLite V071 adds `gatehouse_context_cache_hints`, a small shared application
 store for **alignment hints**, not request recovery state. The TADW path in the
 [normal reply runtime](context-algorithms.md) reads compatible hints during fresh
-history selection. Hint publication after actual provider use and provider cache
-controls remain separate work. The store is SQLite-only.
+history selection and publishes/refreshes them after successful provider use.
+Provider cache controls remain separate work. The store is SQLite-only.
 
 ## Scope and schema
 
@@ -105,8 +105,39 @@ invoke it only after a provider request actually used that base, not merely afte
 selection/checkpointing. It accepts only a typed base event reference in the same
 session and stores the ID/version, without reading payloads. The reference may
 subsequently become stale. Neither history helper automatically publishes or
-touches hints. There is no provider-success hook in this increment, and a used
-prefix is still not proof that a provider retained or reused its KV cache.
+touches hints. A used prefix is not proof that a provider retained or reused its
+KV cache.
+
+## Runtime publication
+
+The fresh `gatehouse.agent-provider-execute` callback publishes after receiving a
+successfully parsed final reply or tool-call turn, checking cancellation, and
+committing its application decision. It publishes no hint for failed preparation,
+estimation, rate-limit waiting, HTTP errors (including retryable 429s), invalid
+responses or empty fixed history. A successful retry publishes only after its own
+provider use and application-decision commit.
+
+The base is the first ID in that request's selected history. Publication identity
+is local to the execution callback: it combines the selected provider/credential
+snapshot with the actual sent request's static wire fields, excluding only the
+conversation. Effective output-cap changes are included where the protocol sends
+them. Model/binding changes during HTTP do not move the hint into a different
+namespace. The namespace and profile use the same derivation as selection;
+publication does not reread configuration or retain request bodies.
+
+Publication occurs outside the application-decision transaction, after its
+successful commit. Artifact or application-persistence failures before that commit
+do not publish a hint. A crash after the decision commits but before publication
+may lose the optional hint; the committed decision still prevents another provider
+send on recovery. Recovery does not backfill the missing hint. Storage errors are
+logged and ignored, without failing the provider outcome. Hints remain alignment
+suggestions, not recovery checkpoints.
+
+Completed execution steps replay their small result directly. Repeated callbacks
+that find their reserved application outcome return before publication. Neither
+path inserts a hint nor refreshes `last_used_at`; recovery does not turn an old
+provider use into new recency. There is no additional DBOS step, hint receipt or
+transcript data in workflow state.
 
 ## MCMTR compatibility and boundaries
 
@@ -139,3 +170,12 @@ crash/recovery tests change hints or drop the table after the ID checkpoint,
 remove traversal indexes, and require unchanged recovered history. They retain
 the original fresh-buffer metadata trigger and DBOS ID-only/payload-absence
 assertions.
+
+Normal-runtime tests cover publication/touch after final and tool replies,
+successful retries, no publication before the decision commits or after failed
+calls/application persistence, best-effort write failure, empty history, MCMTR
+isolation, configuration drift during HTTP, actual wire output caps and consumption
+by a later request. Subprocess tests verify unchanged hint recency/write counts
+for both completed-step replay and the application-commit/step-checkpoint gap.
+A crash during hint publication leaves a committed application outcome, and
+recovery neither repeats HTTP nor backfills the missing hint.
