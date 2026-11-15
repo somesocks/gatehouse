@@ -602,17 +602,25 @@ func (runtime *SessionEventReplyRuntime) reply(ctx dbos.Context, input SessionEv
 	if replyErr == nil || reference.Id != "" {
 		return reference, replyErr
 	}
-	var cancelled sessionReplyCancelled
-	if errors.As(replyErr, &cancelled) || ctx.Err() != nil {
+	if ctx.Err() != nil {
 		return reference, replyErr
+	}
+	var cancelled sessionReplyCancelled
+	if errors.As(replyErr, &cancelled) {
+		return reference, nil
 	}
 	err, request := runtime.store.SessionEventGet(runtime.dbos, input.Event)
 	if err != nil || request == nil || request.Kind != model.SessionEventKindAgentRequest {
 		return reference, errors.Join(replyErr, err)
 	}
 	err, cancellation := runtime.replyCancellationRequested(runtime.dbos, input.Event)
-	if err != nil || cancellation != nil {
+	if err != nil {
 		return reference, errors.Join(replyErr, err)
+	}
+	// Cooperatively observing cancel.request completes without an agent reply.
+	// The cancellation workflow can then finalize it even before engine cancellation.
+	if cancellation != nil {
+		return reference, nil
 	}
 	for _, terminal := range []string{model.SessionEventKindAgentSuccess, model.SessionEventKindAgentFailure} {
 		err, existing := runtime.store.SessionEventChildGet(runtime.dbos, input.Event, terminal)
@@ -678,14 +686,23 @@ func (runtime *SessionEventReplyRuntime) replyAttempt(ctx dbos.Context, input Se
 	return runtime.runAgentRounds(ctx, input.Event)
 }
 
-func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef) (error, agentProviderTurn, database.AgentRateLimitClaim) {
-	preparationErr, current, request := runtime.agentProviderRequestForThinking(ctx, thinking)
+func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, roundContext *tadwRequestContext) (error, agentProviderTurn, database.AgentRateLimitClaim) {
+	preparationErr, current, request := runtime.agentProviderRequestForThinking(ctx, thinking, roundContext)
 	if current != nil {
 		*selected = *current
 	}
-	// Estimate the complete transient request, including the current prompt and
-	// tool schemas. A failed preparation still encounters the no-op checkpoint.
-	err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, request.body())
+	// Estimate the complete request, then release its body before any durable wait.
+	// A failed preparation still encounters the no-op claim checkpoint.
+	var requestTokens *int
+	if body := request.body(); body != nil {
+		estimate, err := estimateAgentRequestTokens(body)
+		if err != nil {
+			return err, agentProviderTurn{}, database.AgentRateLimitClaim{}
+		}
+		requestTokens = &estimate
+	}
+	request = agentProviderRequest{}
+	err, claim := runtime.agentRateLimitClaim(ctx, parent, thinking, selected, principal, requestTokens)
 	if err != nil {
 		return err, agentProviderTurn{}, claim
 	}
@@ -694,11 +711,16 @@ func (runtime *SessionEventReplyRuntime) agentProviderTurn(ctx dbos.Context, par
 	}
 	// Re-read the full enabled binding after any rate-limit wait. Endpoint and
 	// credentials come from the same current provider; no saved ID controls routing.
-	err, current, request = runtime.agentProviderRequestForThinking(ctx, thinking)
+	err, current, request = runtime.agentProviderRequestForThinking(ctx, thinking, roundContext)
 	if err != nil {
 		return nil, agentProviderTurn{Failure: err}, claim
 	}
 	*selected = *current
+	return runtime.agentProviderSend(ctx, parent, selected, request, claim)
+}
+
+// The caller owns request and selected for this invocation only.
+func (runtime *SessionEventReplyRuntime) agentProviderSend(ctx context.Context, parent model.SessionEventRef, selected *database.WorkspaceAgentModel, request agentProviderRequest, claim database.AgentRateLimitClaim) (error, agentProviderTurn, database.AgentRateLimitClaim) {
 	if claim.WorkspaceOutput != nil || claim.UserOutput != nil {
 		// An existing reservation bounds accepted output even if the model's token
 		// limit changed while waiting or recovering. Codex checks reported usage
@@ -2193,7 +2215,7 @@ func (runtime *SessionEventReplyRuntime) cancelReplyWorkflowTree(ctx dbos.Contex
 	return nil
 }
 
-func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx dbos.Context, parent model.SessionEventRef) error {
+func (runtime *SessionEventReplyRuntime) replyCancellationCheck(ctx context.Context, parent model.SessionEventRef) error {
 	err, cancelled := runtime.replyCancellationRequested(ctx, parent)
 	if err != nil {
 		return err

@@ -45,9 +45,108 @@ type AgentModel struct {
 }
 
 type AgentModelCompaction struct {
-	Algorithm    string `json:"algorithm"`
-	HistoryBytes int    `json:"history_bytes"`
-	BufferBytes  int    `json:"buffer_bytes"`
+	MCMTR *MCMTRConfig
+	TADW  *TADWConfig
+}
+
+type MCMTRConfig struct {
+	HistoryBytes int `json:"history_bytes"`
+	BufferBytes  int `json:"buffer_bytes"`
+}
+
+type TADWConfig struct {
+	ContextMaxBytes int64 `json:"context_max_bytes"`
+	HistoryMaxBytes int64 `json:"history_max_bytes"`
+	HistoryMinBytes int64 `json:"history_min_bytes"`
+}
+
+func MCMTRCompaction(history, buffer int) AgentModelCompaction {
+	return AgentModelCompaction{MCMTR: &MCMTRConfig{HistoryBytes: history, BufferBytes: buffer}}
+}
+
+func (value AgentModelCompaction) Algorithm() string {
+	if value.MCMTR != nil && value.TADW == nil {
+		return "mcmtr"
+	}
+	if value.TADW != nil && value.MCMTR == nil {
+		return "tadw"
+	}
+	return ""
+}
+
+func (value AgentModelCompaction) Validate() error {
+	switch value.Algorithm() {
+	case "mcmtr":
+		if value.MCMTR.HistoryBytes <= 0 {
+			return fmt.Errorf("history_bytes must be positive")
+		}
+		if value.MCMTR.BufferBytes <= 0 || value.MCMTR.BufferBytes > value.MCMTR.HistoryBytes/2 {
+			return fmt.Errorf("buffer_bytes must be positive and at most one half of history_bytes")
+		}
+	case "tadw":
+		v := value.TADW
+		if v.HistoryMinBytes <= 0 || v.HistoryMinBytes > v.HistoryMaxBytes || v.HistoryMaxBytes > v.ContextMaxBytes {
+			return fmt.Errorf("TADW requires 0 < history_min_bytes <= history_max_bytes <= context_max_bytes")
+		}
+	default:
+		return fmt.Errorf("compaction must select exactly one algorithm")
+	}
+	return nil
+}
+
+func (value AgentModelCompaction) MarshalJSON() ([]byte, error) {
+	if err := value.Validate(); err != nil {
+		return nil, err
+	}
+	if value.MCMTR != nil {
+		return json.Marshal(struct {
+			Algorithm string `json:"algorithm"`
+			*MCMTRConfig
+		}{"mcmtr", value.MCMTR})
+	}
+	return json.Marshal(struct {
+		Algorithm string `json:"algorithm"`
+		*TADWConfig
+	}{"tadw", value.TADW})
+}
+
+// ParseAgentModelCompaction reads an effective configuration with explicit limits.
+func ParseAgentModelCompaction(encoded string) (AgentModelCompaction, error) {
+	var tag struct {
+		Algorithm string `json:"algorithm"`
+	}
+	if err := json.Unmarshal([]byte(encoded), &tag); err != nil {
+		return AgentModelCompaction{}, err
+	}
+	result := AgentModelCompaction{}
+	decoder := json.NewDecoder(strings.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	switch tag.Algorithm {
+	case "mcmtr":
+		var v struct {
+			Algorithm string `json:"algorithm"`
+			MCMTRConfig
+		}
+		if err := decoder.Decode(&v); err != nil {
+			return result, err
+		}
+		result.MCMTR = &v.MCMTRConfig
+	case "tadw":
+		var v struct {
+			Algorithm string `json:"algorithm"`
+			TADWConfig
+		}
+		if err := decoder.Decode(&v); err != nil {
+			return result, err
+		}
+		result.TADW = &v.TADWConfig
+	default:
+		return result, fmt.Errorf("algorithm %q is unsupported", tag.Algorithm)
+	}
+	if err := result.Validate(); err != nil {
+		return AgentModelCompaction{}, err
+	}
+	return result, nil
 }
 
 type WorkspaceAgent struct {
@@ -116,13 +215,13 @@ func defaultAgentModelCompaction(model string) AgentModelCompaction {
 	// Known reasoning models receive profiles tuned for their context and pricing.
 	switch model {
 	case "gpt-5.6", "gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "openai/gpt-5.6", "openai/gpt-5.6-luna", "openai/gpt-5.6-terra", "openai/gpt-5.6-sol", "gpt-5.3-codex", "openai/gpt-5.3-codex":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 192 * 1024}
+		return MCMTRCompaction(384*1024, 192*1024)
 	case "claude-sonnet-5", "claude-opus-5", "anthropic/claude-sonnet-5", "anthropic/claude-opus-5":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 240 * 1024}
+		return MCMTRCompaction(512*1024, 240*1024)
 	case "gemini-3.1-pro-preview", "google/gemini-3.1-pro-preview", "grok-4.6", "x-ai/grok-4.6":
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 120 * 1024}
+		return MCMTRCompaction(256*1024, 120*1024)
 	default:
-		return AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+		return MCMTRCompaction(DefaultAgentModelHistoryBytes, DefaultAgentModelBufferBytes)
 	}
 }
 
@@ -246,6 +345,9 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 		if err != nil {
 			return fmt.Errorf("agent_models[%d].compaction: %w", index, err), nil
 		}
+		if protocol == agentProviderProtocolBuiltin && compaction.Algorithm() == "tadw" {
+			return fmt.Errorf("agent_models[%d].compaction: TADW requires an external provider", index), nil
+		}
 		maxTurns := DefaultAgentModelMaxTurns
 		if configured.MaxTurns != nil {
 			maxTurns = *configured.MaxTurns
@@ -275,28 +377,37 @@ func ResolveAgentModels(document configschema.GatehouseConfig, providers []Agent
 	return nil, models
 }
 
-func resolveAgentModelCompaction(model string, configured *configschema.GatehouseConfigAgentModelsValuesCompaction) (AgentModelCompaction, error) {
-	compaction := defaultAgentModelCompaction(model)
+func resolveAgentModelCompaction(model string, configured *configschema.AgentModelCompaction) (AgentModelCompaction, error) {
 	if configured == nil {
-		return compaction, nil
+		return defaultAgentModelCompaction(model), nil
 	}
-	compaction.Algorithm = configured.Algorithm
-	if configured.HistoryBytes != nil {
-		compaction.HistoryBytes = *configured.HistoryBytes
+	var result AgentModelCompaction
+	switch configured.Kind {
+	case configschema.AgentModelCompactionKindMCMTRConfig:
+		v := configured.MCMTRConfig
+		if v == nil || configured.TADWConfig != nil {
+			return result, fmt.Errorf("invalid MCMTR configuration")
+		}
+		result = defaultAgentModelCompaction(model)
+		if v.HistoryBytes != nil {
+			result.MCMTR.HistoryBytes = *v.HistoryBytes
+		}
+		if v.BufferBytes != nil {
+			result.MCMTR.BufferBytes = *v.BufferBytes
+		}
+	case configschema.AgentModelCompactionKindTADWConfig:
+		v := configured.TADWConfig
+		if v == nil || configured.MCMTRConfig != nil {
+			return result, fmt.Errorf("invalid TADW configuration")
+		}
+		result.TADW = &TADWConfig{ContextMaxBytes: int64(v.ContextMaxBytes), HistoryMaxBytes: int64(v.HistoryMaxBytes), HistoryMinBytes: int64(v.HistoryMinBytes)}
+	default:
+		return result, fmt.Errorf("invalid compaction algorithm")
 	}
-	if configured.BufferBytes != nil {
-		compaction.BufferBytes = *configured.BufferBytes
+	if err := result.Validate(); err != nil {
+		return AgentModelCompaction{}, err
 	}
-	if compaction.Algorithm != "mcmtr" {
-		return AgentModelCompaction{}, fmt.Errorf("algorithm %q is unsupported", compaction.Algorithm)
-	}
-	if compaction.HistoryBytes <= 0 {
-		return AgentModelCompaction{}, fmt.Errorf("history_bytes must be positive")
-	}
-	if compaction.BufferBytes <= 0 || compaction.BufferBytes > compaction.HistoryBytes/2 {
-		return AgentModelCompaction{}, fmt.Errorf("buffer_bytes must be positive and at most one half of history_bytes")
-	}
-	return compaction, nil
+	return result, nil
 }
 
 func validateOpenAIModelParameters(protocol string, parameters map[string]any) error {

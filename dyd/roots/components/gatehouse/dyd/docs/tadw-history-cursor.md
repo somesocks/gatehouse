@@ -1,8 +1,8 @@
 # TADW SQLite history cursor
 
-`database/session_tadw.go` adds a standalone, lazy history traversal component.
-It is **not wired into agent execution**. Existing MCMTR retrieval and rendering
-remain unchanged. The byte-window policy is described in
+`database/session_tadw.go` provides lazy history traversal for TADW requests in
+the [normal reply runtime](context-algorithms.md). MCMTR uses its existing retrieval
+and rendering. The byte-window policy is described in
 [tadw-history-window.md](tadw-history-window.md).
 
 ## API and transaction ownership

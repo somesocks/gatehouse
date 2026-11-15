@@ -18,8 +18,7 @@ const tadwToolingCheckpointName = "gatehouse.tadw-tooling-window"
 //
 // Only the boundary string is the step result, never XML, event payloads, or the
 // initial-history ID list. Fresh execution reuses its selected buffer. Replay
-// renders the recorded window without rerunning rollover policy. This helper
-// does not register a workflow or activate TADW in the live tool loop.
+// renders the recorded window without rerunning rollover policy.
 func checkpointTADWTooling(ctx dbos.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig, from string) (tadwToolingWindow, error) {
 	if _, err := tadwFixedHistoryBudget(history, config); err != nil {
 		return tadwToolingWindow{}, err

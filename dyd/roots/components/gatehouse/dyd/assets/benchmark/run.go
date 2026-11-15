@@ -246,7 +246,7 @@ func runtimeModel(selected benchmarkmodel.Model) (database.SystemAgentModelInput
 	if maxTurns <= 0 || maxTokens <= 0 || buffer <= 0 || history <= 0 || buffer > history/2 {
 		return database.SystemAgentModelInput{}, fmt.Errorf("model %q: invalid effective execution limits", selected.Alias)
 	}
-	compaction, err := json.Marshal(config.AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: history, BufferBytes: buffer})
+	compaction, err := json.Marshal(config.MCMTRCompaction(history, buffer))
 	if err != nil {
 		return database.SystemAgentModelInput{}, err
 	}

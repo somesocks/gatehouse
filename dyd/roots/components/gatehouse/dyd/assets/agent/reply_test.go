@@ -19,11 +19,7 @@ import (
 	"gatehouse/typed_id"
 )
 
-var defaultAgentModelCompaction = config.AgentModelCompaction{
-	Algorithm:    "mcmtr",
-	HistoryBytes: config.DefaultAgentModelHistoryBytes,
-	BufferBytes:  config.DefaultAgentModelBufferBytes,
-}
+var defaultAgentModelCompaction = config.MCMTRCompaction(config.DefaultAgentModelHistoryBytes, config.DefaultAgentModelBufferBytes)
 
 func TestSessionEventReplyRuntimeCreatesOneBuiltinReply(t *testing.T) {
 	ctx := context.Background()

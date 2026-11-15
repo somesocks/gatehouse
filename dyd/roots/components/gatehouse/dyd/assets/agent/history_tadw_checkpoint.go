@@ -15,7 +15,7 @@ const tadwHistoryCheckpointName = "gatehouse.tadw-initial-history"
 
 // checkpointTADWHistory belongs once at request-workflow entry, outside the
 // thinking/tool loop. Only its ordered IDs are durable; the returned fragments
-// remain ordinary worker memory. No active workflow calls this helper yet.
+// remain call-local working data.
 //
 // Fresh execution reuses the selection's rendered buffer. Replay skips selection
 // altogether and rehydrates the checkpointed IDs, including an empty selection.

@@ -13,7 +13,7 @@ import (
 // Bump this internal salt if that provider-input packaging changes.
 const tadwProviderConversationVersion = "tadw-single-user-xml-v1"
 
-// agentProviderRequestPrepareTADW is an inactive, worker-local wire adapter.
+// agentProviderRequestPrepareTADW assembles one attempt's wire request.
 // The inputs must come from history preparation and request-tooling assembly.
 // It does not select/roll windows, hydrate/render events, access DBOS/storage,
 // send requests or publish hints. Treat selected as immutable during this call.

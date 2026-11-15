@@ -30,20 +30,24 @@ func (request agentProviderRequest) body() any {
 	return nil
 }
 
-func (runtime *SessionEventReplyRuntime) agentProviderRequestForThinking(ctx context.Context, thinking model.SessionEvent) (error, *database.WorkspaceAgentModel, agentProviderRequest) {
+func (runtime *SessionEventReplyRuntime) agentProviderRequestForThinking(ctx context.Context, thinking model.SessionEvent, round *tadwRequestContext) (error, *database.WorkspaceAgentModel, agentProviderRequest) {
 	if thinking.Kind != model.SessionEventKindThinkingRequest || thinking.AuthorAgent == nil || thinking.Parent == nil {
 		return fmt.Errorf("invalid thinking request"), nil, agentProviderRequest{}
 	}
-	err, selected := runtime.store.WorkspaceAgentModelGet(ctx, thinking.AuthorAgent.Workspace, thinking.AuthorAgent.Id)
+	err, selected := runtime.selectedAgent(ctx, *thinking.AuthorAgent)
 	if err != nil {
 		return err, nil, agentProviderRequest{}
 	}
-	if selected == nil {
-		return fmt.Errorf("agent model or provider is unavailable"), nil, agentProviderRequest{}
-	}
-	selected.SystemPromptReplacement = runtime.systemPromptReplacement
-	if text, ok := runtime.systemPromptReplacements[selected.Ref]; ok {
-		selected.SystemPromptReplacement = &text
+	if round != nil {
+		if err := round.choice.matches(selected); err != nil {
+			return err, selected, agentProviderRequest{}
+		}
+		err, project := runtime.store.SessionProjectGet(ctx, thinking.Ref.Session)
+		if err != nil {
+			return err, selected, agentProviderRequest{}
+		}
+		request, err := runtime.renderRequestTADW(ctx, round, thinking, selected, project != nil)
+		return err, selected, request
 	}
 	if selected.Protocol == "builtin" {
 		return nil, selected, agentProviderRequest{}

@@ -36,8 +36,9 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCommit(
 	selected *database.WorkspaceAgentModel,
 	round, callCount int,
 	turn agentProviderTurn,
+	choice agentContextSelection,
 ) (error, model.SessionEventRef) {
-	candidate := runtime.agentProviderDecisionCandidate(ctx, parent, selected, round, turn)
+	candidate := runtime.agentProviderDecisionCandidate(ctx, parent, selected, round, turn, choice)
 	diagnostic := ""
 	if candidate.Failure != nil {
 		diagnostic = candidate.Failure.Error()
@@ -45,110 +46,116 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCommit(
 	failureBody, publicationErr := runtime.agentResultStore(ctx, thinking, diagnostic, resultInlineLimit(selected))
 
 	decision, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (model.SessionEventRef, error) {
-		result := model.SessionEventRef{}
-		// Check publication errors inside the transaction callback: DBOS skips
-		// this callback for an already-committed decision and returns its original
-		// reference, even if publication failed during the replayed attempt.
 		if publicationErr != nil {
-			return result, publicationErr
+			return model.SessionEventRef{}, publicationErr
 		}
-		persist := func(event model.SessionEvent) (model.SessionEventRef, error) {
+		return persistProviderDecision(parent, thinking, selected, round, callCount, candidate, failureBody, model.SessionEventRef{}, func(event model.SessionEvent) (model.SessionEventRef, error) {
+			err, stored := runtime.store.SessionEventCreateInTransaction(step, transaction, event)
+			return stored.Ref, err
+		})
+	}, dbos.WithStepName("gatehouse.agent-provider-decision"))
+	return err, decision
+}
+
+// The caller supplies atomic persistence for all events and may reserve the
+// thinking outcome reference as the provider attempt's idempotency identity.
+func persistProviderDecision(parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, round, callCount int, candidate providerDecisionCandidate, failureBody agentResultBody, reserved model.SessionEventRef, storeEvent func(model.SessionEvent) (model.SessionEventRef, error)) (model.SessionEventRef, error) {
+	result := model.SessionEventRef{}
+	persist := func(event model.SessionEvent) (model.SessionEventRef, error) {
+		if reserved.Id != "" && event.Parent != nil && *event.Parent == thinking.Ref {
+			event.Ref = reserved
+		} else {
 			id, err := typed_id.New(typed_id.SessionEvent)
 			if err != nil {
 				return model.SessionEventRef{}, fmt.Errorf("generate provider decision event ID: %w", err)
 			}
 			event.Ref.Id = id
-			if err, stored := runtime.store.SessionEventCreateInTransaction(step, transaction, event); err != nil {
-				return model.SessionEventRef{}, err
-			} else {
-				return stored.Ref, nil
-			}
 		}
+		return storeEvent(event)
+	}
 
-		if candidate.RetryUntil != nil {
-			until := candidate.RetryUntil.UTC().Format(time.RFC3339Nano)
-			payload, err := database.SessionEventPayloadFrom(model.ThinkingUpdatePayload{Reason: "rate_limit", Until: &until})
-			if err != nil {
-				return result, fmt.Errorf("encode provider retry event: %w", err)
-			}
-			result, err = persist(model.SessionEvent{
-				Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
-				Kind: model.SessionEventKindThinkingUpdate, AuthorAgent: thinking.AuthorAgent,
-				Payload: payload, Metrics: candidate.Metrics,
-			})
+	if candidate.RetryUntil != nil {
+		until := candidate.RetryUntil.UTC().Format(time.RFC3339Nano)
+		payload, err := database.SessionEventPayloadFrom(model.ThinkingUpdatePayload{Reason: "rate_limit", Until: &until})
+		if err != nil {
+			return result, fmt.Errorf("encode provider retry event: %w", err)
+		}
+		result, err = persist(model.SessionEvent{
+			Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
+			Kind: model.SessionEventKindThinkingUpdate, AuthorAgent: thinking.AuthorAgent,
+			Payload: payload, Metrics: candidate.Metrics,
+		})
+		return result, err
+	}
+
+	if candidate.Failure != nil {
+		failure := model.ThinkingFailurePayload{Code: failureEventCode(candidate.Failure), Message: failureBody.Output, OutputFile: failureBody.OutputFile}
+		if failureBody.OutputFile != nil {
+			failure.Message = failureBody.Message
+		}
+		payload, err := database.SessionEventPayloadFrom(failure)
+		if err != nil {
+			return result, fmt.Errorf("encode provider failure event: %w", err)
+		}
+		result, err = persist(model.SessionEvent{
+			Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
+			Kind: model.SessionEventKindThinkingFailure, AuthorAgent: thinking.AuthorAgent,
+			Payload: payload, Metrics: candidate.Metrics,
+		})
+		return result, err
+	}
+
+	outcome := model.ThinkingSuccessPayload{}
+	if candidate.Final != nil {
+		payload, err := database.SessionEventPayloadFrom(model.AgentSuccessPayload{
+			Text: candidate.Final.Text, Attachments: optionalStringSlice(candidate.Final.Attachments),
+		})
+		if err != nil {
+			return result, fmt.Errorf("encode provider final reply: %w", err)
+		}
+		final, err := persist(model.SessionEvent{
+			Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent,
+			Kind: model.SessionEventKindAgentSuccess, AuthorAgent: &selected.Ref, Payload: payload,
+		})
+		if err != nil {
 			return result, err
 		}
-
-		if candidate.Failure != nil {
-			failure := model.ThinkingFailurePayload{Code: failureEventCode(candidate.Failure), Message: failureBody.Output, OutputFile: failureBody.OutputFile}
-			if failureBody.OutputFile != nil {
-				failure.Message = failureBody.Message
-			}
-			payload, err := database.SessionEventPayloadFrom(failure)
-			if err != nil {
-				return result, fmt.Errorf("encode provider failure event: %w", err)
-			}
-			result, err = persist(model.SessionEvent{
-				Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
-				Kind: model.SessionEventKindThinkingFailure, AuthorAgent: thinking.AuthorAgent,
-				Payload: payload, Metrics: candidate.Metrics,
-			})
-			return result, err
-		}
-
-		outcome := model.ThinkingSuccessPayload{}
-		if candidate.Final != nil {
-			payload, err := database.SessionEventPayloadFrom(model.AgentSuccessPayload{
-				Text: candidate.Final.Text, Attachments: optionalStringSlice(candidate.Final.Attachments),
+		outcome.AgentSuccess = &final
+	} else {
+		tools := make([]model.SessionEventRef, 0, len(candidate.Tools))
+		for index, call := range candidate.Tools {
+			batch := round
+			position := callCount + index
+			payload, err := database.SessionEventPayloadFrom(model.ToolRequestPayload{
+				Name: "lisp", CallId: call.CallID, Code: call.Code, Reason: call.Reason,
+				Batch: &batch, Position: &position,
 			})
 			if err != nil {
-				return result, fmt.Errorf("encode provider final reply: %w", err)
+				return result, fmt.Errorf("encode tool request %q: %w", call.CallID, err)
 			}
-			final, err := persist(model.SessionEvent{
+			reference, err := persist(model.SessionEvent{
 				Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent,
-				Kind: model.SessionEventKindAgentSuccess, AuthorAgent: &selected.Ref, Payload: payload,
+				Kind: model.SessionEventKindToolRequest, AuthorAgent: &selected.Ref, Payload: payload,
 			})
 			if err != nil {
 				return result, err
 			}
-			outcome.AgentSuccess = &final
-		} else {
-			tools := make([]model.SessionEventRef, 0, len(candidate.Tools))
-			for index, call := range candidate.Tools {
-				batch := round
-				position := callCount + index
-				payload, err := database.SessionEventPayloadFrom(model.ToolRequestPayload{
-					Name: "lisp", CallId: call.CallID, Code: call.Code, Reason: call.Reason,
-					Batch: &batch, Position: &position,
-				})
-				if err != nil {
-					return result, fmt.Errorf("encode tool request %q: %w", call.CallID, err)
-				}
-				reference, err := persist(model.SessionEvent{
-					Ref: model.SessionEventRef{Session: parent.Session}, Parent: &parent,
-					Kind: model.SessionEventKindToolRequest, AuthorAgent: &selected.Ref, Payload: payload,
-				})
-				if err != nil {
-					return result, err
-				}
-				tools = append(tools, reference)
-			}
-			if len(tools) == 0 {
-				return result, fmt.Errorf("provider decision has neither a final reply nor tool calls")
-			}
-			outcome.ToolRequests = &tools
+			tools = append(tools, reference)
 		}
-		payload, err := database.SessionEventPayloadFrom(outcome)
-		if err != nil {
-			return result, fmt.Errorf("encode provider thinking success: %w", err)
+		if len(tools) == 0 {
+			return result, fmt.Errorf("provider decision has neither a final reply nor tool calls")
 		}
-		return persist(model.SessionEvent{
-			Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
-			Kind: model.SessionEventKindThinkingSuccess, AuthorAgent: thinking.AuthorAgent,
-			Payload: payload, Metrics: candidate.Metrics,
-		})
-	}, dbos.WithStepName("gatehouse.agent-provider-decision"))
-	return err, decision
+		outcome.ToolRequests = &tools
+	}
+	payload, err := database.SessionEventPayloadFrom(outcome)
+	if err != nil {
+		return result, fmt.Errorf("encode provider thinking success: %w", err)
+	}
+	return persist(model.SessionEvent{
+		Ref: model.SessionEventRef{Session: thinking.Ref.Session}, Parent: &thinking.Ref,
+		Kind: model.SessionEventKindThinkingSuccess, AuthorAgent: thinking.AuthorAgent,
+		Payload: payload, Metrics: candidate.Metrics,
+	})
 }
 
 func (runtime *SessionEventReplyRuntime) agentProviderDecisionCandidate(
@@ -157,6 +164,7 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCandidate(
 	selected *database.WorkspaceAgentModel,
 	round int,
 	turn agentProviderTurn,
+	choice agentContextSelection,
 ) providerDecisionCandidate {
 	candidate := providerDecisionCandidate{Failure: turn.Failure, Metrics: turn.Metrics}
 	if candidate.Failure != nil {
@@ -188,14 +196,16 @@ func (runtime *SessionEventReplyRuntime) agentProviderDecisionCandidate(
 		candidate.Failure = fmt.Errorf("agent provider completion exceeded turn limit")
 		return candidate
 	}
-	profile, err := selectedMCMTRProfile(selected)
-	if err != nil {
-		candidate.Failure = err
-		return candidate
-	}
-	if !mcmtrNativeCallsFit(turn.Calls, profile.BufferBytes) {
-		candidate.Failure = fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
-		return candidate
+	if choice.Algorithm == "mcmtr" {
+		profile, err := selectedMCMTRProfile(selected)
+		if err != nil {
+			candidate.Failure = err
+			return candidate
+		}
+		if !mcmtrNativeCallsFit(turn.Calls, profile.BufferBytes) {
+			candidate.Failure = fmt.Errorf("OpenAI-compatible completion requested a tool batch that exceeds the MCMTR tool high-tier buffer")
+			return candidate
+		}
 	}
 	if len(turn.Calls) == 0 {
 		candidate.Failure = fmt.Errorf("OpenAI-compatible completion returned neither a final reply nor tool calls")

@@ -1,10 +1,10 @@
 # Shared context-cache alignment hints
 
 SQLite V071 adds `gatehouse_context_cache_hints`, a small shared application
-store for **best-effort alignment hints**, not request recovery state. TADW remains
-inactive. MCMTR, reply/round workflows and provider code are unchanged. There are
-no live lookup/publication hooks, provider cache controls or new configuration
-knobs. No PostgreSQL implementation/migration is included in this increment.
+store for **alignment hints**, not request recovery state. The TADW path in the
+[normal reply runtime](context-algorithms.md) reads compatible hints during fresh
+history selection. Hint publication after actual provider use and provider cache
+controls remain separate work. The store is SQLite-only.
 
 ## Scope and schema
 
@@ -21,7 +21,7 @@ A scope consists of:
 The caller must account for provider routing/cache namespaces, system prompts,
 tools, rendering and other relevant differences. The generic store does not
 generate or prove the completeness of those keys. Do not put credentials in them.
-The separate inactive [selected-agent TADW preparation adapter](tadw-history-preparation.md)
+The [selected-agent TADW preparation adapter](tadw-history-preparation.md)
 now derives keys from resolved workspace-agent configuration and the actual static
 provider request, without changing the storage API or adding another identity.
 

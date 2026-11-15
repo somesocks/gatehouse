@@ -1,11 +1,11 @@
 # TADW request-history checkpoint and recovery
 
-`agent/history_tadw_checkpoint.go` adds an **inactive** request-entry helper over
-[the history adapter](tadw-history-adapter.md). No existing reply, round, provider
-or MCMTR execution path calls it. The checkpoint helper adds no configuration
-defaults, application recovery tables or workflow registrations. The separate
+`agent/history_tadw_checkpoint.go` checkpoints initial history in the TADW
+history-owner workflow over [the history adapter](tadw-history-adapter.md).
+The [normal reply runtime](context-algorithms.md) registers that internal child
+when constructing its workflow set. The separate
 [shared cache-hint store](context-cache-hints.md) supplies an optional fresh-only
-hint source; it is not recovery state. The inactive
+hint source; it is not recovery state. The
 [selected-workspace-agent adapter](tadw-history-preparation.md) derives its
 compatibility keys without adding another durable checkpoint.
 
@@ -32,8 +32,9 @@ recorded IDs; each provider attempt renders those IDs on demand. The selection
 checkpoint belongs once at request entry, outside the round loop.
 
 The [tooling assembler](tadw-tooling-context.md) accepts rendered history for one
-assembly. The [inactive handoff](tadw-request-handoff.md) passes checkpoint
-references between children and reads the original IDs for provider preparation.
+assembly. The [request workflow](tadw-request-context.md) consumes the ID-only
+step result directly and retains it across its round loop. It rehydrates only
+inside fresh boundary or provider preparation callbacks.
 
 ## Optional shared hints
 
@@ -78,9 +79,9 @@ configuration consistency remain the caller's responsibility.
 
 The event/file read transaction and the subsequent DBOS checkpoint are separate.
 A crash before the checkpoint commits can rerun selection; this is not a durable
-request-creation visibility snapshot. Freezing historical metadata/visibility,
-provider cache controls and runtime activation remain separate increments.
-Shared cache-base hints are now available through a separate inactive adapter,
+request-creation visibility snapshot. Freezing historical metadata/visibility
+and provider cache controls remain separate concerns.
+Shared cache-base hints are available through the preparation adapter,
 but are never consulted during recovery. The explicitly deferred execution-sibling traversal
 and ignored-file-field hydration issues are unchanged.
 
@@ -101,4 +102,4 @@ read snapshot; that metadata is restored before restart. DBOS records contain
 exactly one ID-list selection checkpoint and boolean-only thinking results; a
 scan of all DBOS tables rejects
 payload, rendered-history and tooling markers. This tests the component contract,
-not activation of the production round/provider lifecycle.
+with normal-runtime lifecycle coverage described in [context algorithms](context-algorithms.md).

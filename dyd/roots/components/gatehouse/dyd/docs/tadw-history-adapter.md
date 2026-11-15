@@ -1,11 +1,10 @@
 # TADW initial-history adapter
 
 `agent/history_tadw.go` connects the SQLite cursor, file-metadata projection,
-TADW renderer and pure history-window policy. It is a standalone component:
-**TADW is not activated**, MCMTR remains unchanged, and no configuration defaults,
-cache tables, provider controls or tooling compaction are added. The separate,
-also inactive [request checkpoint helper](tadw-history-checkpoint.md) wraps this
-adapter with a single ordered-ID DBOS checkpoint and replay rehydration.
+TADW renderer and pure history-window policy. The [normal reply runtime](context-algorithms.md)
+uses it when the selected model specifies TADW; MCMTR remains the default.
+The [request checkpoint helper](tadw-history-checkpoint.md) wraps this adapter
+with a single ordered-ID DBOS checkpoint and replay rehydration.
 
 ## Inputs and output
 

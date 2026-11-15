@@ -491,7 +491,7 @@ let AgentProviders =
       s.list.from s.list.props::{ values = AgentProvider }
         s.list.meta::{ description = Some "configured agent providers" }
 
-let AgentModelCompaction =
+let MCMTRConfig =
       s.record.from
         s.record.props::{
         , required = toMap
@@ -511,7 +511,45 @@ let AgentModelCompaction =
                     s.number.meta::{ description = Some "shared high-tier rendered transcript buffer before compaction in bytes" }
             }
         }
-        s.record.meta::{ name = Some "AgentModelCompaction" }
+        s.record.meta::{ name = Some "MCMTRConfig" }
+
+let MCMTRConfigRoot =
+      s.root.from MCMTRConfig s.root.meta::{ name = "MCMTRConfig" }
+
+let TADWConfig =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { algorithm = s.text.from s.text.props::{ variant = s.text.variants.literal "tadw" }
+                s.text.meta::{ description = Some "transcript context algorithm" }
+            , context_max_bytes = s.number.from s.number.props::{ variant = s.number.variants.integer }
+                s.number.meta::{ description = Some "maximum rendered history and tooling bytes" }
+            , history_max_bytes = s.number.from s.number.props::{ variant = s.number.variants.integer }
+                s.number.meta::{ description = Some "maximum selected rendered history bytes" }
+            , history_min_bytes = s.number.from s.number.props::{ variant = s.number.variants.integer }
+                s.number.meta::{ description = Some "minimum desired rendered history bytes" }
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "TADWConfig" }
+
+let TADWConfigRoot =
+      s.root.from TADWConfig s.root.meta::{ name = "TADWConfig" }
+
+let AgentModelCompaction =
+      s.oneOf.from
+        { options =
+            [ s.reference.from s.reference.props::{ to = "MCMTRConfig" } s.reference.meta::{ name = Some "MCMTRConfig" }
+            , s.reference.from s.reference.props::{ to = "TADWConfig" } s.reference.meta::{ name = Some "TADWConfig" }
+            ]
+        }
+        s.oneOf.meta::{ name = Some "AgentModelCompaction" }
+
+let AgentModelCompactionRoot =
+      s.root.from AgentModelCompaction s.root.meta::{ name = "AgentModelCompaction" }
+
+let AgentModelCompactionReference =
+      s.reference.from s.reference.props::{ to = "AgentModelCompaction" } s.reference.meta::{=}
 
 let AgentModel =
       s.record.from
@@ -524,7 +562,7 @@ let AgentModel =
             , parameters = s.any.from s.any.props::{ variant = s.any.variants.permissive } s.any.meta::{ description = Some "provider model parameters" }
             }
         , optional = toMap
-             { compaction = AgentModelCompaction
+             { compaction = AgentModelCompactionReference
              , enabled = s.boolean.from s.boolean.props::{=} s.boolean.meta::{ description = Some "whether the model is enabled" }
              , max_output_tokens = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum model output tokens per request" }
               , max_turns = s.number.from s.number.props::{ variant = s.number.variants.integer } s.number.meta::{ description = Some "maximum tool-using model turns per reply" }
@@ -674,6 +712,9 @@ in  Document::{
           , VerifierRoot
           , IdentityRoot
           , PrincipalRoot
+          , MCMTRConfigRoot
+          , TADWConfigRoot
+          , AgentModelCompactionRoot
           , GatehouseConfig
           ]
       }

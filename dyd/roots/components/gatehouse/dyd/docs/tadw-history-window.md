@@ -3,12 +3,12 @@
 `agent/context_tadw.go` implements the pure policy for choosing a history window
 and aligning its first event with a known cross-request cache base. It uses the
 exact weights from the standalone TADW renderer, not stored payload JSON sizes.
-It is not wired into the runtime or active compaction profiles yet. Retrieval,
-cache-table reads/writes, DBOS checkpoints and tooling compaction remain separate.
-The standalone SQLite traversal component is documented in
-[tadw-history-cursor.md](tadw-history-cursor.md). The standalone agent-side adapter
-connecting that cursor, metadata hydration, rendering and this policy is described
-in [tadw-history-adapter.md](tadw-history-adapter.md); it remains inactive.
+The [normal reply runtime](context-algorithms.md) uses the policy for models that
+select TADW. Retrieval, hint storage, DBOS checkpoints and tooling-window decisions
+are separate components. SQLite traversal is documented in
+[tadw-history-cursor.md](tadw-history-cursor.md); the adapter connecting traversal,
+metadata hydration, rendering and this policy is described in
+[tadw-history-adapter.md](tadw-history-adapter.md).
 
 ## Inputs and limits
 

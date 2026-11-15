@@ -25,14 +25,10 @@ func estimateAgentRequestTokens(request any) (int, error) {
 	return (len(encoded)+agentRateLimitEstimateBytesPerToken-1)/agentRateLimitEstimateBytesPerToken + agentRateLimitEstimateOverhead, nil
 }
 
-func (runtime *SessionEventReplyRuntime) agentRateLimitClaim(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, request any) (error, database.AgentRateLimitClaim) {
+func (runtime *SessionEventReplyRuntime) agentRateLimitClaim(ctx dbos.Context, parent model.SessionEventRef, thinking model.SessionEvent, selected *database.WorkspaceAgentModel, principal model.PrincipalRef, requestTokens *int) (error, database.AgentRateLimitClaim) {
 	input := 0
-	if request != nil {
-		var err error
-		input, err = estimateAgentRequestTokens(request)
-		if err != nil {
-			return err, database.AgentRateLimitClaim{}
-		}
+	if requestTokens != nil {
+		input = *requestTokens
 	}
 	claim, err := dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, transaction dbos.Tx) (database.AgentRateLimitClaim, error) {
 		// Resolve policy inside the always-present checkpoint. A completed claim
@@ -41,7 +37,7 @@ func (runtime *SessionEventReplyRuntime) agentRateLimitClaim(ctx dbos.Context, p
 		if err != nil {
 			return database.AgentRateLimitClaim{}, err
 		}
-		if request == nil || current == nil || current.Protocol == "builtin" || current.RateLimits.Empty() {
+		if requestTokens == nil || current == nil || current.Protocol == "builtin" || current.RateLimits.Empty() {
 			return database.AgentRateLimitClaim{}, nil
 		}
 		claimErr, claim := runtime.store.AgentRateLimitClaimInTransaction(step, transaction, *current, principal, input, current.MaxOutputTokens)

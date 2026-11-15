@@ -1,9 +1,8 @@
 # TADW tooling windows and context assembly
 
-These are **standalone, inactive components**. No production reply, round or
-provider path calls them; MCMTR is unchanged. No migration, application checkpoint
-table, cache-base storage, provider cache control or configuration knob is added.
-Source events are never deleted or rewritten by window selection.
+These components assemble TADW context in the normal reply/round runtime.
+The model selects the [context algorithm](context-algorithms.md); MCMTR remains
+the default. Window selection changes prompt membership, not source events.
 
 ## Fixed history and growing tooling
 
@@ -29,7 +28,7 @@ even if inconsistent stored timestamps place a tool before it in raw query order
 Actual parent IDs are preserved when parents lie outside the window. There is no
 extra envelope, sorting of request/result blocks, or splitting of XML fragments.
 History slice elements are copied for ownership; immutable XML strings are reused.
-The separate inactive [provider-input adapter](tadw-provider-input.md) places this
+The [provider-input adapter](tadw-provider-input.md) places this
 assembled transcript in one user message without additional XML or native tool
 conversation blocks.
 
@@ -142,11 +141,10 @@ workflow position. The caller carries the returned boundary to the next attempt.
 
 DBOS persists this request-private state in its own database. No separate
 application table is needed. The initial-history IDs are still checkpointed once
-per request by `checkpointTADWHistory`. Rendered history/context belongs to one
-selection or assembly call. The [inactive handoff](tadw-request-handoff.md) passes
-checkpoint references between children and renders each actual provider attempt
-on demand.
-Production child-round integration is not implemented here.
+per request. Rendered history/context belongs to one selection or assembly call.
+The [request workflow](tadw-request-context.md) retains its ID slice and assigns
+each returned boundary to its loop-local state. The runtime boundary step returns
+only that string; fresh provider steps render the recorded window on demand.
 
 ## Durability and remaining boundaries
 
@@ -160,8 +158,8 @@ reconstruction or KV reuse.
 A replay window that no longer fits fails explicitly instead of reselecting.
 
 A crash before a DBOS decision commits may repeat fresh selection. Preserving
-historical visibility/metadata, production activation, shared history cache-base
-hints and provider controls remain separate increments. The previously deferred
+historical visibility/metadata, shared-hint publication and provider cache controls
+remain separate concerns. The previously deferred
 history-traversal and ignored-file-field hydration issues are unchanged.
 
 ## Validation

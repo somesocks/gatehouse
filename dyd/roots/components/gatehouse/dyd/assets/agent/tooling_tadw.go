@@ -24,7 +24,7 @@ func (err *tadwToolingBudgetError) Error() string {
 
 // loadTADWContext assembles fixed worker-local history followed by this request's
 // tooling before the current thinking request. It never reselects/re-renders
-// history, checkpoints context, or silently trims tooling. The path is inactive.
+// history, checkpoints context, or silently trims tooling.
 func loadTADWContext(ctx context.Context, store *database.Store, history tadwInitialHistory, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, config tadwWindowConfig) (tadwTranscript, error) {
 	return loadTADWContextFrom(ctx, store, history, request, agent, thinking, config, "")
 }

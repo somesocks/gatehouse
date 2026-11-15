@@ -1,9 +1,10 @@
 # TADW history preparation for a selected workspace agent
 
-`agent/history_tadw_prepare.go` is a **standalone, inactive adapter**. It takes an
-already-selected `database.WorkspaceAgentModel`; it does not add a new identity,
-profile resource, setting, migration, workflow registration or provider call.
-MCMTR and live reply/round/provider code are unchanged.
+`agent/history_tadw_prepare.go` derives compatibility from an already-selected
+`database.WorkspaceAgentModel` and offers call-local initial-history preparation.
+The normal request workflow uses the same compatibility and selection policies
+with its ID-only checkpoint. The workspace agent remains the actor; compatibility
+hashes do not introduce an identity or profile resource.
 
 ## Existing actor, derived compatibility keys
 
@@ -55,7 +56,7 @@ check, and an unobservable provider-side routing/model change cannot be detected
 - The existing `tadw-history-v1` selection/hint algorithm identifier.
 - `tadw-flat-xml-v1`, an internal transcript-format compatibility salt.
 - `tadw-single-user-xml-v1`, the provider conversation-packaging salt introduced
-  by the inactive [provider-input adapter](tadw-provider-input.md).
+  by the [provider-input adapter](tadw-provider-input.md).
 - The **actual static provider wire body**, obtained by calling
   `agentProviderRequestPrepare(selected, projectChat, nil)` and then `.body()`.
 
@@ -111,9 +112,9 @@ or the table is absent. No provider body, prompt, credential fingerprint, keys,
 rendered XML or repeated history-ID lists enter DBOS through this adapter.
 
 The prepared object belongs to this preparation call. Request state consists of
-the selected IDs. The [inactive handoff](tadw-request-handoff.md) passes references
-to that checkpoint between children and renders on demand for each actual provider
-attempt. Rendered history and provider bodies have attempt-local ownership.
+the selected IDs. The [request workflow](tadw-request-context.md) consumes the
+ID-only step result directly and renders on demand inside fresh provider steps.
+Rendered history and provider bodies have attempt-local ownership.
 
 Preparation **never publishes or touches a shared hint**. The existing publication
 API remains explicit and must follow actual provider use. Future integration must
@@ -133,7 +134,7 @@ the recorded IDs, subject to the existing renderability and hard-byte checks.
 Matching base IDs/configuration hashes do not guarantee byte-identical history:
 authoritative event/file metadata can change, and provider caches can expire.
 These are alignment hints only. No metadata/versioned-visibility reconstruction,
-provider breakpoint/cache control or TADW activation is added.
+provider breakpoint or cache control is provided by preparation.
 
 ## Validation
 
@@ -147,4 +148,4 @@ Real subprocess crash/recovery cases exercise the selected-agent adapter with
 changed hints or a removed hint table. They retain the existing fresh-buffer
 metadata trigger, no-auto-publication checks, traversal-index negative controls,
 one-ID-list checkpoint assertion and DBOS payload-absence scan. Full existing
-renderer/MCMTR/provider behavior is tested unchanged.
+renderer, MCMTR and provider contracts have separate regression coverage.

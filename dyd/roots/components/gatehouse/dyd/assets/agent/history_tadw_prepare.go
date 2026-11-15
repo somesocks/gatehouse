@@ -25,8 +25,8 @@ type tadwPreparedHistory struct {
 }
 
 // prepareTADWHistory belongs once at request entry. The selected agent must
-// already contain any invocation-local prompt replacement. No active workflow
-// calls it. It neither sends a provider request nor publishes/touches a hint.
+// already contain any invocation-local prompt replacement. Provider execution
+// and hint publication belong to the caller.
 func prepareTADWHistory(ctx dbos.Context, store *database.Store, anchor model.SessionEventRef, selected *database.WorkspaceAgentModel, projectChat bool, limits tadwWindowConfig) (tadwPreparedHistory, error) {
 	scope, err := tadwHistoryCacheScopeForAgent(anchor.Session, selected, projectChat)
 	if err != nil {

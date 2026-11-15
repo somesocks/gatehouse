@@ -63,7 +63,6 @@ func publishTADWHistoryCacheHint(ctx context.Context, store *database.Store, sco
 // checkpointTADWHistoryWithCacheHints keeps exactly the original ID-only step.
 // Hint lookup is fresh-only, before opening the history read transaction, so
 // replay does not depend on the hints table and the sole connection is not nested.
-// No production workflow calls this helper yet.
 func checkpointTADWHistoryWithCacheHints(ctx dbos.Context, store *database.Store, anchor model.SessionEventRef, scope tadwHistoryCacheScope, config tadwWindowConfig) (tadwInitialHistory, error) {
 	if anchor.Session != scope.Session {
 		return tadwInitialHistory{}, fmt.Errorf("checkpoint TADW history: mismatched cache scope")

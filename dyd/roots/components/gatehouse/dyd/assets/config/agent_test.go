@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -207,18 +208,18 @@ agent_models:
 
 func TestDefaultAgentModelCompaction(t *testing.T) {
 	for model, want := range map[string]AgentModelCompaction{
-		"gpt-5.6-luna":                  {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 192 * 1024},
-		"openai/gpt-5.3-codex":          {Algorithm: "mcmtr", HistoryBytes: 384 * 1024, BufferBytes: 192 * 1024},
-		"anthropic/claude-sonnet-5":     {Algorithm: "mcmtr", HistoryBytes: 512 * 1024, BufferBytes: 240 * 1024},
-		"google/gemini-3.1-pro-preview": {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 120 * 1024},
-		"x-ai/grok-4.6":                 {Algorithm: "mcmtr", HistoryBytes: 256 * 1024, BufferBytes: 120 * 1024},
-		"unknown":                       {Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes},
+		"gpt-5.6-luna":                  MCMTRCompaction(384*1024, 192*1024),
+		"openai/gpt-5.3-codex":          MCMTRCompaction(384*1024, 192*1024),
+		"anthropic/claude-sonnet-5":     MCMTRCompaction(512*1024, 240*1024),
+		"google/gemini-3.1-pro-preview": MCMTRCompaction(256*1024, 120*1024),
+		"x-ai/grok-4.6":                 MCMTRCompaction(256*1024, 120*1024),
+		"unknown":                       MCMTRCompaction(DefaultAgentModelHistoryBytes, DefaultAgentModelBufferBytes),
 	} {
 		got, err := resolveAgentModelCompaction(model, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if got != want {
+		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("resolveAgentModelCompaction(%q, nil) = %#v, want %#v", model, got, want)
 		}
 	}
@@ -272,11 +273,11 @@ agent_models:
 			if err != nil || len(state.AgentModels) != 1 {
 				t.Fatalf("ResolveState() = (%#v, %v)", state.AgentModels, err)
 			}
-			want := AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: DefaultAgentModelHistoryBytes, BufferBytes: DefaultAgentModelBufferBytes}
+			want := MCMTRCompaction(DefaultAgentModelHistoryBytes, DefaultAgentModelBufferBytes)
 			if name == "configured MCMTR" {
-				want = AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: 1000, BufferBytes: 100}
+				want = MCMTRCompaction(1000, 100)
 			}
-			if state.AgentModels[0].Compaction != want {
+			if !reflect.DeepEqual(state.AgentModels[0].Compaction, want) {
 				t.Fatalf("compaction = %#v, want %#v", state.AgentModels[0].Compaction, want)
 			}
 		})

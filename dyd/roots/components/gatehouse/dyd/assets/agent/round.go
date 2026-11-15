@@ -62,10 +62,61 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 	if err := runtime.replyCancellationCheck(ctx, input.AgentRequest); err != nil {
 		return model.SessionEventRef{}, err
 	}
-	thinkingRef, err := runtime.agentRoundPrepare(ctx, input)
+	admission, err := runtime.agentRoundPrepare(ctx, input)
 	if err != nil {
 		return model.SessionEventRef{}, err
 	}
+	if admission.Context == nil {
+		return runtime.runAdmittedRound(ctx, input, admission.SessionEventRef, agentContextSelection{Algorithm: "mcmtr"}, nil, false)
+	}
+	return runtime.runAdmittedRequest(ctx, input, admission)
+}
+
+// The first admitted workflow owns the request loop for either algorithm.
+// Child tools receive references; history IDs never cross a workflow boundary.
+func (runtime *SessionEventReplyRuntime) runAdmittedRequest(ctx dbos.Context, input SessionAgentRoundInput, admission agentRoundAdmission) (model.SessionEventRef, error) {
+	choice := *admission.Context
+	var state *tadwRequestContext
+	if choice.TADW != nil {
+		err, thinking := runtime.store.SessionEventGet(ctx, admission.SessionEventRef)
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+		if thinking == nil || thinking.AuthorAgent == nil {
+			return model.SessionEventRef{}, fmt.Errorf("admitted thinking request is unavailable")
+		}
+		state, err = runtime.checkpointRequestTADWHistory(ctx, input.AgentRequest, *thinking.AuthorAgent, choice)
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+	}
+	for {
+		ref, err := runtime.runAdmittedRound(ctx, input, admission.SessionEventRef, choice, state, true)
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+		err, outcome, decision := runtime.agentRoundOutcomeGet(ctx, input.AgentRequest, ref)
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+		if outcome.Kind == model.SessionEventKindThinkingFailure || decision.AgentSuccess != nil {
+			return ref, nil
+		}
+		if _, err := runtime.runLispCalls(ctx, *decision.ToolRequests); err != nil {
+			return model.SessionEventRef{}, err
+		}
+		input.Previous = &ref
+		if err := runtime.replyCancellationCheck(ctx, input.AgentRequest); err != nil {
+			return model.SessionEventRef{}, err
+		}
+		admission, err = runtime.agentRoundPrepare(ctx, input)
+		if err != nil {
+			return model.SessionEventRef{}, err
+		}
+	}
+}
+
+func (runtime *SessionEventReplyRuntime) runAdmittedRound(ctx dbos.Context, input SessionAgentRoundInput, thinkingRef model.SessionEventRef, choice agentContextSelection, state *tadwRequestContext, requestOwned bool) (model.SessionEventRef, error) {
 	err, thinking := runtime.store.SessionEventGet(ctx, thinkingRef)
 	if err != nil {
 		return model.SessionEventRef{}, err
@@ -97,18 +148,33 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 	if payload.Turn != round {
 		return model.SessionEventRef{}, fmt.Errorf("round thinking turn does not match committed history")
 	}
+	if state != nil {
+		if err := runtime.checkpointRequestTADWTooling(ctx, state, *thinking); err != nil {
+			return model.SessionEventRef{}, runtime.thinkingFinish(ctx, *thinking, model.SessionEventKindThinkingFailure, err)
+		}
+	}
 	selected := &database.WorkspaceAgentModel{Ref: *thinking.AuthorAgent}
 	for {
-		err, turn, claim := runtime.agentProviderTurn(ctx, input.AgentRequest, *thinking, selected, root.AuthorPrincipal.Ref)
-		if err != nil {
-			return model.SessionEventRef{}, runtime.thinkingFinishWithMetrics(ctx, *thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics)
-		}
-		if err := runtime.replyCancellationCheck(ctx, input.AgentRequest); err != nil {
-			return model.SessionEventRef{}, err
-		}
-		err, outcomeRef := runtime.agentProviderDecisionCommit(ctx, input.AgentRequest, *thinking, selected, round, offset, turn)
-		if err != nil {
-			return model.SessionEventRef{}, err
+		var outcomeRef model.SessionEventRef
+		var claim database.AgentRateLimitClaim
+		if requestOwned {
+			outcomeRef, claim, err = runtime.agentProviderAttempt(ctx, input.AgentRequest, *thinking, root.AuthorPrincipal.Ref, round, offset, choice, state)
+			if err != nil {
+				return model.SessionEventRef{}, err
+			}
+		} else {
+			var turn agentProviderTurn
+			err, turn, claim = runtime.agentProviderTurn(ctx, input.AgentRequest, *thinking, selected, root.AuthorPrincipal.Ref, nil)
+			if err != nil {
+				return model.SessionEventRef{}, runtime.thinkingFinishWithMetrics(ctx, *thinking, model.SessionEventKindThinkingFailure, err, turn.Metrics)
+			}
+			if err := runtime.replyCancellationCheck(ctx, input.AgentRequest); err != nil {
+				return model.SessionEventRef{}, err
+			}
+			err, outcomeRef = runtime.agentProviderDecisionCommit(ctx, input.AgentRequest, *thinking, selected, round, offset, turn, choice)
+			if err != nil {
+				return model.SessionEventRef{}, err
+			}
 		}
 		err, outcome := runtime.store.SessionEventGet(ctx, outcomeRef)
 		if err != nil {
@@ -145,13 +211,20 @@ func (runtime *SessionEventReplyRuntime) agentRound(ctx dbos.Context, input Sess
 	}
 }
 
-// Preparation commits only the lifecycle marker and its checkpoint reference.
-// Request construction happens at each attempt, using bounded canonical history.
+// Preparation commits the lifecycle marker and, on first admission, the context
+// algorithm selection. Request construction uses bounded history at each attempt.
 // Access is checked once here for the thinking step and its entire tool batch.
 // Revocation takes effect at the next round; replay preserves this committed
 // admission decision instead of rechecking access midway through the round.
-func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, input SessionAgentRoundInput) (model.SessionEventRef, error) {
-	return dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
+func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, input SessionAgentRoundInput) (agentRoundAdmission, error) {
+	return dbos.RunAsTransaction(ctx, runtime.dataSource, func(step context.Context, tx dbos.Tx) (agentRoundAdmission, error) {
+		return runtime.agentRoundAdmit(step, tx, input)
+	}, dbos.WithStepName("gatehouse.agent-round-prepare"))
+}
+
+func (runtime *SessionEventReplyRuntime) agentRoundAdmit(step context.Context, tx dbos.Tx, input SessionAgentRoundInput) (agentRoundAdmission, error) {
+	var choice *agentContextSelection
+	admit := func(step context.Context, tx dbos.Tx) (model.SessionEventRef, error) {
 		get := func(ref model.SessionEventRef) (error, *model.SessionEvent) {
 			return runtime.store.SessionEventGetInTransaction(step, tx, ref)
 		}
@@ -191,6 +264,28 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
+		if round == 0 {
+			selection, err := selectedAgentContext(selected)
+			if err != nil {
+				return model.SessionEventRef{}, err
+			}
+			if selection.TADW != nil {
+				runtime.applyPromptReplacement(selected)
+				err, project := runtime.store.SessionProjectGetInTransaction(step, tx, root.Ref.Session)
+				if err != nil {
+					return model.SessionEventRef{}, err
+				}
+				scope, err := tadwHistoryCacheScopeForAgent(root.Ref.Session, selected, project != nil)
+				if err != nil {
+					return model.SessionEventRef{}, err
+				}
+				selection.Compatibility, err = tadwRequestCompatibility(selected.Ref, scope, *selection.TADW)
+				if err != nil {
+					return model.SessionEventRef{}, err
+				}
+			}
+			choice = &selection
+		}
 		payload, err := database.SessionEventPayloadFrom(model.ThinkingRequestPayload{Turn: round, Previous: input.Previous})
 		if err != nil {
 			return model.SessionEventRef{}, err
@@ -205,7 +300,9 @@ func (runtime *SessionEventReplyRuntime) agentRoundPrepare(ctx dbos.Context, inp
 			return model.SessionEventRef{}, err
 		}
 		return event.Ref, nil
-	}, dbos.WithStepName("gatehouse.agent-round-prepare"))
+	}
+	ref, err := admit(step, tx)
+	return agentRoundAdmission{SessionEventRef: ref, Context: choice}, err
 }
 
 func (runtime *SessionEventReplyRuntime) agentRoundContext(ctx context.Context, thinking model.SessionEvent, selected *database.WorkspaceAgentModel) (error, bool, []openAICompatibleMessage) {

@@ -677,13 +677,8 @@ func validateSystemAgentModelInput(input SystemAgentModelInput) error {
 	if err := json.Unmarshal([]byte(input.Parameters), &parameters); err != nil || parameters == nil {
 		return fmt.Errorf("system agent model parameters are invalid")
 	}
-	var compaction struct {
-		Algorithm    string `json:"algorithm"`
-		HistoryBytes int    `json:"history_bytes"`
-		BufferBytes  int    `json:"buffer_bytes"`
-	}
-	if err := json.Unmarshal([]byte(input.Compaction), &compaction); err != nil || compaction.Algorithm != "mcmtr" || compaction.HistoryBytes < 1 || compaction.BufferBytes < 1 || compaction.BufferBytes > compaction.HistoryBytes/2 {
-		return fmt.Errorf("system agent model compaction is invalid")
+	if _, err := config.ParseAgentModelCompaction(input.Compaction); err != nil {
+		return fmt.Errorf("system agent model compaction is invalid: %w", err)
 	}
 	return nil
 }
@@ -715,6 +710,13 @@ func validateSystemAgentModelProtocol(input SystemAgentModelInput, protocol stri
 		return fmt.Errorf("system agent model parameters are invalid")
 	}
 	if protocol == "builtin" {
+		compaction, err := config.ParseAgentModelCompaction(input.Compaction)
+		if err != nil {
+			return err
+		}
+		if compaction.TADW != nil {
+			return fmt.Errorf("TADW requires an external provider")
+		}
 		text, ok := parameters["text"].(string)
 		if input.Model != "dummy.fixed-reply" || !ok || strings.TrimSpace(text) == "" || len(parameters) != 1 {
 			return fmt.Errorf("system builtin agent model is invalid")

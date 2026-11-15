@@ -33,7 +33,7 @@ func ResultFileTestPublication(runtime *SessionEventReplyRuntime, outcome, body 
 		if outcome == "retry" {
 			turn = agentProviderTurn{Failure: &openAIRetryableError{}}
 		}
-		err, result := runtime.agentProviderDecisionCommit(ctx, *event.Parent, *event, selected, 0, 0, turn)
+		err, result := runtime.agentProviderDecisionCommit(ctx, *event.Parent, *event, selected, 0, 0, turn, agentContextSelection{Algorithm: "mcmtr"})
 		return result, err
 	}
 }
@@ -56,7 +56,7 @@ func ResultFileTestDiagnostic(runtime *SessionEventReplyRuntime, diagnostic stri
 		if err != nil {
 			return model.SessionEventRef{}, err
 		}
-		err, outcome := runtime.agentProviderDecisionCommit(ctx, *event.Parent, *event, selected, 0, 0, agentProviderTurn{Failure: fmt.Errorf("%s", diagnostic)})
+		err, outcome := runtime.agentProviderDecisionCommit(ctx, *event.Parent, *event, selected, 0, 0, agentProviderTurn{Failure: fmt.Errorf("%s", diagnostic)}, agentContextSelection{Algorithm: "mcmtr"})
 		return outcome, err
 	}
 }

@@ -1,14 +1,12 @@
 # TADW transcript rendering
 
-This first TADW increment is a standalone, full-fidelity renderer in
-`agent/transcript_tadw.go`. It is not wired into provider requests or selected by
-compaction profiles. Existing MCMTR rendering and agent execution are unchanged.
-The separate pure history-window budget/base-selection policy is described in
-[tadw-history-window.md](tadw-history-window.md). Neither component is wired into
-the runtime yet. The standalone [history adapter](tadw-history-adapter.md) now
-connects bounded retrieval and metadata hydration to rendering and window
-selection. DBOS checkpoints, cache-table access and tooling compaction remain
-separate increments.
+`agent/transcript_tadw.go` renders TADW history and tooling as full-fidelity XML
+for the [normal reply runtime](context-algorithms.md). Models select TADW explicitly;
+MCMTR retains its existing rendering. The pure history-window policy is described
+in [tadw-history-window.md](tadw-history-window.md). The
+[history adapter](tadw-history-adapter.md) connects bounded retrieval and metadata
+hydration to rendering and selection. Checkpointing and tooling-window decisions
+are separate components.
 
 ## Event fragments
 

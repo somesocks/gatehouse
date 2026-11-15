@@ -26,8 +26,8 @@ func sqliteMigrationR010ReconcileAgentModelsBuilder(models []config.AgentModel) 
 	return func(_ context.Context, session *MigrationSession) (error, string) {
 		values := make([]sqliteMigrationR010AgentModelValue, 0, len(models))
 		for _, model := range models {
-			if model.Compaction.Algorithm == "" {
-				model.Compaction = config.AgentModelCompaction{Algorithm: "mcmtr", HistoryBytes: config.DefaultAgentModelHistoryBytes, BufferBytes: config.DefaultAgentModelBufferBytes}
+			if model.Compaction.MCMTR == nil && model.Compaction.TADW == nil {
+				model.Compaction = config.MCMTRCompaction(config.DefaultAgentModelHistoryBytes, config.DefaultAgentModelBufferBytes)
 			}
 			if model.MaxTurns == 0 {
 				model.MaxTurns = config.DefaultAgentModelMaxTurns

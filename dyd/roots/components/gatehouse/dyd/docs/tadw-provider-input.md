@@ -1,9 +1,9 @@
 # TADW provider-input assembly
 
-`agent/provider_request_tadw.go` adds an **inactive, worker-local** adapter. It
-builds provider bodies but does not send them. No live reply/round/provider path
-calls it, and MCMTR is unchanged. No database migration, setting/default, durable
-step, publication hook, provider cache control or activation is added.
+`agent/provider_request_tadw.go` assembles provider bodies for TADW requests in the
+normal reply runtime. Transport is shared with MCMTR, which remains the default.
+See [context algorithms](context-algorithms.md) for model configuration and replay.
+This adapter builds bodies; it does not send them or publish shared hints.
 
 ## One user message, flat semantic XML
 
@@ -71,11 +71,11 @@ salt if role, envelope or message-boundary semantics change incompatibly.
 
 This check is not a transport/configuration lock: callers must still use the same
 route/credentials/configuration when actually sending the built body. Nor is it a
-durable replay-time configuration guard. Provider calls and their integration
-with live request lifetime, cancellation and child workflows remain separate work.
-The [inactive request handoff](tadw-request-handoff.md) adds a separate small
-compatibility guard across child workflows; this pure adapter itself still has
-no durable state.
+durable replay-time configuration guard. The normal runtime owns provider calls,
+request lifetime, cancellation and child workflows.
+The [request workflow](tadw-request-context.md) records a small compatibility
+guard with its initial algorithm selection; this pure adapter itself has no
+durable state.
 
 ## Frozen history and hard byte checks
 

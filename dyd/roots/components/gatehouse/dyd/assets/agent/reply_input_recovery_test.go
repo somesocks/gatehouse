@@ -75,8 +75,8 @@ func TestReplyRecoveryProcess(t *testing.T) {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
 				WHEN NEW.function_name = 'DBOS.sleep' BEGIN SELECT gh_test_crash(); END`
 		} else if crashPoint == "decision-rollback" {
-			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
-				WHEN NEW.function_name = 'gatehouse.agent-provider-decision' BEGIN SELECT gh_test_crash(); END`
+			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON gatehouse_session_events
+				WHEN NEW.kind = 'thinking.success' BEGIN SELECT gh_test_crash(); END`
 		} else if crashPoint == "input-request-rollback" {
 			trigger = `CREATE TRIGGER crash_at_provider_boundary BEFORE INSERT ON operation_outputs
 				WHEN NEW.function_name = 'gatehouse.session-event-agent-persist'
@@ -527,25 +527,19 @@ func TestReplyResumesCustomInputAcrossRestart(t *testing.T) {
 						t.Fatal(err)
 					}
 					result, err := testdbos.GetResult(handle)
-					wantCalls := int32(2)
-					if outcome == "final-replay" {
-						wantCalls = 1
-					}
-					if outcome == "request-replay" {
-						wantCalls = 1 // Disabled binding cannot make another HTTP call.
-					}
-					if outcome == "retry-replay" || switching {
-						wantCalls = 3
+					wantCalls := int32(1)
+					if outcome == "decision-rollback" || outcome == "retry-replay" || switching {
+						wantCalls = 2
 					}
 					if err != nil || result.Id == "" || calls.Load() != wantCalls {
 						t.Fatalf("final reply replay = (%#v, %v), provider calls=%d", result, err, calls.Load())
 					}
 					if outcome == "round-final-replay" {
 						requestMutex.Lock()
-						identical := len(requestBodies) == 2 && bytes.Equal(requestBodies[0], requestBodies[1])
+						count := len(requestBodies)
 						requestMutex.Unlock()
-						if !identical {
-							t.Fatal("reconstructed round input changed after later session events")
+						if count != 1 {
+							t.Fatal("committed provider execution must not send again after later session events")
 						}
 					}
 					if err, final := store.SessionEventGet(ctx, result); err != nil || final == nil || final.Payload["text"] != "Selected "+providerReplyMarker {
