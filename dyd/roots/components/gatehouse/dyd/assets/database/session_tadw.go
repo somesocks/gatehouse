@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/model"
@@ -53,15 +54,16 @@ type TADWHistoryEvent struct {
 	OwnerID string
 }
 
-// TADWHistoryCursor is a lazy, SQLite-only history reader. It buffers at most
+// TADWHistoryCursor is a lazy history reader for SQLite and PostgreSQL. It buffers at most
 // four owners' selected metadata (28 nodes), plus one owner lookahead. Payloads
 // are fetched only for events requested by Next. It is not concurrency-safe.
 // Close releases cursor resources, never the caller's transaction.
 type TADWHistoryCursor struct {
 	ctx                 context.Context
 	tx                  *sql.Tx
+	kind                config.DatabaseKind
 	anchor              model.SessionEventRef
-	seeds               *sql.Rows
+	seeds               sessionEventRows
 	pending             *tadwSeedRow
 	children, events    *sql.Stmt
 	selected            []tadwSelectedNode
@@ -77,28 +79,38 @@ type TADWHistoryCursor struct {
 
 // SessionTADWHistoryCursor selects anchor ancestry, eligible siblings, oldest
 // three previews, and selected request outcomes. The caller must supply a live
-// SQLite transaction from this store, and must Close the cursor before ending
-// that transaction. No query runs until Next. Snapshot visibility is established
-// by the transaction's first read, not by request creation or this constructor.
+// transaction from this store, and must Close the cursor before ending
+// that transaction. No query runs until Next. On PostgreSQL, Close before
+// starting another history cursor on the same transaction. PostgreSQL callers must use
+// repeatable read for a stable multi-query snapshot, as the normal TADW readers
+// do. Visibility begins at the first read, not request creation or construction.
 // This API does not perform authorization or activate the TADW runtime path.
 func (store *Store) SessionTADWHistoryCursor(ctx context.Context, tx *sql.Tx, anchor model.SessionEventRef) (error, *TADWHistoryCursor) {
-	if store.kind != config.DatabaseKindSQLite {
-		return fmt.Errorf("TADW history cursor currently supports SQLite only"), nil
-	}
 	if tx == nil || anchor.Session.Workspace.Id == "" || anchor.Session.Id == "" || !typed_id.Valid(typed_id.SessionEvent, anchor.Id) {
 		return fmt.Errorf("open TADW history cursor: invalid transaction or anchor scope"), nil
 	}
 	if err := ctx.Err(); err != nil {
 		return err, nil
 	}
-	return nil, &TADWHistoryCursor{
-		ctx: ctx, tx: tx, anchor: anchor, seen: make(map[string]bool), branchRoots: make(map[string]bool),
+	cursor := &TADWHistoryCursor{
+		ctx: ctx, tx: tx, kind: store.kind, anchor: anchor, seen: make(map[string]bool), branchRoots: make(map[string]bool),
 		seedQuery: tadwHistorySeedsSQL, childQuery: tadwHistoryChildrenSQL, eventQuery: tadwHistoryEventSQL,
 	}
+	if store.kind == config.DatabaseKindPostgres {
+		cursor.seedQuery, cursor.childQuery, cursor.eventQuery = tadwPostgresHistorySeedsSQL, tadwPostgresHistoryChildrenSQL, tadwPostgresHistoryEventSQL
+	}
+	return nil, cursor
 }
 
 func (cursor *TADWHistoryCursor) args() []any {
-	return []any{sql.Named("workspace", cursor.anchor.Session.Workspace.Id), sql.Named("session", cursor.anchor.Session.Id)}
+	return []any{cursor.argument("workspace", cursor.anchor.Session.Workspace.Id), cursor.argument("session", cursor.anchor.Session.Id)}
+}
+
+func (cursor *TADWHistoryCursor) argument(name string, value any) any {
+	if cursor.kind == config.DatabaseKindPostgres {
+		return value
+	}
+	return sql.Named(name, value)
 }
 
 // Next advances one event. After exhaustion, cancellation or failure it closes
@@ -149,7 +161,14 @@ func (cursor *TADWHistoryCursor) next() (TADWHistoryEvent, bool, error) {
 		return TADWHistoryEvent{}, false, err
 	}
 	if !cursor.initialized {
-		rows, err := cursor.tx.QueryContext(cursor.ctx, cursor.seedQuery, append(cursor.args(), sql.Named("anchor", cursor.anchor.Id))...)
+		args := append(cursor.args(), cursor.argument("anchor", cursor.anchor.Id))
+		var rows sessionEventRows
+		var err error
+		if cursor.kind == config.DatabaseKindPostgres {
+			rows, err = tadwPostgresQuery(cursor.ctx, cursor.tx, tadwPostgresHistoryCursorName, cursor.seedQuery, args...)
+		} else {
+			rows, err = cursor.tx.QueryContext(cursor.ctx, cursor.seedQuery, args...)
+		}
 		if err != nil {
 			return TADWHistoryEvent{}, false, err
 		}
@@ -174,7 +193,7 @@ func (cursor *TADWHistoryCursor) next() (TADWHistoryEvent, bool, error) {
 		}
 		cursor.events = statement
 	}
-	row := cursor.events.QueryRowContext(cursor.ctx, append(cursor.args(), sql.Named("event", node.ID))...)
+	row := cursor.events.QueryRowContext(cursor.ctx, append(cursor.args(), cursor.argument("event", node.ID))...)
 	err, event := sessionEventFromRow(row, cursor.anchor.Session)
 	if err != nil {
 		return TADWHistoryEvent{}, false, err
@@ -306,7 +325,7 @@ func (cursor *TADWHistoryCursor) fill() error {
 			if index < len(requests) {
 				id = requests[index]
 			}
-			args = append(args, sql.Named(fmt.Sprintf("p%d", index), id))
+			args = append(args, cursor.argument(fmt.Sprintf("p%d", index), id))
 		}
 		rows, err := cursor.children.QueryContext(cursor.ctx, args...)
 		if err != nil {
@@ -349,6 +368,20 @@ func (cursor *TADWHistoryCursor) fill() error {
 // Traversal is independent of child-selection policy: selected tools/results
 // can use the same adjacency map later, without changing the event output type.
 func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNode) ([]tadwSelectedNode, error) {
+	parseCreatedAt := func(node tadwHistoryNode) (time.Time, error) {
+		at, err := time.Parse(time.RFC3339Nano, node.CreatedAt)
+		if err != nil {
+			return time.Time{}, fmt.Errorf("parse TADW history event %q created_at: %w", node.ID, err)
+		}
+		return at, nil
+	}
+	if _, err := parseCreatedAt(group.Owner); err != nil {
+		return nil, err
+	}
+	type timedNode struct {
+		tadwHistoryNode
+		at time.Time
+	}
 	var result []tadwSelectedNode
 	seen := make(map[string]bool)
 	var walk func(tadwHistoryNode) error
@@ -361,15 +394,22 @@ func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNo
 		if node.ID == group.Owner.ID && node.Kind != model.SessionEventKindAgentRequest {
 			selected = group.Previews
 		}
-		selected = append([]tadwHistoryNode(nil), selected...)
-		sort.Slice(selected, func(a, b int) bool {
-			if selected[a].CreatedAt != selected[b].CreatedAt {
-				return selected[a].CreatedAt > selected[b].CreatedAt
+		ordered := make([]timedNode, len(selected))
+		for index, child := range selected {
+			at, err := parseCreatedAt(child)
+			if err != nil {
+				return err
 			}
-			return selected[a].ID > selected[b].ID
+			ordered[index] = timedNode{child, at}
+		}
+		sort.Slice(ordered, func(a, b int) bool {
+			if !ordered[a].at.Equal(ordered[b].at) {
+				return ordered[a].at.After(ordered[b].at)
+			}
+			return ordered[a].ID > ordered[b].ID
 		})
 		terminals := 0
-		for _, child := range selected {
+		for _, child := range ordered {
 			if node.Kind == model.SessionEventKindAgentRequest && (child.Kind == model.SessionEventKindAgentSuccess || child.Kind == model.SessionEventKindAgentFailure) {
 				terminals++
 			}
@@ -377,11 +417,11 @@ func tadwSelectedTree(group tadwHistorySeed, children map[string][]tadwHistoryNo
 		if terminals > 1 {
 			return fmt.Errorf("multiple terminal outcomes for request %s", node.ID)
 		}
-		for _, child := range selected {
+		for _, child := range ordered {
 			if !child.Parent.Valid || child.Parent.String != node.ID {
 				return fmt.Errorf("selected child has wrong parent")
 			}
-			if err := walk(child); err != nil {
+			if err := walk(child.tadwHistoryNode); err != nil {
 				return err
 			}
 		}

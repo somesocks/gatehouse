@@ -146,12 +146,12 @@ func TestTADWToolingCheckpointCrashRecovery(t *testing.T) {
 				kind, at   string
 				payload    any
 			}{
-				{70, 10, "tool.request", "70", map[string]any{"name": "lisp", "code": "fourth", "reason": "inspect"}},
-				{71, 70, "tool.success", "71", map[string]any{"output": strings.Repeat("z", 300)}},
-				{80, 10, "thinking.request", "80", map[string]any{}},
-				{85, 10, "tool.request", "85", map[string]any{"name": "lisp", "code": "fifth", "reason": "inspect"}},
-				{86, 85, "tool.success", "86", map[string]any{"output": "later"}},
-				{90, 10, "thinking.request", "90", map[string]any{}},
+				{70, 10, "tool.request", tadwAdapterAt(70), map[string]any{"name": "lisp", "code": "fourth", "reason": "inspect"}},
+				{71, 70, "tool.success", tadwAdapterAt(71), map[string]any{"output": strings.Repeat("z", 300)}},
+				{80, 10, "thinking.request", tadwAdapterAt(80), map[string]any{}},
+				{85, 10, "tool.request", tadwAdapterAt(85), map[string]any{"name": "lisp", "code": "fifth", "reason": "inspect"}},
+				{86, 85, "tool.success", tadwAdapterAt(86), map[string]any{"output": "later"}},
+				{90, 10, "thinking.request", tadwAdapterAt(90), map[string]any{}},
 			} {
 				raw, err := json.Marshal(row.payload)
 				if err != nil {

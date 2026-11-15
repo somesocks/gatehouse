@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gatehouse/config"
 	"gatehouse/model"
@@ -42,6 +43,9 @@ type tadwCursorFixtureNode struct {
 }
 
 func tadwCursorID(id int) string { return fmt.Sprintf("sev_%026d", id) }
+func tadwCursorAt(seconds int) string {
+	return time.Date(2026, 11, 1, 0, 0, seconds, 0, time.UTC).Format("2006-01-02T15:04:05.000Z")
+}
 func tadwCursorScope() model.SessionRef {
 	return model.SessionRef{Workspace: model.WorkspaceRef{Id: "w"}, Id: "s"}
 }
@@ -90,12 +94,12 @@ func tadwCursorInsert(t *testing.T, db *sql.DB, scope model.SessionRef, nodes ..
 func tadwCursorBoundary(t *testing.T, store *Store) []tadwCursorFixtureNode {
 	t.Helper()
 	nodes := []tadwCursorFixtureNode{
-		{1, 0, "message.text", "00"}, {2, 1, "agent.request", "02"}, {3, 1, "message.text", "04"},
-		{4, 3, "agent.request", "05"}, {5, 3, "agent.request", "05"}, {6, 3, "agent.request", "06"}, {7, 3, "agent.request", "07"},
-		{8, 4, "agent.success", "20"}, {9, 5, "agent.failure", "21"}, {10, 7, "agent.failure", "22"},
-		{11, 1, "message.text", "08"}, {12, 1, "message.text", "08"}, {13, 1, "message.text", "09"},
-		{14, 0, "message.text", "01"}, {15, 0, "message.text", "00"},
-		{16, 11, "agent.request", "09"}, {17, 16, "agent.success", "10"},
+		{1, 0, "message.text", tadwCursorAt(0)}, {2, 1, "agent.request", tadwCursorAt(2)}, {3, 1, "message.text", tadwCursorAt(4)},
+		{4, 3, "agent.request", tadwCursorAt(5)}, {5, 3, "agent.request", tadwCursorAt(5)}, {6, 3, "agent.request", tadwCursorAt(6)}, {7, 3, "agent.request", tadwCursorAt(7)},
+		{8, 4, "agent.success", tadwCursorAt(20)}, {9, 5, "agent.failure", tadwCursorAt(21)}, {10, 7, "agent.failure", tadwCursorAt(22)},
+		{11, 1, "message.text", tadwCursorAt(8)}, {12, 1, "message.text", tadwCursorAt(8)}, {13, 1, "message.text", tadwCursorAt(9)},
+		{14, 0, "message.text", tadwCursorAt(1)}, {15, 0, "message.text", tadwCursorAt(0)},
+		{16, 11, "agent.request", tadwCursorAt(9)}, {17, 16, "agent.success", tadwCursorAt(10)},
 	}
 	tadwCursorInsert(t, store.DB, tadwCursorScope(), nodes...)
 	return nodes
@@ -173,7 +177,7 @@ func TestTADWHistoryCursorScopesAndMissingAnchor(t *testing.T) {
 	store := tadwCursorStore(t)
 	tadwCursorBoundary(t, store)
 	for _, scope := range []model.SessionRef{{Workspace: model.WorkspaceRef{Id: "other"}, Id: "s"}, {Workspace: model.WorkspaceRef{Id: "w"}, Id: "other"}} {
-		tadwCursorInsert(t, store.DB, scope, tadwCursorFixtureNode{11, 0, "message.text", "99"}, tadwCursorFixtureNode{3, 11, "agent.request", "01"}, tadwCursorFixtureNode{18, 4, "agent.failure", "01"})
+		tadwCursorInsert(t, store.DB, scope, tadwCursorFixtureNode{11, 0, "message.text", tadwCursorAt(99)}, tadwCursorFixtureNode{3, 11, "agent.request", tadwCursorAt(1)}, tadwCursorFixtureNode{18, 4, "agent.failure", tadwCursorAt(1)})
 	}
 	tx, err := store.Begin()
 	if err != nil {
@@ -185,7 +189,7 @@ func TestTADWHistoryCursorScopesAndMissingAnchor(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, item := range got {
-		if item.Event.Ref.Session != tadwCursorScope() || item.Event.CreatedAt == "99" || item.Event.Ref.Id == tadwCursorID(18) {
+		if item.Event.Ref.Session != tadwCursorScope() || item.Event.CreatedAt == tadwCursorAt(99) || item.Event.Ref.Id == tadwCursorID(18) {
 			t.Fatal("scope leak", item)
 		}
 	}
@@ -213,7 +217,7 @@ func TestTADWHistoryCursorSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer writer.Close()
-	tadwCursorInsert(t, writer.DB, tadwCursorScope(), tadwCursorFixtureNode{18, 6, "agent.success", "99"}, tadwCursorFixtureNode{19, 1, "message.text", "08"})
+	tadwCursorInsert(t, writer.DB, tadwCursorScope(), tadwCursorFixtureNode{18, 6, "agent.success", tadwCursorAt(99)}, tadwCursorFixtureNode{19, 1, "message.text", tadwCursorAt(8)})
 	during, err := tadwCursorCollect(t, store, tx, tadwCursorRef(11))
 	if err != nil || !reflect.DeepEqual(before, during) {
 		t.Fatalf("concurrent events leaked: err=%v", err)
@@ -261,8 +265,10 @@ func TestTADWHistoryCursorErrorsAndClose(t *testing.T) {
 		t.Fatal("nil transaction accepted")
 	}
 	other := &Store{kind: config.DatabaseKindPostgres}
-	if err, _ := other.SessionTADWHistoryCursor(context.Background(), tx, tadwCursorRef(11)); err == nil {
-		t.Fatal("PostgreSQL silently accepted")
+	if err, pgCursor := other.SessionTADWHistoryCursor(context.Background(), tx, tadwCursorRef(11)); err != nil {
+		t.Fatal("PostgreSQL cursor rejected", err)
+	} else if err := pgCursor.Close(); err != nil {
+		t.Fatal(err)
 	}
 	err, cursor := store.SessionTADWHistoryCursor(context.Background(), tx, tadwCursorRef(11))
 	if err != nil {
@@ -305,7 +311,7 @@ func TestTADWHistoryCursorErrorsAndClose(t *testing.T) {
 func TestTADWHistoryCursorRejectsDuplicateOutcomes(t *testing.T) {
 	store := tadwCursorStore(t)
 	tadwCursorBoundary(t, store)
-	tadwCursorInsert(t, store.DB, tadwCursorScope(), tadwCursorFixtureNode{18, 4, "agent.failure", "30"})
+	tadwCursorInsert(t, store.DB, tadwCursorScope(), tadwCursorFixtureNode{18, 4, "agent.failure", tadwCursorAt(30)})
 	tx, err := store.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +325,7 @@ func TestTADWHistoryCursorRejectsDuplicateOutcomes(t *testing.T) {
 
 func TestTADWSelectedTreeUsesGenericParentLinks(t *testing.T) {
 	meta := func(id, parent, kind string) tadwHistoryNode {
-		return tadwHistoryNode{ID: id, Parent: sql.NullString{String: parent, Valid: parent != ""}, Kind: kind, CreatedAt: "00"}
+		return tadwHistoryNode{ID: id, Parent: sql.NullString{String: parent, Valid: parent != ""}, Kind: kind, CreatedAt: tadwCursorAt(0)}
 	}
 	request := meta("request", "outside", "agent.request")
 	children := map[string][]tadwHistoryNode{
@@ -343,6 +349,74 @@ func TestTADWSelectedTreeUsesGenericParentLinks(t *testing.T) {
 	children["result"] = []tadwHistoryNode{meta("request", "result", "agent.request")}
 	if _, err := tadwSelectedTree(tadwHistorySeed{Owner: request}, children); err == nil {
 		t.Fatal("cycle accepted")
+	}
+}
+
+func TestTADWSelectedTreeRejectsInvalidTimestamps(t *testing.T) {
+	for _, test := range []struct {
+		name, ownerAt string
+		children      []string
+		invalidID     string
+	}{
+		{"empty owner", "", nil, "owner"},
+		{"malformed owner", "not a timestamp", nil, "owner"},
+		{"empty child", tadwCursorAt(0), []string{""}, "child-0"},
+		{"single malformed child", tadwCursorAt(0), []string{"not a timestamp"}, "child-0"},
+		{"equal malformed children", tadwCursorAt(0), []string{"not a timestamp", "not a timestamp"}, "child-0"},
+		{"mixed timestamps", tadwCursorAt(0), []string{"2026-11-01T00:00:00Z", "2026-11-01T00:00:00.1Z", "2026-11-01T00:00:00/"}, "child-2"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			group := tadwHistorySeed{Owner: tadwHistoryNode{ID: "owner", Kind: "message.text", CreatedAt: test.ownerAt}}
+			for index, at := range test.children {
+				group.Previews = append(group.Previews, tadwHistoryNode{
+					ID: fmt.Sprintf("child-%d", index), Parent: sql.NullString{String: "owner", Valid: true}, CreatedAt: at,
+				})
+			}
+			nodes, err := tadwSelectedTree(group, nil)
+			var parseErr *time.ParseError
+			if !errors.As(err, &parseErr) || !strings.Contains(err.Error(), test.invalidID) || len(nodes) != 0 {
+				t.Fatal("invalid timestamp must fail selection with the event ID and parse error", nodes, err)
+			}
+		})
+	}
+}
+
+func TestTADWHistoryCursorRejectsInvalidTimestamps(t *testing.T) {
+	for _, invalid := range []int{0, 1} {
+		for _, at := range []string{"", "not a timestamp"} {
+			t.Run(fmt.Sprintf("node=%d/time=%q", invalid, at), func(t *testing.T) {
+				store := tadwCursorStore(t)
+				nodes := []tadwCursorFixtureNode{
+					{1, 0, "agent.request", tadwCursorAt(0)},
+					{2, 1, "agent.success", tadwCursorAt(1)},
+				}
+				nodes[invalid].at = at
+				tadwCursorInsert(t, store.DB, tadwCursorScope(), nodes...)
+				tx, err := store.Begin()
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer tx.Rollback()
+				err, cursor := store.SessionTADWHistoryCursor(context.Background(), tx, tadwCursorRef(1))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if cursor.Next() {
+					t.Fatal("invalid timestamp emitted an event")
+				}
+				var parseErr *time.ParseError
+				if !errors.As(cursor.Err(), &parseErr) || !strings.Contains(cursor.Err().Error(), tadwCursorID(nodes[invalid].id)) || !cursor.closed {
+					t.Fatal("timestamp error did not close the cursor with its cause", cursor.Err())
+				}
+				if cursor.Next() {
+					t.Fatal("iteration resumed after timestamp error")
+				}
+				var one int
+				if err := tx.QueryRow("SELECT 1").Scan(&one); err != nil || one != 1 {
+					t.Fatal("timestamp error ended the caller's transaction", err)
+				}
+			})
+		}
 	}
 }
 
@@ -379,25 +453,25 @@ func TestTADWHistoryCursorStopsOnWideAndDeepHistory(t *testing.T) {
 		t.Run(shape, func(t *testing.T) {
 			store := tadwCursorStore(t)
 			var nodes []tadwCursorFixtureNode
-			nodes = append(nodes, tadwCursorFixtureNode{1, 0, "message.text", "00"})
+			nodes = append(nodes, tadwCursorFixtureNode{1, 0, "message.text", tadwCursorAt(0)})
 			for id := 2; id <= 10001; id++ {
 				parent := 1
 				if shape == "deep" {
 					parent = id - 1
 				}
-				nodes = append(nodes, tadwCursorFixtureNode{id, parent, "message.text", "10"})
+				nodes = append(nodes, tadwCursorFixtureNode{id, parent, "message.text", tadwCursorAt(10)})
 			}
 			anchor := 5000
 			if shape == "deep" {
 				anchor = 10001
 			}
 			if strings.HasPrefix(shape, "wide") {
-				nodes = append(nodes, tadwCursorFixtureNode{20000, 10001, "agent.request", "11"})
+				nodes = append(nodes, tadwCursorFixtureNode{20000, 10001, "agent.request", tadwCursorAt(11)})
 				for id := 20001; id <= 30000; id++ {
-					nodes = append(nodes, tadwCursorFixtureNode{id, 20000, "tool.request", "12"})
+					nodes = append(nodes, tadwCursorFixtureNode{id, 20000, "tool.request", tadwCursorAt(12)})
 				}
 				if shape == "wide-success" {
-					nodes = append(nodes, tadwCursorFixtureNode{40000, 20000, "agent.success", "13"})
+					nodes = append(nodes, tadwCursorFixtureNode{40000, 20000, "agent.success", tadwCursorAt(13)})
 				}
 			}
 			tadwCursorInsert(t, store.DB, tadwCursorScope(), nodes...)
@@ -505,21 +579,21 @@ func TestTADWHistoryCursorAgainstParentMapOracle(t *testing.T) {
 			if id > 1 && random.IntN(5) != 0 {
 				parent = random.IntN(id-1) + 1
 			}
-			nodes = append(nodes, tadwCursorFixtureNode{id, parent, "message.text", fmt.Sprintf("%02d", random.IntN(8))})
+			nodes = append(nodes, tadwCursorFixtureNode{id, parent, "message.text", tadwCursorAt(random.IntN(8))})
 		}
 		next := 100
 		for owner := 1; owner <= 40; owner++ {
 			for count := random.IntN(6); count > 0; count-- {
 				next++
 				request := next
-				nodes = append(nodes, tadwCursorFixtureNode{request, owner, "agent.request", fmt.Sprintf("%02d", random.IntN(8))})
+				nodes = append(nodes, tadwCursorFixtureNode{request, owner, "agent.request", tadwCursorAt(random.IntN(8))})
 				if random.IntN(3) != 0 {
 					next++
 					kind := "agent.success"
 					if random.IntN(2) == 0 {
 						kind = "agent.failure"
 					}
-					nodes = append(nodes, tadwCursorFixtureNode{next, request, kind, fmt.Sprintf("%02d", random.IntN(8))})
+					nodes = append(nodes, tadwCursorFixtureNode{next, request, kind, tadwCursorAt(random.IntN(8))})
 				}
 			}
 		}

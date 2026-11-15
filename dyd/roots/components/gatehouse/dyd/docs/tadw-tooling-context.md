@@ -84,9 +84,17 @@ escaping, file metadata, separators and trailing newlines. File contents are not
 loaded. Empty tool output is a real self-closing event; cancelled tool failures
 still render. A zero tooling budget cannot fit the owning request.
 
-## Request-only SQLite reader
+## Request-only database reader
 
 `database.SessionTADWToolingCursor` operates on a caller-owned live transaction.
+SQLite and PostgreSQL share this API and recursive subtree-selection semantics.
+Normal readers use read-only repeatable-read transactions for stable event/file
+metadata across successive reads. PostgreSQL streams IDs through a transaction
+cursor named `gatehouse_tadw_tooling`, closing each fetched result before
+event/file point reads on the same connection; SQLite uses its existing
+streaming rows. PostgreSQL cursor names are connection-local. Close the forward
+cursor before opening the reverse rollover cursor on the same transaction.
+
 It validates the persisted request target and the thinking request's kind, agent
 author, direct parent, scope and exclusive ID boundary. The recursive walk:
 

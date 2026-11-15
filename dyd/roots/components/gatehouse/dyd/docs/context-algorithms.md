@@ -3,7 +3,7 @@
 The selected agent model's `compaction` configuration chooses context preparation
 within the normal reply/round runtime. Admission, participant and authorization
 checks, cancellation, provider transport, rate limits, tools and outcome persistence
-are shared. MCMTR remains the default. TADW currently requires SQLite and an
+are shared. MCMTR remains the default. TADW supports SQLite and PostgreSQL and requires an
 external provider; builtin models use MCMTR.
 
 ## Configuration

@@ -18,14 +18,14 @@ type tadwInitialHistory struct {
 	History []tadwRenderedEvent
 }
 
-// loadTADWHistory connects the standalone SQLite cursor, metadata projection,
+// loadTADWHistory connects the history cursor, metadata projection,
 // renderer and window policy. Cache hints are supplied/scoped by the caller.
 // It neither activates TADW nor implements durable request-creation visibility.
 func loadTADWHistory(ctx context.Context, store *database.Store, anchor model.SessionEventRef, cachedBaseIDs []string, config tadwWindowConfig) (tadwInitialHistory, error) {
 	if err := config.validate(); err != nil {
 		return tadwInitialHistory{}, err
 	}
-	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return tadwInitialHistory{}, fmt.Errorf("begin TADW history: %w", err)
 	}

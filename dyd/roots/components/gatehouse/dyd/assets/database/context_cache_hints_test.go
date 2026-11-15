@@ -118,7 +118,7 @@ func TestContextCacheHintsCapPlanAndAtomicRollback(t *testing.T) {
 	if err := store.QueryRow(`SELECT count(*) FROM gatehouse_context_cache_hints WHERE profile='profile'`).Scan(&count); err != nil || count != ContextCacheHintsPerScope {
 		t.Fatal(count, err)
 	}
-	rows, err := store.Query(`EXPLAIN QUERY PLAN `+contextCacheHintsListSQL, append(scope.args(), ContextCacheHintsPerScope)...)
+	rows, err := store.Query(`EXPLAIN QUERY PLAN `+contextCacheHintsListSQL(store.kind), append(scope.args(), ContextCacheHintsPerScope)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -197,7 +197,7 @@ func TestContextCacheHintsConcurrentPublishers(t *testing.T) {
 	}
 }
 
-func TestContextCacheHintsUTF8LimitsAndUnsupportedBackend(t *testing.T) {
+func TestContextCacheHintsUTF8Limits(t *testing.T) {
 	store, _ := cacheHintStore(t)
 	scope := cacheHintScope()
 	scope.Profile = strings.Repeat("é", 512) // 1,024 bytes, not characters.
@@ -219,13 +219,6 @@ func TestContextCacheHintsUTF8LimitsAndUnsupportedBackend(t *testing.T) {
 	scope.Profile += "x"
 	if _, err := store.ContextCacheHintsList(context.Background(), scope); err == nil {
 		t.Fatal("1,025-byte scope accepted")
-	}
-	unsupported := &Store{kind: config.DatabaseKindPostgres}
-	if _, err := unsupported.ContextCacheHintsList(context.Background(), cacheHintScope()); err == nil {
-		t.Fatal("unsupported backend accepted")
-	}
-	if err := unsupported.ContextCacheHintPut(context.Background(), cacheHintScope(), "key", json.RawMessage(`{}`)); err == nil {
-		t.Fatal("unsupported backend accepted")
 	}
 }
 

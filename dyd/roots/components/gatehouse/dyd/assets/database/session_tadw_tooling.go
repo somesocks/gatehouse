@@ -9,23 +9,24 @@ import (
 	"gatehouse/config"
 	"gatehouse/model"
 	"gatehouse/typed_id"
+	"github.com/jackc/pgx/v5"
 )
 
 // Sort IDs/metadata only, not payloads. Work is scoped to this request's owned
 // subtree before the thinking-ID boundary, never historical requests/session
 // history. Nested agent requests and foreign-agent subtrees are not ours.
 const tadwToolingActiveSQL = `WITH RECURSIVE active(id) AS (
- SELECT :request
+ SELECT CAST(@request AS TEXT)
  UNION
  SELECT child.id FROM active CROSS JOIN gatehouse_session_events AS child
- WHERE child.workspace=:workspace AND child.session=:session AND child.parent=active.id
- AND child.id<:thinking AND child.kind<>'agent.request'
- AND (child.author_agent IS NULL OR child.author_agent=:agent)
+ WHERE child.workspace=@workspace AND child.session=@session AND child.parent=active.id
+ AND child.id<@thinking AND child.kind<>'agent.request'
+ AND (child.author_agent IS NULL OR child.author_agent=@agent)
 ) `
 
 const tadwToolingSelectedSQL = tadwToolingActiveSQL + `
  SELECT events.id FROM active CROSS JOIN gatehouse_session_events AS events
- WHERE events.workspace=:workspace AND events.session=:session AND events.id=active.id
+ WHERE events.workspace=@workspace AND events.session=@session AND events.id=active.id
  AND events.kind IN ('agent.request','tool.request','tool.success','tool.failure')`
 
 const tadwToolingIDsSQL = tadwToolingSelectedSQL + ` ORDER BY events.created_at ASC,events.id ASC`
@@ -34,8 +35,8 @@ const tadwToolingIDsSQL = tadwToolingSelectedSQL + ` ORDER BY events.created_at 
 // its payload. An arbitrary event elsewhere in the session is not a valid base.
 const tadwToolingFromSQL = tadwToolingActiveSQL + `
  SELECT events.created_at FROM active CROSS JOIN gatehouse_session_events AS events
- WHERE events.workspace=:workspace AND events.session=:session AND events.id=active.id
- AND events.id=:from AND events.kind IN ('tool.request','tool.success','tool.failure')`
+ WHERE events.workspace=@workspace AND events.session=@session AND events.id=active.id
+ AND events.id=@from AND events.kind IN ('tool.request','tool.success','tool.failure')`
 
 // TADWToolingReadOptions controls prompt-order suffix reads. FromEventID is an
 // inclusive tool-event boundary in (created_at,id) order; the owning request is
@@ -47,14 +48,14 @@ type TADWToolingReadOptions struct {
 }
 
 // TADWToolingCursor emits the active request and its tool events in prompt order.
-// SQLite may collect/sort request-subtree metadata before emitting IDs; payloads
+// The database may collect/sort request-subtree metadata before emitting IDs; payloads
 // are point-read only on Next. It is not a bounded-frontier history cursor and
 // is not concurrency-safe. Close releases rows, never the caller's transaction.
 type TADWToolingCursor struct {
 	ctx           context.Context
 	store         *Store
 	tx            *sql.Tx
-	rows          *sql.Rows
+	rows          sessionEventRows
 	root          model.SessionEvent
 	current       model.SessionEvent
 	err, closeErr error
@@ -62,14 +63,12 @@ type TADWToolingCursor struct {
 }
 
 // SessionTADWToolingCursor validates the persisted request/thinking ownership and
-// opens an ID cursor on the caller's live SQLite transaction. The thinking ID
+// opens an ID cursor on the caller's live transaction. The thinking ID
 // is an exclusive boundary, as in SessionAgentRoundEventsGet. This is a live
 // snapshot, not durable reconstruction of visibility at thinking creation.
-// Callers must Close before ending the transaction. Authorization is external.
+// Callers must Close before ending the transaction or, on PostgreSQL, opening
+// another tooling cursor on that transaction. Authorization is external.
 func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, request model.SessionEventRef, agent model.WorkspaceAgentRef, thinking model.SessionEventRef, options ...TADWToolingReadOptions) (error, *TADWToolingCursor) {
-	if store.kind != config.DatabaseKindSQLite {
-		return fmt.Errorf("TADW tooling cursor currently supports SQLite only"), nil
-	}
 	if tx == nil || request.Session.Id == "" || request.Session.Workspace.Id == "" || agent.Id == "" || agent.Workspace != request.Session.Workspace || thinking.Session != request.Session || !typed_id.Valid(typed_id.SessionEvent, request.Id) || !typed_id.Valid(typed_id.SessionEvent, thinking.Id) || thinking.Id <= request.Id {
 		return fmt.Errorf("open TADW tooling cursor: invalid transaction, request scope or thinking boundary"), nil
 	}
@@ -106,19 +105,33 @@ func (store *Store) SessionTADWToolingCursor(ctx context.Context, tx *sql.Tx, re
 	if option.FromEventID != "" {
 		args = append(args, sql.Named("from", option.FromEventID))
 		var fromAt string
-		if err := tx.QueryRowContext(ctx, tadwToolingFromSQL, args...).Scan(&fromAt); err != nil {
+		boundarySQL, boundaryArgs, err := tadwToolingBindings(ctx, store.kind, tadwToolingFromSQL, args)
+		if err != nil {
+			return err, nil
+		}
+		if err := tx.QueryRowContext(ctx, boundarySQL, boundaryArgs...).Scan(&fromAt); err != nil {
 			return fmt.Errorf("open TADW tooling cursor: retained boundary %q is unavailable: %w", option.FromEventID, err), nil
 		}
 		args = append(args, sql.Named("from_at", fromAt))
-		query += ` AND (events.id=:request OR events.created_at>:from_at OR (events.created_at=:from_at AND events.id>=:from))`
+		query += ` AND (events.id=@request OR events.created_at>@from_at OR (events.created_at=@from_at AND events.id>=@from))`
 	}
 	if option.Reverse {
 		query += ` ORDER BY events.created_at DESC,events.id DESC`
 	} else {
 		query += ` ORDER BY events.created_at ASC,events.id ASC`
 	}
-	rows, err := tx.QueryContext(ctx, query, args...)
-	if err != nil {
+	query, args, bindErr := tadwToolingBindings(ctx, store.kind, query, args)
+	if bindErr != nil {
+		return bindErr, nil
+	}
+	var rows sessionEventRows
+	var queryErr error
+	if store.kind == config.DatabaseKindPostgres {
+		rows, queryErr = tadwPostgresQuery(ctx, tx, tadwPostgresToolingCursorName, query, args...)
+	} else {
+		rows, queryErr = tx.QueryContext(ctx, query, args...)
+	}
+	if err := queryErr; err != nil {
 		return fmt.Errorf("open TADW tooling cursor: %w", err), nil
 	}
 	return nil, &TADWToolingCursor{ctx: ctx, store: store, tx: tx, rows: rows, root: *root}
@@ -155,6 +168,23 @@ func (cursor *TADWToolingCursor) Next() bool {
 	}
 	cursor.Close()
 	return false
+}
+
+// Use pgx's named-argument binder for the static tooling query; SQLite accepts
+// the same @name placeholders directly. No dynamic SQL values are interpolated.
+func tadwToolingBindings(ctx context.Context, kind config.DatabaseKind, query string, args []any) (string, []any, error) {
+	if kind != config.DatabaseKindPostgres {
+		return query, args, nil
+	}
+	values := pgx.StrictNamedArgs{}
+	for _, arg := range args {
+		named, ok := arg.(sql.NamedArg)
+		if !ok {
+			return "", nil, fmt.Errorf("invalid TADW tooling query argument")
+		}
+		values[named.Name] = named.Value
+	}
+	return values.RewriteQuery(ctx, nil, query, nil)
 }
 
 // RequestEvent returns the validated request before or during iteration. It lets

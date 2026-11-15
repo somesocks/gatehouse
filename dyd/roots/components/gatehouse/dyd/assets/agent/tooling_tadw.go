@@ -39,7 +39,7 @@ func loadTADWContextFrom(ctx context.Context, store *database.Store, history tad
 	if err := ctx.Err(); err != nil {
 		return tadwTranscript{}, err
 	}
-	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return tadwTranscript{}, fmt.Errorf("begin TADW tooling: %w", err)
 	}
@@ -109,7 +109,7 @@ func loadTADWToolingWindow(ctx context.Context, store *database.Store, history t
 	if err := ctx.Err(); err != nil {
 		return tadwToolingWindow{}, err
 	}
-	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return tadwToolingWindow{}, fmt.Errorf("begin TADW tooling window: %w", err)
 	}

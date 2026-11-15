@@ -17,26 +17,26 @@ func tadwToolingFixture(t *testing.T) (*Store, model.SessionEventRef, model.Work
 	t.Helper()
 	store := tadwCursorStore(t)
 	tadwCursorInsert(t, store.DB, tadwCursorScope(),
-		tadwCursorFixtureNode{1, 0, "message.text", "00"},
-		tadwCursorFixtureNode{2, 1, "agent.request", "02"},
-		tadwCursorFixtureNode{10, 1, "agent.request", "10"},
-		tadwCursorFixtureNode{15, 10, "thinking.request", "15"},
-		tadwCursorFixtureNode{20, 10, "tool.request", "20"},
-		tadwCursorFixtureNode{25, 10, "tool.request", "20"},
-		tadwCursorFixtureNode{30, 10, "agent.request", "30"},
-		tadwCursorFixtureNode{31, 30, "tool.request", "31"},
-		tadwCursorFixtureNode{35, 10, "thinking.success", "35"},
-		tadwCursorFixtureNode{36, 35, "tool.request", "36"},
-		tadwCursorFixtureNode{40, 20, "tool.success", "40"},
-		tadwCursorFixtureNode{45, 2, "tool.request", "45"},
-		tadwCursorFixtureNode{50, 25, "tool.failure", "50"},
-		tadwCursorFixtureNode{55, 10, "approval.request", "55"},
-		tadwCursorFixtureNode{56, 55, "input.request", "56"},
-		tadwCursorFixtureNode{57, 56, "tool.success", "57"},
-		tadwCursorFixtureNode{60, 10, "thinking.request", "60"},
-		tadwCursorFixtureNode{70, 10, "tool.request", "05"}, // Backdated timestamp, but after boundary ID.
-		tadwCursorFixtureNode{71, 70, "tool.success", "71"},
-		tadwCursorFixtureNode{80, 10, "thinking.request", "80"},
+		tadwCursorFixtureNode{1, 0, "message.text", tadwCursorAt(0)},
+		tadwCursorFixtureNode{2, 1, "agent.request", tadwCursorAt(2)},
+		tadwCursorFixtureNode{10, 1, "agent.request", tadwCursorAt(10)},
+		tadwCursorFixtureNode{15, 10, "thinking.request", tadwCursorAt(15)},
+		tadwCursorFixtureNode{20, 10, "tool.request", tadwCursorAt(20)},
+		tadwCursorFixtureNode{25, 10, "tool.request", tadwCursorAt(20)},
+		tadwCursorFixtureNode{30, 10, "agent.request", tadwCursorAt(30)},
+		tadwCursorFixtureNode{31, 30, "tool.request", tadwCursorAt(31)},
+		tadwCursorFixtureNode{35, 10, "thinking.success", tadwCursorAt(35)},
+		tadwCursorFixtureNode{36, 35, "tool.request", tadwCursorAt(36)},
+		tadwCursorFixtureNode{40, 20, "tool.success", tadwCursorAt(40)},
+		tadwCursorFixtureNode{45, 2, "tool.request", tadwCursorAt(45)},
+		tadwCursorFixtureNode{50, 25, "tool.failure", tadwCursorAt(50)},
+		tadwCursorFixtureNode{55, 10, "approval.request", tadwCursorAt(55)},
+		tadwCursorFixtureNode{56, 55, "input.request", tadwCursorAt(56)},
+		tadwCursorFixtureNode{57, 56, "tool.success", tadwCursorAt(57)},
+		tadwCursorFixtureNode{60, 10, "thinking.request", tadwCursorAt(60)},
+		tadwCursorFixtureNode{70, 10, "tool.request", tadwCursorAt(5)}, // Backdated timestamp, but after boundary ID.
+		tadwCursorFixtureNode{71, 70, "tool.success", tadwCursorAt(71)},
+		tadwCursorFixtureNode{80, 10, "thinking.request", tadwCursorAt(80)},
 	)
 	if _, err := store.Exec(`UPDATE gatehouse_session_events SET payload='{"agent":"agent"}' WHERE kind='agent.request';
 	 UPDATE gatehouse_session_events SET author_principal=NULL,author_agent='agent' WHERE kind<>'agent.request' AND kind<>'message.text';
@@ -64,9 +64,9 @@ func TestTADWToolingCursorSelectionOrderAndBoundary(t *testing.T) {
 	// Deliberate scoped ID collisions must not become metadata or payload reads.
 	other := tadwCursorScope()
 	other.Id = "other"
-	tadwCursorInsert(t, store.DB, other, tadwCursorFixtureNode{20, 10, "tool.request", "01"})
+	tadwCursorInsert(t, store.DB, other, tadwCursorFixtureNode{20, 10, "tool.request", tadwCursorAt(1)})
 	other.Id, other.Workspace.Id = "s", "other"
-	tadwCursorInsert(t, store.DB, other, tadwCursorFixtureNode{20, 10, "tool.request", "01"})
+	tadwCursorInsert(t, store.DB, other, tadwCursorFixtureNode{20, 10, "tool.request", tadwCursorAt(1)})
 	tx, err := store.Begin()
 	if err != nil {
 		t.Fatal(err)

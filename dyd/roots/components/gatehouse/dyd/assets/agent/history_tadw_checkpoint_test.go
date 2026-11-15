@@ -354,7 +354,7 @@ func TestTADWHistoryCheckpointRecovery(t *testing.T) {
 				DROP INDEX gatehouse_session_events_agent_terminals;
 				DROP INDEX gatehouse_session_events_thread_order;
 				INSERT INTO gatehouse_session_events(workspace,session,id,parent,kind,author_principal,payload,created_at)
-				VALUES('w','s','new-sibling',NULL,'message.text','user','invalid JSON','00');`); err != nil {
+				VALUES('w','s','new-sibling',NULL,'message.text','user','invalid JSON','2026-11-01T00:00:00.000Z');`); err != nil {
 				t.Fatal(err)
 			}
 			if strings.HasPrefix(testCase, "cache-") && strings.HasSuffix(testCase, "-missing") {

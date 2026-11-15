@@ -83,7 +83,7 @@ func rehydrateTADWHistory(ctx context.Context, store *database.Store, session mo
 	if len(ids) == 0 {
 		return result, nil
 	}
-	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	tx, err := store.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
 	if err != nil {
 		return tadwInitialHistory{}, fmt.Errorf("begin TADW history rehydration: %w", err)
 	}

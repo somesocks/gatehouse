@@ -1,10 +1,11 @@
 # Shared context-cache alignment hints
 
-SQLite V071 adds `gatehouse_context_cache_hints`, a small shared application
+SQLite and PostgreSQL V071 add `gatehouse_context_cache_hints`, a small shared application
 store for **alignment hints**, not request recovery state. The TADW path in the
 [normal reply runtime](context-algorithms.md) reads compatible hints during fresh
 history selection and publishes/refreshes them after successful provider use.
-Provider cache controls remain separate work. The store is SQLite-only.
+Both database backends use the same storage API and hint semantics. Provider cache
+controls remain separate work.
 
 ## Scope and schema
 
@@ -52,15 +53,18 @@ store does not interpret boundaries or allowlist algorithm-specific fields.
 Adapters must publish only small references/decisions, never transcript payloads.
 
 Publication upserts one key and prunes that same scope to 32 rows in a single
-transaction. The first statement is a write, avoiding a deferred read-to-write
-snapshot upgrade with concurrent SQLite publishers. Existing timestamps use
-`MAX(existing, incoming)` so a stale wall clock cannot move a key's recency
-backward. This is wall-clock recency with deterministic ties, not a globally
+transaction. SQLite starts with a write, avoiding a deferred read-to-write
+snapshot upgrade. PostgreSQL uses a read-committed transaction and first locks the
+session row with `FOR NO KEY UPDATE`; each statement after that lock observes the
+preceding publisher's commit. This serializes publishers before upsert/pruning, so concurrent
+writers cannot each prune an incomplete view and exceed the scope cap. Other
+sessions remain independent. Existing timestamps use SQLite `MAX` or PostgreSQL
+`GREATEST` so a stale wall clock cannot move a key's recency backward. This is wall-clock recency with deterministic ties, not a globally
 ordered provider-use log. The most recent payload written for a key wins; callers
 should assign distinct stable keys to distinct hints. A future-skewed timestamp
 can bias eviction, but hints remain optional suggestions, not correctness state.
 
-Reads/writes close resources and release the sole connection on success/error.
+Reads/writes close resources and release their connection on success/error.
 Publication failures roll back both upsert and pruning. Store/connection failures
 are returned, not disguised as cache misses. Retention is bounded **per scope**,
 not globally across an unlimited number of profiles/model scopes; obsolete-scope
@@ -158,7 +162,11 @@ Database tests cover isolation across every scope dimension, ordering/ties,
 deduplication/update, fixed-cap pruning, timestamp non-regression, concurrent
 publishers on separate connections, rollback of an upsert after injected pruning
 failure, validation/cancellation, missing sessions/tables and connection release.
-`EXPLAIN QUERY PLAN` must use the scoped recency index without a temporary sort.
+SQLite `EXPLAIN QUERY PLAN` must use the scoped recency index without a temporary
+sort. PostgreSQL server-independent tests exercise parameter binding, session-lock
+ordering, `GREATEST`, scoped prune queries, commit/rollback behavior and migration
+registration/schema generation. They do not simulate PostgreSQL's actual lock
+manager or execute its DDL.
 
 Migration tests upgrade V070 data, run migration twice, preserve existing schema
 objects/events, exercise the real API and constraints, verify index shape and

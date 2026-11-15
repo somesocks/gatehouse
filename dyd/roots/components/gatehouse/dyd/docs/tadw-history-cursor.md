@@ -1,4 +1,4 @@
-# TADW SQLite history cursor
+# TADW history cursor
 
 `database/session_tadw.go` provides lazy history traversal for TADW requests in
 the [normal reply runtime](context-algorithms.md). MCMTR uses its existing retrieval
@@ -9,7 +9,7 @@ and rendering. The byte-window policy is described in
 
 `Store.SessionTADWHistoryCursor(ctx, tx, anchor)` returns `(error, cursor)`.
 The anchor is the event triggering execution, not the `agent.request` itself.
-Only SQLite stores are supported; PostgreSQL is explicitly rejected.
+SQLite and PostgreSQL stores are supported through the same cursor API.
 
 The caller supplies a live `*sql.Tx` from the same store. Construction performs
 no query. Use `Next()`, `Event()`, and `Err()` like a database rows cursor, and
@@ -25,15 +25,17 @@ Each value is a `TADWHistoryEvent`:
   events by this ID.
 
 All selection, selected-child queries, and payload reads use the supplied
-transaction. Further file-metadata hydration must also use that transaction,
+transaction. Normal TADW readers request read-only repeatable-read transactions
+so PostgreSQL's event and file queries share one snapshot. Further file-metadata hydration must also use that transaction,
 not acquire another connection from the store's single-connection SQLite pool.
 The cursor does not hydrate attachments/results or read file contents.
 
 **This is a read-transaction snapshot, not a durable request-creation snapshot.**
 Visibility begins with the transaction's first read, which may precede this
 cursor or occur on its first `Next`. Reopening a transaction later can observe
-new eligible events or outcomes. Request-boundary reconstruction and durable
-initial-window ID checkpointing remain future integration work.
+new eligible events or outcomes. Request workflows checkpoint the selected IDs
+and reconstruct those IDs in later read transactions; the checkpoint does not
+freeze payloads or insertion visibility.
 
 ## Selection and order
 
@@ -48,6 +50,11 @@ initial-window ID checkpointing remain future integration work.
   placeholder outcomes. Multiple terminal outcomes are an integrity error.
 - An outcome already on the anchor ancestry retains its own owner block and is
   not emitted twice when its ancestor request is expanded.
+
+Selected-tree timestamps must parse as RFC 3339. They are parsed before sorting,
+compared as instants, and equal instants are ordered by event ID. Invalid or
+missing timestamps fail the read with the event ID and underlying parse error.
+The original timestamp representation is preserved for payload integrity checks.
 
 The complete event stream is **reverse prompt order**: visit selected children
 newest-first and descendants-before-parent. Child selection is separate from the
@@ -78,13 +85,13 @@ most 28 selected metadata nodes, plus one owner lookahead. `Next` fetches only
 its own event payload; there is no payload prefetch. ID guards grow with the
 consumed prefix and encountered ancestry, not the whole session.
 
-SQLite migration V070 adds exactly two indexes:
+SQLite and PostgreSQL migration V070 each add exactly two indexes:
 
 - `gatehouse_session_events_thread_order`: parent and thread-order seeks.
 - `gatehouse_session_events_agent_terminals`: a covering partial index restricted
   to agent outcomes, for request-child lookups.
 
-Outcome queries explicitly require the partial index. Without that requirement,
+SQLite outcome queries explicitly require the partial index. Without that requirement,
 SQLite can choose an ordered thread scan and filter execution children despite
 `LIMIT 2`. The limit detects duplicate outcomes; it is not a substitute for an
 appropriate access path. The migration must be applied before using this API.
@@ -93,10 +100,25 @@ There is **no additional ID-metadata covering index or payload-size index**.
 Existing ID indexes handle metadata and payload point lookups. Inline records
 are expected to stay small, with large content represented by file references.
 
+PostgreSQL uses its own recursive successor SQL, with the same split timestamp/ID
+seeks, explicit NULL-parent seeks and no outer history sort. Correlated `LATERAL`
+queries select at most three previews per owner and two terminal rows per request
+(the second detects integrity errors). Both backends feed the same four-owner
+frontier and selected-tree walker; ancestry traversal stays in recursive SQL.
+
+PostgreSQL exposes the seed stream through a transaction-scoped `NO SCROLL`
+cursor. Each one-row `FETCH` result is closed before payload or file reads on that
+transaction, respecting pgx's single-active-result restriction. Its fixed name,
+`gatehouse_tadw_history`, is local to the connection. Close it before starting
+another history cursor on the same transaction; other connections can use the
+same name independently. The portal owns no application-side event buffer, is
+closed on early stop/exhaustion, and ends with its transaction on
+cancellation/rollback. It is never checkpointed.
+
 No byte quota is implemented in this database cursor. The standalone
 [agent adapter](tadw-history-adapter.md) hydrates file metadata, renders exact
 UTF-8 bytes, stops consumption at the history maximum, establishes final prompt
-order, and calls the pure window policy. Neither component is activated.
+order, and calls the pure window policy in normal TADW execution.
 
 ## Validation
 
@@ -115,3 +137,12 @@ otherwise hidden execution-child scan. These counters are not physical I/O or
 end-to-end throughput measurements. A full-schema migration test verifies both
 index definitions, repeat migration safety, preservation of existing events,
 and cursor operation against the migrated production schema.
+
+PostgreSQL coverage runs without a server: the production recursive walk's common
+SQL subset is executed on SQLite against randomized parent-map oracles, with the
+SQLite preview projection substituted for `LATERAL`. Scripted database/sql tests
+enforce single-active-result behavior and exercise the actual cursor's binding,
+terminal frontier, native timestamps, interleaved hydration, cancellation and
+resource release. Query/migration generation checks cover PostgreSQL-specific
+clauses and registration. These checks do not execute PostgreSQL DDL, validate its
+parser/planner, or establish live PostgreSQL performance/locking measurements.

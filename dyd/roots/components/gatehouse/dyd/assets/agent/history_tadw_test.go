@@ -219,6 +219,10 @@ const tadwAdapterSchema = `
  INSERT INTO gatehouse_session_files VALUES('w','s','sfi_00000000000000000000000001','object','résumé<&.txt',NULL,0);
 `
 
+func tadwAdapterAt(seconds int) string {
+	return time.Date(2026, 11, 1, 0, 0, seconds, 0, time.UTC).Format("2006-01-02T15:04:05.000Z")
+}
+
 func tadwAdapterDB(t *testing.T) (*database.Store, model.SessionEventRef) {
 	t.Helper()
 	ctx := context.Background()
@@ -240,13 +244,13 @@ func tadwAdapterDB(t *testing.T) (*database.Store, model.SessionEventRef) {
 		kind, at   string
 		payload    map[string]interface{}
 	}{
-		{1, 0, "message.text", "00", map[string]interface{}{"text": "base"}},
-		{2, 1, "message.text", "01", map[string]interface{}{"text": "older"}},
-		{3, 2, "agent.request", "03", map[string]interface{}{"agent": "agent"}},
-		{4, 3, "agent.success", "04", map[string]interface{}{"text": "reply"}},
-		{5, 1, "message.text", "02", map[string]interface{}{"text": "anchor café<&", "attachments": []string{output.Id}}},
-		{6, 1, "tool.request", "015", map[string]interface{}{"name": "tool", "code": "return 1", "reason": "test"}},
-		{7, 6, "tool.success", "03", map[string]interface{}{"output_file": output}},
+		{1, 0, "message.text", tadwAdapterAt(0), map[string]interface{}{"text": "base"}},
+		{2, 1, "message.text", tadwAdapterAt(1), map[string]interface{}{"text": "older"}},
+		{3, 2, "agent.request", tadwAdapterAt(3), map[string]interface{}{"agent": "agent"}},
+		{4, 3, "agent.success", tadwAdapterAt(4), map[string]interface{}{"text": "reply"}},
+		{5, 1, "message.text", tadwAdapterAt(2), map[string]interface{}{"text": "anchor café<&", "attachments": []string{output.Id}}},
+		{6, 1, "tool.request", "2026-11-01T00:00:01.500Z", map[string]interface{}{"name": "tool", "code": "return 1", "reason": "test"}},
+		{7, 6, "tool.success", tadwAdapterAt(3), map[string]interface{}{"output_file": output}},
 	} {
 		var parent interface{}
 		if row.parent != 0 {

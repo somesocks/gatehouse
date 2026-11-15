@@ -137,23 +137,23 @@ func tadwToolingDB(t *testing.T) (*database.Store, tadwInitialHistory, tadwWindo
 		payload    any
 		author     string
 	}{
-		{10, 5, "agent.request", "10", map[string]any{"agent": "agent"}, "user"},
-		{11, 10, "thinking.request", "11", map[string]any{}, "agent"},
-		{12, 11, "thinking.update", "12", map[string]any{}, "agent"},
-		{20, 10, "tool.request", "20", map[string]any{"name": "lisp", "code": "café<&", "reason": "inspect"}, "agent"},
-		{21, 10, "tool.request", "20", map[string]any{"name": "lisp", "code": "second", "reason": "inspect"}, "agent"},
-		{22, 20, "agent.request", "22", map[string]any{"agent": "agent"}, "user"},
-		{23, 22, "tool.request", "23", map[string]any{"code": 42}, "agent"},
-		{24, 10, "thinking.success", "24", map[string]any{}, "other"},
-		{25, 24, "tool.request", "25", map[string]any{"code": 42}, "agent"},
-		{26, 20, "approval.request", "26", map[string]any{}, "agent"},
-		{27, 26, "input.request", "27", map[string]any{}, "agent"},
-		{30, 20, "tool.success", "30", map[string]any{"output_file": file}, "agent"},
-		{31, 21, "tool.failure", "31", map[string]any{"code": "cancelled", "output": "not completed<&"}, "agent"},
-		{40, 10, "thinking.request", "40", map[string]any{}, "agent"},
-		{50, 10, "tool.request", "50", map[string]any{"name": "lisp", "code": "third", "reason": "inspect"}, "agent"},
-		{51, 50, "tool.success", "51", map[string]any{"output": "TADW_PRIVATE_TOOLING"}, "agent"},
-		{60, 10, "thinking.request", "60", map[string]any{}, "agent"},
+		{10, 5, "agent.request", tadwAdapterAt(10), map[string]any{"agent": "agent"}, "user"},
+		{11, 10, "thinking.request", tadwAdapterAt(11), map[string]any{}, "agent"},
+		{12, 11, "thinking.update", tadwAdapterAt(12), map[string]any{}, "agent"},
+		{20, 10, "tool.request", tadwAdapterAt(20), map[string]any{"name": "lisp", "code": "café<&", "reason": "inspect"}, "agent"},
+		{21, 10, "tool.request", tadwAdapterAt(20), map[string]any{"name": "lisp", "code": "second", "reason": "inspect"}, "agent"},
+		{22, 20, "agent.request", tadwAdapterAt(22), map[string]any{"agent": "agent"}, "user"},
+		{23, 22, "tool.request", tadwAdapterAt(23), map[string]any{"code": 42}, "agent"},
+		{24, 10, "thinking.success", tadwAdapterAt(24), map[string]any{}, "other"},
+		{25, 24, "tool.request", tadwAdapterAt(25), map[string]any{"code": 42}, "agent"},
+		{26, 20, "approval.request", tadwAdapterAt(26), map[string]any{}, "agent"},
+		{27, 26, "input.request", tadwAdapterAt(27), map[string]any{}, "agent"},
+		{30, 20, "tool.success", tadwAdapterAt(30), map[string]any{"output_file": file}, "agent"},
+		{31, 21, "tool.failure", tadwAdapterAt(31), map[string]any{"code": "cancelled", "output": "not completed<&"}, "agent"},
+		{40, 10, "thinking.request", tadwAdapterAt(40), map[string]any{}, "agent"},
+		{50, 10, "tool.request", tadwAdapterAt(50), map[string]any{"name": "lisp", "code": "third", "reason": "inspect"}, "agent"},
+		{51, 50, "tool.success", tadwAdapterAt(51), map[string]any{"output": "TADW_PRIVATE_TOOLING"}, "agent"},
+		{60, 10, "thinking.request", tadwAdapterAt(60), map[string]any{}, "agent"},
 	} {
 		raw, err := json.Marshal(row.payload)
 		if err != nil {
@@ -342,7 +342,7 @@ func TestLoadTADWContextEmptyHistory(t *testing.T) {
 func TestTADWToolingWindowPinsRequestAcrossOrderingAndReplay(t *testing.T) {
 	store, history, cfg, request, agent := tadwToolingDB(t)
 	// Test independently of the normal parent-before-child timestamp invariant.
-	if _, err := store.Exec(`UPDATE gatehouse_session_events SET created_at='zz' WHERE id=?`, request.Id); err != nil {
+	if _, err := store.Exec(`UPDATE gatehouse_session_events SET created_at=? WHERE id=?`, tadwAdapterAt(99), request.Id); err != nil {
 		t.Fatal(err)
 	}
 	thinking := tadwToolingThinking(request, 40)

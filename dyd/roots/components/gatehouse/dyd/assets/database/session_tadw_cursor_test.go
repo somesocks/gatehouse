@@ -129,10 +129,10 @@ func TestTADWHistoryCursorPayloadErrorClosesReader(t *testing.T) {
 func TestTADWHistoryCursorOutcomeOnAnchorAncestry(t *testing.T) {
 	store := tadwCursorStore(t)
 	tadwCursorInsert(t, store.DB, tadwCursorScope(),
-		tadwCursorFixtureNode{1, 0, "message.text", "00"},
-		tadwCursorFixtureNode{2, 1, "agent.request", "01"},
-		tadwCursorFixtureNode{3, 2, "agent.success", "02"},
-		tadwCursorFixtureNode{4, 3, "message.text", "03"})
+		tadwCursorFixtureNode{1, 0, "message.text", tadwCursorAt(0)},
+		tadwCursorFixtureNode{2, 1, "agent.request", tadwCursorAt(1)},
+		tadwCursorFixtureNode{3, 2, "agent.success", tadwCursorAt(2)},
+		tadwCursorFixtureNode{4, 3, "message.text", tadwCursorAt(3)})
 	tx, err := store.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -151,9 +151,9 @@ func TestTADWHistoryCursorOutcomeOnAnchorAncestry(t *testing.T) {
 func TestTADWHistoryCursorRejectsCyclicAncestry(t *testing.T) {
 	for _, self := range []bool{false, true} {
 		store := tadwCursorStore(t)
-		nodes := []tadwCursorFixtureNode{{1, 2, "message.text", "00"}, {2, 1, "message.text", "01"}}
+		nodes := []tadwCursorFixtureNode{{1, 2, "message.text", tadwCursorAt(0)}, {2, 1, "message.text", tadwCursorAt(1)}}
 		if self {
-			nodes = []tadwCursorFixtureNode{{1, 1, "message.text", "00"}}
+			nodes = []tadwCursorFixtureNode{{1, 1, "message.text", tadwCursorAt(0)}}
 		}
 		tadwCursorInsert(t, store.DB, tadwCursorScope(), nodes...)
 		tx, err := store.Begin()

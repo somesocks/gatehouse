@@ -1,6 +1,6 @@
 # TADW initial-history adapter
 
-`agent/history_tadw.go` connects the SQLite cursor, file-metadata projection,
+`agent/history_tadw.go` connects the SQLite/PostgreSQL cursor, file-metadata projection,
 TADW renderer and pure history-window policy. The [normal reply runtime](context-algorithms.md)
 uses it when the selected model specifies TADW; MCMTR remains the default.
 The [request checkpoint helper](tadw-history-checkpoint.md) wraps this adapter
@@ -33,7 +33,7 @@ persists only ordered IDs, never this rendered buffer.
 
 ## Read and cutoff sequence
 
-1. Open a read transaction and its lazy SQLite history cursor.
+1. Open a read-only, repeatable-read transaction and its lazy history cursor.
 2. Skip kinds omitted by the renderer before attempting file hydration. The
    adapter and renderer share one allowlist, including cancellation-only agent
    failure filtering. Such nodes have no fragment, quota charge or selected ID.
@@ -53,8 +53,8 @@ persists only ordered IDs, never this rendered buffer.
    resources and release the transaction on success, cancellation or failure.
 
 `collectTADWHistory` is the internal streaming collector, separated for focused
-boundary/error tests. Errors return no partial history. The current database
-cursor supports SQLite only.
+boundary/error tests. Errors return no partial history. Both database backends
+use the same collector, renderer, exact byte limits and selected-tree ordering.
 
 ## Metadata without file contents
 
@@ -76,7 +76,9 @@ read permission. Missing/invalid references or unavailable size/name metadata
 are errors, not silently dropped attachments. Non-file events require no file
 queries. Existing hydration helpers and their behavior are unchanged.
 
-All event and file reads share a transaction snapshot. This does **not** provide
+All event and file reads share a transaction snapshot. PostgreSQL uses repeatable
+read so subsequent event/file queries retain the first read's snapshot, like
+SQLite's read transaction. This does **not** provide
 durable request-creation visibility or freeze mutable file metadata across a
 later recovery transaction. Those integration concerns remain deferred.
 
