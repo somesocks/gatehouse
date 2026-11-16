@@ -120,42 +120,8 @@ No byte quota is implemented in this database cursor. The standalone
 UTF-8 bytes, stops consumption at the history maximum, establishes final prompt
 order, and calls the pure window policy in normal TADW execution.
 
-## Validation
+## Running PostgreSQL integration tests
 
-Tests cover scope collisions, missing anchors, parentless siblings, timestamp
-and ID ties, oldest-three membership, separate outcomes and pending requests,
-ancestral outcomes, generic selected tools/results, invalid data, cancellation,
-resource/transaction ownership, read-transaction consistency, every early-stop
-prefix, whole-list reversal into final prompt order, query-plan shape (including
-actual node/parent ID seeks), and deterministic randomized parent-map oracles.
-
-Small-record fixtures with 10,000 tied siblings, a 10,000-node ancestry, and
-10,000 execution children verify bounded logical work on early close, including
-lookup-candidate probes rather than only emitted-node counts. A negative
-control removes the partial index and its enforcement to demonstrate the
-otherwise hidden execution-child scan. These counters are not physical I/O or
-end-to-end throughput measurements. A full-schema migration test verifies both
-index definitions, repeat migration safety, preservation of existing events,
-and cursor operation against the migrated production schema.
-
-Server-independent PostgreSQL coverage executes the production recursive walk's
-common SQL subset on SQLite against randomized parent-map oracles, with the
-SQLite preview projection substituted for `LATERAL`. Scripted database/sql tests
-enforce single-active-result behavior and exercise the actual cursor's binding,
-terminal frontier, native timestamps, interleaved hydration, cancellation and
-resource release. Query/migration generation checks cover PostgreSQL-specific
-clauses and registration. These server-independent checks do not execute
-PostgreSQL DDL, validate its parser/planner, or establish live PostgreSQL
-performance/locking measurements.
-
-Opt-in V070/V071 migration tests use `GATEHOUSE_TEST_POSTGRES_URL`, which the
-built test stem imports from the host environment with an empty default. Unset
-or empty URLs skip these tests. A supplied URL must identify a disposable
-PostgreSQL server with `CREATE DATABASE` permission. They
-create and drop their own databases. The tests execute the real upgrades against
-preexisting events, verify the history and hint-recency index definitions,
-exercise representative hint constraints and UTF-8 byte boundaries, and check
-session-owned cascade deletion.
-The existing PostgreSQL baseline tests cover fresh schemas and older upgrades.
-These migration tests do not validate history/tooling query execution or plans,
-cursor lifetimes, or concurrent hint publication.
+Set `GATEHOUSE_TEST_POSTGRES_URL` to a disposable server with `CREATE DATABASE`
+permission. The test stem imports it at runtime; unset or empty skips these
+tests. Tests create and drop their own databases.
