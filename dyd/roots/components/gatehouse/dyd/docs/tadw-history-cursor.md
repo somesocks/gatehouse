@@ -138,11 +138,22 @@ end-to-end throughput measurements. A full-schema migration test verifies both
 index definitions, repeat migration safety, preservation of existing events,
 and cursor operation against the migrated production schema.
 
-PostgreSQL coverage runs without a server: the production recursive walk's common
-SQL subset is executed on SQLite against randomized parent-map oracles, with the
+Server-independent PostgreSQL coverage executes the production recursive walk's
+common SQL subset on SQLite against randomized parent-map oracles, with the
 SQLite preview projection substituted for `LATERAL`. Scripted database/sql tests
 enforce single-active-result behavior and exercise the actual cursor's binding,
 terminal frontier, native timestamps, interleaved hydration, cancellation and
 resource release. Query/migration generation checks cover PostgreSQL-specific
-clauses and registration. These checks do not execute PostgreSQL DDL, validate its
-parser/planner, or establish live PostgreSQL performance/locking measurements.
+clauses and registration. These server-independent checks do not execute
+PostgreSQL DDL, validate its parser/planner, or establish live PostgreSQL
+performance/locking measurements.
+
+Opt-in V070/V071 migration tests use `GATEHOUSE_TEST_BASELINE_POSTGRES_URL` and
+require a disposable PostgreSQL server with `CREATE DATABASE` permission. They
+create and drop their own databases. The tests execute the real upgrades against
+preexisting events, verify the history and hint-recency index definitions,
+exercise representative hint constraints and UTF-8 byte boundaries, and check
+session-owned cascade deletion.
+The existing PostgreSQL baseline tests cover fresh schemas and older upgrades.
+These migration tests do not validate history/tooling query execution or plans,
+cursor lifetimes, or concurrent hint publication.
