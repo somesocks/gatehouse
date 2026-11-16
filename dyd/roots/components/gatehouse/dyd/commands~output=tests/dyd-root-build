@@ -11,6 +11,9 @@ PACKAGES_FILE="$DEST_DIR/packages"
 MANIFEST="$DEST_DIR/dyd/assets/tests.manifest"
 
 mkdir -p "$DEST_DIR/dyd/commands" "$WORK_DIR/config" "$WORK_DIR/configschema" "$WORK_DIR/benchmark" "$WORK_DIR/benchmarkschema" "$WORK_DIR/benchmarkmodel" "$WORK_DIR/apischema" "$WORK_DIR/httpservice/web" "$TESTS_DIR"
+# Resolve the optional integration-test server when tests run, not when built.
+mkdir -p "$DEST_DIR/dyd/requirements"
+printf '%s' 'env:GATEHOUSE_TEST_POSTGRES_URL?default=' > "$DEST_DIR/dyd/requirements/gatehouse-test-postgres-url"
 cp -R "$SRC_DIR/dyd/assets/." "$WORK_DIR"
 chmod -R +w "$WORK_DIR"
 cp -R "$SRC_DIR/dyd/dependencies/config-schema-codec/dyd/assets/." "$WORK_DIR/configschema"

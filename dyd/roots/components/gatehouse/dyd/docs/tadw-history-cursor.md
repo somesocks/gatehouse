@@ -148,8 +148,10 @@ clauses and registration. These server-independent checks do not execute
 PostgreSQL DDL, validate its parser/planner, or establish live PostgreSQL
 performance/locking measurements.
 
-Opt-in V070/V071 migration tests use `GATEHOUSE_TEST_BASELINE_POSTGRES_URL` and
-require a disposable PostgreSQL server with `CREATE DATABASE` permission. They
+Opt-in V070/V071 migration tests use `GATEHOUSE_TEST_POSTGRES_URL`, which the
+built test stem imports from the host environment with an empty default. Unset
+or empty URLs skip these tests. A supplied URL must identify a disposable
+PostgreSQL server with `CREATE DATABASE` permission. They
 create and drop their own databases. The tests execute the real upgrades against
 preexisting events, verify the history and hint-recency index definitions,
 exercise representative hint constraints and UTF-8 byte boundaries, and check

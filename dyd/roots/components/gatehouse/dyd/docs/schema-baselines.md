@@ -45,9 +45,15 @@ existing B049 database and fresh-database selection of B068.
 `TestPostgresBaselinesMatchVersionedSchema` checks columns and their order,
 types, defaults, constraints, indexes, triggers and functions against the full
 versioned schema. It also checks follow-up migrations, existing B049 history and
-preservation of existing rows. Set `GATEHOUSE_TEST_BASELINE_POSTGRES_URL` to a
-server connection with CREATE DATABASE permission; the test creates and drops
-its own uniquely named databases.
+preservation of existing rows. Set `GATEHOUSE_TEST_POSTGRES_URL` to a disposable
+server connection with CREATE DATABASE permission; the tests create and drop
+their own uniquely named databases.
+
+The built `output=tests` stem declares this URL as an optional runtime environment
+requirement (`env:GATEHOUSE_TEST_POSTGRES_URL?default=`). Leave it unset or empty
+to skip these integration tests. Set it in the host environment when running
+`dryad stem run`; Dryad injects it without requiring a shell-export wrapper. The
+URL is not required when building the test binaries.
 
 Historical upgrade fixtures use `testSchemaAtVersion` so both versioned
 migrations and baselines are bounded by the schema version under test. This

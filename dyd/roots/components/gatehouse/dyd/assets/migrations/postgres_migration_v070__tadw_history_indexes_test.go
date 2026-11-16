@@ -11,7 +11,7 @@ import (
 )
 
 func TestPostgresMigrationV070TADWHistoryIndexes(t *testing.T) {
-	if os.Getenv("GATEHOUSE_TEST_BASELINE_POSTGRES_URL") == "" {
+	if os.Getenv("GATEHOUSE_TEST_POSTGRES_URL") == "" {
 		t.Skip("requires disposable PostgreSQL server with CREATE DATABASE permission")
 	}
 	ctx := context.Background()

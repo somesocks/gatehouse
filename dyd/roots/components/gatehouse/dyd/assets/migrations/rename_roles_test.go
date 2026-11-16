@@ -25,7 +25,7 @@ func TestSQLiteRoleNamesUpgrade(t *testing.T) {
 }
 
 func TestPostgresRoleNamesUpgrade(t *testing.T) {
-	if os.Getenv("GATEHOUSE_TEST_BASELINE_POSTGRES_URL") == "" {
+	if os.Getenv("GATEHOUSE_TEST_POSTGRES_URL") == "" {
 		t.Skip("requires disposable PostgreSQL databases with CREATE DATABASE permission")
 	}
 	for _, baseline := range []bool{true, false} {

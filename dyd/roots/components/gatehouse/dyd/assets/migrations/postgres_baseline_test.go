@@ -17,7 +17,7 @@ import (
 )
 
 func TestPostgresBaselinesMatchVersionedSchema(t *testing.T) {
-	if os.Getenv("GATEHOUSE_TEST_BASELINE_POSTGRES_URL") == "" {
+	if os.Getenv("GATEHOUSE_TEST_POSTGRES_URL") == "" {
 		t.Skip("requires disposable PostgreSQL server with CREATE DATABASE permission")
 	}
 	ctx := context.Background()
@@ -107,7 +107,7 @@ func TestPostgresBaselinesMatchVersionedSchema(t *testing.T) {
 func newPostgresBaselineTestDatabase(t *testing.T) *sql.DB {
 	t.Helper()
 	ctx := context.Background()
-	err, control := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindPostgres, URL: "env:GATEHOUSE_TEST_BASELINE_POSTGRES_URL"})
+	err, control := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindPostgres, URL: "env:GATEHOUSE_TEST_POSTGRES_URL"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,13 +129,13 @@ func newPostgresBaselineTestDatabase(t *testing.T) *sql.DB {
 			t.Error(err)
 		}
 	})
-	target, err := url.Parse(os.Getenv("GATEHOUSE_TEST_BASELINE_POSTGRES_URL"))
+	target, err := url.Parse(os.Getenv("GATEHOUSE_TEST_POSTGRES_URL"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	target.Path, target.RawPath = "/"+name, ""
-	t.Setenv("GATEHOUSE_TEST_BASELINE_DATABASE_POSTGRES_URL", target.String())
-	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindPostgres, URL: "env:GATEHOUSE_TEST_BASELINE_DATABASE_POSTGRES_URL"})
+	t.Setenv("GATEHOUSE_TEST_POSTGRES_DATABASE_URL", target.String())
+	err, store := database.Open(ctx, config.DatabaseConfig{Kind: config.DatabaseKindPostgres, URL: "env:GATEHOUSE_TEST_POSTGRES_DATABASE_URL"})
 	if err != nil {
 		t.Fatal(err)
 	}
