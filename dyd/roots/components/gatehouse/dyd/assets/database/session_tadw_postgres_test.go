@@ -117,6 +117,9 @@ func TestPostgresTADWQueryBounds(t *testing.T) {
 	if strings.Count(tadwPostgresHistoryWalkSQL, "FROM branch_walk AS r") != 1 {
 		t.Fatal("recursive term must have one recursive reference")
 	}
+	if strings.Count(tadwPostgresHistoryWalkSQL, "ORDER BY b.parent ASC,b.created_at DESC,b.id DESC LIMIT 1") != 4 {
+		t.Fatal("NULL-parent seeks must retain the thread-order index's ordering prefix")
+	}
 	if strings.Count(tadwPostgresHistoryChildrenSQL, "::text") != tadwHistoryFrontierKeys || !strings.Contains(tadwPostgresHistoryChildrenSQL, "LIMIT 2") {
 		t.Fatal("terminal frontier must be fixed and bounded")
 	}
