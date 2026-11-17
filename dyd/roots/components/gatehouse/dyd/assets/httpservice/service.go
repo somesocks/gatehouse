@@ -235,6 +235,7 @@ func handler(configuration config.HTTPService, store *database.Store, dispatcher
 		mux.HandleFunc("/api/v1/activity/checkpoints", activity(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events", workspaceSessionEvents(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events/search", workspaceSessionEventSearch(store, tokens[0]))
+		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/events/branch", workspaceSessionConversation(store, tokens[0]))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/approvals/{approval}", workspaceSessionApproval(store, tokens[0], dispatcher))
 		mux.HandleFunc("/api/v1/workspaces/{workspace}/sessions/{session}/inputs/{input}/open", workspaceSessionInputOpen(store, tokens[0]))
 		mux.HandleFunc("/api/v1/input", sessionInputRead(store, tokens[0]))

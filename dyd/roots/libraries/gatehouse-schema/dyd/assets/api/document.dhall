@@ -239,6 +239,63 @@ let TranscriptEvent =
         }
         s.oneOf.meta::{ name = Some "TranscriptEvent" }
 
+let eventReference = s.reference.from s.reference.props::{ to = "TranscriptEvent" } s.reference.meta::{=}
+
+let eventRefReference = s.reference.from s.reference.props::{ to = "TranscriptEventRef" } s.reference.meta::{=}
+
+let ConversationEntry =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { event = eventReference
+            , previews = s.list.from s.list.props::{ values = eventReference } s.list.meta::{=}
+            , has_more_replies = s.boolean.from s.boolean.props::{=} s.boolean.meta::{=}
+            }
+        , optional = [] : List { mapKey : Text, mapValue : s.type }
+        }
+        s.record.meta::{ name = Some "ConversationEntry" }
+
+let ConversationAgentState =
+      s.oneOf.from
+        s.oneOf.props::{ options =
+            [ s.text.from s.text.props::{ variant = s.text.variants.literal "working" } s.text.meta::{=}
+            , s.text.from s.text.props::{ variant = s.text.variants.literal "waiting" } s.text.meta::{=}
+            , s.text.from s.text.props::{ variant = s.text.variants.literal "cancelling" } s.text.meta::{=}
+            , s.text.from s.text.props::{ variant = s.text.variants.literal "completed" } s.text.meta::{=}
+            , s.text.from s.text.props::{ variant = s.text.variants.literal "failed" } s.text.meta::{=}
+            , s.text.from s.text.props::{ variant = s.text.variants.literal "cancelled" } s.text.meta::{=}
+            ] }
+        s.oneOf.meta::{ name = Some "ConversationAgentState" }
+
+let ConversationAgentRequest =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { request = eventRefReference
+            , state = s.reference.from s.reference.props::{ to = "ConversationAgentState" } s.reference.meta::{=}
+            , interactions = s.list.from s.list.props::{ values = eventRefReference } s.list.meta::{=}
+            }
+        , optional = toMap { outcome = eventReference }
+        }
+        s.record.meta::{ name = Some "ConversationAgentRequest" }
+
+let ConversationInteraction =
+      s.record.from
+        s.record.props::{ required = toMap { request = eventReference }, optional = toMap { response = eventReference } }
+        s.record.meta::{ name = Some "ConversationInteraction" }
+
+let ConversationBranch =
+      s.record.from
+        s.record.props::{
+        , required = toMap
+            { entries = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "ConversationEntry" } s.reference.meta::{=} } s.list.meta::{=}
+            , agent_requests = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "ConversationAgentRequest" } s.reference.meta::{=} } s.list.meta::{=}
+            , interactions = s.list.from s.list.props::{ values = s.reference.from s.reference.props::{ to = "ConversationInteraction" } s.reference.meta::{=} } s.list.meta::{=}
+            }
+        , optional = toMap { parent = eventRefReference, next_cursor = text }
+        }
+        s.record.meta::{ name = Some "ConversationBranch" }
+
 in  Document::{
     , headers = [] : List Text
     , schemas =
@@ -255,5 +312,10 @@ in  Document::{
         , s.root.from MessageTargetRef s.root.meta::{ name = "TranscriptMessageTargetRef" }
         , s.root.from MessageTarget s.root.meta::{ name = "TranscriptMessageTarget" }
         , s.root.from TranscriptEvent s.root.meta::{ name = "TranscriptEvent" }
+        , s.root.from ConversationEntry s.root.meta::{ name = "ConversationEntry" }
+        , s.root.from ConversationAgentState s.root.meta::{ name = "ConversationAgentState" }
+        , s.root.from ConversationAgentRequest s.root.meta::{ name = "ConversationAgentRequest" }
+        , s.root.from ConversationInteraction s.root.meta::{ name = "ConversationInteraction" }
+        , s.root.from ConversationBranch s.root.meta::{ name = "ConversationBranch" }
         ]
     }
